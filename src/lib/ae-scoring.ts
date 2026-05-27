@@ -1,4 +1,4 @@
-﻿export type DiagnosticPayload = {
+export type DiagnosticPayload = {
   fullName?: string;
   whatsapp?: string;
   email?: string;
@@ -14,11 +14,58 @@
   consentLgpd: boolean;
 };
 
-type SolutionScore = {
+export type SolutionScore = {
   slug: string;
   score: number;
   reason: string;
 };
+
+export type ValidationResult = {
+  ok: boolean;
+  errors: Record<string, string>;
+};
+
+const REQUIRED_FIELDS: Array<keyof DiagnosticPayload> = [
+  "fullName",
+  "whatsapp",
+  "email",
+  "profileType",
+  "mainArea",
+  "mainPain",
+  "urgency",
+  "businessStage",
+  "ideaDescription",
+];
+
+export function validateDiagnosticPayload(payload: DiagnosticPayload): ValidationResult {
+  const errors: Record<string, string> = {};
+
+  for (const field of REQUIRED_FIELDS) {
+    const value = payload[field];
+    if (value === undefined || value === null || String(value).trim() === "") {
+      errors[field] = "Campo obrigatório.";
+    }
+  }
+
+  const text = payload.ideaDescription?.trim() ?? "";
+  if (text && text.length < 30) {
+    errors.ideaDescription = "Descreva a situação com pelo menos 30 caracteres.";
+  }
+
+  if (!payload.consentLgpd) {
+    errors.consentLgpd = "É necessário aceitar o uso das respostas para enviar o diagnóstico.";
+  }
+
+  if (payload.email && !/^\S+@\S+\.\S+$/.test(payload.email.trim())) {
+    errors.email = "Informe um e-mail válido.";
+  }
+
+  if (payload.whatsapp && payload.whatsapp.replace(/\D/g, "").length < 10) {
+    errors.whatsapp = "Informe um WhatsApp válido com DDD.";
+  }
+
+  return { ok: Object.keys(errors).length === 0, errors };
+}
 
 export function calculateScores(payload: DiagnosticPayload): SolutionScore[] {
   const text = [
@@ -35,48 +82,48 @@ export function calculateScores(payload: DiagnosticPayload): SolutionScore[] {
   const scores: SolutionScore[] = [
     {
       slug: "caixa-claro",
-      score: match(text, ["financeiro", "finanÃ§a", "conta", "gasto", "despesa", "dinheiro", "orÃ§amento", "planilha"]),
-      reason: "IndÃ­cios de dor financeira, controle de gastos, contas futuras ou organizaÃ§Ã£o por planilha.",
+      score: match(text, ["financeiro", "finança", "conta", "gasto", "despesa", "dinheiro", "orçamento", "planilha"]),
+      reason: "Indícios de dor financeira, controle de gastos, contas futuras ou organização por planilha.",
     },
     {
       slug: "festa-no-controle",
-      score: match(text, ["evento", "festa", "voluntÃ¡rio", "voluntarios", "pedido", "cardÃ¡pio", "cardapio", "caixa", "fila", "pix"]),
-      reason: "IndÃ­cios de operaÃ§Ã£o de evento, voluntÃ¡rios, pedidos, caixa ou filas.",
+      score: match(text, ["evento", "festa", "voluntário", "voluntarios", "pedido", "cardápio", "cardapio", "caixa", "fila", "pix"]),
+      reason: "Indícios de operação de evento, voluntários, pedidos, caixa ou filas.",
     },
     {
       slug: "escuta-viva",
-      score: match(text, ["pesquisa", "opiniÃ£o", "opiniao", "comunidade", "grupo", "decisÃ£o", "decisao", "priorizar", "melhoria"]),
-      reason: "IndÃ­cios de necessidade de ouvir pessoas, priorizar melhorias ou tomar decisÃµes com dados.",
+      score: match(text, ["pesquisa", "opinião", "opiniao", "comunidade", "grupo", "decisão", "decisao", "priorizar", "melhoria"]),
+      reason: "Indícios de necessidade de ouvir pessoas, priorizar melhorias ou tomar decisões com dados.",
     },
     {
       slug: "familia-presente-60-mais",
-      score: match(text, ["idoso", "idosa", "famÃ­lia", "familia", "rotina", "cuidado", "remÃ©dio", "remedio", "tecnologia", "digital"]),
-      reason: "IndÃ­cios de apoio a idosos, rotina familiar ou dificuldade digital.",
+      score: match(text, ["idoso", "idosa", "família", "familia", "rotina", "cuidado", "remédio", "remedio", "tecnologia", "digital"]),
+      reason: "Indícios de apoio a idosos, rotina familiar ou dificuldade digital.",
     },
     {
       slug: "dna-de-valor",
-      score: match(text, ["currÃ­culo", "curriculo", "profissional", "posicionamento", "diferencial", "consultoria", "serviÃ§o", "servico", "cliente"]),
-      reason: "IndÃ­cios de necessidade de posicionamento, diferenciaÃ§Ã£o ou transformaÃ§Ã£o de histÃ³rico em oferta.",
+      score: match(text, ["currículo", "curriculo", "profissional", "posicionamento", "diferencial", "consultoria", "serviço", "servico", "cliente"]),
+      reason: "Indícios de necessidade de posicionamento, diferenciação ou transformação de histórico em oferta.",
     },
     {
       slug: "presenca-querida",
-      score: match(text, ["convite", "convidado", "rsvp", "presenÃ§a", "presenca", "aniversÃ¡rio", "aniversario", "casamento"]),
-      reason: "IndÃ­cios de organizaÃ§Ã£o de convidados, confirmaÃ§Ãµes e mensagens personalizadas.",
+      score: match(text, ["convite", "convidado", "rsvp", "presença", "presenca", "aniversário", "aniversario", "casamento"]),
+      reason: "Indícios de organização de convidados, confirmações e mensagens personalizadas.",
     },
     {
       slug: "discoteca-digital",
-      score: match(text, ["disco", "vinil", "cd", "coleÃ§Ã£o", "colecao", "acervo", "catÃ¡logo", "catalogo"]),
-      reason: "IndÃ­cios de coleÃ§Ã£o, acervo ou catÃ¡logo visual.",
+      score: match(text, ["disco", "vinil", "cd", "coleção", "colecao", "acervo", "catálogo", "catalogo"]),
+      reason: "Indícios de coleção, acervo ou catálogo visual.",
     },
     {
       slug: "jornada-personal-extrema",
-      score: match(text, ["aluno", "treino", "personal", "agenda", "follow", "acompanhamento", "evoluÃ§Ã£o", "evolucao"]),
-      reason: "IndÃ­cios de acompanhamento recorrente de alunos/clientes e necessidade de CRM pessoal.",
+      score: match(text, ["aluno", "treino", "personal", "agenda", "follow", "acompanhamento", "evolução", "evolucao"]),
+      reason: "Indícios de acompanhamento recorrente de alunos/clientes e necessidade de CRM pessoal.",
     },
     {
       slug: "lacos-letras-papelaria-criativa",
       score: match(text, ["papelaria", "personalizado", "topo", "bolo", "festa infantil", "produto", "tema"]),
-      reason: "IndÃ­cios de catÃ¡logo de produtos personalizados e organizaÃ§Ã£o comercial por tema/linha.",
+      reason: "Indícios de catálogo de produtos personalizados e organização comercial por tema/linha.",
     },
   ];
 
@@ -88,9 +135,7 @@ export function calculateScores(payload: DiagnosticPayload): SolutionScore[] {
 }
 
 function match(text: string, terms: string[]) {
-  return terms.reduce((total, term) => {
-    return total + (text.includes(term) ? 2 : 0);
-  }, 0);
+  return terms.reduce((total, term) => total + (text.includes(term) ? 2 : 0), 0);
 }
 
 export function calculateDiagnosticScore(payload: DiagnosticPayload, bestScore: number) {

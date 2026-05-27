@@ -1,123 +1,129 @@
-﻿import { supabaseAdmin } from "@/lib/supabase-admin";
+"use client";
 
-export default async function AdminAEPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ senha?: string }>;
-}) {
-  const params = await searchParams;
-  const senha = params.senha;
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { adminFetch } from "@/lib/admin-fetch";
 
-  if (!process.env.ADMIN_PASSWORD || senha !== process.env.ADMIN_PASSWORD) {
-    return (
-      <main className="min-h-screen bg-slate-100 p-8">
-        <section className="mx-auto max-w-xl rounded-2xl bg-white p-6 shadow">
-          <h1 className="text-2xl font-bold">Admin AE</h1>
-          <p className="mt-3 text-slate-600">
-            Informe a senha na URL para acessar.
-          </p>
-          <p className="mt-3 rounded bg-slate-100 p-3 font-mono text-sm">
-            /admin/ae?senha=SUA_SENHA
-          </p>
-        </section>
-      </main>
-    );
-  }
+type Lead = {
+  id: string;
+  full_name: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  main_area: string | null;
+  main_pain: string | null;
+  urgency: string | null;
+  diagnostic_score: number;
+  status: string;
+  funnel_stage: string | null;
+  next_action_at: string | null;
+  created_at: string;
+  ae_solutions?: { name: string } | null;
+};
 
-  const [{ data: leads }, { data: solutions }] = await Promise.all([
-    supabaseAdmin
-      .from("ae_leads")
-      .select("id, full_name, whatsapp, email, profile_type, main_area, main_pain, urgency, diagnostic_score, status, created_at, recommended_solution_id, ae_solutions(name)")
-      .order("created_at", { ascending: false })
-      .limit(50),
-    supabaseAdmin
-      .from("ae_solutions")
-      .select("id, name, current_status, stage, priority, main_pains, source_file")
-      .order("priority", { ascending: false }),
-  ]);
+type Solution = {
+  id: string;
+  name: string;
+  current_status: string;
+  stage: string;
+  priority: number;
+  source_file: string | null;
+};
+
+export default function AdminAEPage() {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [leadResult, solutionResult] = await Promise.all([
+          adminFetch<{ leads: Lead[] }>("/api/admin/leads"),
+          adminFetch<{ solutions: Solution[] }>("/api/admin/solutions"),
+        ]);
+        setLeads(leadResult.leads);
+        setSolutions(solutionResult.solutions);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erro ao carregar painel.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, []);
+
+  const hotLeads = leads.filter((lead) => lead.diagnostic_score >= 9).length;
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6">
-      <section className="mx-auto max-w-6xl space-y-8">
+    <main className="min-h-screen bg-slate-100 p-4 sm:p-6">
+      <section className="mx-auto max-w-6xl space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Painel AutomaÃ§Ã£o Extrema</h1>
-          <p className="text-slate-600">
-            Leads, diagnÃ³sticos e soluÃ§Ãµes em validaÃ§Ã£o.
-          </p>
+          <h1 className="text-3xl font-bold text-[#00334E]">Gestão Automação Extrema</h1>
+          <p className="text-slate-600">Leads, diagnósticos, soluções e funil de aquisição.</p>
         </div>
 
-        <div className="rounded-2xl bg-white p-5 shadow">
-          <h2 className="text-xl font-bold">SoluÃ§Ãµes cadastradas</h2>
+        {error && <div className="rounded-2xl bg-red-50 p-4 text-red-700">{error}</div>}
+        {loading && <div className="rounded-2xl bg-white p-4 shadow">Carregando...</div>}
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-2">SoluÃ§Ã£o</th>
-                  <th className="p-2">Status</th>
-                  <th className="p-2">Etapa</th>
-                  <th className="p-2">Prioridade</th>
-                  <th className="p-2">Fonte</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(solutions ?? []).map((solution) => (
-                  <tr key={solution.id} className="border-b align-top">
-                    <td className="p-2 font-semibold">{solution.name}</td>
-                    <td className="p-2">{solution.current_status}</td>
-                    <td className="p-2">{solution.stage}</td>
-                    <td className="p-2">{solution.priority}</td>
-                    <td className="p-2">{solution.source_file}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="grid gap-4 md:grid-cols-4">
+          <Metric label="Diagnósticos" value={leads.length} />
+          <Metric label="Leads quentes" value={hotLeads} />
+          <Metric label="Soluções" value={solutions.length} />
+          <Metric label="Média score" value={leads.length ? Math.round(leads.reduce((sum, lead) => sum + lead.diagnostic_score, 0) / leads.length) : 0} />
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-2xl bg-white p-5 shadow">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold text-[#00334E]">Soluções em andamento</h2>
+              <Link href="/admin/ae/solucoes" className="text-sm font-bold text-[#00A8CC]">Editar</Link>
+            </div>
+            <div className="mt-4 space-y-3">
+              {solutions.slice(0, 8).map((solution) => (
+                <Link key={solution.id} href={`/admin/ae/solucoes/${solution.id}`} className="block rounded-2xl border border-slate-200 p-3 hover:border-[#00A8CC]">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-bold">{solution.name}</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">P{solution.priority}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">{solution.current_status} · {solution.stage}</p>
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="rounded-2xl bg-white p-5 shadow">
-          <h2 className="text-xl font-bold">Ãšltimos diagnÃ³sticos</h2>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-2">Lead</th>
-                  <th className="p-2">Contato</th>
-                  <th className="p-2">Ãrea</th>
-                  <th className="p-2">Dor</th>
-                  <th className="p-2">UrgÃªncia</th>
-                  <th className="p-2">Score</th>
-                  <th className="p-2">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(leads ?? []).map((lead) => (
-                  <tr key={lead.id} className="border-b align-top">
-                    <td className="p-2">
-                      <strong>{lead.full_name || "Sem nome"}</strong>
-                      <br />
-                      <span className="text-xs text-slate-500">
-                        {new Date(lead.created_at).toLocaleString("pt-BR")}
-                      </span>
-                    </td>
-                    <td className="p-2">
-                      {lead.whatsapp}
-                      <br />
-                      <span className="text-xs text-slate-500">{lead.email}</span>
-                    </td>
-                    <td className="p-2">{lead.main_area}</td>
-                    <td className="p-2">{lead.main_pain}</td>
-                    <td className="p-2">{lead.urgency}</td>
-                    <td className="p-2 font-bold">{lead.diagnostic_score}</td>
-                    <td className="p-2">{lead.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="rounded-2xl bg-white p-5 shadow">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold text-[#00334E]">Últimos diagnósticos</h2>
+              <Link href="/admin/ae/funil" className="text-sm font-bold text-[#00A8CC]">Ver funil</Link>
+            </div>
+            <div className="mt-4 space-y-3">
+              {leads.slice(0, 8).map((lead) => (
+                <Link key={lead.id} href={`/admin/ae/leads/${lead.id}`} className="block rounded-2xl border border-slate-200 p-3 hover:border-[#00A8CC]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold">{lead.full_name || "Sem nome"}</p>
+                      <p className="text-sm text-slate-600">{lead.main_area} · {lead.main_pain}</p>
+                      <p className="text-xs text-slate-500">{new Date(lead.created_at).toLocaleString("pt-BR")}</p>
+                    </div>
+                    <span className="rounded-full bg-[#31C16B]/20 px-3 py-1 text-sm font-bold text-[#00334E]">{lead.diagnostic_score}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </section>
     </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl bg-white p-5 shadow">
+      <p className="text-sm font-semibold text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold text-[#00334E]">{value}</p>
+    </div>
   );
 }

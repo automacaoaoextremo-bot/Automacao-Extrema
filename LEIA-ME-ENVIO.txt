@@ -1,0 +1,11 @@
+﻿Zip gerado para revisÃ£o da prÃ³xima versÃ£o da AutomaÃ§Ã£o Extrema.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+
+Inclui .env.local.example sem segredos.
+
+Data de geraÃ§Ã£o: 20260527-084001
