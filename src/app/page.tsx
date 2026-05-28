@@ -7,7 +7,7 @@ export default function Home() {
     <>
       <SiteHeader />
       <main className="min-h-screen bg-[#00334E] text-white">
-        <section className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center md:py-24">
+        <section className="mx-auto grid max-w-6xl gap-10 px-4 pb-14 pt-6 md:grid-cols-[1.1fr_0.9fr] md:items-center md:pb-24 md:pt-16">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-[#31C16B]">
               Diagnóstico de dores e oportunidades
@@ -28,12 +28,6 @@ export default function Home() {
                 className="rounded-xl bg-[#31C16B] px-6 py-4 text-center font-bold text-[#00334E] shadow-lg hover:bg-[#4ce184]"
               >
                 Fazer diagnóstico gratuito
-              </Link>
-              <Link
-                href="/login"
-                className="rounded-xl border border-white/25 px-6 py-4 text-center font-bold text-white hover:bg-white/10"
-              >
-                Acessar gestão
               </Link>
             </div>
           </div>

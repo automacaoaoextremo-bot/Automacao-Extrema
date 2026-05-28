@@ -17,14 +17,14 @@ export function SiteHeader({ logged = false }: { logged?: boolean }) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[#00334E]/95 text-white shadow-lg backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2">
         <Link href={logged ? "/admin/ae" : "/"} className="flex items-center gap-3">
           <Image
-            src="/ae-logo-azul.png"
+            src="/ae-logo-horizontal.png"
             alt="Automação Extrema"
-            width={168}
-            height={54}
-            className="h-10 w-auto rounded-md object-contain"
+            width={200}
+            height={60}
+            className="h-10 w-auto object-contain min-[390px]:h-12 sm:h-14"
             priority
           />
         </Link>
