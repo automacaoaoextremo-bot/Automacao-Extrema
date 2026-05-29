@@ -1,0 +1,17 @@
+﻿Zip gerado para implementar cadastro de nova soluÃ§Ã£o na Ã¡rea de GestÃ£o da AutomaÃ§Ã£o Extrema.
+
+Ajustes solicitados:
+1. Incluir botÃ£o '+ Nova soluÃ§Ã£o' na tela /admin/ae/solucoes.
+2. Criar tela de cadastro de soluÃ§Ã£o.
+3. Permitir preencher nome, slug, descriÃ§Ã£o, pÃºblico-alvo, dores, status, etapa, prioridade, arquivo de origem e ativa/inativa.
+4. ApÃ³s salvar, oferecer voltar para SoluÃ§Ãµes, ir para GestÃ£o ou cadastrar outra.
+5. Garantir que a nova soluÃ§Ã£o apareÃ§a nas telas de GestÃ£o e SoluÃ§Ãµes quando estiver ativa.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+- exports
+
+Data de geraÃ§Ã£o: 20260529-145446
