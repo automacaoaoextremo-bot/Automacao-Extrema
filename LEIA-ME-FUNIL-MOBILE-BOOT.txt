@@ -1,0 +1,22 @@
+﻿Zip gerado para ajustes na AutomaÃ§Ã£o Extrema.
+
+Ajustes solicitados:
+1. Criar menu fixo inferior mobile para pÃ¡ginas logadas de GestÃ£o.
+2. Incluir opÃ§Ã£o de voltar nas telas de Funil e SoluÃ§Ãµes.
+3. Agrupar aÃ§Ãµes do funil por lead.
+4. Sinalizar follow-ups atrasados.
+5. Preparar alerta por e-mail para automacao.ao.extremo@gmail.com 15 minutos antes do prazo.
+6. No e-mail interno da AE, incluir prazos e links para prÃ³ximas etapas do funil.
+7. Manter e-mail do lead como estÃ¡ atualmente.
+8. Ajustar integraÃ§Ã£o com Boot Conversa para evitar repetiÃ§Ã£o das trÃªs perguntas na landing page.
+9. Manter sistema mobile friendly.
+10. Considerar posicionamento consultivo, Deep Dive e diferenciaÃ§Ã£o para fugir do Mar Vermelho.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+- exports
+
+Data de geraÃ§Ã£o: 20260529-180916

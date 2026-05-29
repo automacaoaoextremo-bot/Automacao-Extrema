@@ -19,6 +19,89 @@ const fieldLabels: Record<string, string> = {
   consentLgpd: "Consentimento do diagnóstico",
 };
 
+const bootValueMaps: Record<string, Record<string, string>> = {
+  mainArea: {
+    "1": "financeiro",
+    "vida financeira / contas / gastos": "financeiro",
+    "financeiro": "financeiro",
+    "2": "trabalho_clientes",
+    "trabalho / clientes / atendimento": "trabalho_clientes",
+    "trabalho_clientes": "trabalho_clientes",
+    "3": "eventos",
+    "eventos / escola / comunidade / voluntariado": "eventos",
+    "eventos": "eventos",
+    "4": "familia_idosos",
+    "família / idosos / organização da rotina": "familia_idosos",
+    "familia / idosos / organização da rotina": "familia_idosos",
+    "familia_idosos": "familia_idosos",
+    "5": "negocio_ideia",
+    "negócio próprio ou ideia de negócio": "negocio_ideia",
+    "negocio próprio ou ideia de negocio": "negocio_ideia",
+    "negocio_ideia": "negocio_ideia",
+    "6": "catalogo_acervo",
+    "acervo / coleção / produtos / catálogo": "catalogo_acervo",
+    "produtos / catálogo / coleção ou acervo": "catalogo_acervo",
+    "catalogo_acervo": "catalogo_acervo",
+    "7": "pesquisa_decisao",
+    "pesquisas / opiniões / decisões": "pesquisa_decisao",
+    "pesquisa_decisao": "pesquisa_decisao",
+    "8": "outro",
+    "outro": "outro",
+  },
+  mainPain: {
+    "1": "perco_tempo",
+    "perco tempo demais": "perco_tempo",
+    "perco_tempo": "perco_tempo",
+    "2": "perco_dinheiro",
+    "perco dinheiro ou oportunidade": "perco_dinheiro",
+    "perco_dinheiro": "perco_dinheiro",
+    "3": "papel_planilha",
+    "dependo de planilha, papel, whatsapp ou memória": "papel_planilha",
+    "dependo de papel, planilha, whatsapp ou memória": "papel_planilha",
+    "papel_planilha": "papel_planilha",
+    "4": "confusao_pessoas",
+    "dá confusão com outras pessoas": "confusao_pessoas",
+    "da confusão com outras pessoas": "confusao_pessoas",
+    "confusao_pessoas": "confusao_pessoas",
+    "5": "sem_clareza",
+    "não tenho clareza para decidir": "sem_clareza",
+    "nao tenho clareza para decidir": "sem_clareza",
+    "sem_clareza": "sem_clareza",
+    "6": "tirar_ideia_papel",
+    "tenho uma ideia, mas não sei tirar do papel": "tirar_ideia_papel",
+    "tenho uma ideia, mas nao sei tirar do papel": "tirar_ideia_papel",
+    "tirar_ideia_papel": "tirar_ideia_papel",
+  },
+  urgency: {
+    "1": "agora",
+    "agora / o quanto antes": "agora",
+    "agora": "agora",
+    "2": "30_dias",
+    "nos próximos 30 dias": "30_dias",
+    "nos proximos 30 dias": "30_dias",
+    "30_dias": "30_dias",
+    "3": "90_dias",
+    "nos próximos 90 dias": "90_dias",
+    "nos proximos 90 dias": "90_dias",
+    "90_dias": "90_dias",
+    "4": "sem_pressa",
+    "sem pressa, só estou avaliando": "sem_pressa",
+    "sem pressa, so estou avaliando": "sem_pressa",
+    "sem_pressa": "sem_pressa",
+  },
+};
+
+function normalizeBootParam(field: "mainArea" | "mainPain" | "urgency", value: string | null) {
+  if (!value) return "";
+  const normalized = value.trim().toLowerCase();
+  const withoutNumberPrefix = normalized.replace(/^\d+\s*-\s*/, "");
+  return bootValueMaps[field][normalized] ?? bootValueMaps[field][withoutNumberPrefix] ?? normalized;
+}
+
+function hasBootPrediagnostic(origin: string, mainArea: string, mainPain: string, urgency: string) {
+  return origin === "bootconversa" && Boolean(mainArea || mainPain || urgency);
+}
+
 export default function DiagnosticoPage() {
   return (
     <Suspense fallback={<DiagnosticoLoading />}>
@@ -44,6 +127,10 @@ function DiagnosticoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const origin = searchParams.get("origem") ?? "landing_page";
+  const prefilledMainArea = normalizeBootParam("mainArea", searchParams.get("area"));
+  const prefilledMainPain = normalizeBootParam("mainPain", searchParams.get("dor"));
+  const prefilledUrgency = normalizeBootParam("urgency", searchParams.get("urgencia"));
+  const cameFromBoot = hasBootPrediagnostic(origin, prefilledMainArea, prefilledMainPain, prefilledUrgency);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [loading, setLoading] = useState(false);
@@ -165,8 +252,9 @@ function DiagnosticoContent() {
             <h1 className="mt-3 text-3xl font-bold">Diagnóstico AE — Mapa de Dores e Oportunidades</h1>
 
             <p className="mt-4 text-white/85">
-              Responda algumas perguntas rápidas para identificarmos onde tecnologia, automação ou organização simples
-              podem economizar tempo, reduzir retrabalho ou revelar uma oportunidade.
+              {cameFromBoot
+                ? "Você já respondeu a triagem inicial pelo WhatsApp. Agora vamos complementar o diagnóstico para sugerir uma solução mais certeira."
+                : "Responda algumas perguntas rápidas para identificarmos onde tecnologia, automação ou organização simples podem economizar tempo, reduzir retrabalho ou revelar uma oportunidade."}
             </p>
 
             <div className="mt-5 rounded-2xl border border-[#00A8CC]/40 bg-[#00263A] p-4 text-sm text-white/90">
@@ -176,6 +264,15 @@ function DiagnosticoContent() {
                 não é obrigatório, não solicita senha, cartão, dados bancários, pagamento, instalação ou download.
               </p>
             </div>
+
+            {cameFromBoot && (
+              <div className="mt-5 rounded-2xl border border-[#31C16B]/40 bg-[#31C16B]/10 p-4 text-sm text-white/90">
+                <p className="font-bold text-[#31C16B]">Pré-diagnóstico recebido pelo WhatsApp</p>
+                <p className="mt-2">
+                  As três respostas iniciais já foram consideradas. Você pode revisar os campos preenchidos abaixo e complementar com contexto, contato e consentimentos.
+                </p>
+              </div>
+            )}
 
             <form ref={formRef} onSubmit={onSubmit} noValidate className="mt-8 space-y-5">
               {missingMessage && (
@@ -214,8 +311,9 @@ function DiagnosticoContent() {
 
               <Select
                 name="mainArea"
-                label="Onde você sente mais perda de tempo, confusão ou retrabalho?"
+                label={cameFromBoot ? "Área principal importada do WhatsApp" : "Onde você sente mais perda de tempo, confusão ou retrabalho?"}
                 error={errors.mainArea}
+                defaultValue={prefilledMainArea}
                 options={[
                   ["financeiro", "Vida financeira, contas, gastos ou planilhas"],
                   ["trabalho_clientes", "Trabalho, clientes, agenda ou atendimento"],
@@ -230,8 +328,9 @@ function DiagnosticoContent() {
 
               <Select
                 name="mainPain"
-                label="Isso incomoda mais por quê?"
+                label={cameFromBoot ? "Motivo principal importado do WhatsApp" : "Isso incomoda mais por quê?"}
                 error={errors.mainPain}
+                defaultValue={prefilledMainPain}
                 options={[
                   ["perco_tempo", "Perco tempo demais"],
                   ["perco_dinheiro", "Perco dinheiro ou oportunidade"],
@@ -244,8 +343,9 @@ function DiagnosticoContent() {
 
               <Select
                 name="urgency"
-                label="Qual a urgência para resolver ou melhorar isso?"
+                label={cameFromBoot ? "Urgência importada do WhatsApp" : "Qual a urgência para resolver ou melhorar isso?"}
                 error={errors.urgency}
+                defaultValue={prefilledUrgency}
                 options={[
                   ["agora", "Agora / o quanto antes"],
                   ["30_dias", "Nos próximos 30 dias"],
@@ -334,15 +434,17 @@ function Select({
   label,
   options,
   error,
+  defaultValue = "",
 }: {
   name: string;
   label: string;
   options: [string, string][];
   error?: string;
+  defaultValue?: string;
 }) {
   return (
     <Field name={name} label={label} error={error}>
-      <select name={name} data-field={name} className={inputClass(error)} defaultValue="">
+      <select name={name} data-field={name} className={inputClass(error)} defaultValue={defaultValue}>
         <option value="">Selecione...</option>
         {options.map(([value, text]) => (
           <option key={value} value={value}>

@@ -6,7 +6,7 @@ import {
   DiagnosticPayload,
   validateDiagnosticPayload,
 } from "@/lib/ae-scoring";
-import { sendDiagnosticEmail } from "@/lib/mail";
+import { sendDiagnosticEmail, sendInternalDiagnosticEmail, InternalFollowupInfo } from "@/lib/mail";
 
 type SolutionRecord = {
   id: string;
@@ -132,12 +132,27 @@ export async function POST(request: Request) {
       .eq("lead_id", lead.id)
       .eq("kind", "email_immediate");
 
+    const internalEmailResult = await sendInternalDiagnosticEmail({
+      leadId: lead.id,
+      leadName: payload.fullName ?? null,
+      leadEmail: payload.email ?? null,
+      leadWhatsapp: payload.whatsapp ?? null,
+      solutionName: solution?.name ?? "Escuta Viva",
+      diagnosticScore,
+      mainArea: payload.mainArea ?? null,
+      mainPain: payload.mainPain ?? null,
+      urgency: payload.urgency ?? null,
+      ideaDescription: payload.ideaDescription ?? null,
+      followups: followups as InternalFollowupInfo[],
+    });
+
     return NextResponse.json({
       ok: true,
       leadId: lead.id,
       recommendedSolution: solution?.name ?? "Escuta Viva",
       score: diagnosticScore,
       email: emailResult,
+      internalEmail: internalEmailResult,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro inesperado.";

@@ -64,6 +64,30 @@ export function SiteHeader({ logged = false }: { logged?: boolean }) {
           )}
         </nav>
       </div>
+
+      {isAdmin && (
+        <nav className="border-t border-white/10 sm:hidden" aria-label="Menu de gestão mobile">
+          <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-2 text-sm font-bold">
+            <MobileAdminLink href="/admin/ae" label="Gestão" pathname={pathname} />
+            <MobileAdminLink href="/admin/ae/solucoes" label="Soluções" pathname={pathname} />
+            <MobileAdminLink href="/admin/ae/relatorios" label="Relatórios" pathname={pathname} />
+            <MobileAdminLink href="/admin/ae/funil" label="Funil" pathname={pathname} />
+          </div>
+        </nav>
+      )}
     </header>
+  );
+}
+
+function MobileAdminLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
+  const active = pathname === href || (href !== "/admin/ae" && pathname.startsWith(href));
+
+  return (
+    <Link
+      href={href}
+      className={`shrink-0 rounded-full px-3 py-2 ${active ? "bg-[#31C16B] text-[#00334E]" : "bg-white/10 text-white"}`}
+    >
+      {label}
+    </Link>
   );
 }

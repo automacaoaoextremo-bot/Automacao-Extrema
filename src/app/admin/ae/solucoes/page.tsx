@@ -32,7 +32,8 @@ export default function SolucoesPage() {
       <section className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div>
-            <h1 className="text-3xl font-bold text-[#00334E]">Soluções</h1>
+            <Link href="/admin/ae" className="text-sm font-bold text-[#00A8CC]">← Voltar para Gestão</Link>
+            <h1 className="mt-2 text-3xl font-bold text-[#00334E]">Soluções</h1>
             <p className="text-slate-600">Cadastre, edite status, prioridade e descrição das ideias em andamento.</p>
           </div>
 
