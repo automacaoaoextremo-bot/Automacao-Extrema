@@ -1,0 +1,17 @@
+﻿Zip gerado para ajustes de copy na tela de obrigado e no e-mail do DiagnÃ³stico AE.
+
+Ajustes solicitados:
+1. Incluir nome de quem preencheu o diagnÃ³stico na tela de obrigado.
+2. Corrigir texto pÃºblico: para o lead, nÃ£o Ã© uma oportunidade; Ã© uma soluÃ§Ã£o sugerida.
+3. Corrigir o mesmo conceito no e-mail enviado ao lead.
+4. Manter o termo oportunidade apenas para uso interno da AutomaÃ§Ã£o Extrema.
+5. Melhorar clareza da mensagem apÃ³s envio do diagnÃ³stico.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+- exports
+
+Data de geraÃ§Ã£o: 20260529-090853
