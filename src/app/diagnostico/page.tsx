@@ -145,7 +145,13 @@ function DiagnosticoContent() {
       return;
     }
 
-    router.push(`/obrigado?solucao=${encodeURIComponent(result.recommendedSolution)}&score=${result.score}`);
+    const query = new URLSearchParams({
+      solucao: result.recommendedSolution,
+      score: String(result.score),
+      nome: payload.fullName,
+    });
+
+    router.push(`/obrigado?${query.toString()}`);
   }
 
   return (
@@ -301,7 +307,7 @@ function DiagnosticoContent() {
                 disabled={loading}
                 className="w-full rounded-xl bg-[#31C16B] px-5 py-3 font-bold text-[#00334E] hover:bg-[#48dc83] disabled:opacity-60"
               >
-                {loading ? "Enviando..." : "Receber sugestão de oportunidade"}
+                {loading ? "Enviando..." : "Receber solução sugerida"}
               </button>
             </form>
           </div>

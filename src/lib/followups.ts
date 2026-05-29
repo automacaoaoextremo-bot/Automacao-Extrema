@@ -15,10 +15,10 @@ export const FOLLOWUP_LABELS: Record<FollowupKind, string> = {
 
 export function buildFollowupMessage(kind: FollowupKind, leadName: string | null, solutionName: string | null) {
   const name = leadName?.trim() || "tudo bem";
-  const solution = solutionName || "uma oportunidade de melhoria";
+  const solution = solutionName || "uma solução sugerida pela Automação Extrema";
 
   if (kind === "whatsapp_5_15") {
-    return `Oi, ${name}. Obrigado por responder o Diagnóstico AE. Pelas suas respostas, parece que ${solution} pode ser um bom caminho inicial. Posso te mandar uma sugestão prática de próximo passo?`;
+    return `Oi, ${name}. Obrigado por responder o Diagnóstico AE. Pelas suas respostas, parece que ${solution} pode ser um bom caminho inicial para o seu caso. Posso te mandar uma sugestão prática de próximo passo?`;
   }
 
   if (kind === "followup_24h") {
@@ -26,7 +26,7 @@ export function buildFollowupMessage(kind: FollowupKind, leadName: string | null
   }
 
   if (kind === "followup_3d") {
-    return `Oi, ${name}. Revendo seu diagnóstico, acredito que existe uma oportunidade de reduzir retrabalho e ganhar clareza com ${solution}. Faz sentido conversarmos por 10 minutos?`;
+    return `Oi, ${name}. Revendo seu diagnóstico, acredito que ${solution} pode ajudar a reduzir retrabalho e trazer mais clareza. Faz sentido conversarmos por 10 minutos?`;
   }
 
   if (kind === "followup_7d") {
