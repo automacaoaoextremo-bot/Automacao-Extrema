@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { adminFetch } from "@/lib/admin-fetch";
@@ -22,6 +23,7 @@ export default function EditSolutionPage() {
   const [solution, setSolution] = useState<Solution | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     adminFetch<{ solution: Solution }>(`/api/admin/solutions/${params.id}`)
@@ -36,6 +38,7 @@ export default function EditSolutionPage() {
     const formData = new FormData(event.currentTarget);
     setMessage("");
     setError("");
+    setSaving(true);
 
     try {
       const result = await adminFetch<{ solution: Solution }>(`/api/admin/solutions/${solution.id}`, {
@@ -56,20 +59,51 @@ export default function EditSolutionPage() {
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar solução.");
+    } finally {
+      setSaving(false);
     }
   }
 
   if (!solution) {
-    return <main className="min-h-screen bg-slate-100 p-6"><section className="mx-auto max-w-4xl rounded-2xl bg-white p-5 shadow">Carregando...</section></main>;
+    return (
+      <main className="min-h-screen bg-slate-100 p-6">
+        <section className="mx-auto max-w-4xl rounded-2xl bg-white p-5 shadow">
+          <div className="mb-4">
+            <Link href="/admin/ae/solucoes" className="text-sm font-bold text-[#00A8CC]">← Voltar para Soluções</Link>
+          </div>
+          {error || "Carregando..."}
+        </section>
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 sm:p-6">
       <section className="mx-auto max-w-4xl rounded-2xl bg-white p-5 shadow">
-        <h1 className="text-3xl font-bold text-[#00334E]">Editar solução</h1>
-        <p className="mt-1 text-slate-600">Atualize o status conforme validação, implementação e operação.</p>
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+          <div>
+            <Link href="/admin/ae/solucoes" className="text-sm font-bold text-[#00A8CC]">← Voltar para Soluções</Link>
+            <h1 className="mt-3 text-3xl font-bold text-[#00334E]">Editar solução</h1>
+            <p className="mt-1 text-slate-600">Atualize o status conforme validação, implementação e operação.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/ae/solucoes" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
+              Cancelar
+            </Link>
+            <Link href="/admin/ae" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
+              Ir para Gestão
+            </Link>
+          </div>
+        </div>
 
-        {message && <p className="mt-4 rounded-xl bg-green-50 p-3 text-green-700">{message}</p>}
+        {message && (
+          <div className="mt-4 rounded-xl bg-green-50 p-3 text-green-700">
+            <p>{message}</p>
+            <Link href="/admin/ae/solucoes" className="mt-2 inline-block text-sm font-bold text-green-800 underline">
+              Voltar para lista de soluções
+            </Link>
+          </div>
+        )}
         {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-red-700">{error}</p>}
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
@@ -89,7 +123,14 @@ export default function EditSolutionPage() {
             Solução ativa no diagnóstico
           </label>
 
-          <button className="rounded-xl bg-[#31C16B] px-5 py-3 font-bold text-[#00334E]">Salvar alterações</button>
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <Link href="/admin/ae/solucoes" className="rounded-xl border border-slate-300 px-5 py-3 text-center font-bold text-slate-700 hover:border-[#00A8CC]">
+              Cancelar e voltar
+            </Link>
+            <button disabled={saving} className="rounded-xl bg-[#31C16B] px-5 py-3 font-bold text-[#00334E] disabled:opacity-60">
+              {saving ? "Salvando..." : "Salvar alterações"}
+            </button>
+          </div>
         </form>
       </section>
     </main>

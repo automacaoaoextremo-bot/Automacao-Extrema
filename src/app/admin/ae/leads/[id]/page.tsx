@@ -16,7 +16,6 @@ type Lead = {
   idea_description: string | null;
   diagnostic_score: number;
   status: string;
-  funnel_stage: string | null;
   notes: string | null;
   created_at: string;
   ae_solutions?: { name: string; slug: string } | null;

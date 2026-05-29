@@ -1,0 +1,16 @@
+﻿Zip gerado para ajustes na Ã¡rea de GestÃ£o da AutomaÃ§Ã£o Extrema.
+
+Ajustes solicitados:
+1. Tela de ediÃ§Ã£o de soluÃ§Ã£o deve ter opÃ§Ã£o de cancelar/voltar.
+2. ApÃ³s salvar soluÃ§Ã£o, deve existir opÃ§Ã£o clara para voltar.
+3. PÃ¡gina GestÃ£o deve listar Discoteca Digital em SoluÃ§Ãµes em andamento quando ela estiver ativa.
+4. Conferir diferenÃ§a entre consulta de /admin/ae e /admin/ae/solucoes.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+- exports
+
+Data de geraÃ§Ã£o: 20260528-185141

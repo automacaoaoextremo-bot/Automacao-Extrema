@@ -46,9 +46,7 @@ export async function PATCH(request: Request, { params }: { params: Params }) {
     .from("ae_leads")
     .update({
       status: body.status,
-      funnel_stage: body.funnel_stage,
       notes: body.notes,
-      next_action_at: body.next_action_at || null,
     })
     .eq("id", id)
     .select("*")

@@ -59,8 +59,6 @@ export async function POST(request: Request) {
         recommended_solution_id: solution?.id ?? null,
         diagnostic_score: diagnosticScore,
         status: "novo",
-        funnel_stage: "diagnostico_recebido",
-        next_action_at: payload.consentContact ? minutesFromNow(10) : null,
       })
       .select("id")
       .single<{ id: string }>();

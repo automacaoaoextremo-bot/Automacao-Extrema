@@ -8,7 +8,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabaseAdmin
     .from("ae_leads")
-    .select("id, full_name, whatsapp, email, profile_type, main_area, main_pain, urgency, diagnostic_score, status, funnel_stage, next_action_at, created_at, recommended_solution_id, ae_solutions(name)")
+    .select("id, full_name, whatsapp, email, profile_type, main_area, main_pain, urgency, diagnostic_score, status, created_at, recommended_solution_id, ae_solutions(name)")
     .order("created_at", { ascending: false })
     .limit(100);
 
