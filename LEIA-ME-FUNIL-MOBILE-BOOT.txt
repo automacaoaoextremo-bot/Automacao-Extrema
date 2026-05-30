@@ -20,3 +20,5 @@ NÃ£o inclui:
 - exports
 
 Data de geraÃ§Ã£o: 20260529-180916
+
+Trigger deploy Vercel
