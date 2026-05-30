@@ -24,10 +24,19 @@ type FollowupRow = {
 const ALERT_MARKER = "[alerta_15min_enviado]";
 
 export async function GET(request: Request) {
+  return handleFollowupAlerts(request);
+}
+
+export async function POST(request: Request) {
+  return handleFollowupAlerts(request);
+}
+
+async function handleFollowupAlerts(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
+  const token = new URL(request.url).searchParams.get("token");
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && token !== cronSecret) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
 

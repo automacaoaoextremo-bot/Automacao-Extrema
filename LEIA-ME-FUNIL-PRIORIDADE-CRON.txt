@@ -1,0 +1,22 @@
+﻿Zip gerado para ajustes da AutomaÃ§Ã£o Extrema.
+
+Ajustes solicitados:
+1. Funil com lista de leads em ordem de prioridade.
+2. Priorizar leads com follow-ups atrasados e mais prÃ³ximos do vencimento.
+3. Abrir detalhes do lead em modal/bloco ao clicar no nome.
+4. Sempre ter opÃ§Ã£o de voltar nas telas.
+5. Incluir botÃ£o Voltar no detalhe do lead.
+6. Manter sistema mobile friendly.
+7. Manter abordagem consultiva/Deep Dive e diferenciaÃ§Ã£o para fugir do Mar Vermelho.
+8. Preparar passo a passo de agendamento externo sem usar Vercel Cron no plano Hobby.
+9. Proteger rota de alertas por token.
+10. Criar SQL para limpar base de testes preservando soluÃ§Ãµes.
+
+NÃ£o inclui:
+- node_modules
+- .next
+- .git
+- .env.local
+- exports
+
+Data de geraÃ§Ã£o: 20260529-224409

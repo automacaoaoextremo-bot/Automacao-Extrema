@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { adminFetch } from "@/lib/admin-fetch";
 import { buildFollowupMessage, FOLLOWUP_LABELS, FollowupKind } from "@/lib/followups";
@@ -70,6 +71,15 @@ export default function LeadDetailPage() {
   return (
     <main className="min-h-screen bg-slate-100 p-4 sm:p-6">
       <section className="mx-auto max-w-6xl space-y-6">
+        <div className="flex flex-wrap gap-2">
+          <Link href="/admin/ae/funil" className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow hover:text-[#00A8CC]">
+            ← Voltar para Funil
+          </Link>
+          <Link href="/admin/ae" className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow hover:text-[#00A8CC]">
+            Voltar para Gestão
+          </Link>
+        </div>
+
         <div className="rounded-2xl bg-white p-5 shadow">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div>
