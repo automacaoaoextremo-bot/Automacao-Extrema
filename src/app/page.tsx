@@ -1,29 +1,49 @@
 import Image from "next/image";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
-import { AE_BNI_DIAGNOSTIC_URL, AE_INSTAGRAM_URL, AE_SITE_URL } from "@/lib/ae-public-links";
+import { AE_DIAGNOSTIC_URL, AE_INSTAGRAM_URL, AE_SITE_URL } from "@/lib/ae-public-links";
 
 const quickNavItems = [
-  { label: "Valor", href: "#valor" },
+  { label: "Diagnóstico", href: "#diagnostico" },
   { label: "Soluções", href: "#solucoes" },
+  { label: "Transformação", href: "#transformacao" },
+  { label: "Valor", href: "#valor" },
   { label: "Para quem", href: "#para-quem" },
   { label: "Como funciona", href: "#como-funciona" },
-  { label: "Networking", href: "#networking" },
+  { label: "Networking e parcerias", href: "#networking" },
   { label: "QR Codes", href: "#qr-codes" },
+];
+
+const diagnosticCards = [
+  {
+    title: "Dor real",
+    text: "Entender onde a operação trava antes de falar em sistema, site ou automação.",
+  },
+  {
+    title: "Valor percebido",
+    text: "Traduzir a perda em tempo, dinheiro, controle, tranquilidade e indicação.",
+  },
+  {
+    title: "Próximo passo",
+    text: "Priorizar uma solução simples, mobile e viável para começar pelo que mais importa.",
+  },
 ];
 
 const transformationCards = [
   {
     title: "De WhatsApp perdido para clareza operacional",
-    text: "Organizar pedidos, comprovantes, clientes, voluntários e próximos passos em um fluxo simples de acompanhar.",
+    before: "Pedidos, comprovantes, responsáveis, voluntários e próximos passos espalhados em conversas.",
+    after: "Um fluxo simples para registrar, acompanhar, conferir e decidir com menos retrabalho.",
   },
   {
     title: "De ideia solta para oferta com valor percebido",
-    text: "Traduzir experiência, histórico e diferenciais em uma comunicação mais fácil de entender, lembrar e indicar.",
+    before: "Experiência, histórico e diferenciais difíceis de explicar em uma conversa rápida.",
+    after: "Uma mensagem mais clara para o público entender, lembrar e indicar a solução certa.",
   },
   {
     title: "De improviso para decisão prática",
-    text: "Priorizar a dor que mais custa tempo, dinheiro ou controle antes de investir em uma solução maior.",
+    before: "Vontade de criar uma ferramenta grande antes de saber qual dor realmente precisa ser resolvida.",
+    after: "Um primeiro passo menor, mobile e sob medida para validar valor antes de escalar.",
   },
 ];
 
@@ -111,6 +131,7 @@ const referralItems = [
 ];
 
 const whatsappHref = "/api/whatsapp?origem=site";
+const diagnosticHref = AE_DIAGNOSTIC_URL.replace(AE_SITE_URL, "");
 
 export default function Home() {
   return (
@@ -119,76 +140,84 @@ export default function Home() {
       <main className="min-h-screen bg-[#00334E] text-white">
         <QuickNav />
 
-        <section id="inicio" className="mx-auto grid max-w-6xl gap-8 px-4 pb-12 pt-8 md:grid-cols-[1.05fr_0.95fr] md:items-center md:pb-16 md:pt-14">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">
-              Diagnóstico de valor e dor operacional
-            </p>
+        <section
+          id="diagnostico"
+          className="scroll-mt-44 border-b border-white/10 bg-[#00334E] px-4 pb-10 pt-2 md:pb-14 md:pt-6"
+        >
+          <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-[1.08fr_0.92fr] md:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#31C16B] sm:text-sm">
+                Diagnóstico de valor e dor operacional
+              </p>
 
-            <h1 className="mt-4 text-4xl font-bold leading-tight md:text-6xl">
-              Não começa pela ferramenta. Começa pela dor certa.
-            </h1>
+              <h1 className="mt-4 text-4xl font-bold leading-tight md:text-6xl">
+                Não começa pela ferramenta. Começa pela dor certa.
+              </h1>
 
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/85">
-              Eu ajudo pequenos negócios, profissionais e organizações a descobrir onde estão perdendo tempo,
-              dinheiro e controle por dependerem de WhatsApp, planilha e processos manuais. A partir de um
-              diagnóstico, transformo a dor principal em uma solução simples, mobile e sob medida.
-            </p>
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-white/85">
+                Eu ajudo pequenos negócios, profissionais e organizações a descobrir onde estão perdendo tempo,
+                dinheiro e controle por dependerem de WhatsApp, planilha e processos manuais. A partir de um
+                diagnóstico, transformo a dor principal em uma solução simples, mobile e sob medida.
+              </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href={AE_BNI_DIAGNOSTIC_URL.replace(AE_SITE_URL, "")}
-                className="rounded-xl bg-[#31C16B] px-6 py-4 text-center font-bold text-[#00334E] shadow-lg hover:bg-[#4ce184]"
-              >
-                Fazer diagnóstico gratuito
-              </Link>
-              <a
-                href={whatsappHref}
-                className="rounded-xl border border-white/25 px-6 py-4 text-center font-bold text-white hover:bg-white/10"
-              >
-                Falar no WhatsApp
-              </a>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href={diagnosticHref}
+                  className="rounded-xl bg-[#31C16B] px-6 py-4 text-center font-bold text-[#00334E] shadow-lg hover:bg-[#4ce184]"
+                >
+                  Fazer diagnóstico gratuito
+                </Link>
+                <a
+                  href={whatsappHref}
+                  className="rounded-xl border border-white/25 px-6 py-4 text-center font-bold text-white hover:bg-white/10"
+                >
+                  Falar no WhatsApp
+                </a>
+              </div>
             </div>
 
-            <p className="mt-5 text-sm leading-6 text-white/70">
-              Não solicita senha, cartão, pagamento ou instalação. O diagnóstico serve para entender a dor e sugerir
-              um próximo passo prático.
-            </p>
+            <aside className="rounded-3xl bg-white/10 p-5 shadow-2xl ring-1 ring-white/10 sm:p-6">
+              <p className="text-sm font-black uppercase tracking-[0.18em] text-[#31C16B]">Deep Dive aplicado</p>
+              <h2 className="mt-3 text-2xl font-bold">O diagnóstico evita começar pelo “sistema”.</h2>
+              <div className="mt-5 space-y-3">
+                {diagnosticCards.map((card) => (
+                  <div key={card.title} className="rounded-2xl bg-[#00263A] p-4 ring-1 ring-white/10">
+                    <h3 className="font-bold text-white">{card.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-white/75">{card.text}</p>
+                  </div>
+                ))}
+              </div>
+            </aside>
           </div>
-
-          <aside className="rounded-3xl bg-white/10 p-5 shadow-2xl ring-1 ring-white/10 sm:p-6">
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#31C16B]">Exemplos de transformação</p>
-            <h2 className="mt-3 text-2xl font-bold">O que muda quando a dor fica clara?</h2>
-            <div className="mt-5 space-y-3">
-              {transformationCards.map((card) => (
-                <div key={card.title} className="rounded-2xl bg-[#00263A] p-4 ring-1 ring-white/10">
-                  <h3 className="font-bold text-white">{card.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-white/75">{card.text}</p>
-                </div>
-              ))}
-            </div>
-          </aside>
         </section>
 
-        <section id="solucoes" className="scroll-mt-32 bg-white px-4 py-14 text-slate-950">
+        <section id="solucoes" className="scroll-mt-44 bg-white px-4 py-14 text-slate-950">
           <div className="mx-auto max-w-6xl">
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#00A8CC]">Exemplos reais</p>
-                <h2 className="mt-3 text-3xl font-bold text-[#00334E] md:text-4xl">Soluções que nasceram de dores reais.</h2>
+                <h2 className="mt-3 text-3xl font-bold text-[#00334E] md:text-4xl">
+                  Soluções que nasceram de dores reais.
+                </h2>
                 <p className="mt-4 max-w-3xl leading-7 text-slate-700">
                   Estes exemplos ajudam a tangibilizar a transformação: menos improviso, mais clareza, melhor controle e
                   uma experiência mais simples para quem organiza e para quem participa.
                 </p>
               </div>
-              <Link href="/diagnostico?origem=exemplos_site" className="rounded-xl bg-[#31C16B] px-5 py-3 text-center font-bold text-[#00334E]">
+              <Link
+                href="/diagnostico?origem=exemplos_site"
+                className="rounded-xl bg-[#31C16B] px-5 py-3 text-center font-bold text-[#00334E]"
+              >
                 Fazer meu diagnóstico
               </Link>
             </div>
 
             <div className="mt-8 grid gap-5 md:grid-cols-3">
               {examples.map((example) => (
-                <article key={example.name} className="flex flex-col rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                <article
+                  key={example.name}
+                  className="flex flex-col rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm"
+                >
                   <p className="text-sm font-bold uppercase tracking-wide text-[#00A8CC]">{example.label}</p>
                   <h3 className="mt-3 text-2xl font-bold text-[#00334E]">{example.name}</h3>
                   <p className="mt-3 leading-7 text-slate-700">{example.description}</p>
@@ -209,7 +238,36 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="valor" className="scroll-mt-32 border-y border-white/10 bg-[#00263A] px-4 py-12">
+        <section id="transformacao" className="scroll-mt-44 border-y border-white/10 bg-[#00263A] px-4 py-14">
+          <div className="mx-auto max-w-6xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Exemplos de transformação</p>
+            <h2 className="mt-3 text-3xl font-bold md:text-4xl">O que muda quando a dor fica clara?</h2>
+            <p className="mt-4 max-w-3xl leading-7 text-white/80">
+              A Automação Extrema procura tornar a mudança fácil de visualizar: antes e depois, perda e ganho, problema
+              e próximo passo.
+            </p>
+
+            <div className="mt-8 grid gap-5 md:grid-cols-3">
+              {transformationCards.map((card) => (
+                <article key={card.title} className="rounded-3xl bg-white p-5 text-[#00334E] shadow-lg">
+                  <h3 className="text-xl font-black">{card.title}</h3>
+                  <div className="mt-5 space-y-3 text-sm leading-6">
+                    <p className="rounded-2xl bg-slate-100 p-4 text-slate-700">
+                      <span className="font-black text-[#00334E]">Antes: </span>
+                      {card.before}
+                    </p>
+                    <p className="rounded-2xl bg-[#31C16B]/15 p-4 text-slate-700">
+                      <span className="font-black text-[#00334E]">Depois: </span>
+                      {card.after}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="valor" className="scroll-mt-44 bg-[#00334E] px-4 py-14">
           <div className="mx-auto max-w-6xl">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Valor antes da solução</p>
             <h2 className="mt-3 text-3xl font-bold md:text-4xl">O diagnóstico procura quatro tipos de perda.</h2>
@@ -224,7 +282,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="para-quem" className="scroll-mt-32 mx-auto max-w-6xl px-4 py-14">
+        <section id="para-quem" className="scroll-mt-44 mx-auto max-w-6xl px-4 py-14">
           <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Para quem faz sentido</p>
@@ -245,7 +303,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="como-funciona" className="scroll-mt-32 mx-auto max-w-6xl px-4 py-14">
+        <section id="como-funciona" className="scroll-mt-44 mx-auto max-w-6xl px-4 py-14">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Como funciona</p>
           <h2 className="mt-3 text-3xl font-bold md:text-4xl">Uma abordagem simples para evitar solução genérica.</h2>
 
@@ -262,7 +320,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="networking" className="scroll-mt-32 border-t border-white/10 bg-[#00263A] px-4 py-14">
+        <section id="networking" className="scroll-mt-44 border-t border-white/10 bg-[#00263A] px-4 py-14">
           <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_1fr] lg:items-center">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Networking e parcerias</p>
@@ -283,7 +341,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="qr-codes" className="scroll-mt-32 px-4 py-14">
+        <section id="qr-codes" className="scroll-mt-44 px-4 py-14">
           <div className="mx-auto max-w-6xl">
             <div className="mb-8 text-center">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">QR Codes</p>
@@ -308,27 +366,35 @@ export default function Home() {
                 alt="QR Code para abrir o WhatsApp da Automação Extrema"
               />
             </div>
-          </div>
-        </section>
 
-        <section id="contato" className="px-4 py-14">
-          <div className="mx-auto max-w-4xl rounded-3xl bg-[#31C16B] p-6 text-center text-[#00334E] shadow-2xl sm:p-10">
-            <p className="text-sm font-black uppercase tracking-[0.2em]">Próximo passo</p>
-            <h2 className="mt-3 text-3xl font-black md:text-4xl">Descubra onde está a maior perda antes de criar qualquer solução.</h2>
-            <p className="mt-4 text-lg leading-8 text-[#00334E]/80">
-              O diagnóstico é gratuito e ajuda a transformar uma dor confusa em um caminho mais claro de ação.
-            </p>
-            <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href="/diagnostico?origem=cta_final_site" className="rounded-xl bg-[#00334E] px-6 py-4 font-bold text-white hover:bg-[#004c73]">
-                Fazer diagnóstico gratuito
-              </Link>
-              <a href={whatsappHref} className="rounded-xl border border-[#00334E]/30 px-6 py-4 font-bold hover:bg-white/30">
-                Chamar no WhatsApp
+            <div className="mx-auto mt-8 max-w-4xl rounded-3xl bg-[#31C16B] p-6 text-center text-[#00334E] shadow-2xl sm:p-10">
+              <p className="text-sm font-black uppercase tracking-[0.2em]">Próximo passo</p>
+              <h2 className="mt-3 text-3xl font-black md:text-4xl">
+                Descubra onde está a maior perda antes de criar qualquer solução.
+              </h2>
+              <p className="mt-4 text-lg leading-8 text-[#00334E]/80">
+                O diagnóstico é gratuito e ajuda a transformar uma dor confusa em um caminho mais claro de ação.
+              </p>
+              <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+                <Link
+                  href="/diagnostico?origem=cta_final_site"
+                  className="rounded-xl bg-[#00334E] px-6 py-4 font-bold text-white hover:bg-[#004c73]"
+                >
+                  Fazer diagnóstico gratuito
+                </Link>
+                <a href={whatsappHref} className="rounded-xl border border-[#00334E]/30 px-6 py-4 font-bold hover:bg-white/30">
+                  Chamar no WhatsApp
+                </a>
+              </div>
+              <a
+                href={AE_INSTAGRAM_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-5 inline-flex font-bold underline decoration-[#00334E]/40 underline-offset-4"
+              >
+                Ver Instagram da Automação Extrema
               </a>
             </div>
-            <a href={AE_INSTAGRAM_URL} target="_blank" rel="noreferrer" className="mt-5 inline-flex font-bold underline decoration-[#00334E]/40 underline-offset-4">
-              Ver Instagram da Automação Extrema
-            </a>
           </div>
         </section>
       </main>
@@ -338,13 +404,16 @@ export default function Home() {
 
 function QuickNav() {
   return (
-    <nav className="sticky top-[57px] z-40 border-b border-white/10 bg-[#00263A]/95 backdrop-blur sm:top-[73px]" aria-label="Acesso rápido às seções da página">
-      <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-3 text-xs font-black uppercase tracking-wide text-white sm:text-sm">
+    <nav
+      className="sticky top-[57px] z-40 border-b border-white/10 bg-[#00263A]/95 backdrop-blur sm:top-[73px]"
+      aria-label="Acesso rápido às seções da página"
+    >
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-white sm:gap-2 sm:px-4 sm:text-xs md:justify-start md:text-sm">
         {quickNavItems.map((item) => (
           <a
             key={item.href}
             href={item.href}
-            className="shrink-0 rounded-full bg-white/10 px-3 py-2 hover:bg-[#31C16B] hover:text-[#00334E]"
+            className="rounded-full bg-white/10 px-2.5 py-1.5 leading-none hover:bg-[#31C16B] hover:text-[#00334E] sm:px-3 sm:py-2"
           >
             {item.label}
           </a>
