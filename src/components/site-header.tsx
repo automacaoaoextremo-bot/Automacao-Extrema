@@ -53,14 +53,9 @@ export function SiteHeader({ logged = false }: { logged?: boolean }) {
               </button>
             </>
           ) : (
-            <>
-              <Link className="rounded-full px-3 py-2 hover:bg-white/10" href="/diagnostico">
-                Diagnóstico
-              </Link>
-              <Link className="rounded-full bg-[#31C16B] px-3 py-2 font-bold text-[#00334E] hover:bg-[#48dc83]" href="/login">
-                Gestão
-              </Link>
-            </>
+            <Link className="rounded-full bg-[#31C16B] px-3 py-2 font-bold text-[#00334E] hover:bg-[#48dc83]" href="/diagnostico">
+              Diagnóstico
+            </Link>
           )}
         </nav>
       </div>

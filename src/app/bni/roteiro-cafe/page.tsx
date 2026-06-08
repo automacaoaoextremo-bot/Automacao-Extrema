@@ -65,15 +65,15 @@ const deepDiveQuestions = [
 const caseCards = [
   {
     title: "Bingo Sementinha",
-    text: "Exemplo de organização de bingo e operação beneficente. Use quando a pessoa falar de eventos, voluntários, cartelas, reservas ou controle manual.",
+    text: "Módulo do Festa no Controle para atender bingos e sorteios beneficentes com cartelas/números, participantes, pagamentos, conferência e transparência.",
   },
   {
     title: "Tucxa Festa Junina / Festa no Controle",
-    text: "Exemplo para festas, pedidos, caixa, filas, comprovantes, cardápio e organização de equipe. Use com escolas, igrejas, associações, clubes e eventos comunitários.",
+    text: "Site cliente da solução Festa no Controle para a Festa Junina Tucxa 2026: gestão de ingressos, pedidos, cardápio, combos, compras, caixa, voluntários e prestação de contas.",
   },
   {
     title: "Impacto no Controle",
-    text: "Exemplo para ações solidárias, reserva de números, Pix, comprovantes, acompanhamento e prestação de contas. Use com ONGs, campanhas e iniciativas sociais.",
+    text: "Solução para ações solidárias, reserva de números, Pix, comprovantes, acompanhamento e prestação de contas. Use com ONGs, campanhas e iniciativas sociais.",
   },
   {
     title: "Diagnóstico / DNA de Valor",
@@ -92,7 +92,7 @@ const followUpTemplates = [
   },
   {
     title: "Mensagem para o Adriano",
-    text: "Adriano, seu vídeo me ajudou a perceber que eu estava falando demais das soluções e pouco do valor. Estou pensando em posicionar a Automação Extrema como um Diagnóstico de Valor e Dor Operacional, usando as soluções como cases reais. A frase principal seria: 'Eu ajudo pequenos negócios, profissionais e organizações a descobrir onde estão perdendo tempo, dinheiro e controle por dependerem de WhatsApp, planilha e processos manuais. A partir de um diagnóstico, transformo a dor principal em uma solução simples, mobile e sob medida.' Na quarta, se fizer sentido, queria te pedir uma opinião rápida: essa frase comunica valor ou ainda parece ferramenta?",
+    text: "Adriano, perfeito. Obrigado pela sugestão. Faz todo sentido incluir dois ou três exemplos de transformação para deixar mais concreto. Atualizei a página principal da Automação Extrema com essa lógica: primeiro a declaração de valor, depois exemplos reais como Festa no Controle, Bingo no Controle e Impacto no Controle. Segue o link, caso queira dar uma olhada antes de quarta: https://automacaoextrema.com/ Na quarta eu te mostro rapidamente e adoraria ouvir sua opinião sobre se está comunicando mais valor e transformação do que ferramenta.",
   },
 ];
 

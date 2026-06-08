@@ -9,7 +9,7 @@ export const AE_BNI_DIAGNOSTIC_URL = `${AE_SITE_URL}/diagnostico?origem=bni_mais
 export const AE_WHATSAPP_NUMBER = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "").replace(/\D/g, "");
 
 export const AE_WHATSAPP_DEFAULT_MESSAGE =
-  "Olá! Vi a Automação Extrema e quero entender onde posso perder menos tempo, dinheiro ou controle com processos manuais.";
+  "Olá! Conheci a Automação Extrema e quero fazer um diagnóstico rápido para entender onde meu negócio perde tempo, dinheiro ou controle.";
 
 export function buildAeWhatsAppUrl(message = AE_WHATSAPP_DEFAULT_MESSAGE) {
   const text = encodeURIComponent(message);

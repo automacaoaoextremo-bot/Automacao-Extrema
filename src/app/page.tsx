@@ -3,6 +3,57 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { AE_BNI_DIAGNOSTIC_URL, AE_INSTAGRAM_URL, AE_SITE_URL } from "@/lib/ae-public-links";
 
+const quickNavItems = [
+  { label: "Valor", href: "#valor" },
+  { label: "Soluções", href: "#solucoes" },
+  { label: "Para quem", href: "#para-quem" },
+  { label: "Como funciona", href: "#como-funciona" },
+  { label: "Networking", href: "#networking" },
+  { label: "QR Codes", href: "#qr-codes" },
+];
+
+const transformationCards = [
+  {
+    title: "De WhatsApp perdido para clareza operacional",
+    text: "Organizar pedidos, comprovantes, clientes, voluntários e próximos passos em um fluxo simples de acompanhar.",
+  },
+  {
+    title: "De ideia solta para oferta com valor percebido",
+    text: "Traduzir experiência, histórico e diferenciais em uma comunicação mais fácil de entender, lembrar e indicar.",
+  },
+  {
+    title: "De improviso para decisão prática",
+    text: "Priorizar a dor que mais custa tempo, dinheiro ou controle antes de investir em uma solução maior.",
+  },
+];
+
+const examples = [
+  {
+    name: "Bingo Sementinha",
+    url: "https://bingo-sementinha.vercel.app/",
+    label: "Bingo no Controle",
+    description:
+      "Módulo do Festa no Controle para atender bingos e sorteios beneficentes com cartelas/números, participantes, pagamentos, conferência e transparência.",
+    transformation: "Transforma sorteios e bingos beneficentes em uma operação mais clara e conferível.",
+  },
+  {
+    name: "Tucxa Festa Junina",
+    url: "https://tucxa-festa-junina.vercel.app/festa-junina",
+    label: "Festa no Controle",
+    description:
+      "Site cliente da solução Festa no Controle para a Festa Junina Tucxa 2026: gestão de ingressos, pedidos, cardápio, combos, compras, caixa, voluntários e prestação de contas.",
+    transformation: "Transforma evento com muitas frentes em uma gestão mais organizada, mobile e rastreável.",
+  },
+  {
+    name: "Impacto no Controle",
+    url: "https://impacto-no-controle.vercel.app/acao/sao-francisco-em-racao",
+    label: "Campanha e ação solidária",
+    description:
+      "Solução disponível para campanhas com reserva, Pix, comprovantes, acompanhamento público e prestação de contas.",
+    transformation: "Transforma campanha solidária em uma jornada mais simples, transparente e confiável.",
+  },
+];
+
 const valueCards = [
   {
     title: "Tempo",
@@ -27,30 +78,6 @@ const audienceCards = [
   "Profissionais que entregam valor, mas ainda comunicam sua oferta de forma genérica.",
   "Comunidades, escolas, igrejas, ONGs e associações que organizam eventos e campanhas.",
   "Empresas que precisam priorizar uma dor antes de investir em sistema, site ou automação.",
-];
-
-const examples = [
-  {
-    name: "Bingo Sementinha",
-    url: "https://bingo-sementinha.vercel.app/",
-    label: "Bingo no controle",
-    description:
-      "Exemplo já usado para apoiar organização de bingo, cartelas e operação de evento beneficente.",
-  },
-  {
-    name: "Tucxa Festa Junina",
-    url: "https://tucxa-festa-junina.vercel.app/festa-junina",
-    label: "Origem do Festa no Controle",
-    description:
-      "Solução que será usada novamente na Festa Junina do Tucxa em 14/06/2026 e deu origem ao conceito Festa no Controle.",
-  },
-  {
-    name: "Impacto no Controle",
-    url: "https://impacto-no-controle.vercel.app/acao/sao-francisco-em-racao",
-    label: "Ação solidária com Pix e comprovantes",
-    description:
-      "Exemplo disponível para ação solidária, reserva, Pix, comprovantes, acompanhamento e prestação de contas.",
-  },
 ];
 
 const processSteps = [
@@ -83,14 +110,16 @@ const referralItems = [
   "Pessoa com uma boa ideia ou solução, mas sem clareza de prioridade e comunicação.",
 ];
 
-const whatsappHref = "/api/whatsapp?origem=bni";
+const whatsappHref = "/api/whatsapp?origem=site";
 
 export default function Home() {
   return (
     <>
       <SiteHeader />
       <main className="min-h-screen bg-[#00334E] text-white">
-        <section className="mx-auto grid max-w-6xl gap-10 px-4 pb-14 pt-8 md:grid-cols-[1.05fr_0.95fr] md:items-center md:pb-20 md:pt-16">
+        <QuickNav />
+
+        <section id="inicio" className="mx-auto grid max-w-6xl gap-8 px-4 pb-12 pt-8 md:grid-cols-[1.05fr_0.95fr] md:items-center md:pb-16 md:pt-14">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">
               Diagnóstico de valor e dor operacional
@@ -127,36 +156,60 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="rounded-3xl bg-white/10 p-5 shadow-2xl ring-1 ring-white/10 sm:p-6">
-            <div className="rounded-3xl bg-[#00263A] p-5 ring-1 ring-white/10">
-              <Image
-                src="/ae-logo-azul.png"
-                alt="Automação Extrema"
-                width={420}
-                height={420}
-                className="mx-auto h-auto w-full max-w-xs rounded-2xl object-contain"
-                priority
-              />
+          <aside className="rounded-3xl bg-white/10 p-5 shadow-2xl ring-1 ring-white/10 sm:p-6">
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#31C16B]">Exemplos de transformação</p>
+            <h2 className="mt-3 text-2xl font-bold">O que muda quando a dor fica clara?</h2>
+            <div className="mt-5 space-y-3">
+              {transformationCards.map((card) => (
+                <div key={card.title} className="rounded-2xl bg-[#00263A] p-4 ring-1 ring-white/10">
+                  <h3 className="font-bold text-white">{card.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-white/75">{card.text}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </section>
+
+        <section id="solucoes" className="scroll-mt-32 bg-white px-4 py-14 text-slate-950">
+          <div className="mx-auto max-w-6xl">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#00A8CC]">Exemplos reais</p>
+                <h2 className="mt-3 text-3xl font-bold text-[#00334E] md:text-4xl">Soluções que nasceram de dores reais.</h2>
+                <p className="mt-4 max-w-3xl leading-7 text-slate-700">
+                  Estes exemplos ajudam a tangibilizar a transformação: menos improviso, mais clareza, melhor controle e
+                  uma experiência mais simples para quem organiza e para quem participa.
+                </p>
+              </div>
+              <Link href="/diagnostico?origem=exemplos_site" className="rounded-xl bg-[#31C16B] px-5 py-3 text-center font-bold text-[#00334E]">
+                Fazer meu diagnóstico
+              </Link>
             </div>
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <QrCard
-                title="Abrir esta página"
-                description="Use este QR no celular para compartilhar a Automação Extrema no café ou em reuniões."
-                src="/qr-automacao-extrema-home.svg"
-                alt="QR Code para abrir o site da Automação Extrema"
-              />
-              <QrCard
-                title="WhatsApp rápido"
-                description="QR para iniciar conversa com a Automação Extrema, usando a mensagem do BNI."
-                src="/qr-automacao-extrema-whatsapp.svg"
-                alt="QR Code para abrir o WhatsApp da Automação Extrema"
-              />
+            <div className="mt-8 grid gap-5 md:grid-cols-3">
+              {examples.map((example) => (
+                <article key={example.name} className="flex flex-col rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                  <p className="text-sm font-bold uppercase tracking-wide text-[#00A8CC]">{example.label}</p>
+                  <h3 className="mt-3 text-2xl font-bold text-[#00334E]">{example.name}</h3>
+                  <p className="mt-3 leading-7 text-slate-700">{example.description}</p>
+                  <p className="mt-4 rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-[#00334E] shadow-sm">
+                    {example.transformation}
+                  </p>
+                  <a
+                    href={example.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-5 inline-flex justify-center rounded-xl border border-[#00334E]/20 px-4 py-3 font-bold text-[#00334E] hover:bg-[#00334E] hover:text-white"
+                  >
+                    Abrir exemplo
+                  </a>
+                </article>
+              ))}
             </div>
           </div>
         </section>
 
-        <section className="border-y border-white/10 bg-[#00263A] px-4 py-12">
+        <section id="valor" className="scroll-mt-32 border-y border-white/10 bg-[#00263A] px-4 py-12">
           <div className="mx-auto max-w-6xl">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Valor antes da solução</p>
             <h2 className="mt-3 text-3xl font-bold md:text-4xl">O diagnóstico procura quatro tipos de perda.</h2>
@@ -171,7 +224,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-4 py-14">
+        <section id="para-quem" className="scroll-mt-32 mx-auto max-w-6xl px-4 py-14">
           <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Para quem faz sentido</p>
@@ -192,39 +245,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="exemplos" className="bg-white px-4 py-14 text-slate-950">
-          <div className="mx-auto max-w-6xl">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#00A8CC]">Exemplos reais</p>
-                <h2 className="mt-3 text-3xl font-bold text-[#00334E] md:text-4xl">Soluções que nasceram de dores reais.</h2>
-              </div>
-              <Link href="/diagnostico?origem=exemplos_site" className="rounded-xl bg-[#31C16B] px-5 py-3 text-center font-bold text-[#00334E]">
-                Fazer meu diagnóstico
-              </Link>
-            </div>
-
-            <div className="mt-8 grid gap-5 md:grid-cols-3">
-              {examples.map((example) => (
-                <article key={example.name} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-                  <p className="text-sm font-bold uppercase tracking-wide text-[#00A8CC]">{example.label}</p>
-                  <h3 className="mt-3 text-2xl font-bold text-[#00334E]">{example.name}</h3>
-                  <p className="mt-3 min-h-24 leading-7 text-slate-700">{example.description}</p>
-                  <a
-                    href={example.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-5 inline-flex rounded-xl border border-[#00334E]/20 px-4 py-3 font-bold text-[#00334E] hover:bg-[#00334E] hover:text-white"
-                  >
-                    Abrir exemplo
-                  </a>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-4 py-14">
+        <section id="como-funciona" className="scroll-mt-32 mx-auto max-w-6xl px-4 py-14">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Como funciona</p>
           <h2 className="mt-3 text-3xl font-bold md:text-4xl">Uma abordagem simples para evitar solução genérica.</h2>
 
@@ -241,7 +262,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="border-t border-white/10 bg-[#00263A] px-4 py-14">
+        <section id="networking" className="scroll-mt-32 border-t border-white/10 bg-[#00263A] px-4 py-14">
           <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1fr_1fr] lg:items-center">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">Networking e parcerias</p>
@@ -258,6 +279,34 @@ export default function Home() {
                   <p className="font-semibold text-white/90">{item}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="qr-codes" className="scroll-mt-32 px-4 py-14">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-8 text-center">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#31C16B]">QR Codes</p>
+              <h2 className="mt-3 text-3xl font-bold md:text-4xl">Compartilhe rapidamente pelo celular.</h2>
+              <p className="mx-auto mt-4 max-w-3xl leading-7 text-white/80">
+                Use estes QR Codes em conversas, reuniões e eventos de networking para abrir a página da Automação
+                Extrema ou iniciar uma conversa no WhatsApp.
+              </p>
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <QrCard
+                title="Abrir esta página"
+                description="QR para compartilhar a página principal da Automação Extrema."
+                src="/qr-automacao-extrema-home.svg"
+                alt="QR Code para abrir o site da Automação Extrema"
+              />
+              <QrCard
+                title="WhatsApp rápido"
+                description="QR para iniciar uma conversa com uma mensagem genérica de diagnóstico."
+                src="/qr-automacao-extrema-whatsapp.svg"
+                alt="QR Code para abrir o WhatsApp da Automação Extrema"
+              />
             </div>
           </div>
         </section>
@@ -287,12 +336,30 @@ export default function Home() {
   );
 }
 
+function QuickNav() {
+  return (
+    <nav className="sticky top-[57px] z-40 border-b border-white/10 bg-[#00263A]/95 backdrop-blur sm:top-[73px]" aria-label="Acesso rápido às seções da página">
+      <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 py-3 text-xs font-black uppercase tracking-wide text-white sm:text-sm">
+        {quickNavItems.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className="shrink-0 rounded-full bg-white/10 px-3 py-2 hover:bg-[#31C16B] hover:text-[#00334E]"
+          >
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function QrCard({ title, description, src, alt }: { title: string; description: string; src: string; alt: string }) {
   return (
-    <div className="rounded-3xl bg-white p-4 text-[#00334E] shadow-lg">
-      <Image src={src} alt={alt} width={220} height={220} className="mx-auto h-auto w-full max-w-36 rounded-xl" />
-      <h2 className="mt-3 text-center text-lg font-black">{title}</h2>
-      <p className="mt-2 text-center text-xs leading-5 text-slate-600">{description}</p>
+    <div className="rounded-3xl bg-white p-5 text-[#00334E] shadow-lg">
+      <Image src={src} alt={alt} width={320} height={320} className="mx-auto h-auto w-full max-w-56 rounded-xl" />
+      <h2 className="mt-4 text-center text-xl font-black">{title}</h2>
+      <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-6 text-slate-600">{description}</p>
     </div>
   );
 }
