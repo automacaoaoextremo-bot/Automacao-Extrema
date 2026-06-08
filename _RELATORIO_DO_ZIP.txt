@@ -1,0 +1,19 @@
+﻿Projeto: automacao-extrema
+Gerado em: 2026-06-08 09:07:45
+Origem: C:\Users\lacos\Documents\GitHub\Automacao-Extrema
+
+Objetivo:
+Enviar a versÃ£o atual do projeto AutomaÃ§Ã£o Extrema para ajustes da gestÃ£o multi-soluÃ§Ã£o,
+incluindo PresenÃ§a Querida, cadastros de pÃºblicos alvo, dores, funcionalidades, parceiros,
+comissÃµes e sites/pÃ¡ginas de clientes.
+
+Itens propositalmente NÃƒO incluÃ­dos:
+- node_modules
+- .next
+- .git
+- .vercel
+- arquivos .env reais
+- caches e builds gerados
+
+ObservaÃ§Ã£o:
+Enviar somente .env.example, sem chaves reais do Supabase, Vercel, Gmail ou APIs.

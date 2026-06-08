@@ -1,19 +1,57 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { parseNumber, parseStringArray, requiredText, toSlug } from "@/lib/ae-utils";
 
-function toSlug(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+async function replaceSolutionRelations(solutionId: string, body: Record<string, unknown>): Promise<{ message: string } | null> {
+  const targetAudienceIds = parseStringArray(body.target_audience_ids);
+  const painIds = parseStringArray(body.pain_ids);
+  const featureIds = parseStringArray(body.feature_ids);
 
-function requiredText(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
+  const deleteResults = await Promise.all([
+    supabaseAdmin.from("ae_solution_target_audiences").delete().eq("solution_id", solutionId),
+    supabaseAdmin.from("ae_solution_pains").delete().eq("solution_id", solutionId),
+    supabaseAdmin.from("ae_solution_features").delete().eq("solution_id", solutionId),
+  ]);
+
+  const deleteError = deleteResults.find((result) => result.error)?.error;
+  if (deleteError) return { message: deleteError.message };
+
+  if (targetAudienceIds.length > 0) {
+    const { error } = await supabaseAdmin.from("ae_solution_target_audiences").insert(
+      targetAudienceIds.map((targetAudienceId, index) => ({
+        solution_id: solutionId,
+        target_audience_id: targetAudienceId,
+        is_primary: index === 0,
+      }))
+    );
+    if (error) return { message: error.message };
+  }
+
+  if (painIds.length > 0) {
+    const { error } = await supabaseAdmin.from("ae_solution_pains").insert(
+      painIds.map((painId, index) => ({
+        solution_id: solutionId,
+        pain_id: painId,
+        intensity: index === 0 ? "alta" : "media",
+      }))
+    );
+    if (error) return { message: error.message };
+  }
+
+  if (featureIds.length > 0) {
+    const { error } = await supabaseAdmin.from("ae_solution_features").insert(
+      featureIds.map((featureId, index) => ({
+        solution_id: solutionId,
+        feature_id: featureId,
+        is_core: index < 3,
+        is_visible: true,
+      }))
+    );
+    if (error) return { message: error.message };
+  }
+
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -40,12 +78,11 @@ export async function POST(request: Request) {
   const shortDescription = requiredText(body.short_description);
   const targetAudience = requiredText(body.target_audience);
   const mainPains = requiredText(body.main_pains);
-  const rawSlug = requiredText(body.slug);
-  const slug = toSlug(rawSlug || name);
+  const slug = toSlug(requiredText(body.slug) || name);
   const currentStatus = requiredText(body.current_status) || "ideia";
   const stage = requiredText(body.stage) || "validacao";
   const sourceFile = requiredText(body.source_file);
-  const priority = Number.isFinite(Number(body.priority)) ? Number(body.priority) : 0;
+  const priority = parseNumber(body.priority, 0);
 
   const missingFields = [
     !name ? "Nome" : null,
@@ -74,7 +111,7 @@ export async function POST(request: Request) {
       stage,
       priority,
       source_file: sourceFile || null,
-      is_active: Boolean(body.is_active),
+      is_active: body.is_active !== false,
     })
     .select("*")
     .single();
@@ -86,6 +123,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: message }, { status: 500 });
   }
+
+  const relationError = await replaceSolutionRelations(data.id, body);
+  if (relationError) return NextResponse.json({ error: relationError.message }, { status: 500 });
 
   return NextResponse.json({ solution: data }, { status: 201 });
 }

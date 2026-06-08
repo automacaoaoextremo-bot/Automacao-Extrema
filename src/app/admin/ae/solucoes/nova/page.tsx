@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AdminPageShell } from "@/components/admin-page-shell";
 import { adminFetch } from "@/lib/admin-fetch";
+import { toSlug } from "@/lib/ae-utils";
 
 type Solution = {
   id: string;
@@ -19,21 +21,29 @@ type Solution = {
   is_active: boolean;
 };
 
-function toSlug(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+type CatalogItem = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_active: boolean;
+};
+
+type CatalogPayload = {
+  target_audiences: CatalogItem[];
+  pains: CatalogItem[];
+  features: CatalogItem[];
+};
 
 export default function NovaSolucaoPage() {
   const router = useRouter();
+  const [catalog, setCatalog] = useState<CatalogPayload>({ target_audiences: [], pains: [], features: [] });
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  const [selectedTargetAudiences, setSelectedTargetAudiences] = useState<string[]>([]);
+  const [selectedPains, setSelectedPains] = useState<string[]>([]);
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [createdSolution, setCreatedSolution] = useState<Solution | null>(null);
   const [error, setError] = useState("");
@@ -41,6 +51,16 @@ export default function NovaSolucaoPage() {
 
   const suggestedSlug = useMemo(() => toSlug(name), [name]);
   const effectiveSlug = slugTouched ? slug : suggestedSlug;
+
+  useEffect(() => {
+    adminFetch<CatalogPayload>("/api/admin/catalog")
+      .then(setCatalog)
+      .catch(() => undefined);
+  }, []);
+
+  function toggle(current: string[], value: string, setter: (values: string[]) => void) {
+    setter(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,6 +87,9 @@ export default function NovaSolucaoPage() {
           priority: Number(formData.get("priority") || 0),
           source_file: String(formData.get("source_file") || ""),
           is_active: formData.get("is_active") === "on",
+          target_audience_ids: selectedTargetAudiences,
+          pain_ids: selectedPains,
+          feature_ids: selectedFeatures,
         }),
       });
 
@@ -80,38 +103,24 @@ export default function NovaSolucaoPage() {
     }
   }
 
-  function resetForm() {
-    setName("");
-    setSlug("");
-    setSlugTouched(false);
-    setMessage("");
-    setError("");
-    setCreatedSolution(null);
-  }
-
   return (
-    <main className="min-h-screen bg-slate-100 p-4 sm:p-6">
-      <section className="mx-auto max-w-4xl rounded-2xl bg-white p-5 shadow">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-          <div>
-            <Link href="/admin/ae/solucoes" className="text-sm font-bold text-[#00A8CC]">← Voltar para Soluções</Link>
-            <h1 className="mt-3 text-3xl font-bold text-[#00334E]">Nova solução</h1>
-            <p className="mt-1 text-slate-600">
-              Cadastre ideias, MVPs e cases que serão usados no diagnóstico e na gestão de oportunidades.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/admin/ae/solucoes" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
-              Cancelar
-            </Link>
-            <Link href="/admin/ae" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
-              Ir para Gestão
-            </Link>
-          </div>
-        </div>
-
+    <AdminPageShell
+      title="Nova solução"
+      description="Cadastre uma solução já conectada aos cadastros reutilizáveis de públicos, dores e funcionalidades. Isso facilita a migração para uma plataforma multi-solução."
+      actions={
+        <>
+          <Link href="/admin/ae/solucoes" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
+            Cancelar
+          </Link>
+          <Link href="/admin/ae/catalogo" className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-[#00A8CC]">
+            Editar catálogo
+          </Link>
+        </>
+      }
+    >
+      <section className="rounded-3xl bg-white p-5 shadow">
         {message && (
-          <div className="mt-4 rounded-xl bg-green-50 p-4 text-green-700">
+          <div className="rounded-xl bg-green-50 p-4 text-green-700">
             <p className="font-semibold">{message}</p>
             <div className="mt-3 flex flex-wrap gap-3">
               {createdSolution && (
@@ -122,12 +131,6 @@ export default function NovaSolucaoPage() {
               <Link href="/admin/ae/solucoes" className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-green-800 underline">
                 Voltar para Soluções
               </Link>
-              <Link href="/admin/ae" className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-green-800 underline">
-                Ir para Gestão
-              </Link>
-              <button type="button" onClick={resetForm} className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-green-800 underline">
-                Cadastrar outra solução
-              </button>
             </div>
           </div>
         )}
@@ -135,33 +138,34 @@ export default function NovaSolucaoPage() {
         {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-red-700">{error}</p>}
 
         {!createdSolution && (
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
-            <Input
-              name="name"
-              label="Nome"
-              value={name}
-              onChange={(value) => {
-                setName(value);
-                if (!slugTouched) setSlug(toSlug(value));
-              }}
-              required
-            />
+          <form onSubmit={onSubmit} className="mt-2 space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input
+                name="name"
+                label="Nome"
+                value={name}
+                onChange={(value) => {
+                  setName(value);
+                  if (!slugTouched) setSlug(toSlug(value));
+                }}
+                required
+              />
 
-            <Input
-              name="slug"
-              label="Slug"
-              value={effectiveSlug}
-              onChange={(value) => {
-                setSlugTouched(true);
-                setSlug(toSlug(value));
-              }}
-              help="Identificador usado pelo sistema. Exemplo: familia-presente-60-mais."
-              required
-            />
+              <Input
+                name="slug"
+                label="Slug"
+                value={effectiveSlug}
+                onChange={(value) => {
+                  setSlugTouched(true);
+                  setSlug(toSlug(value));
+                }}
+                required
+              />
+            </div>
 
             <Textarea name="short_description" label="Descrição curta" rows={3} required />
-            <Textarea name="target_audience" label="Público-alvo" rows={3} required />
-            <Textarea name="main_pains" label="Dores principais" rows={4} required />
+            <Textarea name="target_audience" label="Público-alvo resumido" rows={3} required />
+            <Textarea name="main_pains" label="Principais dores resolvidas" rows={4} required />
 
             <div className="grid gap-4 md:grid-cols-3">
               <Select name="current_status" label="Status" defaultValue="ideia" options={["ideia", "validando", "mvp", "case", "operacao", "pausada"]} />
@@ -169,7 +173,13 @@ export default function NovaSolucaoPage() {
               <Input name="priority" label="Prioridade" type="number" defaultValue="3" />
             </div>
 
-            <Input name="source_file" label="Arquivo de origem" defaultValue="" help="Opcional. Exemplo: AE - Nova Solução.docx" />
+            <Input name="source_file" label="Arquivo de origem" defaultValue="" help="Opcional. Exemplo: AE - Presença Querida.docx" />
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <CheckboxGroup title="Públicos associados" items={catalog.target_audiences} selected={selectedTargetAudiences} onToggle={(id) => toggle(selectedTargetAudiences, id, setSelectedTargetAudiences)} />
+              <CheckboxGroup title="Dores associadas" items={catalog.pains} selected={selectedPains} onToggle={(id) => toggle(selectedPains, id, setSelectedPains)} />
+              <CheckboxGroup title="Funcionalidades associadas" items={catalog.features} selected={selectedFeatures} onToggle={(id) => toggle(selectedFeatures, id, setSelectedFeatures)} />
+            </div>
 
             <label className="flex gap-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
               <input name="is_active" type="checkbox" defaultChecked />
@@ -187,7 +197,25 @@ export default function NovaSolucaoPage() {
           </form>
         )}
       </section>
-    </main>
+    </AdminPageShell>
+  );
+}
+
+function CheckboxGroup({ title, items, selected, onToggle }: { title: string; items: CatalogItem[]; selected: string[]; onToggle: (id: string) => void }) {
+  const activeItems = items.filter((item) => item.is_active !== false);
+  return (
+    <section className="rounded-2xl border border-slate-200 p-4">
+      <h3 className="font-bold text-[#00334E]">{title}</h3>
+      <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+        {activeItems.map((item) => (
+          <label key={item.id} className="flex gap-2 rounded-xl bg-slate-50 p-2 text-sm text-slate-700">
+            <input type="checkbox" checked={selected.includes(item.id)} onChange={() => onToggle(item.id)} />
+            <span>{item.name}</span>
+          </label>
+        ))}
+        {activeItems.length === 0 && <p className="text-sm text-slate-500">Nenhum item ativo no catálogo.</p>}
+      </div>
+    </section>
   );
 }
 
