@@ -40,11 +40,11 @@ export default function CorrenteEmDiaLandingPage() {
         actions={headerActions}
       />
 
-      <section id="solucao" className="scroll-mt-48 border-b border-[#dfe8df] bg-[#f6fbf8]">
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-9 lg:grid-cols-[1.05fr_0.95fr] lg:py-14">
-          <div className="space-y-6">
+      <section id="solucao" className="scroll-mt-56 border-b border-[#dfe8df] bg-[#f6fbf8]">
+        <div className="mx-auto grid max-w-6xl gap-7 px-4 py-7 lg:grid-cols-[1.05fr_0.95fr] lg:py-12">
+          <div className="space-y-4">
             <p className="text-sm font-black uppercase tracking-[0.35em] text-[#2F6B43]">Solução para arrecadações</p>
-            <h1 className="text-4xl font-black leading-tight text-[#00334E] sm:text-5xl">
+            <h1 className="text-4xl font-black leading-[1.08] text-[#00334E] sm:text-5xl">
               A contribuição da casa organizada com respeito, clareza e custo fixo zero.
             </h1>
             <p className="max-w-3xl text-lg leading-8 text-slate-700">
@@ -68,7 +68,7 @@ export default function CorrenteEmDiaLandingPage() {
             </div>
           </div>
 
-          <div id="painel" className="scroll-mt-52 rounded-[2rem] bg-white p-4 shadow-xl sm:p-5">
+          <div id="painel" className="scroll-mt-56 rounded-[2rem] bg-white p-4 shadow-xl sm:p-5">
             <div className="rounded-[1.5rem] bg-[#00334E] p-5 text-white">
               <p className="text-sm font-bold text-emerald-300">Painel simples da organização</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -86,7 +86,7 @@ export default function CorrenteEmDiaLandingPage() {
               </div>
             </div>
 
-            <div id="contribuicao" className="scroll-mt-52 mt-4 rounded-3xl border border-slate-200 p-4">
+            <div id="contribuicao" className="scroll-mt-56 mt-4 rounded-3xl border border-slate-200 p-4">
               <p className="font-black text-[#00334E]">Minha contribuição</p>
               <p className="mt-1 text-sm text-slate-600">Valor: R$ 50,00 • Até dia 10</p>
               <div className="mt-4 flex h-32 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-500">QR Code Pix</div>
@@ -101,7 +101,7 @@ export default function CorrenteEmDiaLandingPage() {
         </div>
       </section>
 
-      <section id="beneficios" className="scroll-mt-52 mx-auto max-w-6xl px-4 py-10">
+      <section id="beneficios" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
         <div className="mb-6 max-w-3xl">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Benefícios</p>
           <h2 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
@@ -121,7 +121,7 @@ export default function CorrenteEmDiaLandingPage() {
         </div>
       </section>
 
-      <section id="como-funciona" className="scroll-mt-52 mx-auto max-w-6xl px-4 py-10">
+      <section id="como-funciona" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
         <div className="rounded-[2rem] bg-white p-6 shadow sm:p-8">
           <h2 className="text-3xl font-black text-[#00334E]">Como funciona</h2>
           <ol className="mt-6 grid gap-4 md:grid-cols-2">
@@ -142,7 +142,7 @@ export default function CorrenteEmDiaLandingPage() {
         </div>
       </section>
 
-      <section id="cliente-fundador" className="scroll-mt-52 mx-auto max-w-6xl px-4 py-10">
+      <section id="cliente-fundador" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
         <div className="grid gap-6 rounded-[2rem] bg-[#00334E] p-6 text-white shadow sm:p-8 lg:grid-cols-[0.95fr_1.05fr]">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.25em] text-emerald-300">Cliente Fundador</p>
