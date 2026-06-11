@@ -1,0 +1,12 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Corrente em Dia</title>
+  <desc id="desc">Logo da solução Corrente em Dia, com elos de corrente, check de confirmação e letras CE.</desc>
+  <rect width="180" height="180" rx="46" fill="#2F6B43"/>
+  <circle cx="90" cy="90" r="62" fill="#F8FBF6" fill-opacity="0.10"/>
+  <circle cx="90" cy="90" r="48" fill="#F8FBF6" fill-opacity="0.06"/>
+  <path d="M62 77H49C37.402 77 28 86.402 28 98C28 109.598 37.402 119 49 119H70C81.598 119 91 109.598 91 98C91 92.839 89.139 88.114 86.052 84.457" stroke="#F8FBF6" stroke-width="10" stroke-linecap="round"/>
+  <path d="M118 103H131C142.598 103 152 93.598 152 82C152 70.402 142.598 61 131 61H110C98.402 61 89 70.402 89 82C89 87.161 90.861 91.886 93.948 95.543" stroke="#F8FBF6" stroke-width="10" stroke-linecap="round"/>
+  <path d="M63 92.5L80.5 110L119 71.5" stroke="#31C16B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="56" y="130" width="68" height="25" rx="12.5" fill="#F8FBF6" fill-opacity="0.14"/>
+  <text x="90" y="149" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="900" fill="#F8FBF6" letter-spacing="3">CE</text>
+</svg>
