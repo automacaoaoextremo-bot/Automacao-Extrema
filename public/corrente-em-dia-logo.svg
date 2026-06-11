@@ -1,10 +1,12 @@
-<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">Corrente em Dia</title>
-  <desc id="desc">Logo da solução Corrente em Dia, com elo de corrente, check e letras CE.</desc>
-  <rect width="160" height="160" rx="42" fill="#2F6B43"/>
-  <circle cx="80" cy="80" r="52" fill="#F8FBF6" fill-opacity="0.12"/>
-  <path d="M55.5 69.5H43.5C32.73 69.5 24 78.23 24 89C24 99.77 32.73 108.5 43.5 108.5H63C73.77 108.5 82.5 99.77 82.5 89C82.5 84.13 80.72 79.68 77.77 76.26" stroke="#F8FBF6" stroke-width="9" stroke-linecap="round"/>
-  <path d="M104.5 90.5H116.5C127.27 90.5 136 81.77 136 71C136 60.23 127.27 51.5 116.5 51.5H97C86.23 51.5 77.5 60.23 77.5 71C77.5 75.87 79.28 80.32 82.23 83.74" stroke="#F8FBF6" stroke-width="9" stroke-linecap="round"/>
-  <path d="M57 81.5L72 96.5L106 62.5" stroke="#31C16B" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="80" y="129" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="900" fill="#F8FBF6" letter-spacing="2">CE</text>
+  <desc id="desc">Logo da solução Corrente em Dia, com elos de corrente, check de confirmação e letras CE.</desc>
+  <rect width="180" height="180" rx="46" fill="#2F6B43"/>
+  <circle cx="90" cy="90" r="62" fill="#F8FBF6" fill-opacity="0.10"/>
+  <circle cx="90" cy="90" r="48" fill="#F8FBF6" fill-opacity="0.06"/>
+  <path d="M62 77H49C37.402 77 28 86.402 28 98C28 109.598 37.402 119 49 119H70C81.598 119 91 109.598 91 98C91 92.839 89.139 88.114 86.052 84.457" stroke="#F8FBF6" stroke-width="10" stroke-linecap="round"/>
+  <path d="M118 103H131C142.598 103 152 93.598 152 82C152 70.402 142.598 61 131 61H110C98.402 61 89 70.402 89 82C89 87.161 90.861 91.886 93.948 95.543" stroke="#F8FBF6" stroke-width="10" stroke-linecap="round"/>
+  <path d="M63 92.5L80.5 110L119 71.5" stroke="#31C16B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="56" y="130" width="68" height="25" rx="12.5" fill="#F8FBF6" fill-opacity="0.14"/>
+  <text x="90" y="149" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="900" fill="#F8FBF6" letter-spacing="3">CE</text>
 </svg>

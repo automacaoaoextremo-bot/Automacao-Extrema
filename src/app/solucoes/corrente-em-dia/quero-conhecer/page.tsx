@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import { AeBrandStrip, AeSolutionHeader } from "@/components/ae-solution-header";
+import { AeSolutionHeader } from "@/components/ae-solution-header";
 
 const aeWhatsappNumber = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "").replace(/\D/g, "");
 
@@ -59,11 +59,11 @@ export default function CorrenteEmDiaLeadPage() {
         logoSrc="/corrente-em-dia-logo.svg"
         logoAlt="Logo Corrente em Dia"
         actions={[
-          { label: "Quero Conhecer", href: "/solucoes/corrente-em-dia/quero-conhecer", variant: "secondary" },
+          { label: "Quero Conhecer", href: "/solucoes/corrente-em-dia/quero-conhecer", variant: "primary" },
           { label: "Já sou Cliente", href: "/login", variant: "secondary" },
         ]}
+        sectionLinks={[]}
       />
-      <AeBrandStrip />
 
       <section className="mx-auto grid max-w-6xl gap-8 px-4 py-10 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-5">
@@ -146,7 +146,7 @@ export default function CorrenteEmDiaLeadPage() {
 
           {touched && !canSend && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">Preencha nome da organização, responsável, WhatsApp e aceite o contato.</p>}
 
-          <button type="submit" className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 font-black text-[#00334E] shadow transition hover:bg-[#4ada82]">
+          <button type="submit" className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] hover:shadow-xl">
             Enviar interesse pelo WhatsApp
           </button>
         </form>
