@@ -4,15 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminPageShell } from "@/components/admin-page-shell";
 import { adminFetch } from "@/lib/admin-fetch";
-import { currencyBR, organizationTypeLabel, type CorrenteDashboardItem, type CorrenteOrganization } from "@/lib/corrente-em-dia";
+import { currencyBR, organizationTypeLabel, type CorrenteClientTermDashboard, type CorrenteDashboardItem, type CorrenteOrganization } from "@/lib/corrente-em-dia";
 
 type Payload = {
   dashboard: CorrenteDashboardItem[];
   organizations: CorrenteOrganization[];
+  clientTerms: CorrenteClientTermDashboard[];
 };
 
 export default function AdminCorrenteEmDiaPage() {
-  const [payload, setPayload] = useState<Payload>({ dashboard: [], organizations: [] });
+  const [payload, setPayload] = useState<Payload>({ dashboard: [], organizations: [], clientTerms: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -113,6 +114,7 @@ export default function AdminCorrenteEmDiaPage() {
           </div>
         </div>
 
+        <div className="space-y-6">
         <div className="rounded-3xl bg-white p-4 shadow sm:p-5">
           <h2 className="text-xl font-black text-[#00334E]">Acompanhamento mensal</h2>
           <div className="mt-4 space-y-3">
@@ -133,6 +135,30 @@ export default function AdminCorrenteEmDiaPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-4 shadow sm:p-5">
+          <h2 className="text-xl font-black text-[#00334E]">Condições por cliente</h2>
+          <p className="mt-1 text-sm text-slate-600">Todos os valores, percentuais e benefícios podem ser editados por cliente no contrato/termo do Corrente em Dia.</p>
+          <div className="mt-4 space-y-3">
+            {payload.clientTerms.slice(0, 8).map((term) => (
+              <div key={`${term.organization_id}-${term.condition_label}`} className="rounded-2xl border border-slate-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black text-slate-800">{term.organization_name}</p>
+                    <p className="text-xs text-slate-500">{organizationTypeLabel(term.organization_type ?? "")} • {term.condition_label}</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">{term.fee_status === "em_definicao" ? "taxa em definição" : `${Number(term.operational_fee_percentage ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}%`}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <span className="rounded-xl bg-slate-50 p-2">Implantação: <b>{currencyBR(term.setup_fee)}</b></span>
+                  <span className="rounded-xl bg-slate-50 p-2">Mensalidade: <b>{currencyBR(term.monthly_fee)}</b></span>
+                  <span className="rounded-xl bg-slate-50 p-2">Piloto: <b>{term.pilot_days} dias</b></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         </div>
       </section>
     </AdminPageShell>

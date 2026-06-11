@@ -1,16 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
+import { FormEvent, useMemo, useState } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
-
-const aeWhatsappNumber = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "").replace(/\D/g, "");
+import { buildAeWhatsAppUrl } from "@/lib/ae-public-links";
 
 function buildWhatsappUrl(message: string) {
-  const text = encodeURIComponent(message);
-  if (!aeWhatsappNumber) return `https://api.whatsapp.com/send?text=${text}`;
-  const number = aeWhatsappNumber.startsWith("55") ? aeWhatsappNumber : `55${aeWhatsappNumber}`;
-  return `https://wa.me/${number}?text=${text}`;
+  return buildAeWhatsAppUrl(message);
 }
 
 export default function CorrenteEmDiaLeadPage() {
@@ -58,18 +54,20 @@ export default function CorrenteEmDiaLeadPage() {
         solutionName="Corrente em Dia"
         logoSrc="/corrente-em-dia-logo.svg"
         logoAlt="Logo Corrente em Dia"
-        actions={[
-          { label: "Quero Conhecer", href: "/solucoes/corrente-em-dia/quero-conhecer", variant: "primary" },
-          { label: "Já sou Cliente", href: "/login", variant: "secondary" },
-        ]}
+        actions={[]}
         sectionLinks={[]}
       />
 
-      <section className="mx-auto grid max-w-6xl gap-8 px-4 py-10 lg:grid-cols-[0.9fr_1.1fr]">
+      <section className="mx-auto grid max-w-6xl gap-8 px-4 py-7 lg:grid-cols-[0.9fr_1.1fr] lg:py-10">
         <div className="space-y-5">
-          <Link href="/solucoes/corrente-em-dia" className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow-sm">
-            ← Voltar
-          </Link>
+          <div className="flex justify-end">
+            <Link
+              href="/solucoes/corrente-em-dia"
+              className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow-sm transition hover:-translate-y-0.5 hover:border-[#31C16B] hover:bg-emerald-50"
+            >
+              ← Voltar
+            </Link>
+          </div>
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Cadastro de interesse</p>
           <h1 className="text-4xl font-black leading-tight text-[#00334E]">Quero conhecer o Corrente em Dia</h1>
           <p className="text-lg leading-8 text-slate-700">
@@ -82,6 +80,7 @@ export default function CorrenteEmDiaLeadPage() {
               <li>• chave Pix oficial da organização;</li>
               <li>• necessidade de contribuição individual, familiar ou livre;</li>
               <li>• quem poderá revisar e aprovar comprovantes;</li>
+              <li>• valores, taxas e condições de Cliente Fundador configuráveis por cliente;</li>
               <li>• autorização e cuidados com LGPD.</li>
             </ul>
           </div>

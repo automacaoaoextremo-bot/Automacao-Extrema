@@ -27,7 +27,7 @@ const whatsappUrl = buildAeWhatsAppUrl(
 
 const headerActions = [
   { label: "Quero Conhecer", href: "/solucoes/corrente-em-dia/quero-conhecer", variant: "primary" as const },
-  { label: "Já sou Cliente", href: "/login", variant: "secondary" as const },
+  { label: "Já sou Cliente", href: "/solucoes/corrente-em-dia/login", variant: "secondary" as const },
 ];
 
 export default function CorrenteEmDiaLandingPage() {
