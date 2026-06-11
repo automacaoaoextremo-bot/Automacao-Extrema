@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
 import { currencyBR, contributionStatusLabel, formatPercent, organizationTypeLabel, type CorrenteClientDashboardPayload } from "@/lib/corrente-em-dia";
@@ -78,6 +77,14 @@ export default function CorrenteEmDiaClientDashboardPage() {
 
   const organization = payload?.organizations?.[0];
   const term = payload?.clientTerms?.[0];
+  const roleNames =
+    payload?.links
+      ?.map((link) => link.role?.name)
+      .filter((roleName): roleName is string => Boolean(roleName)) ?? [];
+  const accessLabel = payload?.is_manager ? "Acesso de responsável" : "Acesso de contribuinte";
+  const accessDescription = payload?.is_manager
+    ? "Você visualiza a organização vinculada, contribuições, comprovantes, pendências e condições comerciais configuradas para o cliente."
+    : "Você visualiza somente suas próprias contribuições, comprovantes e histórico, conforme a finalidade autorizada pela organização.";
 
   return (
     <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
@@ -87,28 +94,27 @@ export default function CorrenteEmDiaClientDashboardPage() {
         logoAlt="Logo Corrente em Dia"
         actions={[]}
         sectionLinks={[]}
+        topAction={
+          <button
+            type="button"
+            onClick={logout}
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#00334E] bg-[#00334E] px-4 py-2 text-sm font-black text-white shadow-md transition hover:-translate-y-0.5 hover:bg-[#064969]"
+          >
+            Sair
+          </button>
+        }
       />
 
       <section className="mx-auto max-w-6xl px-4 py-7 lg:py-10">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Painel do cliente</p>
-            <h1 className="mt-2 text-4xl font-black leading-tight text-[#00334E]">
-              {organization ? organization.name : "Corrente em Dia"}
-            </h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">
-              {payload?.person?.full_name ? `Olá, ${payload.person.full_name}. ` : ""}
-              Acompanhe contribuições, comprovantes, pendências e as condições comerciais configuradas para este cliente.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/solucoes/corrente-em-dia" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow-sm">
-              Página pública
-            </Link>
-            <button onClick={logout} className="rounded-full bg-[#00334E] px-4 py-2 text-sm font-bold text-white shadow-sm">
-              Sair
-            </button>
-          </div>
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Painel do cliente</p>
+          <h1 className="mt-2 text-4xl font-black leading-tight text-[#00334E]">
+            {organization ? organization.name : "Corrente em Dia"}
+          </h1>
+          <p className="mt-2 text-base leading-7 text-slate-600">
+            {payload?.person?.full_name ? `Olá, ${payload.person.full_name}. ` : ""}
+            Acompanhe contribuições, comprovantes, pendências e as condições comerciais configuradas para este cliente.
+          </p>
         </div>
 
         {loading && <div className="mt-6 rounded-3xl bg-white p-5 shadow">Carregando painel...</div>}
@@ -116,6 +122,21 @@ export default function CorrenteEmDiaClientDashboardPage() {
 
         {payload && !error && (
           <div className="mt-7 space-y-6">
+            <section className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Tipo de acesso</p>
+              <h2 className="mt-1 text-2xl font-black text-[#00334E]">{accessLabel}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-700">{accessDescription}</p>
+              {roleNames.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {roleNames.map((roleName) => (
+                    <span key={roleName} className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800">
+                      {roleName}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <section className="grid gap-4 md:grid-cols-5">
               {[
                 ["Previsto", currencyBR(totals.expected)],

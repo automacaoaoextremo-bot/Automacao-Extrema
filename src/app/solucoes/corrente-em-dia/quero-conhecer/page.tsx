@@ -56,18 +56,18 @@ export default function CorrenteEmDiaLeadPage() {
         logoAlt="Logo Corrente em Dia"
         actions={[]}
         sectionLinks={[]}
+        topAction={
+          <Link
+            href="/solucoes/corrente-em-dia"
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
+          >
+            ← Voltar
+          </Link>
+        }
       />
 
       <section className="mx-auto grid max-w-6xl gap-8 px-4 py-7 lg:grid-cols-[0.9fr_1.1fr] lg:py-10">
         <div className="space-y-5">
-          <div className="flex justify-end">
-            <Link
-              href="/solucoes/corrente-em-dia"
-              className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-[#00334E] shadow-sm transition hover:-translate-y-0.5 hover:border-[#31C16B] hover:bg-emerald-50"
-            >
-              ← Voltar
-            </Link>
-          </div>
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Cadastro de interesse</p>
           <h1 className="text-4xl font-black leading-tight text-[#00334E]">Quero conhecer o Corrente em Dia</h1>
           <p className="text-lg leading-8 text-slate-700">

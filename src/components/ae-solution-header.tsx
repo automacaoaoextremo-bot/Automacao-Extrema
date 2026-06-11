@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 export type SolutionHeaderAction = {
   label: string;
@@ -56,6 +57,7 @@ export function AeSolutionHeader({
   actions,
   sectionLinks = defaultSolutionLinks,
   showBrandStrip = true,
+  topAction,
 }: {
   solutionName: string;
   logoSrc: string;
@@ -63,22 +65,25 @@ export function AeSolutionHeader({
   actions: SolutionHeaderAction[];
   sectionLinks?: SolutionSectionLink[];
   showBrandStrip?: boolean;
+  topAction?: ReactNode;
 }) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-start gap-3 px-4 py-2.5 sm:px-5 sm:py-3">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-5 sm:py-3">
         <Link
           href="/solucoes/corrente-em-dia"
-          className="flex min-w-0 items-center gap-3"
+          className="flex min-w-0 flex-1 items-center gap-3"
           aria-label={`Ir para ${solutionName}`}
         >
-          <span className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2F6B43] shadow sm:h-16 sm:w-16">
+          <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2F6B43] shadow sm:h-16 sm:w-16">
             <Image src={logoSrc} alt={logoAlt} width={72} height={72} className="h-full w-full object-cover" priority />
           </span>
-          <span className="min-w-0 text-2xl font-black leading-[1.05] text-[#173323] sm:text-3xl">
+          <span className="min-w-0 whitespace-nowrap text-[1.35rem] font-black leading-[1.05] text-[#173323] sm:text-3xl">
             {solutionName}
           </span>
         </Link>
+
+        {topAction && <div className="shrink-0">{topAction}</div>}
       </div>
 
       {showBrandStrip && <AeBrandStrip compact />}
