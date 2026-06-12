@@ -119,13 +119,9 @@ export default function CorrenteEmDiaClientLoginPage() {
         <div className="space-y-5">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Área do cliente</p>
           <h1 className="text-4xl font-black leading-tight text-[#00334E]">Entrar no Corrente em Dia</h1>
-          <p className="text-lg leading-8 text-slate-700">
-            Acesso para federações, associações, terreiros e responsáveis autorizados acompanharem arrecadações, contribuições, comprovantes e condições de Cliente Fundador.
-          </p>
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-            <p className="font-black text-[#00334E]">Tipos de acesso</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Responsáveis da organização acompanham a visão geral da casa, aprovações e relatórios. Contribuintes acessam apenas suas próprias contribuições, comprovantes e histórico, conforme a finalidade autorizada pela organização.
+          <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6">
+            <p className="text-base leading-8 text-slate-700 sm:text-lg">
+              Aqui você acessa o Corrente em Dia para consultar e acompanhar o que realmente importa no dia a dia da organização: contribuições, comprovantes e informações de gestão. O sistema diferencia o acesso de responsáveis e contribuintes, preservando a privacidade dos dados e trazendo mais clareza, confiança e tranquilidade para todos.
             </p>
           </div>
         </div>

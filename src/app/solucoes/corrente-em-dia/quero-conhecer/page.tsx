@@ -70,19 +70,13 @@ export default function CorrenteEmDiaLeadPage() {
         <div className="space-y-5">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Cadastro de interesse</p>
           <h1 className="text-4xl font-black leading-tight text-[#00334E]">Quero conhecer o Corrente em Dia</h1>
-          <p className="text-lg leading-8 text-slate-700">
-            Preencha os dados principais da associação, federação ou terreiro. Por enquanto, esta página organiza o primeiro contato pelo WhatsApp da Automação Extrema para validar a implantação como Cliente Fundador.
-          </p>
-          <div className="rounded-3xl bg-white p-5 shadow">
-            <p className="font-black text-[#00334E]">O que será avaliado na conversa</p>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-              <li>• quantidade aproximada de contribuintes;</li>
-              <li>• chave Pix oficial da organização;</li>
-              <li>• necessidade de contribuição individual, familiar ou livre;</li>
-              <li>• quem poderá revisar e aprovar comprovantes;</li>
-              <li>• valores, taxas e condições de Cliente Fundador configuráveis por cliente;</li>
-              <li>• autorização e cuidados com LGPD.</li>
-            </ul>
+          <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6">
+            <p className="text-base leading-8 text-slate-700 sm:text-lg">
+              Preencha os dados principais da sua associação, federação ou terreiro para iniciar a conversa sobre o Corrente em Dia. A proposta é entender sua realidade, apresentar uma forma mais simples de organizar contribuições e mostrar como a casa pode ganhar mais clareza, previsibilidade e segurança, com respeito ao cuidado coletivo e à proteção de dados.
+            </p>
+            <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-950">
+              Como Cliente Fundador, sua organização participa da fase inicial com implantação sem custo, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.
+            </p>
           </div>
         </div>
 

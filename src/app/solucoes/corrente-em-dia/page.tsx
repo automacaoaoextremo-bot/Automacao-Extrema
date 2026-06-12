@@ -148,7 +148,7 @@ export default function CorrenteEmDiaLandingPage() {
             <p className="text-sm font-bold uppercase tracking-[0.25em] text-emerald-300">Cliente Fundador</p>
             <h2 className="mt-2 text-3xl font-black">Ajude a construir uma solução feita para a realidade da sua casa.</h2>
             <p className="mt-3 leading-7 text-white/80">
-              A primeira versão será validada com organizações que querem organizar as contribuições sem custo fixo e sem complicação. Em troca de feedback prático e, se autorizado, um depoimento sobre a experiência, o Cliente Fundador recebe prioridade, acompanhamento e acesso preferencial às próximas evoluções.
+              Como Cliente Fundador, sua organização participa da fase inicial com implantação sem custo, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <Link

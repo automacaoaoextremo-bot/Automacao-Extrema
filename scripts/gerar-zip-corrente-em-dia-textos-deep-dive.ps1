@@ -2,9 +2,9 @@ $ErrorActionPreference = "Stop"
 
 $Root = (Get-Location).Path
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmm"
-$ZipName = "corrente-em-dia-acessos-cliente-$Timestamp.zip"
+$ZipName = "corrente-em-dia-textos-deep-dive-$Timestamp.zip"
 $ZipPath = Join-Path $Root $ZipName
-$TempDir = Join-Path $env:TEMP "corrente-em-dia-acessos-cliente-$Timestamp"
+$TempDir = Join-Path $env:TEMP "corrente-em-dia-textos-deep-dive-$Timestamp"
 
 $ExcludeDirs = @(
   ".git",
@@ -53,7 +53,6 @@ $IncludePaths = @(
   "src/app/api/corrente-em-dia",
   "src/app/api/admin/corrente-em-dia",
   "src/app/api/whatsapp",
-  "src/app/admin/ae/corrente-em-dia",
 
   "src/components",
   "src/lib",
@@ -160,21 +159,16 @@ foreach ($path in $IncludePaths) {
 }
 
 $Readme = @"
-ZIP gerado para ajustes do Corrente em Dia.
+ZIP gerado para ajustes de textos públicos do Corrente em Dia.
 
 Objetivo:
-1. Ajustar área do cliente logado.
-2. Remover textos públicos que não fazem sentido para o cliente.
-3. Incluir terceira linha de navegação:
-   PAINEL | ACESSOS | STATUS | ORGANIZAÇÃO | CLIENTE | CONTRIBUIÇÕES | COMPROVANTES | PRIVACIDADE E LGPD.
-4. Criar seção STATUS antes dos cards Previsto, Aprovado, Pendente e Em revisão.
-5. Trocar Tipo de Acesso por Acessos.
-6. Criar página de Acessos para upload/importação de contribuintes.
-7. Disponibilizar modelo de planilha para download.
-8. Importar contribuintes com dados necessários para acesso e contribuição.
-9. Diferenciar responsáveis da organização e contribuintes.
-10. Preparar envio de dados de acesso por e-mail e WhatsApp.
-11. Incluir dados fictícios de contribuintes para testes.
+1. Consolidar textos da página Já sou Cliente / Login.
+2. Consolidar textos da página Quero Conhecer.
+3. Aplicar linguagem mais curta, persuasiva e alinhada ao Deep Dive.
+4. Manter menção à LGPD.
+5. Reduzir excesso de informação antes do lead agir.
+6. Ajustar abordagem comercial do Cliente Fundador.
+7. Preservar experiência mobile.
 
 Itens excluídos:
 - node_modules
@@ -185,7 +179,7 @@ Itens excluídos:
 - caches e builds
 "@
 
-Set-Content -Path (Join-Path $TempDir "_README_ZIP_CORRENTE_EM_DIA_ACESSOS_CLIENTE.txt") -Value $Readme -Encoding UTF8
+Set-Content -Path (Join-Path $TempDir "_README_ZIP_CORRENTE_EM_DIA_TEXTOS_DEEP_DIVE.txt") -Value $Readme -Encoding UTF8
 
 if (Test-Path $ZipPath) {
   Remove-Item $ZipPath -Force
