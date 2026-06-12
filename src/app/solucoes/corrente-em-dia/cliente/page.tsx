@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AeSolutionHeader } from "@/components/ae-solution-header";
+import Link from "next/link";
+import { AeSolutionHeader, type SolutionSectionLink } from "@/components/ae-solution-header";
 import { currencyBR, contributionStatusLabel, formatPercent, organizationTypeLabel, type CorrenteClientDashboardPayload } from "@/lib/corrente-em-dia";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type DashboardPayload = CorrenteClientDashboardPayload;
+
+const clientSectionLinks: SolutionSectionLink[] = [
+  { label: "Painel", href: "#painel" },
+  { label: "Acessos", href: "/solucoes/corrente-em-dia/cliente/acessos" },
+  { label: "Status", href: "#status" },
+  { label: "Organização", href: "#organizacao" },
+  { label: "Cliente", href: "#cliente-fundador" },
+  { label: "Contribuições", href: "#contribuicoes" },
+  { label: "Comprovantes", href: "#comprovantes" },
+  { label: "Privacidade e LGPD", href: "#privacidade-lgpd" },
+];
 
 function statusBadgeClass(status: string) {
   if (status === "aprovado") return "bg-emerald-100 text-emerald-800";
@@ -83,7 +95,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
       .filter((roleName): roleName is string => Boolean(roleName)) ?? [];
   const accessLabel = payload?.is_manager ? "Acesso de responsável" : "Acesso de contribuinte";
   const accessDescription = payload?.is_manager
-    ? "Você visualiza a organização vinculada, contribuições, comprovantes, pendências e condições comerciais configuradas para o cliente."
+    ? "Você visualiza a organização vinculada, contribuições, comprovantes, pendências e condições comerciais configuradas."
     : "Você visualiza somente suas próprias contribuições, comprovantes e histórico, conforme a finalidade autorizada pela organização.";
 
   return (
@@ -93,7 +105,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
         logoSrc="/corrente-em-dia-logo.svg"
         logoAlt="Logo Corrente em Dia"
         actions={[]}
-        sectionLinks={[]}
+        sectionLinks={clientSectionLinks}
         topAction={
           <button
             type="button"
@@ -105,7 +117,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
         }
       />
 
-      <section className="mx-auto max-w-6xl px-4 py-7 lg:py-10">
+      <section id="painel" className="mx-auto max-w-6xl scroll-mt-56 px-4 py-7 lg:py-10">
         <div>
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Painel do cliente</p>
           <h1 className="mt-2 text-4xl font-black leading-tight text-[#00334E]">
@@ -113,7 +125,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
           </h1>
           <p className="mt-2 text-base leading-7 text-slate-600">
             {payload?.person?.full_name ? `Olá, ${payload.person.full_name}. ` : ""}
-            Acompanhe contribuições, comprovantes, pendências e as condições comerciais configuradas para este cliente.
+            Acompanhe contribuições, comprovantes, pendências e as condições comerciais configuradas.
           </p>
         </div>
 
@@ -122,8 +134,8 @@ export default function CorrenteEmDiaClientDashboardPage() {
 
         {payload && !error && (
           <div className="mt-7 space-y-6">
-            <section className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
-              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Tipo de acesso</p>
+            <section id="acessos" className="scroll-mt-56 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Acessos</p>
               <h2 className="mt-1 text-2xl font-black text-[#00334E]">{accessLabel}</h2>
               <p className="mt-2 text-sm leading-6 text-slate-700">{accessDescription}</p>
               {roleNames.length > 0 && (
@@ -135,25 +147,45 @@ export default function CorrenteEmDiaClientDashboardPage() {
                   ))}
                 </div>
               )}
+              {payload.is_manager && (
+                <div className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+                  <p className="font-black">Cadastro de contribuintes</p>
+                  <p className="mt-1">
+                    Responsáveis podem baixar o modelo de planilha, importar contribuintes e preparar as mensagens de acesso por e-mail ou WhatsApp.
+                  </p>
+                  <Link
+                    href="/solucoes/corrente-em-dia/cliente/acessos"
+                    className="mt-3 inline-flex rounded-full bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
+                  >
+                    Gerenciar acessos
+                  </Link>
+                </div>
+              )}
             </section>
 
-            <section className="grid gap-4 md:grid-cols-5">
-              {[
-                ["Previsto", currencyBR(totals.expected)],
-                ["Aprovado", currencyBR(totals.approved)],
-                ["Pendente", currencyBR(totals.pending)],
-                ["Em revisão", String(totals.review)],
-                ["Divergente", String(totals.divergent)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-                  <p className="mt-2 text-2xl font-black text-[#00334E]">{value}</p>
-                </div>
-              ))}
+            <section id="status" className="scroll-mt-56">
+              <div className="mb-3">
+                <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Status</p>
+                <h2 className="mt-1 text-2xl font-black text-[#00334E]">Resumo das contribuições</h2>
+              </div>
+              <div className="grid gap-4 md:grid-cols-5">
+                {[
+                  ["Previsto", currencyBR(totals.expected)],
+                  ["Aprovado", currencyBR(totals.approved)],
+                  ["Pendente", currencyBR(totals.pending)],
+                  ["Em revisão", String(totals.review)],
+                  ["Divergente", String(totals.divergent)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{label}</p>
+                    <p className="mt-2 text-2xl font-black text-[#00334E]">{value}</p>
+                  </div>
+                ))}
+              </div>
             </section>
 
             <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-              <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <div id="organizacao" className="scroll-mt-56 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
                 <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Minha organização</p>
                 {organization ? (
                   <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
@@ -171,7 +203,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
                 )}
               </div>
 
-              <div className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow-sm">
+              <div id="cliente-fundador" className="scroll-mt-56 rounded-[2rem] bg-[#00334E] p-5 text-white shadow-sm">
                 <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-300">Cliente Fundador</p>
                 <h2 className="mt-2 text-2xl font-black">Condições comerciais configuráveis</h2>
                 <div className="mt-4 grid gap-3 text-sm">
@@ -187,7 +219,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
               </div>
             </section>
 
-            <section className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+            <section id="contribuicoes" className="scroll-mt-56 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Contribuições</p>
@@ -230,7 +262,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <div id="comprovantes" className="scroll-mt-56 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
                 <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Comprovantes</p>
                 <h2 className="mt-1 text-2xl font-black text-[#00334E]">Pré-validação e revisão</h2>
                 <div className="mt-4 space-y-3">
@@ -247,15 +279,12 @@ export default function CorrenteEmDiaClientDashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <div id="privacidade-lgpd" className="scroll-mt-56 rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
                 <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Privacidade e LGPD</p>
                 <h2 className="mt-1 text-2xl font-black text-[#00334E]">Dados protegidos por finalidade</h2>
                 <p className="mt-3 text-sm leading-6 text-slate-700">
                   O contribuinte acessa suas próprias contribuições. A organização acessa os dados necessários para gestão, aprovação de comprovantes e prestação de contas interna, conforme consentimento e finalidade definida.
                 </p>
-                <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-                  A V1 prioriza simplicidade, aprovação humana e registros claros de quem revisou cada contribuição antes de evoluir para Pix dinâmico, gateway ou split automático.
-                </div>
               </div>
             </section>
           </div>
