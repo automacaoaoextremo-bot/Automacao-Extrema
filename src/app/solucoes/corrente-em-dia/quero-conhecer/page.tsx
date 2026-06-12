@@ -75,7 +75,7 @@ export default function CorrenteEmDiaLeadPage() {
               Preencha os dados principais da sua associação, federação ou terreiro para iniciar a conversa sobre o Corrente em Dia. A proposta é entender sua realidade, apresentar uma forma mais simples de organizar contribuições e mostrar como a casa pode ganhar mais clareza, previsibilidade e segurança, com respeito ao cuidado coletivo e à proteção de dados.
             </p>
             <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-950">
-              Como Cliente Fundador, sua organização participa da fase inicial com implantação sem custo, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.
+              Entre como Cliente Fundador e participe da fase inicial com condições especiais, prioridade nas melhorias e acompanhamento mais próximo.
             </p>
           </div>
         </div>
