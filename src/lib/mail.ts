@@ -278,3 +278,150 @@ export async function sendFollowupAlertEmail(input: FollowupAlertEmailInput) {
 
   return { sent: true, reason: "Alerta interno enviado." };
 }
+
+export type CorrenteLeadAccessEmailInput = {
+  responsibleName: string;
+  email: string;
+  organizationName: string;
+  organizationType: string;
+  city: string | null;
+  state: string | null;
+  loginUrl: string;
+  temporaryPassword: string | null;
+  trialDays: number;
+};
+
+export type CorrenteLeadInternalEmailInput = CorrenteLeadAccessEmailInput & {
+  leadId: string;
+  whatsapp: string | null;
+  contributorsEstimate: number | null;
+  observations: string | null;
+  accessDueAt: string;
+  funilUrl: string;
+  source: string;
+};
+
+export type CorrenteLeadPendingAlertEmailInput = {
+  leadId: string;
+  responsibleName: string;
+  organizationName: string;
+  email: string | null;
+  whatsapp: string | null;
+  status: string;
+  accessDueAt: string | null;
+  funilUrl: string;
+};
+
+export async function sendCorrenteLeadAccessEmail(input: CorrenteLeadAccessEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const greeting = firstName(input.responsibleName);
+  const location = [input.city, input.state].filter(Boolean).join("/");
+  const passwordBlock = input.temporaryPassword
+    ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
+    : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: input.email,
+    subject: `Acesso liberado — Corrente em Dia Cliente Fundador`,
+    text: `${greeting},\n\nRecebemos o interesse da ${input.organizationName} no Corrente em Dia como Cliente Fundador.\n\nA partir de agora, você já pode acessar o painel inicial para começar a configuração da organização e avaliar a solução por ${input.trialDays} dias.\n\nO Corrente em Dia foi criado para ajudar a tirar contribuições, comprovantes e pendências da memória, do grupo de WhatsApp e dos controles soltos, trazendo mais clareza, previsibilidade e tranquilidade para quem cuida da casa.\n\nOrganização: ${input.organizationName}\nTipo: ${input.organizationType}\n${location ? `Cidade/UF: ${location}\n` : ""}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nComo Cliente Fundador, sua organização participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.\n\nAutomação Extrema\nCorrente em Dia`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E">
+        <h2>Acesso liberado ao Corrente em Dia</h2>
+        <p>${escapeHtml(greeting)}, recebemos o interesse da <strong>${escapeHtml(input.organizationName)}</strong> como Cliente Fundador.</p>
+        <p>A partir de agora, você já pode acessar o painel inicial para começar a configuração da organização e avaliar a solução por <strong>${escapeHtml(input.trialDays)} dias</strong>.</p>
+        <p>O Corrente em Dia foi criado para ajudar a tirar contribuições, comprovantes e pendências da memória, do grupo de WhatsApp e dos controles soltos, trazendo mais clareza, previsibilidade e tranquilidade para quem cuida da casa.</p>
+        <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
+          <p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
+          <strong>Tipo:</strong> ${escapeHtml(input.organizationType)}${location ? `<br/><strong>Cidade/UF:</strong> ${escapeHtml(location)}` : ""}</p>
+          <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
+          <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
+        </div>
+        <p><strong>Cliente Fundador:</strong> sua organização participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.</p>
+        <p>Automação Extrema<br/>Corrente em Dia</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de acesso enviado." };
+}
+
+export async function sendCorrenteLeadInternalEmail(input: CorrenteLeadInternalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const internalMessage = `Novo lead Corrente em Dia - Cliente Fundador\n\nTipo: ${input.organizationType}\nOrganização: ${input.organizationName}\nResponsável: ${input.responsibleName}\nCidade/UF: ${[input.city, input.state].filter(Boolean).join("/") || "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nE-mail: ${input.email}\nContribuintes estimados: ${input.contributorsEstimate ?? "não informado"}\n\nObservações:\n${input.observations ?? "não informado"}\n\nAcesso: ${input.loginUrl}\nPrazo de acompanhamento: confirmar primeiro acesso e configuração inicial.\nFunil: ${input.funilUrl}`;
+  const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Novo lead Corrente em Dia — ${input.organizationName}`,
+    text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo lead Corrente em Dia</h2>
+        <p><strong>Tipo:</strong> ${escapeHtml(input.organizationType)}<br/>
+        <strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>Cidade/UF:</strong> ${escapeHtml([input.city, input.state].filter(Boolean).join("/") || "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
+        <strong>Contribuintes estimados:</strong> ${escapeHtml(input.contributorsEstimate ?? "não informado")}</p>
+        <p><strong>Observações:</strong><br/>${escapeHtml(input.observations ?? "não informado")}</p>
+        <p><strong>Status:</strong> acesso inicial preparado e e-mail de acesso tentado automaticamente.</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Corrente em Dia</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp do Márcio</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail interno enviado." };
+}
+
+export async function sendCorrenteLeadPendingAlertEmail(input: CorrenteLeadPendingAlertEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Alerta Corrente em Dia — verificar acesso de ${input.organizationName}`,
+    text: `Verificar lead Corrente em Dia.\n\nOrganização: ${input.organizationName}\nResponsável: ${input.responsibleName}\nE-mail: ${input.email ?? "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nStatus: ${input.status}\nPrazo de acesso: ${input.accessDueAt ? formatDate(input.accessDueAt) : "não informado"}\nFunil: ${input.funilUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Alerta Corrente em Dia</h2>
+        <p>Verifique se o acesso e o primeiro contato foram concluídos.</p>
+        <p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email ?? "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>Status:</strong> ${escapeHtml(input.status)}<br/>
+        <strong>Prazo de acesso:</strong> ${escapeHtml(input.accessDueAt ? formatDate(input.accessDueAt) : "não informado")}</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Corrente em Dia</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Alerta interno enviado." };
+}

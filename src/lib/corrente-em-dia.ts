@@ -190,3 +190,105 @@ export function contributionStatusLabel(status: string) {
   };
   return labels[status] ?? status;
 }
+
+
+export type CorrenteLeadStatus =
+  | "novo_whatsapp"
+  | "email_acesso_enviado"
+  | "aguardando_primeiro_acesso"
+  | "em_configuracao"
+  | "avaliacao_30_dias"
+  | "followup_7d"
+  | "followup_15d"
+  | "followup_25d"
+  | "depoimento_solicitado"
+  | "cliente_ativo"
+  | "sem_resposta"
+  | "encerrado";
+
+export type CorrenteLead = {
+  id: string;
+  source: string;
+  organization_type: CorrenteOrganizationType;
+  organization_name: string;
+  organization_slug: string | null;
+  responsible_name: string;
+  email: string | null;
+  whatsapp: string | null;
+  state: string | null;
+  city: string | null;
+  contributors_estimate: number | null;
+  observations: string | null;
+  status: CorrenteLeadStatus;
+  founder_terms_accepted: boolean;
+  testimonial_permission: boolean;
+  lgpd_contact_consent: boolean;
+  access_user_email: string | null;
+  access_sent_at: string | null;
+  access_due_at: string | null;
+  internal_alert_at: string | null;
+  internal_alert_sent_at: string | null;
+  trial_days: number;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  ae_client_id: string | null;
+  organization_id: string | null;
+  responsible_person_id: string | null;
+  auth_user_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CorrenteLeadPayload = {
+  source?: string;
+  organizationType?: CorrenteOrganizationType | string;
+  organization_type?: CorrenteOrganizationType | string;
+  organizationName?: string;
+  organization_name?: string;
+  responsibleName?: string;
+  responsible_name?: string;
+  email?: string;
+  whatsapp?: string;
+  state?: string;
+  uf?: string;
+  city?: string;
+  contributorsEstimate?: string | number;
+  contributors_estimate?: string | number;
+  observations?: string;
+  notes?: string;
+  founderTermsAccepted?: boolean;
+  founder_terms_accepted?: boolean;
+  testimonialPermission?: boolean;
+  testimonial_permission?: boolean;
+  lgpdContactConsent?: boolean;
+  lgpd_contact_consent?: boolean;
+};
+
+export const CORRENTE_LEAD_STATUS_LABELS: Record<CorrenteLeadStatus, string> = {
+  novo_whatsapp: "Lead recebido",
+  email_acesso_enviado: "Acesso enviado",
+  aguardando_primeiro_acesso: "Aguardando primeiro acesso",
+  em_configuracao: "Em configuração",
+  avaliacao_30_dias: "Avaliação 30 dias",
+  followup_7d: "Follow-up 7 dias",
+  followup_15d: "Follow-up 15 dias",
+  followup_25d: "Follow-up 25 dias",
+  depoimento_solicitado: "Depoimento solicitado",
+  cliente_ativo: "Cliente ativo",
+  sem_resposta: "Sem resposta",
+  encerrado: "Encerrado",
+};
+
+export function normalizeCorrenteOrganizationType(value: unknown): CorrenteOrganizationType {
+  const normalized = String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (normalized.includes("fed")) return "federacao";
+  if (normalized.includes("assoc")) return "associacao";
+  return "terreiro";
+}
+
+export function formatCorrenteOrganizationType(value: CorrenteOrganizationType) {
+  if (value === "federacao") return "Federação";
+  if (value === "associacao") return "Associação";
+  return "Terreiro";
+}

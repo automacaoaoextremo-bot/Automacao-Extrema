@@ -21,13 +21,13 @@ export type CorrenteEmDiaFunilCopyKey =
 
 export const CORRENTE_EM_DIA_FUNIL_COPIES: Record<CorrenteEmDiaFunilCopyKey, string> = {
   primeiro_contato:
-    "Olá, [nome]. Vi seu interesse no Corrente em Dia. A ideia é entender a realidade da sua casa e mostrar uma forma simples de organizar contribuições, Pix e comprovantes, sem transformar cuidado coletivo em cobrança fria. Posso te mostrar em 10 minutos?",
+    "Olá, [nome]. Recebemos o interesse da [nome_organizacao] no Corrente em Dia como Cliente Fundador. O próximo passo é acessar o painel inicial e começar a configuração da organização. A ideia é começar simples: contribuições mais claras, comprovantes organizados e menos retrabalho para quem cuida da casa.",
   lead_morno:
-    "Oi, [nome]. Passando para não deixar essa ideia esfriar. O Corrente em Dia pode ajudar sua organização a ganhar clareza sobre contribuições, comprovantes e pendências, sem exposição e sem complicar a rotina. Nesta fase, ainda podemos avaliar sua entrada como Cliente Fundador, com acompanhamento mais próximo e prioridade nas melhorias. Faz sentido conversarmos esta semana?",
+    "Oi, [nome]. Passando para confirmar se você conseguiu acessar o painel do Corrente em Dia. A primeira configuração é rápida e já ajuda a visualizar como a [nome_organizacao] pode organizar contribuições, comprovantes e pendências com mais clareza, sem depender só de grupo de WhatsApp ou memória. Quer que eu te acompanhe nesse primeiro acesso?",
   lead_esfriando:
-    "Oi, [nome]. Sei que a rotina da casa é corrida, por isso deixo uma última mensagem por agora. A proposta do Corrente em Dia é tirar a organização das contribuições da memória, do papel e do WhatsApp solto, trazendo mais tranquilidade para quem cuida e mais facilidade para quem contribui. Se fizer sentido, ainda podemos reservar uma condição de Cliente Fundador para validar com calma.",
+    "Oi, [nome]. Sei que a rotina da casa é corrida, por isso deixo um lembrete respeitoso: a fase de Cliente Fundador é para poucas organizações que queiram validar o Corrente em Dia com acompanhamento mais próximo. O objetivo não é colocar mais uma tarefa na rotina, e sim reduzir conferência manual, dúvida sobre comprovantes e insegurança no fechamento das contribuições. Quer que eu mantenha a [nome_organizacao] nessa fase ou prefere que eu retome em outro momento?",
   cliente_fundador_curto:
-    "Como Cliente Fundador, sua organização participa da fase inicial com implantação sem custo, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.",
+    "Entre como Cliente Fundador e participe da fase inicial com condições especiais, prioridade nas melhorias e acompanhamento mais próximo.",
 };
 
 function isCorrenteEmDiaSolution(solutionName: string | null) {

@@ -1,51 +1,105 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
-import { buildAeWhatsAppUrl } from "@/lib/ae-public-links";
+import { BRAZIL_STATES, FALLBACK_CITIES_BY_UF } from "@/lib/brazil-locations";
+import { formatCorrenteOrganizationType, normalizeCorrenteOrganizationType } from "@/lib/corrente-em-dia";
 
-function buildWhatsappUrl(message: string) {
-  return buildAeWhatsAppUrl(message);
-}
+type SubmitState = {
+  status: "idle" | "sending" | "success" | "error";
+  message: string;
+  accessEmail?: string;
+};
+
+type IbgeCity = {
+  nome: string;
+};
 
 export default function CorrenteEmDiaLeadPage() {
   const [organizationType, setOrganizationType] = useState("terreiro");
   const [name, setName] = useState("");
   const [responsibleName, setResponsibleName] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
+  const [state, setState] = useState("SP");
+  const [city, setCity] = useState("Campinas");
+  const [cityOptions, setCityOptions] = useState<string[]>(FALLBACK_CITIES_BY_UF.SP ?? []);
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [contributorsEstimate, setContributorsEstimate] = useState("");
   const [notes, setNotes] = useState("");
   const [consent, setConsent] = useState(false);
+  const [founderConsent, setFounderConsent] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle", message: "" });
 
-  const canSend = name.trim() && responsibleName.trim() && whatsapp.trim() && consent;
+  const canSend = name.trim() && responsibleName.trim() && whatsapp.trim() && email.trim() && state && city && consent && founderConsent;
 
-  const whatsappUrl = useMemo(() => {
-    const typeLabel = organizationType === "federacao" ? "Federação" : organizationType === "associacao" ? "Associação" : "Terreiro";
-    return buildWhatsappUrl(
-      [
-        "Olá! Quero conhecer o Corrente em Dia como Cliente Fundador.",
-        `Tipo: ${typeLabel}`,
-        `Nome da organização: ${name || "não informado"}`,
-        `Responsável: ${responsibleName || "não informado"}`,
-        `Cidade/UF: ${city || "não informado"}/${state || "não informado"}`,
-        `WhatsApp: ${whatsapp || "não informado"}`,
-        `E-mail: ${email || "não informado"}`,
-        `Estimativa de contribuintes: ${contributorsEstimate || "não informado"}`,
-        notes ? `Observações: ${notes}` : "Observações: quero entender como organizar arrecadações, Pix e comprovantes.",
-      ].join("\n"),
-    );
-  }, [city, contributorsEstimate, email, name, notes, organizationType, responsibleName, state, whatsapp]);
+  useEffect(() => {
+    let active = true;
+    const fallback = FALLBACK_CITIES_BY_UF[state] ?? [];
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${state}/municipios?orderBy=nome`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Falha ao carregar cidades."))))
+      .then((items: IbgeCity[]) => {
+        if (!active) return;
+        const cities = items.map((item) => item.nome).filter(Boolean);
+        setCityOptions(cities.length ? cities : fallback);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCityOptions(fallback);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [state]);
+
+  const typeLabel = useMemo(() => formatCorrenteOrganizationType(normalizeCorrenteOrganizationType(organizationType)), [organizationType]);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTouched(true);
     if (!canSend) return;
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+
+    setSubmitState({ status: "sending", message: "Enviando dados e preparando acesso..." });
+
+    try {
+      const response = await fetch("/api/corrente-em-dia/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "site_corrente_em_dia",
+          organizationType,
+          organizationName: name,
+          responsibleName,
+          state,
+          city,
+          whatsapp,
+          email,
+          contributorsEstimate,
+          observations: notes,
+          founderTermsAccepted: founderConsent,
+          testimonialPermission: founderConsent,
+          lgpdContactConsent: consent,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível enviar o cadastro de interesse.");
+
+      setSubmitState({
+        status: "success",
+        message:
+          "Cadastro recebido. Se o e-mail estiver correto, as orientações de acesso serão enviadas automaticamente. Caso não encontre a mensagem, confira spam/lixo eletrônico.",
+        accessEmail: result.accessEmail,
+      });
+    } catch (error) {
+      setSubmitState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Erro inesperado ao enviar o cadastro.",
+      });
+    }
   }
 
   return (
@@ -102,28 +156,46 @@ export default function CorrenteEmDiaLeadPage() {
             </label>
 
             <label>
-              <span className="text-sm font-bold text-slate-700">Cidade</span>
-              <input value={city} onChange={(event) => setCity(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="Campinas" />
+              <span className="text-sm font-bold text-slate-700">UF *</span>
+              <select
+                value={state}
+                onChange={(event) => {
+                  const nextState = event.target.value;
+                  setState(nextState);
+                  setCity("");
+                  setCityOptions(FALLBACK_CITIES_BY_UF[nextState] ?? []);
+                }}
+                className="mt-1 w-full rounded-2xl border border-slate-300 bg-white p-3"
+              >
+                {BRAZIL_STATES.map((item) => (
+                  <option key={item.uf} value={item.uf}>{`${item.uf} - ${item.name}`}</option>
+                ))}
+              </select>
             </label>
 
             <label>
-              <span className="text-sm font-bold text-slate-700">UF</span>
-              <input value={state} onChange={(event) => setState(event.target.value.toUpperCase().slice(0, 2))} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="SP" />
+              <span className="text-sm font-bold text-slate-700">Cidade *</span>
+              <select value={city} onChange={(event) => setCity(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 bg-white p-3">
+                <option value="">Selecione</option>
+                {cityOptions.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
             </label>
 
             <label>
               <span className="text-sm font-bold text-slate-700">WhatsApp *</span>
-              <input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="(19) 99999-9999" />
+              <input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="(19) 99999-9999" inputMode="tel" />
             </label>
 
             <label>
-              <span className="text-sm font-bold text-slate-700">E-mail</span>
+              <span className="text-sm font-bold text-slate-700">E-mail *</span>
               <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="contato@exemplo.com" />
             </label>
 
             <label className="sm:col-span-2">
               <span className="text-sm font-bold text-slate-700">Estimativa de contribuintes</span>
-              <input value={contributorsEstimate} onChange={(event) => setContributorsEstimate(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="Ex.: 30 filhos da corrente, 10 cambonos e alguns consulentes" />
+              <input value={contributorsEstimate} onChange={(event) => setContributorsEstimate(event.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300 p-3" placeholder="Ex.: 100" inputMode="numeric" />
             </label>
 
             <label className="sm:col-span-2">
@@ -132,15 +204,28 @@ export default function CorrenteEmDiaLeadPage() {
             </label>
           </div>
 
-          <label className="mt-4 flex gap-3 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-            <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span>Autorizo a Automação Extrema a usar estes dados para contato sobre o Corrente em Dia. Entendo que os dados serão tratados conforme princípios da LGPD.</span>
-          </label>
+          <div className="mt-4 space-y-3">
+            <label className="flex gap-3 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4" />
+              <span>Autorizo a Automação Extrema a usar estes dados para contato sobre o Corrente em Dia. Entendo que os dados serão tratados conforme princípios da LGPD.</span>
+            </label>
+            <label className="flex gap-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+              <input type="checkbox" checked={founderConsent} onChange={(event) => setFounderConsent(event.target.checked)} className="mt-1 h-4 w-4" />
+              <span>Quero participar da avaliação de 30 dias como Cliente Fundador e autorizo a AE a solicitar feedback e possível depoimento/testemunho, sempre mediante confirmação expressa.</span>
+            </label>
+          </div>
 
-          {touched && !canSend && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">Preencha nome da organização, responsável, WhatsApp e aceite o contato.</p>}
+          {touched && !canSend && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">Preencha organização, responsável, UF, cidade, WhatsApp, e-mail e aceite os termos de contato.</p>}
 
-          <button type="submit" className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] hover:shadow-xl">
-            Enviar interesse pelo WhatsApp
+          {submitState.status !== "idle" && (
+            <p className={`mt-4 rounded-2xl p-4 text-sm font-bold leading-6 ${submitState.status === "success" ? "bg-emerald-50 text-emerald-950" : submitState.status === "error" ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-700"}`}>
+              {submitState.message}
+              {submitState.accessEmail ? <span className="block pt-1">E-mail de acesso: {submitState.accessEmail}</span> : null}
+            </p>
+          )}
+
+          <button type="submit" disabled={submitState.status === "sending"} className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60">
+            {submitState.status === "sending" ? "Preparando cadastro..." : `Enviar interesse como ${typeLabel}`}
           </button>
         </form>
       </section>
