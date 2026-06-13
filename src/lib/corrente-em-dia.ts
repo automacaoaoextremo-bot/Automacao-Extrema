@@ -242,6 +242,8 @@ export type CorrenteLead = {
 
 export type CorrenteLeadPayload = {
   source?: string;
+  contactName?: string;
+  contact_name?: string;
   organizationType?: CorrenteOrganizationType | string;
   organization_type?: CorrenteOrganizationType | string;
   organizationName?: string;

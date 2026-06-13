@@ -289,6 +289,7 @@ export type CorrenteLeadAccessEmailInput = {
   loginUrl: string;
   temporaryPassword: string | null;
   trialDays: number;
+  isMinimalLead?: boolean;
 };
 
 export type CorrenteLeadInternalEmailInput = CorrenteLeadAccessEmailInput & {
@@ -322,8 +323,13 @@ export async function sendCorrenteLeadAccessEmail(input: CorrenteLeadAccessEmail
     return { sent: false, reason: config.reason };
   }
 
+  const baseUrl = siteUrl();
+  const logoUrl = `${baseUrl}/corrente-em-dia-logo.svg`;
   const greeting = firstName(input.responsibleName);
   const location = [input.city, input.state].filter(Boolean).join("/");
+  const organizationLine = input.isMinimalLead
+    ? "Os dados completos da organização serão confirmados no primeiro acesso."
+    : `Organização: ${input.organizationName}\nTipo: ${input.organizationType}${location ? `\nCidade/UF: ${location}` : ""}`;
   const passwordBlock = input.temporaryPassword
     ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
     : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
@@ -332,21 +338,24 @@ export async function sendCorrenteLeadAccessEmail(input: CorrenteLeadAccessEmail
     from: config.from,
     to: input.email,
     subject: `Acesso liberado — Corrente em Dia Cliente Fundador`,
-    text: `${greeting},\n\nRecebemos o interesse da ${input.organizationName} no Corrente em Dia como Cliente Fundador.\n\nA partir de agora, você já pode acessar o painel inicial para começar a configuração da organização e avaliar a solução por ${input.trialDays} dias.\n\nO Corrente em Dia foi criado para ajudar a tirar contribuições, comprovantes e pendências da memória, do grupo de WhatsApp e dos controles soltos, trazendo mais clareza, previsibilidade e tranquilidade para quem cuida da casa.\n\nOrganização: ${input.organizationName}\nTipo: ${input.organizationType}\n${location ? `Cidade/UF: ${location}\n` : ""}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nComo Cliente Fundador, sua organização participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.\n\nAutomação Extrema\nCorrente em Dia`,
+    text: `${greeting},\n\nRecebemos seu interesse no Corrente em Dia como Cliente Fundador.\n\nA partir de agora, você já pode acessar o painel inicial para começar a configuração da organização e avaliar a solução por ${input.trialDays} dias.\n\nO Corrente em Dia foi criado para ajudar a tirar contribuições, comprovantes e pendências da memória, do grupo de WhatsApp e dos controles soltos, trazendo mais clareza, previsibilidade e tranquilidade para quem cuida da casa.\n\n${organizationLine}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nComo Cliente Fundador, sua organização participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.\n\nAutomação Extrema\nCorrente em Dia`,
     html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E">
-        <h2>Acesso liberado ao Corrente em Dia</h2>
-        <p>${escapeHtml(greeting)}, recebemos o interesse da <strong>${escapeHtml(input.organizationName)}</strong> como Cliente Fundador.</p>
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
+        <div style="padding:18px 0;text-align:left">
+          <img src="${escapeHtml(logoUrl)}" alt="Corrente em Dia" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
+          <h2 style="margin:0;color:#00334E;font-size:24px">Acesso liberado ao Corrente em Dia</h2>
+        </div>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse no <strong>Corrente em Dia</strong> como Cliente Fundador.</p>
         <p>A partir de agora, você já pode acessar o painel inicial para começar a configuração da organização e avaliar a solução por <strong>${escapeHtml(input.trialDays)} dias</strong>.</p>
         <p>O Corrente em Dia foi criado para ajudar a tirar contribuições, comprovantes e pendências da memória, do grupo de WhatsApp e dos controles soltos, trazendo mais clareza, previsibilidade e tranquilidade para quem cuida da casa.</p>
         <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
-          <p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
-          <strong>Tipo:</strong> ${escapeHtml(input.organizationType)}${location ? `<br/><strong>Cidade/UF:</strong> ${escapeHtml(location)}` : ""}</p>
+          ${input.isMinimalLead ? `<p><strong>Primeiro passo:</strong> os dados completos da organização serão confirmados no primeiro acesso.</p>` : `<p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/><strong>Tipo:</strong> ${escapeHtml(input.organizationType)}${location ? `<br/><strong>Cidade/UF:</strong> ${escapeHtml(location)}` : ""}</p>`}
           <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
           <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
           <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
         </div>
         <p><strong>Cliente Fundador:</strong> sua organização participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença para a rotina da casa.</p>
+        <p style="font-size:13px;color:#475569">Ao acessar o painel, confirme os dados da organização, as autorizações de LGPD e a condição de Cliente Fundador para iniciar a avaliação de 30 dias.</p>
         <p>Automação Extrema<br/>Corrente em Dia</p>
       </div>
     `,

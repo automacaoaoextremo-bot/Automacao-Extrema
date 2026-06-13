@@ -53,19 +53,20 @@ function normalizePhone(value: string) {
 }
 
 function mapPayload(raw: CorrenteLeadPayload) {
-  const organizationType = normalizeCorrenteOrganizationType(raw.organizationType ?? raw.organization_type);
-  const organizationName = asText(raw.organizationName ?? raw.organization_name);
-  const responsibleName = asText(raw.responsibleName ?? raw.responsible_name);
+  const responsibleName = asText(raw.contactName ?? raw.contact_name ?? raw.responsibleName ?? raw.responsible_name);
+  const organizationNameFromPayload = asText(raw.organizationName ?? raw.organization_name);
   const email = asText(raw.email).toLowerCase();
   const whatsapp = normalizePhone(asText(raw.whatsapp));
+  const organizationType = normalizeCorrenteOrganizationType(raw.organizationType ?? raw.organization_type);
   const state = asText(raw.state ?? raw.uf).toUpperCase().slice(0, 2);
   const city = asText(raw.city);
   const contributorsEstimate = asNumber(raw.contributorsEstimate ?? raw.contributors_estimate);
   const observations = asText(raw.observations ?? raw.notes);
-  const source = asText(raw.source) || "site_corrente_em_dia";
+  const source = asText(raw.source) || "site_corrente_em_dia_minimo";
   const founderTermsAccepted = asBool(raw.founderTermsAccepted ?? raw.founder_terms_accepted);
   const testimonialPermission = asBool(raw.testimonialPermission ?? raw.testimonial_permission);
-  const lgpdContactConsent = asBool(raw.lgpdContactConsent ?? raw.lgpd_contact_consent) || true;
+  const lgpdContactConsent = asBool(raw.lgpdContactConsent ?? raw.lgpd_contact_consent);
+  const organizationName = organizationNameFromPayload || `Organização em configuração - ${responsibleName || email || "novo contato"}`;
 
   return {
     organizationType,
@@ -81,6 +82,7 @@ function mapPayload(raw: CorrenteLeadPayload) {
     founderTermsAccepted,
     testimonialPermission,
     lgpdContactConsent,
+    isMinimalLead: !organizationNameFromPayload,
   };
 }
 
@@ -125,7 +127,7 @@ async function upsertAeClient(input: {
       city: input.city || null,
       state: input.state || null,
       status: "piloto",
-      notes: input.observations || "Lead Corrente em Dia - Cliente Fundador.",
+      notes: input.observations || "Lead Corrente em Dia - cadastro mínimo para Cliente Fundador.",
       is_demo: false,
     })
     .select("id")
@@ -284,7 +286,7 @@ async function ensureClientTerms(input: {
     organization_id: input.organizationId,
     solution_id: input.solutionId,
     condition_label: "Cliente Fundador",
-    contract_status: input.accepted ? "aceito" : "enviado",
+    contract_status: input.accepted ? "aceito" : "pendente_no_primeiro_acesso",
     fee_status: "em_definicao",
     setup_fee: 0,
     monthly_fee: 0,
@@ -299,7 +301,7 @@ async function ensureClientTerms(input: {
     terms_accepted: input.accepted,
     accepted_by_person_id: input.accepted ? input.personId : null,
     accepted_at: input.accepted ? new Date().toISOString() : null,
-    notes: "Condição criada automaticamente pelo fluxo de interesse Cliente Fundador. Todos os valores e taxas podem ser editados por cliente.",
+    notes: "Condição criada automaticamente pelo cadastro mínimo. Confirmar LGPD, Cliente Fundador, dados da organização e taxas no primeiro acesso. Todos os valores e taxas podem ser editados por cliente.",
     is_active: true,
   };
 
@@ -312,15 +314,16 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as CorrenteLeadPayload;
   const input = mapPayload(body);
 
-  if (!input.organizationName || !input.responsibleName || !input.email || !input.whatsapp) {
-    return NextResponse.json({ error: "Informe organização, responsável, e-mail e WhatsApp." }, { status: 400 });
+  if (!input.responsibleName || !input.email || !input.whatsapp) {
+    return NextResponse.json({ error: "Informe nome do contato, e-mail e WhatsApp." }, { status: 400 });
   }
 
   const now = new Date();
   const baseUrl = siteUrl();
   const loginUrl = `${baseUrl}/solucoes/corrente-em-dia/login`;
   const funilUrl = `${baseUrl}/admin/ae/corrente-em-dia/funil`;
-  const organizationSlug = toSlug(input.organizationName) || `corrente-${Date.now()}`;
+  const organizationSlugBase = toSlug(input.organizationName) || `corrente-${Date.now()}`;
+  const organizationSlug = input.isMinimalLead ? `${organizationSlugBase}-${Date.now()}` : organizationSlugBase;
   const solutionId = await getCorrenteSolutionId();
 
   const aeClientId = await upsertAeClient({
@@ -386,10 +389,10 @@ export async function POST(request: Request) {
       responsible_name: input.responsibleName,
       email: input.email,
       whatsapp: input.whatsapp,
-      state: input.state,
-      city: input.city,
+      state: input.state || null,
+      city: input.city || null,
       contributors_estimate: input.contributorsEstimate,
-      observations: input.observations,
+      observations: input.observations || (input.isMinimalLead ? "Cadastro mínimo pelo formulário Quero Conhecer. Cliente deve completar os dados no primeiro acesso." : null),
       status: "aguardando_primeiro_acesso",
       founder_terms_accepted: input.founderTermsAccepted,
       testimonial_permission: input.testimonialPermission,
@@ -404,7 +407,9 @@ export async function POST(request: Request) {
       organization_id: organizationId,
       responsible_person_id: responsible.personId,
       auth_user_id: authUserId,
-      notes: "Lead criado automaticamente pelo webhook/formulário Corrente em Dia.",
+      notes: input.isMinimalLead
+        ? "Lead criado automaticamente pelo cadastro mínimo Corrente em Dia. Dados completos da organização, LGPD e Cliente Fundador serão confirmados na área logada."
+        : "Lead criado automaticamente pelo webhook/formulário Corrente em Dia.",
     })
     .select("id")
     .single();
@@ -423,6 +428,7 @@ export async function POST(request: Request) {
     loginUrl,
     temporaryPassword,
     trialDays: TRIAL_DAYS,
+    isMinimalLead: input.isMinimalLead,
   });
 
   if (accessEmail.sent) {
@@ -451,8 +457,9 @@ export async function POST(request: Request) {
     source: input.source,
   });
 
-  const leadReply = `Olá, ${input.responsibleName.split(/\s+/)[0] || "tudo bem"}! Recebemos os dados da ${input.organizationName} para o Corrente em Dia como Cliente Fundador. O acesso inicial foi preparado e também enviamos as orientações para ${input.email}. A proposta é começar simples: clareza nas contribuições, comprovantes organizados e menos retrabalho para quem cuida da casa.`;
-  const internalAlertMessage = `Novo lead Corrente em Dia\nOrganização: ${input.organizationName}\nResponsável: ${input.responsibleName}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nStatus: ${accessEmail.sent ? "acesso enviado" : "verificar e-mail/acesso"}\nFunil: ${funilUrl}`;
+  const first = input.responsibleName.split(/\s+/)[0] || "tudo bem";
+  const leadReply = `Olá, ${first}! Recebemos seu interesse no Corrente em Dia como Cliente Fundador. Enviamos para ${input.email} as orientações de acesso. Clique no link do e-mail, entre no painel e complete os dados da organização para iniciar a avaliação de 30 dias. A proposta é começar simples: clareza nas contribuições, comprovantes organizados e menos retrabalho para quem cuida da casa.`;
+  const internalAlertMessage = `Novo lead Corrente em Dia\nContato: ${input.responsibleName}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nStatus: ${accessEmail.sent ? "acesso enviado" : "verificar e-mail/acesso"}\nFunil: ${funilUrl}`;
 
   return NextResponse.json({
     ok: true,
@@ -460,6 +467,7 @@ export async function POST(request: Request) {
     organizationId,
     organizationSlug,
     accessEmail: input.email,
+    responsibleName: input.responsibleName,
     accessEmailSent: accessEmail.sent,
     accessEmailReason: accessEmail.reason,
     internalEmailSent: internalEmail.sent,
