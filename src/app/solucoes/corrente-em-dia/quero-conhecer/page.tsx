@@ -44,7 +44,8 @@ export default function CorrenteEmDiaLeadPage() {
           founderTermsAccepted: founderConsent,
           testimonialPermission: founderConsent,
           lgpdContactConsent: consent,
-          observations: "Cadastro mínimo pela página Quero Conhecer. Dados da organização serão completados na área logada.",
+          observations:
+            "Cadastro mínimo pela página Quero Conhecer. Dados da organização serão completados na área logada.",
         }),
       });
 
@@ -92,80 +93,102 @@ export default function CorrenteEmDiaLeadPage() {
         }
       />
 
-      <section className="mx-auto grid max-w-6xl gap-7 px-4 py-7 lg:grid-cols-[0.95fr_1.05fr] lg:py-10">
-        <div className="space-y-5">
-          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Cadastro de interesse</p>
-          <h1 className="text-4xl font-black leading-tight text-[#00334E]">Quero conhecer o Corrente em Dia</h1>
-          <div className="rounded-[2rem] bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6">
-            <p className="text-base leading-8 text-slate-700 sm:text-lg">
-              Informe apenas os dados de contato para liberar o primeiro acesso. Os detalhes da organização, contribuições, LGPD e condição de Cliente Fundador serão confirmados dentro da área logada, com mais calma.
-            </p>
-            <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-950">
-              Entre como Cliente Fundador e participe da fase inicial com condições especiais, prioridade nas melhorias e acompanhamento mais próximo.
-            </p>
-          </div>
+      <section className="mx-auto max-w-3xl px-4 pb-8 pt-3 sm:pb-10 sm:pt-5">
+        <div className="rounded-[2rem] bg-white p-4 shadow-xl ring-1 ring-slate-100 sm:p-6">
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43] sm:text-sm">
+            Cadastro de interesse
+          </p>
+          <h1 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
+            Quero conhecer o Corrente em Dia
+          </h1>
+
+          <p className="mt-3 rounded-3xl bg-emerald-50 p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-emerald-100 sm:text-base sm:leading-7">
+            Informe nome do contato, WhatsApp e e-mail para liberar o primeiro acesso. Se fizer sentido para sua organização, você pode entrar como Cliente Fundador, com condições especiais, prioridade nas melhorias e acompanhamento mais próximo. Os demais dados da organização e a confirmação de LGPD serão feitos depois, dentro da área logada.
+          </p>
+
+          <form onSubmit={onSubmit} className="mt-4">
+            <div className="grid gap-3">
+              <label>
+                <span className="text-sm font-bold text-slate-700">Nome do contato *</span>
+                <input
+                  value={contactName}
+                  onChange={(event) => setContactName(event.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
+                  placeholder="Nome de contato da organização"
+                />
+                {touched && !contactName.trim() && (
+                  <span className="mt-1 block text-sm font-bold text-red-600">Informe o nome do contato.</span>
+                )}
+              </label>
+
+              <label>
+                <span className="text-sm font-bold text-slate-700">WhatsApp *</span>
+                <input
+                  value={whatsapp}
+                  onChange={(event) => setWhatsapp(event.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
+                  placeholder="(19) 99999-9999"
+                  inputMode="tel"
+                />
+                {touched && !whatsapp.trim() && (
+                  <span className="mt-1 block text-sm font-bold text-red-600">Informe o WhatsApp.</span>
+                )}
+              </label>
+
+              <label>
+                <span className="text-sm font-bold text-slate-700">E-mail *</span>
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
+                  placeholder="contato@exemplo.com"
+                />
+                {touched && !email.trim() && (
+                  <span className="mt-1 block text-sm font-bold text-red-600">Informe o e-mail.</span>
+                )}
+              </label>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <label className="flex gap-3 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(event) => setConsent(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span>
+                  Autorizo a Automação Extrema a usar estes dados para contato sobre o Corrente em Dia. A confirmação formal de LGPD será feita no primeiro acesso.
+                </span>
+              </label>
+
+              <label className="flex gap-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={founderConsent}
+                  onChange={(event) => setFounderConsent(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span>
+                  Tenho interesse em participar como Cliente Fundador. A confirmação dos termos da avaliação será feita dentro da área logada.
+                </span>
+              </label>
+            </div>
+
+            {submitState.status === "error" && (
+              <p className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{submitState.message}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitState.status === "sending"}
+              className="mt-5 inline-flex w-full min-h-14 items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitState.status === "sending" ? "Enviando interesse..." : "Enviar interesse"}
+            </button>
+          </form>
         </div>
-
-        <form onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl sm:p-6">
-          <div className="grid gap-4">
-            <label>
-              <span className="text-sm font-bold text-slate-700">Nome do contato *</span>
-              <input
-                value={contactName}
-                onChange={(event) => setContactName(event.target.value)}
-                className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
-                placeholder="Preencha com o nome de contato da organização"
-              />
-              {touched && !contactName.trim() && <span className="mt-1 block text-sm font-bold text-red-600">Informe o nome do contato.</span>}
-            </label>
-
-            <label>
-              <span className="text-sm font-bold text-slate-700">WhatsApp *</span>
-              <input
-                value={whatsapp}
-                onChange={(event) => setWhatsapp(event.target.value)}
-                className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
-                placeholder="(19) 99999-9999"
-                inputMode="tel"
-              />
-              {touched && !whatsapp.trim() && <span className="mt-1 block text-sm font-bold text-red-600">Informe o WhatsApp.</span>}
-            </label>
-
-            <label>
-              <span className="text-sm font-bold text-slate-700">E-mail *</span>
-              <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
-                placeholder="contato@exemplo.com"
-              />
-              {touched && !email.trim() && <span className="mt-1 block text-sm font-bold text-red-600">Informe o e-mail.</span>}
-            </label>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <label className="flex gap-3 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" />
-              <span>Autorizo a Automação Extrema a usar estes dados para contato sobre o Corrente em Dia. A confirmação formal de LGPD será feita no primeiro acesso.</span>
-            </label>
-
-            <label className="flex gap-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-              <input type="checkbox" checked={founderConsent} onChange={(event) => setFounderConsent(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" />
-              <span>Tenho interesse em participar como Cliente Fundador. A confirmação dos termos da avaliação será feita dentro da área logada.</span>
-            </label>
-          </div>
-
-          {submitState.status === "error" && <p className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{submitState.message}</p>}
-
-          <button
-            type="submit"
-            disabled={submitState.status === "sending"}
-            className="mt-5 inline-flex w-full min-h-14 items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitState.status === "sending" ? "Enviando interesse..." : "Enviar interesse"}
-          </button>
-        </form>
       </section>
     </main>
   );
