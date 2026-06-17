@@ -294,3 +294,92 @@ export function formatCorrenteOrganizationType(value: CorrenteOrganizationType) 
   if (value === "associacao") return "Associação";
   return "Terreiro";
 }
+
+export type CorrentePermissionKey =
+  | "cadastro.view"
+  | "cadastro.edit"
+  | "configuracoes.view"
+  | "configuracoes.edit"
+  | "contribuintes.view"
+  | "contribuintes.edit"
+  | "contribuintes.import"
+  | "contribuir.view"
+  | "contribuir.upload_receipt"
+  | "aprovacoes.view"
+  | "aprovacoes.review"
+  | "aprovacoes.send_reminders";
+
+export const CORRENTE_PERMISSION_LABELS: Record<CorrentePermissionKey, string> = {
+  "cadastro.view": "Ver cadastro da organização",
+  "cadastro.edit": "Editar cadastro da organização",
+  "configuracoes.view": "Ver configurações",
+  "configuracoes.edit": "Editar funções e permissões",
+  "contribuintes.view": "Ver contribuintes",
+  "contribuintes.edit": "Incluir e editar contribuintes",
+  "contribuintes.import": "Importar contribuintes por planilha",
+  "contribuir.view": "Acessar contribuição",
+  "contribuir.upload_receipt": "Enviar comprovante",
+  "aprovacoes.view": "Ver aprovações",
+  "aprovacoes.review": "Aprovar, reprovar ou pedir correção",
+  "aprovacoes.send_reminders": "Enviar lembretes",
+};
+
+export const CORRENTE_DEFAULT_PERMISSIONS: CorrentePermissionKey[] = [
+  "cadastro.view",
+  "cadastro.edit",
+  "configuracoes.view",
+  "configuracoes.edit",
+  "contribuintes.view",
+  "contribuintes.edit",
+  "contribuintes.import",
+  "contribuir.view",
+  "contribuir.upload_receipt",
+  "aprovacoes.view",
+  "aprovacoes.review",
+  "aprovacoes.send_reminders",
+];
+
+export type CorrenteRolePermission = {
+  id: string;
+  role_id: string;
+  permission_key: CorrentePermissionKey;
+  enabled: boolean;
+};
+
+export type CorrenteContributionOption = {
+  id: string;
+  organization_id: string;
+  description: string;
+  amount: number | null;
+  is_default: boolean;
+  is_active: boolean;
+};
+
+export type CorrenteOrganizationSettings = CorrenteOrganization & {
+  contact_name?: string | null;
+  contact_email?: string | null;
+  postal_code?: string | null;
+  address_number?: string | null;
+  address_complement?: string | null;
+  reminder_before_due_enabled?: boolean | null;
+  reminder_due_day_enabled?: boolean | null;
+  reminder_after_due_enabled?: boolean | null;
+  reminder_five_days_after_enabled?: boolean | null;
+};
+
+export type CorrenteContributor = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  whatsapp: string | null;
+  person_type: string;
+  status: string | null;
+  auth_user_id: string | null;
+  role_id: string | null;
+  role_name: string | null;
+  contribution_rule_id: string | null;
+  contribution_amount: number | null;
+  contribution_due_day: number | null;
+  contribution_due_mode: string | null;
+  contribution_rule_type: string | null;
+};
