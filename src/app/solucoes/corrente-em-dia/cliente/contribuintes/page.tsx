@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
+import { CorrenteContextualHelp } from "@/components/corrente-contextual-help";
 import { currencyBR } from "@/lib/corrente-em-dia";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -140,6 +141,12 @@ export default function CorrenteContribuintesPage() {
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
           Cadastre contribuintes, escolha a função, ajuste valor e vencimento individual, crie login e gere mensagem para WhatsApp.
         </p>
+
+        <div className="mt-5">
+          <CorrenteContextualHelp title="Antes de importar todo mundo" href="/solucoes/corrente-em-dia/cliente/primeiros-passos">
+            Cadastre primeiro poucos contribuintes de teste. Valide valor, dia, acesso e comprovante antes de importar a lista completa.
+          </CorrenteContextualHelp>
+        </div>
 
         {message && <p className="mt-5 rounded-2xl bg-white p-4 font-bold text-[#00334E] shadow-sm">{message}</p>}
         {loading && <p className="mt-5 rounded-2xl bg-white p-4 shadow-sm">Carregando...</p>}

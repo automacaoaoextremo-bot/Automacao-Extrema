@@ -3,12 +3,32 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
-import { currencyBR, type CorrenteClientDashboardPayload } from "@/lib/corrente-em-dia";
+import { CorrenteOnboardingChecklist } from "@/components/corrente-onboarding-checklist";
+import {
+  currencyBR,
+  type CorrenteClientDashboardPayload,
+  type CorrenteOnboardingStep,
+} from "@/lib/corrente-em-dia";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type DashboardPayload = CorrenteClientDashboardPayload;
 
+type OnboardingPayload = {
+  steps: CorrenteOnboardingStep[];
+  progress: {
+    total: number;
+    completed: number;
+    percentage: number;
+    nextStep: CorrenteOnboardingStep | null;
+  };
+};
+
 const modules = [
+  {
+    title: "Primeiros passos",
+    href: "/solucoes/corrente-em-dia/cliente/primeiros-passos",
+    description: "Veja o fluxo recomendado e complete a implantação guiada antes de liberar o uso para todos.",
+  },
   {
     title: "Cadastro",
     href: "/solucoes/corrente-em-dia/cliente/cadastro",
@@ -38,6 +58,7 @@ const modules = [
 
 export default function CorrenteEmDiaClientDashboardPage() {
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -52,25 +73,40 @@ export default function CorrenteEmDiaClientDashboardPage() {
         return;
       }
 
-      const response = await fetch("/api/corrente-em-dia/cliente/dashboard", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Não foi possível carregar o painel.");
-      if (active) setPayload(result);
+      const [dashboardResponse, onboardingResponse] = await Promise.all([
+        fetch("/api/corrente-em-dia/cliente/dashboard", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/corrente-em-dia/cliente/onboarding", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      const dashboardResult = await dashboardResponse.json();
+      if (!dashboardResponse.ok) throw new Error(dashboardResult.error || "Não foi possível carregar o painel.");
+
+      const onboardingResult = await onboardingResponse.json();
+      if (!onboardingResponse.ok) throw new Error(onboardingResult.error || "Não foi possível carregar os primeiros passos.");
+
+      if (!active) return;
+      setPayload(dashboardResult);
+      setOnboarding(onboardingResult);
     }
 
-    load()
-      .catch((err) => {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : "Erro ao carregar painel.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    const timer = window.setTimeout(() => {
+      load()
+        .catch((err) => {
+          if (!active) return;
+          setError(err instanceof Error ? err.message : "Erro ao carregar painel.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -97,7 +133,7 @@ export default function CorrenteEmDiaClientDashboardPage() {
           {payload?.organizations?.[0]?.name ?? "Corrente em Dia"}
         </h1>
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
-          Olá{payload?.person?.full_name ? `, ${payload.person.full_name}` : ""}. Use o menu para configurar a organização, cadastrar contribuintes, acompanhar contribuições e revisar comprovantes.
+          Olá{payload?.person?.full_name ? `, ${payload.person.full_name}` : ""}. Comece pelo checklist de configuração para reduzir dúvidas, evitar retrabalho e liberar o uso com mais segurança.
         </p>
 
         {loading && <p className="mt-6 rounded-2xl bg-white p-5 shadow-sm">Carregando painel...</p>}
@@ -105,6 +141,12 @@ export default function CorrenteEmDiaClientDashboardPage() {
 
         {!loading && !error && (
           <>
+            {onboarding?.steps && (
+              <div className="mt-6">
+                <CorrenteOnboardingChecklist steps={onboarding.steps} />
+              </div>
+            )}
+
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-[1.5rem] bg-white p-5 shadow-sm ring-1 ring-slate-100">
                 <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">Previsto</p>

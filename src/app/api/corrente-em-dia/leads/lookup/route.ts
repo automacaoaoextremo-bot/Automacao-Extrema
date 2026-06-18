@@ -16,6 +16,10 @@ function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
 }
 
+function firstName(value: string | null | undefined) {
+  return value?.trim().split(/\s+/)[0] || "tudo bem";
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { email?: string; whatsapp?: string; leadId?: string };
   const email = asText(body.email).toLowerCase();
@@ -34,25 +38,50 @@ export async function POST(request: Request) {
 
   if (leadId) {
     query = query.eq("id", leadId);
-  } else if (email) {
-    query = query.eq("email", email);
-  } else {
+  } else if (whatsapp) {
     query = query.eq("whatsapp", whatsapp);
+  } else {
+    query = query.eq("email", email);
   }
 
   const { data, error } = await query.maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
+  const baseUrl = siteUrl();
+  const leadFormUrl = `${baseUrl}/solucoes/corrente-em-dia/quero-conhecer`;
+  const loginUrl = `${baseUrl}/solucoes/corrente-em-dia/login`;
+
   if (!data) {
     return NextResponse.json({
       ok: false,
       found: false,
-      message: "Não localizei esse cadastro no Corrente em Dia. O caminho mais rápido é preencher novamente o Quero Conhecer.",
-      leadFormUrl: `${siteUrl()}/solucoes/corrente-em-dia/quero-conhecer`,
+      leadFormUrl,
+      supportMessage:
+        "Não localizei seu cadastro automaticamente agora. Vou sinalizar para a equipe da Automação Extrema verificar seu acesso e continuar por aqui.",
+      botconversaReply:
+        "Não localizei seu cadastro automaticamente agora. Vou sinalizar para a equipe da Automação Extrema verificar seu acesso e continuar por aqui. Se preferir, você também pode preencher novamente o Quero Conhecer pelo site.",
     });
   }
 
   const status = data.status as CorrenteLeadStatus;
+  const accessEmail = data.access_user_email ?? data.email;
+  const name = data.responsible_name ?? "";
+  const greeting = firstName(name);
+  const botconversaReply = [
+    `Pronto, ${greeting}. Localizei seu cadastro no Corrente em Dia.`,
+    "",
+    "Seu acesso inicial já foi preparado para você começar a configuração da organização.",
+    "",
+    `Link de acesso: ${loginUrl}`,
+    `E-mail usado no cadastro: ${accessEmail ?? "não informado"}`,
+    "",
+    "As orientações também foram enviadas para esse e-mail. Se não encontrar, confira spam/lixo eletrônico. Se já tiver senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login.",
+    "",
+    "Próximo passo: entre no sistema, complete o cadastro da organização, configure Pix, contribuições, funções e contribuintes.",
+    "",
+    "Se tiver qualquer dificuldade, responda AJUDA por aqui.",
+  ].join("\n");
+
   return NextResponse.json({
     ok: true,
     found: true,
@@ -64,8 +93,21 @@ export async function POST(request: Request) {
     status,
     statusLabel: CORRENTE_LEAD_STATUS_LABELS[status] ?? status,
     accessSent: Boolean(data.access_sent_at),
-    accessEmail: data.access_user_email ?? data.email,
-    loginUrl: `${siteUrl()}/solucoes/corrente-em-dia/login`,
-    message: "Localizei seu cadastro. O acesso foi enviado por e-mail; se não encontrar, confira spam/lixo eletrônico ou use Esqueci minha senha na tela de login.",
+    accessEmail,
+    loginUrl,
+    leadFormUrl,
+    botconversaReply,
+    orientation: {
+      headline: "Acesso inicial localizado",
+      steps: [
+        "Entrar no link de acesso.",
+        "Usar o e-mail cadastrado.",
+        "Completar dados da organização.",
+        "Configurar Pix, valores, funções e contribuintes.",
+        "Fazer uma contribuição de teste antes de liberar para todos.",
+      ],
+    },
+    message:
+      "Localizei seu cadastro. O acesso foi preparado e as orientações foram enviadas por e-mail. Use o WhatsApp para continuar o atendimento e tirar dúvidas.",
   });
 }

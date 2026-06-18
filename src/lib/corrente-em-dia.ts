@@ -358,6 +358,7 @@ export type CorrenteContributionOption = {
 export type CorrenteOrganizationSettings = CorrenteOrganization & {
   contact_name?: string | null;
   contact_email?: string | null;
+  responsible_manager_name?: string | null;
   postal_code?: string | null;
   address_number?: string | null;
   address_complement?: string | null;
@@ -383,3 +384,160 @@ export type CorrenteContributor = {
   contribution_due_mode: string | null;
   contribution_rule_type: string | null;
 };
+
+export type CorrenteOnboardingStepKey =
+  | "organizacao"
+  | "pix"
+  | "valor_padrao"
+  | "dia_contribuicao"
+  | "funcoes"
+  | "contribuintes"
+  | "acessos"
+  | "teste_contribuicao"
+  | "aprovacao_teste";
+
+export type CorrenteOnboardingStep = {
+  key: CorrenteOnboardingStepKey;
+  title: string;
+  description: string;
+  why: string;
+  href: string;
+  done: boolean;
+  required: boolean;
+  sortOrder: number;
+};
+
+export type CorrenteOnboardingInput = {
+  organization?: Partial<CorrenteOrganizationSettings> | null;
+  roleCount?: number | null;
+  permissionCount?: number | null;
+  contributorCount?: number | null;
+  contributorWithLoginCount?: number | null;
+  contributionCount?: number | null;
+  receiptCount?: number | null;
+  approvedContributionCount?: number | null;
+};
+
+function hasText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasPositiveNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export function buildCorrenteOnboardingSteps(input: CorrenteOnboardingInput): CorrenteOnboardingStep[] {
+  const organization = input.organization ?? {};
+  const hasOrganizationData =
+    hasText(organization.name) &&
+    hasText(organization.organization_type) &&
+    (hasText(organization.contact_name) || hasText(organization.responsible_manager_name)) &&
+    hasText(organization.contact_email ?? organization.email) &&
+    hasText(organization.whatsapp);
+
+  const steps: CorrenteOnboardingStep[] = [
+    {
+      key: "organizacao",
+      title: "Completar dados da organização",
+      description: "Confirme nome, tipo, contato responsável, e-mail, WhatsApp e endereço básico.",
+      why: "Isso evita dúvida na comunicação e deixa claro quem responde pela configuração inicial.",
+      href: "/solucoes/corrente-em-dia/cliente/cadastro",
+      done: hasOrganizationData,
+      required: true,
+      sortOrder: 1,
+    },
+    {
+      key: "pix",
+      title: "Informar chave Pix",
+      description: "Cadastre a chave Pix oficial e o nome do recebedor que aparecerá para os contribuintes.",
+      why: "Quando a chave está clara, a pessoa contribui com segurança e a gestão reduz conferência manual.",
+      href: "/solucoes/corrente-em-dia/cliente/cadastro",
+      done: hasText(organization.pix_key) && hasText(organization.pix_receiver_name),
+      required: true,
+      sortOrder: 2,
+    },
+    {
+      key: "valor_padrao",
+      title: "Definir valor padrão",
+      description: "Informe o valor individual padrão e, se necessário, crie outras formas de contribuição.",
+      why: "Um valor padrão reduz perguntas repetidas e deixa a rotina mais previsível para a casa.",
+      href: "/solucoes/corrente-em-dia/cliente/cadastro",
+      done: hasPositiveNumber(organization.default_individual_amount),
+      required: true,
+      sortOrder: 3,
+    },
+    {
+      key: "dia_contribuicao",
+      title: "Definir dia de contribuição",
+      description: "Escolha dia fixo, até um dia do mês ou contribuição em qualquer dia.",
+      why: "Uma regra simples ajuda as pessoas a se organizarem sem cobrança constrangedora.",
+      href: "/solucoes/corrente-em-dia/cliente/cadastro",
+      done: organization.contribution_due_mode === "free_month" || Boolean(organization.contribution_due_day),
+      required: true,
+      sortOrder: 4,
+    },
+    {
+      key: "funcoes",
+      title: "Revisar funções e permissões",
+      description: "Confira quem pode ver cadastro, editar contribuintes, enviar comprovantes e aprovar pagamentos.",
+      why: "Cada pessoa vê apenas o necessário, o que traz mais segurança e evita alterações indevidas.",
+      href: "/solucoes/corrente-em-dia/cliente/configuracoes",
+      done: Number(input.roleCount ?? 0) > 0 && Number(input.permissionCount ?? 0) > 0,
+      required: true,
+      sortOrder: 5,
+    },
+    {
+      key: "contribuintes",
+      title: "Cadastrar ou importar contribuintes",
+      description: "Inclua as pessoas, funções, valor de contribuição, dia combinado, e-mail e WhatsApp.",
+      why: "A lista organizada tira a rotina dos grupos, planilhas soltas e memória da equipe.",
+      href: "/solucoes/corrente-em-dia/cliente/contribuintes",
+      done: Number(input.contributorCount ?? 0) > 0,
+      required: true,
+      sortOrder: 6,
+    },
+    {
+      key: "acessos",
+      title: "Criar acessos dos contribuintes",
+      description: "Gere login quando necessário e envie as orientações por e-mail ou WhatsApp.",
+      why: "Quando cada pessoa tem seu caminho claro, a gestão deixa de explicar tudo manualmente.",
+      href: "/solucoes/corrente-em-dia/cliente/contribuintes",
+      done: Number(input.contributorWithLoginCount ?? 0) > 0,
+      required: false,
+      sortOrder: 7,
+    },
+    {
+      key: "teste_contribuicao",
+      title: "Fazer uma contribuição de teste",
+      description: "Abra a tela Contribuir, copie o Pix, registre um comprovante de teste e confira o status.",
+      why: "Testar antes do uso real dá tranquilidade para orientar todos os envolvidos.",
+      href: "/solucoes/corrente-em-dia/cliente/contribuir",
+      done: Number(input.receiptCount ?? 0) > 0 || Number(input.contributionCount ?? 0) > 0,
+      required: true,
+      sortOrder: 8,
+    },
+    {
+      key: "aprovacao_teste",
+      title: "Aprovar um comprovante de teste",
+      description: "Revise o comprovante, aprove, peça correção ou registre uma observação.",
+      why: "A aprovação fecha o ciclo e mostra que a organização conseguirá acompanhar pendências sem constranger ninguém.",
+      href: "/solucoes/corrente-em-dia/cliente/aprovacoes",
+      done: Number(input.approvedContributionCount ?? 0) > 0,
+      required: true,
+      sortOrder: 9,
+    },
+  ];
+
+  return steps.sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function correnteOnboardingProgress(steps: CorrenteOnboardingStep[]) {
+  const total = steps.length || 1;
+  const completed = steps.filter((step) => step.done).length;
+  return {
+    total,
+    completed,
+    percentage: Math.round((completed / total) * 100),
+    nextStep: steps.find((step) => !step.done) ?? null,
+  };
+}

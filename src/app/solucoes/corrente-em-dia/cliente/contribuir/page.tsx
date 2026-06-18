@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
+import { CorrenteContextualHelp } from "@/components/corrente-contextual-help";
 import { contributionStatusLabel, currencyBR } from "@/lib/corrente-em-dia";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -104,6 +105,12 @@ export default function CorrenteContribuirPage() {
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
           Acesse o Pix, faça o pagamento, envie o comprovante e acompanhe o histórico. Seus dados ficam protegidos e a organização visualiza apenas o necessário para gestão e aprovação.
         </p>
+
+        <div className="mt-5">
+          <CorrenteContextualHelp title="Faça primeiro uma contribuição de teste" href="/solucoes/corrente-em-dia/cliente/primeiros-passos">
+            Confira valor, chave Pix e envio de comprovante antes de orientar todos os contribuintes. O teste evita retrabalho depois.
+          </CorrenteContextualHelp>
+        </div>
 
         {message && <p className="mt-5 rounded-2xl bg-white p-4 font-bold text-[#00334E] shadow-sm">{message}</p>}
         {loading && <p className="mt-5 rounded-2xl bg-white p-4 shadow-sm">Carregando...</p>}

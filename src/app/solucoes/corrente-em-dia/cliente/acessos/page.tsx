@@ -95,13 +95,16 @@ export default function CorrenteEmDiaAccessImportPage() {
       if (isMounted) setPayload(result);
     }
 
-    loadDashboard().catch((error) => {
-      if (!isMounted) return;
-      setLoadError(error instanceof Error ? error.message : "Erro ao carregar dados.");
-    });
+    const timer = window.setTimeout(() => {
+      loadDashboard().catch((error) => {
+        if (!isMounted) return;
+        setLoadError(error instanceof Error ? error.message : "Erro ao carregar dados.");
+      });
+    }, 0);
 
     return () => {
       isMounted = false;
+      window.clearTimeout(timer);
     };
   }, []);
 

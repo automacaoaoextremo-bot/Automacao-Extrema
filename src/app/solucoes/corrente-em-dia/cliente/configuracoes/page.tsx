@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
+import { CorrenteContextualHelp } from "@/components/corrente-contextual-help";
 import {
   CORRENTE_PERMISSION_LABELS,
   type CorrentePermissionKey,
@@ -119,6 +120,12 @@ export default function CorrenteConfiguracoesPage() {
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
           Sim, a melhor opção é manter funções e permissões em uma tela própria de Configurações. Assim o responsável decide quem acessa Cadastro, Contribuintes, Contribuir e Aprovações sem misturar isso com o cadastro da organização.
         </p>
+
+        <div className="mt-5">
+          <CorrenteContextualHelp title="Comece com os perfis padrão" href="/solucoes/corrente-em-dia/cliente/primeiros-passos">
+            Use Presidente e Coordenador para gestão. Para os demais, libere apenas o necessário. Menos acesso indevido significa mais segurança e menos suporte.
+          </CorrenteContextualHelp>
+        </div>
 
         {message && <p className="mt-5 rounded-2xl bg-white p-4 font-bold text-[#00334E] shadow-sm">{message}</p>}
         {loading && <p className="mt-5 rounded-2xl bg-white p-4 shadow-sm">Carregando...</p>}

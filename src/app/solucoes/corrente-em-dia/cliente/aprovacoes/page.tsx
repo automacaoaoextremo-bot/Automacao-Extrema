@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
+import { CorrenteContextualHelp } from "@/components/corrente-contextual-help";
 import { contributionStatusLabel, currencyBR } from "@/lib/corrente-em-dia";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -128,6 +129,12 @@ export default function CorrenteAprovacoesPage() {
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
           Acompanhe contribuições, aprove comprovantes e envie lembretes com uma abordagem cuidadosa, sem constranger quem está pendente.
         </p>
+
+        <div className="mt-5">
+          <CorrenteContextualHelp title="Lembrete sem constrangimento" href="/solucoes/corrente-em-dia/cliente/primeiros-passos">
+            Use mensagens de cuidado coletivo: organização, transparência e previsibilidade. Evite tom de cobrança ou exposição pública de pendências.
+          </CorrenteContextualHelp>
+        </div>
 
         {message && <p className="mt-5 rounded-2xl bg-white p-4 font-bold text-[#00334E] shadow-sm">{message}</p>}
         {loading && <p className="mt-5 rounded-2xl bg-white p-4 shadow-sm">Carregando...</p>}

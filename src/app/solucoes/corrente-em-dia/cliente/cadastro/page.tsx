@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { CorrenteClientHeader } from "@/components/corrente-client-header";
+import { CorrenteContextualHelp } from "@/components/corrente-contextual-help";
 import { currencyBR } from "@/lib/corrente-em-dia";
 import { BRAZIL_STATES } from "@/lib/brazil-locations";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -117,16 +118,19 @@ export default function CorrenteCadastroPage() {
       setOptions((result.contributionOptions ?? []).filter((item: { is_default?: boolean }) => !item.is_default).map((item: { description: string; amount: number | null }) => ({ description: item.description, amount: moneyToInput(item.amount) })));
     }
 
-    load()
-      .catch((err) => {
-        if (active) setMessage(err instanceof Error ? err.message : "Erro ao carregar cadastro.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    const timer = window.setTimeout(() => {
+      load()
+        .catch((err) => {
+          if (active) setMessage(err instanceof Error ? err.message : "Erro ao carregar cadastro.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -145,9 +149,13 @@ export default function CorrenteCadastroPage() {
       });
     }
 
-    loadCities().catch(() => undefined);
+    const timer = window.setTimeout(() => {
+      loadCities().catch(() => undefined);
+    }, 0);
+
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, [form.state]);
 
@@ -215,6 +223,12 @@ export default function CorrenteCadastroPage() {
         <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
           Comece pelo essencial: dados de contato, Pix, valor padrão e vencimento. Depois, ajuste contribuintes individualmente quando necessário.
         </p>
+
+        <div className="mt-5">
+          <CorrenteContextualHelp title="O que preencher primeiro?" href="/solucoes/corrente-em-dia/cliente/primeiros-passos">
+            Preencha contato, chave Pix, valor padrão e dia de contribuição. Esses dados reduzem dúvidas na hora de liberar contribuintes e comprovantes.
+          </CorrenteContextualHelp>
+        </div>
 
         {loading ? (
           <p className="mt-6 rounded-2xl bg-white p-5 shadow-sm">Carregando cadastro...</p>
