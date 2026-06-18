@@ -7,6 +7,7 @@ function asParam(value: string | string[] | undefined) {
 }
 
 function whatsappLink(input: { name: string; email: string; whatsapp: string; leadId: string }) {
+  const aeWhatsapp = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
   const message = [
     "Olá! Preenchi o Quero Conhecer do Corrente em Dia e quero continuar meu cadastro pelo WhatsApp.",
     "",
@@ -20,7 +21,7 @@ function whatsappLink(input: { name: string; email: string; whatsapp: string; le
     .filter(Boolean)
     .join("\n");
 
-  return `https://wa.me/5519992360856?text=${encodeURIComponent(message)}`;
+  return `https://wa.me/${aeWhatsapp}?text=${encodeURIComponent(message)}`;
 }
 
 export default async function CorrenteEmDiaObrigadoPage({
