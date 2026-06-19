@@ -9,6 +9,7 @@ import {
   sendCorrenteLeadAccessEmail,
   sendCorrenteLeadInternalEmail,
 } from "@/lib/mail";
+import { syncCorrenteLeadWithBotConversa } from "@/lib/botconversa";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -457,6 +458,20 @@ export async function POST(request: Request) {
     source: input.source,
   });
 
+  const botconversa = await syncCorrenteLeadWithBotConversa({
+    leadId: lead.id,
+    responsibleName: input.responsibleName,
+    email: input.email,
+    whatsapp: input.whatsapp,
+    loginUrl,
+    source: input.source,
+    organizationName: input.organizationName,
+    founderTermsAccepted: input.founderTermsAccepted,
+    accessEmailSent: accessEmail.sent,
+    status: accessEmail.sent ? "email_acesso_enviado" : "aguardando_primeiro_acesso",
+    trialDays: TRIAL_DAYS,
+  });
+
   const first = input.responsibleName.split(/\s+/)[0] || "tudo bem";
   const leadReply = `Olá, ${first}! Recebemos seu interesse no Corrente em Dia como Cliente Fundador. Enviamos para ${input.email} as orientações de acesso. Clique no link do e-mail, entre no painel e complete os dados da organização para iniciar a avaliação de 30 dias. A proposta é começar simples: clareza nas contribuições, comprovantes organizados e menos retrabalho para quem cuida da casa.`;
   const internalAlertMessage = `Novo lead Corrente em Dia\nContato: ${input.responsibleName}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nStatus: ${accessEmail.sent ? "acesso enviado" : "verificar e-mail/acesso"}\nFunil: ${funilUrl}`;
@@ -472,6 +487,11 @@ export async function POST(request: Request) {
     accessEmailReason: accessEmail.reason,
     internalEmailSent: internalEmail.sent,
     internalEmailReason: internalEmail.reason,
+    botconversaSynced: botconversa.ok,
+    botconversaEnabled: botconversa.enabled,
+    botconversaReason: botconversa.reason,
+    botconversaSubscriberId: botconversa.subscriberId,
+    botconversaSteps: botconversa.steps,
     loginUrl,
     funilUrl,
     botconversaReply: leadReply,

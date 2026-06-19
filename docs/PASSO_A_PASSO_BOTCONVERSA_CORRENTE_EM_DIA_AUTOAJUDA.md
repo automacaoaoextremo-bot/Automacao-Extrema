@@ -1,24 +1,25 @@
-# Corrente em Dia — BotConversa V2: menor fricção + autoajuda
+# Corrente em Dia — BotConversa V3: menor fricção + AE → BotConversa API
 
 ## Estratégia adotada
 
 Fluxo recomendado:
 
 1. Lead preenche **Quero Conhecer** no site.
-2. Sistema cria lead e envia e-mail de acesso.
-3. Página **Obrigado** mostra o botão **Continuar seu cadastro pelo WhatsApp**.
-4. A mensagem chega pré-preenchida no WhatsApp da Automação Extrema com nome, e-mail, WhatsApp e código do lead.
-5. BotConversa responde automaticamente e, se possível, usa **Bloco de Integração** para buscar os dados do lead na AE.
-6. BotConversa envia as mesmas orientações principais do e-mail, sem perguntar e-mail novamente.
-7. Só abre menu de suporte se houver erro, dúvida ou pedido de ajuda.
+2. Sistema cria lead, cliente provisório e acesso inicial.
+3. Sistema envia e-mail de acesso.
+4. Sistema chama a **API do BotConversa** para enriquecer o contato automaticamente.
+5. Página **Obrigado** mostra o botão **Continuar seu cadastro pelo WhatsApp**.
+6. Quando o lead envia a mensagem ao WhatsApp da AE, o BotConversa já deve ter campos, etiquetas e mensagem pronta.
+7. O fluxo responde com as orientações principais, sem perguntar e-mail novamente.
+8. Menu de suporte só aparece quando a pessoa responder **AJUDA**.
 
-Essa estratégia reduz a fricção porque a pessoa não precisa responder um menu logo após clicar no botão.
+Essa estratégia reduz fricção porque a pessoa não precisa responder um menu logo após clicar no botão, e também reduz dependência do lookup por `{telefone}`.
 
 ---
 
 ## Campos personalizados no BotConversa
 
-Crie os campos:
+Crie os campos abaixo:
 
 - `ced_nome_contato`
 - `ced_email`
@@ -30,8 +31,11 @@ Crie os campos:
 - `ced_interesse_cliente_fundador`
 - `ced_precisa_humano`
 - `ced_erro_integracao`
+- `ced_acesso_email_enviado`
+- `ced_primeiro_acesso_status`
+- `ced_resp_botconversa`
 
-Nem todos precisam ser preenchidos manualmente no início. Eles podem ser alimentados pelo Bloco de Integração quando a AE devolver os dados.
+O campo mais importante para simplificar o fluxo é `ced_resp_botconversa`, porque ele recebe da AE a mensagem completa pronta para enviar ao lead.
 
 ---
 
@@ -44,128 +48,76 @@ Crie:
 - `ced_acesso_orientado_whatsapp`
 - `ced_email_acesso_enviado`
 - `ced_cliente_fundador_interesse`
-- `ced_integracao_ok`
-- `ced_integracao_erro`
+- `ced_integracao_ae_ok`
+- `ced_integracao_ae_erro`
 - `ced_precisa_humano`
 - `ced_aguardando_primeiro_acesso`
 - `ced_ajuda_solicitada`
 
 ---
 
-## Palavra-chave principal
+## Chave API do BotConversa
 
-Criar palavra-chave:
+No BotConversa:
+
+1. Acesse **Configurações**.
+2. Acesse **Integrações**.
+3. Copie a chave **Webhook Integration**.
+4. Configure na AE como `BOTCONVERSA_API_KEY`.
+5. Na documentação autenticada da API do BotConversa, confirme os IDs dos campos, etiquetas e fluxo.
+
+---
+
+## Fluxo principal: CED - Lead vindo do site
+
+### Palavra-chave principal
+
+Criar palavra-chave com condição **Contém**:
 
 - `Corrente em Dia`
-
-Variações úteis:
-
+- `Preenchi o Quero Conhecer`
 - `Código do lead`
 - `Quero receber as orientações de acesso`
 - `Cliente Fundador`
 - `Continuar meu cadastro`
 - `Continuar seu cadastro pelo WhatsApp`
 
-Ação: iniciar fluxo **CED - Lead vindo do site V2**.
+Ação: iniciar fluxo **CED - Lead vindo do site**.
 
 ---
 
-## Fluxo principal: CED - Lead vindo do site V2
+## Bloco principal do fluxo
 
-### Bloco 1 — mensagem inicial
-
-Texto:
+Com AE → BotConversa API funcionando, o fluxo pode ter apenas este conteúdo:
 
 ```text
-Olá! Recebi seu cadastro do Corrente em Dia.
-
-Vou localizar suas informações e te enviar por aqui as orientações principais para continuar seu acesso, sem precisar preencher tudo de novo.
-
-A ideia é começar com calma, organizar contribuições, comprovantes e pendências, e trazer mais clareza para quem cuida da organização.
+{ced_resp_botconversa}
 ```
 
-### Bloco 2 — ações
+Use o seletor de variáveis do BotConversa para inserir o campo, em vez de digitar manualmente.
 
-Adicionar etiquetas:
-
-- `ced_lead_site`
-- `ced_whatsapp_iniciado`
-- `ced_cliente_fundador_interesse`
-
-Definir campos:
-
-- `ced_origem = site_corrente_em_dia`
-- `ced_status = whatsapp_iniciado`
-
-### Bloco 3 — Bloco de Integração
-
-Use **Bloco de Integração**, não Webhook.
-
-O Webhook do BotConversa é útil quando outro sistema chama o BotConversa. Neste fluxo, quem precisa consultar dados é o próprio fluxo do BotConversa, então use Bloco de Integração.
-
-Método:
+Se preferir não usar `ced_resp_botconversa`, monte o texto com campos:
 
 ```text
-POST
-```
+Pronto, {primeiro-nome}. Seu cadastro do Corrente em Dia foi recebido.
 
-URL produção:
-
-```text
-https://www.automacaoextrema.com/api/corrente-em-dia/leads/lookup
-```
-
-Body recomendado se conseguir capturar o código do lead:
-
-```json
-{
-  "leadId": "{{ced_lead_id}}",
-  "whatsapp": "{{contact.phone}}",
-  "source": "botconversa_ced_site"
-}
-```
-
-Body alternativo, se ainda não conseguir extrair o código:
-
-```json
-{
-  "whatsapp": "{{contact.phone}}",
-  "source": "botconversa_ced_site"
-}
-```
-
-### Bloco 4 — se integração localizar o lead
-
-Salvar retorno nos campos:
-
-- `ced_nome_contato = responsibleName`
-- `ced_email = accessEmail`
-- `ced_whatsapp = whatsapp`
-- `ced_lead_id = leadId`
-- `ced_login_url = loginUrl`
-- `ced_status = status`
-
-Adicionar etiquetas:
-
-- `ced_integracao_ok`
-- `ced_acesso_orientado_whatsapp`
-- `ced_email_acesso_enviado`
-- `ced_aguardando_primeiro_acesso`
-
-Mensagem:
-
-```text
-Pronto, {{ced_nome_contato}}. Localizei seu cadastro no Corrente em Dia.
-
-Seu acesso inicial já foi preparado para você começar a configuração da organização.
+Seu acesso inicial já foi preparado para começar a configuração da organização.
 
 Link de acesso:
-{{ced_login_url}}
+{ced_login_url}
 
 E-mail usado no cadastro:
-{{ced_email}}
+{ced_email}
 
-As orientações também foram enviadas para esse e-mail. Se não encontrar, confira spam/lixo eletrônico. Se já tiver senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login.
+As orientações também foram enviadas para esse e-mail. Se não encontrar a mensagem de acesso, confira também spam/lixo eletrônico.
+
+Se já tiver senha, use sua senha atual. Se não lembrar, clique em “Esqueci minha senha” na tela de login.
+
+Dados recebidos:
+Nome do contato: {ced_nome_contato}
+WhatsApp informado: {ced_whatsapp}
+Código do lead: {ced_lead_id}
+Cliente Fundador: {ced_interesse_cliente_fundador}
 
 Próximo passo:
 entre no sistema, complete o cadastro da organização, configure Pix, contribuições, funções e contribuintes.
@@ -175,35 +127,56 @@ Se tiver qualquer dificuldade, responda AJUDA por aqui.
 
 Não enviar senha temporária por WhatsApp na V1. Use o e-mail e a opção “Esqueci minha senha” por segurança.
 
-### Bloco 5 — se integração não localizar
+---
+
+## Ações após a mensagem principal
 
 Adicionar etiquetas:
 
-- `ced_integracao_erro`
-- `ced_precisa_humano`
+- `ced_whatsapp_iniciado`
+- `ced_acesso_orientado_whatsapp`
 
-Definir campos:
+Definir campos, se desejar:
 
-- `ced_precisa_humano = sim`
-- `ced_status = verificar_acesso_manual`
+- `ced_status = orientacoes_enviadas_whatsapp`
 
-Mensagem:
-
-```text
-Não consegui localizar automaticamente seu cadastro agora.
-
-Mas não se preocupe: seu atendimento ficou salvo por aqui.
-
-Vou sinalizar para a equipe da Automação Extrema verificar seu acesso e continuar o atendimento por este WhatsApp.
-```
-
-Notificar Márcio/equipe:
+Notificar Márcio/equipe, se fizer sentido:
 
 ```text
-Novo atendimento Corrente em Dia com necessidade de verificação manual.
+Novo atendimento Corrente em Dia pelo WhatsApp.
 
-Verificar cadastro, acesso e e-mail do lead.
+Nome: {ced_nome_contato}
+E-mail: {ced_email}
+Lead: {ced_lead_id}
+Status: {ced_status}
+
+A pessoa recebeu as orientações de acesso pelo WhatsApp. Acompanhar primeiro acesso.
 ```
+
+---
+
+## Bloco de Integração ainda é necessário?
+
+No fluxo principal, não é obrigatório se a AE já estiver enriquecendo o contato via API.
+
+Mantenha o Bloco de Integração apenas como contingência ou diagnóstico, por exemplo em um fluxo de suporte.
+
+Endpoint de consulta:
+
+```text
+POST https://www.automacaoextrema.com/api/corrente-em-dia/leads/lookup
+```
+
+Body:
+
+```json
+{
+  "source": "botconversa_ced_site",
+  "whatsapp": "{telefone}"
+}
+```
+
+O endpoint sempre devolve `botconversaMessage`, inclusive quando não localiza o cadastro. O fallback nunca deve pedir para preencher novamente o Quero Conhecer; ele deve enviar URL de login e orientar a procurar o e-mail em spam/lixo eletrônico.
 
 ---
 
@@ -221,28 +194,40 @@ Claro. Vou te ajudar.
 Para começar, me diga em qual etapa você está:
 
 1 - Não consegui entrar
-2 - Quero completar o cadastro da organização
-3 - Quero cadastrar contribuintes
-4 - Quero entender Pix/contribuições
-5 - Quero falar com a equipe
+2 - Não encontrei o e-mail de acesso
+3 - Quero completar o cadastro da organização
+4 - Quero cadastrar contribuintes
+5 - Quero entender Pix/contribuições
+6 - Quero falar com a equipe
 ```
 
-### Respostas sugeridas
-
-#### 1 - Não consegui entrar
+### 1 - Não consegui entrar
 
 ```text
 Sem problema. Primeiro confira se está usando o mesmo e-mail informado no cadastro.
 
 Link de acesso:
-{{ced_login_url}}
+{ced_login_url}
+
+Se não encontrar a mensagem de acesso, confira também spam/lixo eletrônico.
 
 Se não lembrar a senha, clique em Esqueci minha senha na tela de login. Se ainda assim não conseguir, vou acionar a equipe para verificar seu acesso.
 ```
 
-Etiqueta: `ced_precisa_humano` se a pessoa insistir que não conseguiu.
+### 2 - Não encontrei o e-mail de acesso
 
-#### 2 - Quero completar o cadastro da organização
+```text
+Sem problema. Confira também a pasta spam/lixo eletrônico.
+
+Link de acesso:
+{ced_login_url}
+
+Use o e-mail informado no cadastro. Se não lembrar a senha, clique em Esqueci minha senha na tela de login.
+
+Se preferir, vou sinalizar para a equipe acompanhar seu acesso por aqui.
+```
+
+### 3 - Quero completar o cadastro da organização
 
 ```text
 Dentro do Corrente em Dia, entre em CADASTRO.
@@ -250,7 +235,7 @@ Dentro do Corrente em Dia, entre em CADASTRO.
 Complete primeiro: nome da organização, responsável, chave Pix, valor padrão e dia de contribuição. Esses dados reduzem dúvidas antes de liberar o uso para todos.
 ```
 
-#### 3 - Quero cadastrar contribuintes
+### 4 - Quero cadastrar contribuintes
 
 ```text
 Entre em CONTRIBUINTES.
@@ -258,7 +243,7 @@ Entre em CONTRIBUINTES.
 Você pode cadastrar poucas pessoas de teste primeiro, conferir função, valor e dia combinado, e depois importar a lista completa por planilha.
 ```
 
-#### 4 - Quero entender Pix/contribuições
+### 5 - Quero entender Pix/contribuições
 
 ```text
 A tela CONTRIBUIR mostra QR Code, Pix copia e cola, valor combinado, vencimento e envio de comprovante.
@@ -266,7 +251,7 @@ A tela CONTRIBUIR mostra QR Code, Pix copia e cola, valor combinado, vencimento 
 A recomendação é fazer uma contribuição de teste antes de liberar para todos.
 ```
 
-#### 5 - Quero falar com a equipe
+### 6 - Quero falar com a equipe
 
 ```text
 Perfeito. Vou sinalizar para a equipe da Automação Extrema continuar seu atendimento por aqui.
@@ -285,7 +270,7 @@ Aguardar 30 a 60 minutos e enviar:
 ```text
 Vou deixar seu atendimento salvo por aqui.
 
-Quando quiser continuar, entre pelo link enviado e complete os primeiros passos. Se precisar de ajuda, responda AJUDA.
+Quando quiser continuar, entre pelo link enviado e complete os primeiros passos. Se não encontrar o e-mail de acesso, confira também spam/lixo eletrônico. Se precisar de ajuda, responda AJUDA.
 ```
 
 Etiqueta: `ced_aguardando_primeiro_acesso`.
@@ -298,6 +283,9 @@ O BotConversa deve ser continuação do sistema, não mais uma barreira. Por iss
 
 - não perguntar e-mail novamente quando a mensagem veio do botão do site;
 - enviar orientações direto;
+- exibir URL de login;
+- citar spam/lixo eletrônico;
 - abrir menu só em caso de ajuda;
 - usar tom de clareza, segurança e cuidado coletivo;
-- evitar linguagem de cobrança.
+- evitar linguagem de cobrança;
+- não enviar senha temporária por WhatsApp.

@@ -127,10 +127,6 @@ function extractLeadIdFromText(value: string | null | undefined) {
   return match?.[0] ?? "";
 }
 
-function normalizePhoneForCompare(value: string | null | undefined) {
-  const phone = buildPhoneCandidates(value);
-  return phone.last11 || phone.withoutBrazilCode || phone.digits;
-}
 
 function phoneMatchesCandidate(storedWhatsapp: string | null | undefined, phone: PhoneCandidates) {
   if (!phone.candidates.length) return false;
