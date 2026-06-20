@@ -5,8 +5,24 @@ import { useEffect, useMemo, useState } from "react";
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
 type MenuItem = { id: string; category: string; name: string; description?: string | null; unit_label: string; price: number; is_active: boolean };
+type Client = { id: string; name: string; whatsapp?: string | null; created_at?: string | null };
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
+type CreatedOrder = {
+  id: string;
+  code: string;
+  total_amount: number | string;
+  created_at?: string | null;
+  client?: Client | null;
+  items?: Array<{ id: string; name: string; quantity: number; unit_price?: number | string; total_price: number | string }>;
+};
 type OrderMode = "bazar" | "menu";
+
+type Bootstrap = {
+  prices?: Price[];
+  categories?: Category[];
+  menuItems?: MenuItem[];
+  clients?: Client[];
+};
 
 const menuCategoryOrder = ["Todos", "Salgados", "Bebidas", "Doces"];
 
@@ -21,10 +37,16 @@ function normalize(value: string) {
     .toLowerCase();
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "Pedido criado agora";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
 export function PedidosClient() {
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [clientName, setClientName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [categoryPath, setCategoryPath] = useState("");
@@ -34,14 +56,17 @@ export function PedidosClient() {
   const [mode, setMode] = useState<OrderMode>("bazar");
   const [menuCategory, setMenuCategory] = useState("Todos");
   const [search, setSearch] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
 
   useEffect(() => {
     fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
       .then((res) => res.json())
-      .then((data) => {
-        setPrices((data.prices || []).filter((item: Price) => item.is_active));
-        setCategories((data.categories || []).filter((item: Category) => item.is_active && item.is_visible));
-        setMenuItems((data.menuItems || []).filter((item: MenuItem) => item.is_active));
+      .then((data: Bootstrap) => {
+        setPrices((data.prices || []).filter((item) => item.is_active));
+        setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
+        setMenuItems((data.menuItems || []).filter((item) => item.is_active));
+        setClients([...(data.clients || [])].sort((a, b) => a.name.localeCompare(b.name)));
       })
       .catch(() => setMessage("Não foi possível carregar o catálogo."));
   }, []);
@@ -73,7 +98,41 @@ export function PedidosClient() {
     return orderedCategories.map((category) => ({ category, items: groups.get(category) || [] }));
   }, [visibleMenuItems]);
 
+  const filteredClients = useMemo(() => {
+    const term = normalize(clientSearch.trim());
+    return clients
+      .filter((client) => !term || normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 12);
+  }, [clientSearch, clients]);
+
+  function selectClient(client: Client) {
+    setClientName(client.name);
+    setWhatsapp(client.whatsapp || "");
+    setCreatedOrder(null);
+    setMessage(`Cliente selecionado: ${client.name}`);
+  }
+
+  function startAnotherOrder(client?: Client | null) {
+    setCreatedOrder(null);
+    setCart([]);
+    setMessage("");
+    if (client?.name) {
+      setClientName(client.name);
+      setWhatsapp(client.whatsapp || "");
+    }
+  }
+
+  function startNewOrder() {
+    setCreatedOrder(null);
+    setClientName("");
+    setWhatsapp("");
+    setCart([]);
+    setMessage("");
+  }
+
   function addBazarItem(price: Price) {
+    setCreatedOrder(null);
     const key = `bazar-${price.id}-${categoryPath || "sem-categoria"}`;
     setCart((current) => {
       const found = current.find((item) => item.key === key);
@@ -83,6 +142,7 @@ export function PedidosClient() {
   }
 
   function addMenuItem(menu: MenuItem) {
+    setCreatedOrder(null);
     const key = `menu-${menu.id}`;
     setCart((current) => {
       const found = current.find((item) => item.key === key);
@@ -92,12 +152,14 @@ export function PedidosClient() {
   }
 
   function updateQty(key: string, delta: number) {
+    setCreatedOrder(null);
     setCart((current) => current.map((item) => (item.key === key ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item)).filter((item) => item.quantity > 0));
   }
 
   function switchMode(nextMode: OrderMode) {
     setMode(nextMode);
     setMessage("");
+    setCreatedOrder(null);
     setCart((current) => current.filter((item) => item.kind === nextMode));
   }
 
@@ -122,8 +184,19 @@ export function PedidosClient() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao criar pedido.");
-      setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${data.order.code}` : `Pedido criado: ${data.order.code}`);
+      const order = data.order as CreatedOrder;
+      setCreatedOrder(order);
+      setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
+      if (order.client?.name) {
+        setClientName(order.client.name);
+        setWhatsapp(order.client.whatsapp || whatsapp);
+        setClients((current) => {
+          const exists = current.some((client) => client.id === order.client?.id);
+          const next = exists ? current.map((client) => (client.id === order.client?.id ? { ...client, ...order.client } as Client : client)) : [...current, order.client as Client];
+          return next.sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erro ao criar pedido.");
     } finally {
@@ -150,12 +223,66 @@ export function PedidosClient() {
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <label className="sm:col-span-2">
                 <span className="text-sm font-bold">Cliente obrigatório e único</span>
-                <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Ex.: Márcio Alex" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+                <input value={clientName} onChange={(e) => { setClientName(e.target.value); setCreatedOrder(null); }} placeholder="Ex.: Márcio Alex" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
               </label>
               <label>
                 <span className="text-sm font-bold">WhatsApp</span>
                 <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="opcional" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
               </label>
+            </div>
+          </div>
+
+          {createdOrder && (
+            <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap gap-3">
+                <button onClick={startNewOrder} className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Novo pedido</button>
+                <button onClick={() => startAnotherOrder(createdOrder.client)} className="rounded-full bg-[#0f6b35] px-5 py-3 text-sm font-black text-white shadow-sm">Fazer outro pedido para este cliente</button>
+              </div>
+              <div className="mt-5 rounded-3xl bg-[#fffdf7] p-5 ring-1 ring-[#dfe8df]">
+                <span className="inline-flex rounded-full bg-[#e8fff0] px-4 py-2 text-sm font-black text-[#0f6b35]">Pedido criado</span>
+                <h2 className="mt-5 text-4xl font-black">Pedido {createdOrder.code}</h2>
+                <p className="mt-3 text-lg text-[#496451]">Cliente: <strong>{createdOrder.client?.name || clientName}</strong></p>
+                <p className="mt-1 text-sm text-[#7a8278]">{formatDateTime(createdOrder.created_at)}</p>
+              </div>
+              <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
+                <h3 className="text-2xl font-black">Itens</h3>
+                <div className="mt-4 space-y-3">
+                  {(createdOrder.items || []).map((item) => (
+                    <div key={item.id} className="flex items-start justify-between gap-4 rounded-2xl bg-[#fffdf7] p-4">
+                      <div>
+                        <strong>{item.name}</strong>
+                        <p className="text-sm text-[#496451]">{item.quantity} × {brl(Number(item.unit_price || 0))}</p>
+                      </div>
+                      <strong>{brl(Number(item.total_price || 0))}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
+                <span className="text-sm text-[#496451]">Total</span>
+                <strong className="block text-5xl text-[#0f3f23]">{brl(Number(createdOrder.total_amount || 0))}</strong>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <h2 className="text-2xl font-black">Lista de clientes</h2>
+            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado ou toque em “Fazer pedido” para preencher o nome automaticamente.</p>
+            <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+            <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
+              <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
+              <div className="space-y-3">
+                {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
+                {filteredClients.map((client) => (
+                  <div key={client.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3 shadow-sm">
+                    <div className="min-w-0">
+                      <strong className="block truncate">{client.name}</strong>
+                      {client.whatsapp && <span className="text-xs text-[#7a8278]">{client.whatsapp}</span>}
+                    </div>
+                    <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
