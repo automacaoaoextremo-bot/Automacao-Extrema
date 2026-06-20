@@ -472,6 +472,16 @@ export async function POST(request: Request) {
     trialDays: TRIAL_DAYS,
   });
 
+  if (botconversa.enabled && !botconversa.ok) {
+    console.warn("[BotConversa] Falha ao sincronizar lead Corrente em Dia", {
+      leadId: lead.id,
+      email: input.email,
+      whatsapp: input.whatsapp,
+      reason: botconversa.reason,
+      steps: botconversa.steps,
+    });
+  }
+
   const first = input.responsibleName.split(/\s+/)[0] || "tudo bem";
   const leadReply = `Olá, ${first}! Recebemos seu interesse no Corrente em Dia como Cliente Fundador. Enviamos para ${input.email} as orientações de acesso. Clique no link do e-mail, entre no painel e complete os dados da organização para iniciar a avaliação de 30 dias. A proposta é começar simples: clareza nas contribuições, comprovantes organizados e menos retrabalho para quem cuida da casa.`;
   const internalAlertMessage = `Novo lead Corrente em Dia\nContato: ${input.responsibleName}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nStatus: ${accessEmail.sent ? "acesso enviado" : "verificar e-mail/acesso"}\nFunil: ${funilUrl}`;

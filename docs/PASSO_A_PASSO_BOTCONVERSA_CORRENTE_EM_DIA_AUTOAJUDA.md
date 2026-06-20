@@ -289,3 +289,22 @@ O BotConversa deve ser continuação do sistema, não mais uma barreira. Por iss
 - usar tom de clareza, segurança e cuidado coletivo;
 - evitar linguagem de cobrança;
 - não enviar senha temporária por WhatsApp.
+
+---
+
+## Atualização — cuidado com `{ced_resp_botconversa}` vazio
+
+Se o fluxo tiver somente o bloco `{ced_resp_botconversa}`, o contato só receberá mensagem quando esse campo estiver preenchido no BotConversa.
+
+Durante a fase de correção da integração AE → BotConversa API, é mais seguro usar temporariamente uma mensagem fixa com:
+
+- link de login;
+- orientação para procurar o e-mail no spam/lixo eletrônico;
+- orientação para usar “Esqueci minha senha”;
+- chamada para responder AJUDA se precisar.
+
+Depois que o endpoint de teste `/api/admin/corrente-em-dia/botconversa-test` confirmar que `ced_resp_botconversa` está sendo atualizado, volte o fluxo para apenas:
+
+```text
+{ced_resp_botconversa}
+```

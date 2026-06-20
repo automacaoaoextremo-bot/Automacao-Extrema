@@ -20,7 +20,10 @@ type BotConversaStepResult = {
   skipped?: boolean;
   status?: number;
   reason?: string;
+  path?: string;
+  method?: string;
   data?: BotConversaJson;
+  responseText?: string;
 };
 
 export type BotConversaSyncResult = {
@@ -36,6 +39,14 @@ type BotConversaRequestResult = {
   status: number;
   data: BotConversaJson;
   text: string;
+  path: string;
+  method: string;
+};
+
+type BotConversaFieldConfig = {
+  fieldId: string;
+  label: string;
+  value: string;
 };
 
 const DEFAULT_BASE_URL = "https://backend.botconversa.com.br";
@@ -48,8 +59,20 @@ function env(name: string) {
   return process.env[name]?.trim() ?? "";
 }
 
+function firstEnv(...names: string[]) {
+  for (const name of names) {
+    const value = env(name);
+    if (value) return value;
+  }
+  return "";
+}
+
 function isEnabled() {
   return env("BOTCONVERSA_ENABLED").toLowerCase() === "true";
+}
+
+function debugEnabled() {
+  return env("BOTCONVERSA_DEBUG").toLowerCase() === "true";
 }
 
 function onlyDigits(value: string | null | undefined) {
@@ -77,14 +100,14 @@ function cleanBaseUrl(value: string) {
 
 function isConfigured(value: string) {
   const text = value.trim();
-  return Boolean(text && !text.includes("...") && !text.includes("PREENCHER") && !text.includes("SEU_"));
+  return Boolean(text && !text.includes("...") && !text.includes("PREENCHER") && !text.includes("SEU_") && !text.includes("SUA_"));
 }
 
 function fillTemplate(template: string, values: Record<string, string>) {
   return Object.entries(values).reduce((current, [key, value]) => current.replaceAll(`{${key}}`, encodeURIComponent(value)), template);
 }
 
-function buildAccessMessage(input: BotConversaSyncInput) {
+export function buildCorrenteLeadBotConversaMessage(input: BotConversaSyncInput) {
   const greeting = firstName(input.responsibleName);
 
   return [
@@ -140,7 +163,7 @@ function pickString(value: BotConversaJson, keys: string[]) {
     if (typeof item === "string" || typeof item === "number") return String(item);
   }
 
-  for (const parentKey of ["data", "subscriber", "user", "contact"]) {
+  for (const parentKey of ["data", "subscriber", "user", "contact", "result", "response"]) {
     const nested = getNestedRecord(value, parentKey);
     if (!nested) continue;
     for (const key of keys) {
@@ -153,7 +176,12 @@ function pickString(value: BotConversaJson, keys: string[]) {
 }
 
 function resolveSubscriberId(data: BotConversaJson) {
-  return pickString(data, ["id", "subscriber_id", "subscriberId", "user_id", "contact_id"]);
+  return pickString(data, ["id", "subscriber_id", "subscriberId", "user_id", "contact_id", "contactId"]);
+}
+
+function safeLog(message: string, payload?: BotConversaJson) {
+  if (!debugEnabled()) return;
+  console.log(`[BotConversa] ${message}`, payload ?? "");
 }
 
 async function botconversaRequest(path: string, init: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: BotConversaJson }): Promise<BotConversaRequestResult> {
@@ -163,14 +191,23 @@ async function botconversaRequest(path: string, init: { method: "GET" | "POST" |
   const authScheme = env("BOTCONVERSA_AUTH_SCHEME");
   const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      text: "BOTCONVERSA_API_KEY não configurada.",
+      path,
+      method: init.method,
+    };
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     [headerName]: authScheme ? `${authScheme} ${apiKey}` : apiKey,
   };
 
-  if (!apiKey) {
-    return { ok: false, status: 0, data: null, text: "BOTCONVERSA_API_KEY não configurada." };
-  }
+  safeLog(`${init.method} ${path}`, init.body ?? null);
 
   const response = await fetch(url, {
     method: init.method,
@@ -179,11 +216,17 @@ async function botconversaRequest(path: string, init: { method: "GET" | "POST" |
   });
 
   const text = await response.text();
+  const data = parseJson(text);
+
+  safeLog(`${init.method} ${path} -> ${response.status}`, data);
+
   return {
     ok: response.ok,
     status: response.status,
-    data: parseJson(text),
+    data,
     text,
+    path,
+    method: init.method,
   };
 }
 
@@ -221,18 +264,21 @@ async function createOrUpdateSubscriber(input: BotConversaSyncInput): Promise<{ 
       step: "create_or_update_subscriber",
       ok: response.ok && Boolean(subscriberId),
       status: response.status,
+      path: response.path,
+      method: response.method,
       reason: subscriberId ? "Contato criado/atualizado no BotConversa." : "Contato criado/atualizado, mas o ID não foi identificado na resposta. Verifique o endpoint/body da sua conta.",
       data: response.data,
+      responseText: response.ok ? undefined : response.text,
     },
   };
 }
 
 function tagIds(input: BotConversaSyncInput) {
   return [
-    env("BOTCONVERSA_CED_TAG_LEAD_SITE_ID"),
-    input.accessEmailSent ? env("BOTCONVERSA_CED_TAG_EMAIL_SENT_ID") : "",
-    input.founderTermsAccepted ? env("BOTCONVERSA_CED_TAG_FOUNDER_ID") : "",
-    env("BOTCONVERSA_CED_TAG_WAITING_ACCESS_ID"),
+    firstEnv("BOTCONVERSA_CED_TAG_LEAD_SITE_ID", "BOTCONVERSA_CED_TAG_LEAD_SITE"),
+    input.accessEmailSent ? firstEnv("BOTCONVERSA_CED_TAG_EMAIL_SENT_ID", "BOTCONVERSA_CED_TAG_EMAIL_SENT") : "",
+    input.founderTermsAccepted ? firstEnv("BOTCONVERSA_CED_TAG_FOUNDER_ID", "BOTCONVERSA_CED_TAG_FOUNDER") : "",
+    firstEnv("BOTCONVERSA_CED_TAG_WAITING_ACCESS_ID", "BOTCONVERSA_CED_TAG_WAITING_ACCESS"),
   ].filter(isConfigured);
 }
 
@@ -248,29 +294,59 @@ async function applyTags(subscriberId: string, input: BotConversaSyncInput) {
   for (const tagId of ids) {
     const path = fillTemplate(template, { subscriberId, tagId });
     const response = await botconversaRequest(path, { method: "POST", body: { tag_id: tagId } });
-    results.push({ step: `apply_tag_${tagId}`, ok: response.ok, status: response.status, data: response.data });
+    results.push({
+      step: `apply_tag_${tagId}`,
+      ok: response.ok,
+      status: response.status,
+      path: response.path,
+      method: response.method,
+      data: response.data,
+      responseText: response.ok ? undefined : response.text,
+    });
   }
 
   return results;
 }
 
 function customFields(input: BotConversaSyncInput) {
-  const message = buildAccessMessage(input);
-  const values: Array<{ fieldId: string; label: string; value: string }> = [
-    { fieldId: env("BOTCONVERSA_CED_FIELD_NAME_ID"), label: "ced_nome_contato", value: input.responsibleName },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_EMAIL_ID"), label: "ced_email", value: input.email },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_WHATSAPP_ID"), label: "ced_whatsapp", value: normalizePhoneForBotConversa(input.whatsapp) },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_LEAD_ID_ID"), label: "ced_lead_id", value: input.leadId },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_ORIGIN_ID"), label: "ced_origem", value: input.source },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_STATUS_ID"), label: "ced_status", value: input.status },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_LOGIN_URL_ID"), label: "ced_login_url", value: input.loginUrl },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_FOUNDER_ID"), label: "ced_interesse_cliente_fundador", value: input.founderTermsAccepted ? "sim" : "pendente_no_primeiro_acesso" },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_EMAIL_SENT_ID"), label: "ced_acesso_email_enviado", value: input.accessEmailSent ? "sim" : "nao" },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_FIRST_ACCESS_ID"), label: "ced_primeiro_acesso_status", value: "aguardando_primeiro_acesso" },
-    { fieldId: env("BOTCONVERSA_CED_FIELD_MESSAGE_ID"), label: "ced_resp_botconversa", value: message },
+  const message = buildCorrenteLeadBotConversaMessage(input);
+  const values: BotConversaFieldConfig[] = [
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_NAME_ID", "BOTCONVERSA_CED_FIELD_NAME"), label: "ced_nome_contato", value: input.responsibleName },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_EMAIL_ID", "BOTCONVERSA_CED_FIELD_EMAIL"), label: "ced_email", value: input.email },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_WHATSAPP_ID", "BOTCONVERSA_CED_FIELD_WHATSAPP"), label: "ced_whatsapp", value: normalizePhoneForBotConversa(input.whatsapp) },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_LEAD_ID_ID", "BOTCONVERSA_CED_FIELD_LEAD_ID"), label: "ced_lead_id", value: input.leadId },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_ORIGIN_ID", "BOTCONVERSA_CED_FIELD_ORIGIN"), label: "ced_origem", value: input.source },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_STATUS_ID", "BOTCONVERSA_CED_FIELD_STATUS"), label: "ced_status", value: input.status },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_LOGIN_URL_ID", "BOTCONVERSA_CED_FIELD_LOGIN_URL"), label: "ced_login_url", value: input.loginUrl },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_FOUNDER_ID", "BOTCONVERSA_CED_FIELD_FOUNDER"), label: "ced_interesse_cliente_fundador", value: input.founderTermsAccepted ? "sim" : "pendente_no_primeiro_acesso" },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_EMAIL_SENT_ID", "BOTCONVERSA_CED_FIELD_EMAIL_SENT"), label: "ced_acesso_email_enviado", value: input.accessEmailSent ? "sim" : "nao" },
+    { fieldId: firstEnv("BOTCONVERSA_CED_FIELD_FIRST_ACCESS_ID", "BOTCONVERSA_CED_FIELD_FIRST_ACCESS"), label: "ced_primeiro_acesso_status", value: "aguardando_primeiro_acesso" },
+    {
+      fieldId: firstEnv("BOTCONVERSA_CED_FIELD_RESPONSE_ID", "BOTCONVERSA_CED_FIELD_RESPONSE", "BOTCONVERSA_CED_FIELD_MESSAGE_ID", "BOTCONVERSA_CED_FIELD_MESSAGE"),
+      label: "ced_resp_botconversa",
+      value: message,
+    },
   ];
 
   return values.filter((item) => isConfigured(item.fieldId));
+}
+
+function customFieldBody(field: BotConversaFieldConfig): BotConversaJson {
+  const mode = env("BOTCONVERSA_FIELD_BODY_MODE").toLowerCase();
+
+  if (mode === "custom_field_value") {
+    return { custom_field_value: field.value };
+  }
+
+  if (mode === "value_only") {
+    return field.value;
+  }
+
+  if (mode === "value_and_field") {
+    return { custom_field: field.fieldId, value: field.value };
+  }
+
+  return { value: field.value };
 }
 
 async function setCustomFields(subscriberId: string, input: BotConversaSyncInput) {
@@ -282,14 +358,19 @@ async function setCustomFields(subscriberId: string, input: BotConversaSyncInput
   }
 
   const template = env("BOTCONVERSA_FIELD_PATH_TEMPLATE") || DEFAULT_FIELD_PATH_TEMPLATE;
+  const method = (env("BOTCONVERSA_FIELD_METHOD") || "POST").toUpperCase() as "POST" | "PUT" | "PATCH";
+
   for (const field of fields) {
     const path = fillTemplate(template, { subscriberId, fieldId: field.fieldId });
-    const response = await botconversaRequest(path, { method: "POST", body: { value: field.value } });
+    const response = await botconversaRequest(path, { method, body: customFieldBody(field) });
     results.push({
       step: `set_field_${field.label}`,
       ok: response.ok,
       status: response.status,
+      path: response.path,
+      method: response.method,
       data: response.data,
+      responseText: response.ok ? undefined : response.text,
     });
   }
 
@@ -297,7 +378,7 @@ async function setCustomFields(subscriberId: string, input: BotConversaSyncInput
 }
 
 async function sendFlow(subscriberId: string) {
-  const flowId = env("BOTCONVERSA_CED_FLOW_ID");
+  const flowId = firstEnv("BOTCONVERSA_CED_FLOW_ID", "BOTCONVERSA_CED_FLOW");
   const sendFlowEnabled = env("BOTCONVERSA_CED_SEND_FLOW").toLowerCase() === "true";
 
   if (!sendFlowEnabled || !isConfigured(flowId)) {
@@ -312,7 +393,27 @@ async function sendFlow(subscriberId: string) {
     step: "send_flow",
     ok: response.ok,
     status: response.status,
+    path: response.path,
+    method: response.method,
     data: response.data,
+    responseText: response.ok ? undefined : response.text,
+  };
+}
+
+export function getBotConversaConfigSummary() {
+  return {
+    enabled: isEnabled(),
+    baseUrl: cleanBaseUrl(env("BOTCONVERSA_API_BASE_URL")),
+    createContactPath: env("BOTCONVERSA_CREATE_CONTACT_PATH") || DEFAULT_CREATE_CONTACT_PATH,
+    tagPathTemplate: env("BOTCONVERSA_TAG_PATH_TEMPLATE") || DEFAULT_TAG_PATH_TEMPLATE,
+    fieldPathTemplate: env("BOTCONVERSA_FIELD_PATH_TEMPLATE") || DEFAULT_FIELD_PATH_TEMPLATE,
+    fieldMethod: env("BOTCONVERSA_FIELD_METHOD") || "POST",
+    fieldBodyMode: env("BOTCONVERSA_FIELD_BODY_MODE") || "value",
+    flowPathTemplate: env("BOTCONVERSA_FLOW_PATH_TEMPLATE") || DEFAULT_FLOW_PATH_TEMPLATE,
+    apiHeaderName: env("BOTCONVERSA_API_HEADER_NAME") || "API-KEY",
+    authScheme: env("BOTCONVERSA_AUTH_SCHEME") || "",
+    hasApiKey: Boolean(env("BOTCONVERSA_API_KEY") || env("BOTCONVERSA_WEBHOOK_INTEGRATION_KEY")),
+    responseFieldConfigured: Boolean(firstEnv("BOTCONVERSA_CED_FIELD_RESPONSE_ID", "BOTCONVERSA_CED_FIELD_RESPONSE", "BOTCONVERSA_CED_FIELD_MESSAGE_ID", "BOTCONVERSA_CED_FIELD_MESSAGE")),
   };
 }
 

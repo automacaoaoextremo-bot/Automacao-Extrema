@@ -256,3 +256,56 @@ Em todos os casos, lembre a pessoa de procurar o e-mail também em spam/lixo ele
 8. Clique no botão da página Obrigado.
 9. Confirme se o fluxo envia a mensagem com URL, e-mail, lead ID e orientação sobre spam/lixo eletrônico.
 10. Só depois ative `BOTCONVERSA_CED_SEND_FLOW=true`, se desejar disparo automático de fluxo pela API.
+
+---
+
+## Atualização — debug de campos/etiquetas por ID
+
+A integração AE → BotConversa agora aceita IDs reais e aliases antigos de variáveis. Para o campo de resposta pronta, prefira:
+
+```env
+BOTCONVERSA_CED_FIELD_RESPONSE_ID=ID_REAL_DO_CAMPO_CED_RESP_BOTCONVERSA
+```
+
+Variáveis antigas como `BOTCONVERSA_CED_FIELD_MESSAGE_ID` continuam funcionando, mas a recomendação nova é `BOTCONVERSA_CED_FIELD_RESPONSE_ID`.
+
+Foi criado o endpoint de teste:
+
+```text
+/api/admin/corrente-em-dia/botconversa-test
+```
+
+Use com token:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://www.automacaoextrema.com/api/admin/corrente-em-dia/botconversa-test?token=SEU_TOKEN" `
+  -Method Get
+```
+
+Teste POST:
+
+```powershell
+$body = @{
+  responsibleName = "Márcio Alexandre da Silva"
+  email = "marcioalex.silva@gmail.com"
+  whatsapp = "19992360856"
+  leadId = "debug-teste-botconversa"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "https://www.automacaoextrema.com/api/admin/corrente-em-dia/botconversa-test?token=SEU_TOKEN" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Se o campo `ced_resp_botconversa` não for preenchido, ative temporariamente:
+
+```env
+BOTCONVERSA_DEBUG=true
+```
+
+Depois veja os logs na Vercel em **Deployments → Functions/Logs** e procure por `[BotConversa]`.
+
+O fluxo do BotConversa pode continuar com apenas `{ced_resp_botconversa}`, desde que a API esteja preenchendo esse campo antes de disparar o fluxo. Durante o debug, use uma mensagem fixa com link de login para evitar que o lead fique sem resposta.
