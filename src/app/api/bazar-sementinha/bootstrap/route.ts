@@ -23,7 +23,7 @@ export async function GET() {
     ]);
 
     const unpaidTotal = (orders.data || [])
-      .filter((order) => order.status !== "cancelado" && order.payment_status !== "pago")
+      .filter((order) => order.status !== "cancelado" && order.status !== "excluido" && order.payment_status !== "pago")
       .reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
 
     const pix = await buildPixQrDataUrl(Math.max(unpaidTotal, 1), "BAZARSEM");

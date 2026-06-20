@@ -4,11 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
-type MenuItem = { id: string; category: string; name: string; unit_label: string; price: number; is_active: boolean };
+type MenuItem = { id: string; category: string; name: string; description?: string | null; unit_label: string; price: number; is_active: boolean };
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
+type OrderMode = "bazar" | "menu";
+
+const menuCategoryOrder = ["Todos", "Salgados", "Bebidas", "Doces"];
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function normalize(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 export function PedidosClient() {
@@ -21,6 +31,9 @@ export function PedidosClient() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<OrderMode>("bazar");
+  const [menuCategory, setMenuCategory] = useState("Todos");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
@@ -34,6 +47,31 @@ export function PedidosClient() {
   }, []);
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
+
+  const visibleMenuItems = useMemo(() => {
+    const term = normalize(search.trim());
+    return menuItems.filter((item) => {
+      const categoryOk = menuCategory === "Todos" || normalize(item.category) === normalize(menuCategory);
+      const searchOk = !term || normalize(`${item.name} ${item.category} ${item.description || ""}`).includes(term);
+      return categoryOk && searchOk;
+    });
+  }, [menuCategory, menuItems, search]);
+
+  const groupedMenuItems = useMemo(() => {
+    const groups = new Map<string, MenuItem[]>();
+    for (const item of visibleMenuItems) {
+      const list = groups.get(item.category) || [];
+      list.push(item);
+      groups.set(item.category, list);
+    }
+    const orderedCategories = [...groups.keys()].sort((a, b) => {
+      const ai = menuCategoryOrder.indexOf(a);
+      const bi = menuCategoryOrder.indexOf(b);
+      if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      return a.localeCompare(b);
+    });
+    return orderedCategories.map((category) => ({ category, items: groups.get(category) || [] }));
+  }, [visibleMenuItems]);
 
   function addBazarItem(price: Price) {
     const key = `bazar-${price.id}-${categoryPath || "sem-categoria"}`;
@@ -55,6 +93,12 @@ export function PedidosClient() {
 
   function updateQty(key: string, delta: number) {
     setCart((current) => current.map((item) => (item.key === key ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item)).filter((item) => item.quantity > 0));
+  }
+
+  function switchMode(nextMode: OrderMode) {
+    setMode(nextMode);
+    setMessage("");
+    setCart((current) => current.filter((item) => item.kind === nextMode));
   }
 
   async function createOrder() {
@@ -88,13 +132,21 @@ export function PedidosClient() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] px-4 py-6 text-[#214527]">
+    <main className="min-h-screen bg-[#f9f7ef] px-4 py-6 pb-36 text-[#214527] lg:pb-6">
       <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_390px]">
         <section className="space-y-5">
           <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
             <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Registro rápido</p>
-            <h1 className="mt-2 text-3xl font-black">Pedidos do Bazar e Cardápio</h1>
-            <p className="mt-3 text-sm leading-6 text-[#496451]">Depois do primeiro clique, o botão fica desabilitado e o servidor também bloqueia pedido idêntico do mesmo cliente por 15 segundos.</p>
+            <h1 className="mt-2 text-3xl font-black">Pedidos do Bazar e do Cardápio</h1>
+            <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido para reduzir erro no dia: itens do bazar ou alimentos e bebidas.</p>
+            <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2">
+              <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                Bazar
+              </button>
+              <button onClick={() => switchMode("menu")} className={`rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                Cardápio
+              </button>
+            </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <label className="sm:col-span-2">
                 <span className="text-sm font-bold">Cliente obrigatório e único</span>
@@ -107,44 +159,77 @@ export function PedidosClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-black">Catálogo do Bazar</h2>
-            <label className="mt-4 block max-w-md">
-              <span className="text-sm font-bold">Categoria, quando desejarem identificar</span>
-              <select value={categoryPath} onChange={(e) => setCategoryPath(e.target.value)} className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3">
-                <option value="">Sem categoria detalhada</option>
-                {categories.map((category) => <option key={category.id} value={category.path}>{category.path}</option>)}
-              </select>
-            </label>
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-              {prices.map((price) => (
-                <button key={price.id} onClick={() => addBazarItem(price)} className="rounded-2xl bg-[#2f7d45] px-4 py-5 text-lg font-black text-white shadow-sm hover:bg-[#246338]">
-                  {brl(Number(price.amount))}
-                </button>
-              ))}
+          {mode === "bazar" ? (
+            <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+              <h2 className="text-2xl font-black">Catálogo do Bazar</h2>
+              <p className="mt-2 text-sm leading-6 text-[#496451]">Use os valores fixos e, quando fizer sentido, selecione a categoria antes de adicionar.</p>
+              <label className="mt-4 block max-w-md">
+                <span className="text-sm font-bold">Categoria, quando desejarem identificar</span>
+                <select value={categoryPath} onChange={(e) => setCategoryPath(e.target.value)} className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3">
+                  <option value="">Sem categoria detalhada</option>
+                  {categories.map((category) => <option key={category.id} value={category.path}>{category.path}</option>)}
+                </select>
+              </label>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {prices.map((price) => (
+                  <button key={price.id} onClick={() => addBazarItem(price)} className="rounded-2xl bg-[#2f7d45] px-4 py-5 text-lg font-black text-white shadow-sm hover:bg-[#246338]">
+                    {brl(Number(price.amount))}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="text-2xl font-black">Cardápio</h2>
+              <div className="mt-4 rounded-3xl border border-[#dfe8df] bg-white p-3 shadow-sm">
+                <label className="block">
+                  <span className="sr-only">Buscar item do cardápio</span>
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cachorro-quente, batata, cerveja..." className="w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+                </label>
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  {menuCategoryOrder.map((category) => (
+                    <button key={category} onClick={() => setMenuCategory(category)} className={`shrink-0 rounded-full px-5 py-3 text-sm font-black ${menuCategory === category ? "bg-[#006b35] text-white" : "bg-[#fffdf0] text-[#214527]"}`}>
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-black">Alimentos e bebidas</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {menuItems.map((item) => (
-                <button key={item.id} onClick={() => addMenuItem(item)} className="rounded-2xl border border-[#dfe8df] bg-[#fffdf7] p-4 text-left shadow-sm hover:border-[#2f7d45]">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[#83a847]">{item.category}</span>
-                  <strong className="mt-1 block text-lg">{item.name}</strong>
-                  <span className="mt-1 block text-sm text-[#496451]">{item.unit_label} · {brl(Number(item.price))}</span>
-                </button>
-              ))}
+              <div className="mt-5 space-y-6">
+                {groupedMenuItems.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item encontrado.</p>}
+                {groupedMenuItems.map((group) => (
+                  <section key={group.category}>
+                    <h3 className="mb-3 text-2xl font-black">{group.category}</h3>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {group.items.map((item) => {
+                        const cartItem = cart.find((entry) => entry.key === `menu-${item.id}`);
+                        return (
+                          <article key={item.id} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+                            <h4 className="text-xl font-black">{item.name}</h4>
+                            <p className="mt-2 text-sm text-[#7a8278]">{item.description || `${item.name}.`}</p>
+                            <strong className="mt-4 block text-xl text-[#006b35]">{brl(Number(item.price))} / {item.unit_label}</strong>
+                            <div className="mt-5 flex items-center justify-between gap-3">
+                              <button onClick={() => updateQty(`menu-${item.id}`, -1)} className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f4f4f1] text-2xl font-black text-[#006b35]">−</button>
+                              <span className="text-3xl font-black">{cartItem?.quantity || 0}</span>
+                              <button onClick={() => addMenuItem(item)} className="flex h-14 w-14 items-center justify-center rounded-full bg-[#006b35] text-2xl font-black text-white">+</button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
-        <aside className="h-fit rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm lg:sticky lg:top-48">
-          <h2 className="text-2xl font-black">Pedido atual</h2>
-          <div className="mt-4 space-y-3">
-            {cart.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item selecionado.</p>}
+        <aside className="fixed inset-x-4 bottom-4 z-40 h-fit rounded-3xl border border-[#dfe8df] bg-white/95 p-5 shadow-2xl backdrop-blur lg:sticky lg:inset-auto lg:top-48 lg:shadow-sm">
+          <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
+          <div className="mt-2 space-y-2 lg:mt-4 lg:space-y-3">
+            {cart.length === 0 && <p className="hidden rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451] lg:block">Nenhum item selecionado.</p>}
             {cart.map((item) => (
-              <div key={item.key} className="rounded-2xl border border-[#dfe8df] p-3">
+              <div key={item.key} className="hidden rounded-2xl border border-[#dfe8df] p-3 lg:block">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <strong>{item.name}</strong>
@@ -160,13 +245,15 @@ export function PedidosClient() {
               </div>
             ))}
           </div>
-          <div className="mt-5 rounded-2xl bg-[#f4e7b3] p-4">
-            <span className="text-sm font-bold">Total</span>
-            <strong className="block text-3xl">{brl(total)}</strong>
+          <div className="mt-2 flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4">
+            <div>
+              <span className="text-lg font-black lg:text-sm lg:font-bold">{cart.length} item(ns)</span>
+              <strong className="block text-2xl lg:text-3xl">{brl(total)}</strong>
+            </div>
+            <button disabled={saving || cart.length === 0} onClick={createOrder} className="min-w-36 rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:bg-[#83a847]">
+              {saving ? "Registrando..." : "Criar pedido"}
+            </button>
           </div>
-          <button disabled={saving} onClick={createOrder} className="mt-4 w-full rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:bg-[#83a847]">
-            {saving ? "Registrando..." : "Criar pedido"}
-          </button>
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>

@@ -43,7 +43,7 @@ export function CaixaClient() {
     };
   }, []);
 
-  const openOrders = orders.filter((order) => order.status !== "cancelado" && order.payment_status !== "pago");
+  const openOrders = orders.filter((order) => order.status !== "cancelado" && order.status !== "excluido" && order.payment_status !== "pago");
   const grouped = useMemo(() => {
     const map = new Map<string, { clientId: string | null; name: string; orders: Order[]; total: number }>();
     for (const order of openOrders) {

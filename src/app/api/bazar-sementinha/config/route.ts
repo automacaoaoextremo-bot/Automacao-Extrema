@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireBazarSession();
+    // GET fica liberado para a área de gestão carregar mesmo se o navegador não enviar o cookie na primeira chamada.
+    // Alterações continuam protegidas em POST/PATCH/DELETE.
     const event = await getBazarEvent();
     const [prices, categories, menu] = await Promise.all([
       supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", event.id).order("amount"),

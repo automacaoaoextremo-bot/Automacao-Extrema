@@ -33,7 +33,7 @@ export async function GET() {
     const orders = (ordersRes.data || []) as OrderRow[];
     const payments = paymentsRes.data || [];
     const expenses = expensesRes.data || [];
-    const validOrders = orders.filter((order) => order.status !== "cancelado");
+    const validOrders = orders.filter((order) => order.status !== "cancelado" && order.status !== "excluido");
 
     const totals = {
       sold: validOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),

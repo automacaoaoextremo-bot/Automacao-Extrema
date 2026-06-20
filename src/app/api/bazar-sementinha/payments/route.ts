@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { buildPixQrDataUrl, getBazarEvent, PaymentInput } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
 
     if (ordersError) throw ordersError;
     const amount = Number(body.amount || 0) || (orders || []).reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
-    const groupCode = crypto.randomUUID().slice(0, 8).toUpperCase();
+    const groupCode = randomUUID().slice(0, 8).toUpperCase();
 
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from("bazar_payments")
