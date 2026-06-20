@@ -211,7 +211,7 @@ export function PedidosClient() {
           <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
             <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Registro rápido</p>
             <h1 className="mt-2 text-3xl font-black">Pedidos do Bazar e do Cardápio</h1>
-            <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido para reduzir erro no dia: itens do bazar ou alimentos e bebidas.</p>
+            <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido: itens do bazar ou alimentos e bebidas.</p>
             <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2">
               <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
                 Bazar
@@ -265,31 +265,10 @@ export function PedidosClient() {
             </div>
           )}
 
-          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-black">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado ou toque em “Fazer pedido” para preencher o nome automaticamente.</p>
-            <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-            <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
-              <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
-              <div className="space-y-3">
-                {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
-                {filteredClients.map((client) => (
-                  <div key={client.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3 shadow-sm">
-                    <div className="min-w-0">
-                      <strong className="block truncate">{client.name}</strong>
-                      {client.whatsapp && <span className="text-xs text-[#7a8278]">{client.whatsapp}</span>}
-                    </div>
-                    <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
           {mode === "bazar" ? (
             <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
               <h2 className="text-2xl font-black">Catálogo do Bazar</h2>
-              <p className="mt-2 text-sm leading-6 text-[#496451]">Use os valores fixos e, quando fizer sentido, selecione a categoria antes de adicionar.</p>
+              <p className="mt-2 text-sm leading-6 text-[#496451]">Caso orientado pela coordenação, selecione a categoria do item e ao clicar no valor, é adicionado ao resumo. Ao finalizar os itens a serem incluidos no pedido, clicar em Criar pedido.</p>
               <label className="mt-4 block max-w-md">
                 <span className="text-sm font-bold">Categoria, quando desejarem identificar</span>
                 <select value={categoryPath} onChange={(e) => setCategoryPath(e.target.value)} className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3">
@@ -349,6 +328,28 @@ export function PedidosClient() {
               </div>
             </div>
           )}
+          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <h2 className="text-2xl font-black">Lista de clientes</h2>
+            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado ou toque em “Fazer pedido” para preencher o nome automaticamente.</p>
+            <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+            <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
+              <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
+              <div className="space-y-3">
+                {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
+                {filteredClients.map((client) => (
+                  <div key={client.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3 shadow-sm">
+                    <div className="min-w-0">
+                      <strong className="block truncate">{client.name}</strong>
+                      {client.whatsapp && <span className="text-xs text-[#7a8278]">{client.whatsapp}</span>}
+                    </div>
+                    <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+
         </section>
 
         <aside className="fixed inset-x-4 bottom-4 z-40 h-fit rounded-3xl border border-[#dfe8df] bg-white/95 p-5 shadow-2xl backdrop-blur lg:sticky lg:inset-auto lg:top-48 lg:shadow-sm">

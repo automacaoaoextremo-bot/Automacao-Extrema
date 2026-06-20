@@ -76,6 +76,16 @@ export async function GET() {
       items: itemsByOrder.get(order.id) || [],
     }));
 
+    const activeClientsById = new Map<string, ClientRow>();
+
+    for (const order of enrichedOrders) {
+      if (order.client?.id) {
+        activeClientsById.set(order.client.id, order.client);
+      }
+    }
+
+    const activeClients = [...activeClientsById.values()].sort((a, b) => a.name.localeCompare(b.name));
+
     const unpaidTotal = enrichedOrders
       .filter((order) => order.status !== "cancelado" && order.status !== "excluido" && order.payment_status !== "pago")
       .reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
@@ -87,7 +97,7 @@ export async function GET() {
       prices: prices.data || [],
       categories: categories.data || [],
       menuItems: menu.data || [],
-      clients: clients.data || [],
+      clients: activeClients,
       orders: enrichedOrders,
       pix,
     });
