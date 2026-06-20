@@ -1,0 +1,7 @@
+nome_completo;email;whatsapp;tipo_pessoa;funcao;valor_contribuicao;dia_vencimento;modo_vencimento;contribuicao_habilitada;gestor;financeiro;observacoes
+Rita de Cássia Menezes;rita.menezes@exemplo.com;(31) 98888-1006;gestor;Tesoureiro;0;10;until_day;nao;sim;sim;Tesoureira fictícia responsável pela gestão financeira
+Paulo Roberto Nogueira;paulo.nogueira@exemplo.com;(11) 98888-1007;gestor;Presidente;0;10;until_day;nao;sim;nao;Presidente fictício da organização
+Maria Aparecida Santos;maria.santos@exemplo.com;(19) 98888-1001;contribuinte;Cambono;50;10;until_day;sim;nao;nao;Cambona fictícia para teste
+João Carlos Almeida;joao.almeida@exemplo.com;(19) 98888-1002;contribuinte;Cavalo/Médium;50;10;until_day;sim;nao;nao;Médium fictício com comprovante de teste
+Carlos Eduardo Oliveira;carlos.oliveira@exemplo.com;(16) 98888-1004;familiar;Família contribuinte;120;15;until_day;sim;nao;nao;Responsável pela Família Oliveira
+Ana Paula Lima;ana.lima@exemplo.com;(15) 98888-1003;consulente;Consulente contribuinte;30;;free_month;sim;nao;nao;Consulente eventual fictícia

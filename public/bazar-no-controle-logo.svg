@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bazar no Controle</title>
+  <desc id="desc">Logo com sacola, etiqueta e folha.</desc>
+  <rect width="512" height="512" rx="128" fill="#f9f7ef"/>
+  <circle cx="256" cy="256" r="198" fill="#2f7d45" opacity=".12"/>
+  <path d="M157 208h198l-23 190H180l-23-190Z" fill="#2f7d45"/>
+  <path d="M199 207c0-47 25-79 58-79s58 32 58 79" fill="none" stroke="#2f7d45" stroke-width="28" stroke-linecap="round"/>
+  <path d="M313 252c38 6 59 28 70 61-43 8-82-3-105-28-22 25-59 37-101 30 11-36 36-58 77-64 12-34 36-62 72-78 8 30 4 56-13 79Z" fill="#83a847"/>
+  <path d="M205 332h104" stroke="#f9f7ef" stroke-width="22" stroke-linecap="round"/>
+  <path d="M205 371h78" stroke="#f9f7ef" stroke-width="22" stroke-linecap="round"/>
+</svg>

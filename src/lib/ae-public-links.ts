@@ -6,7 +6,7 @@ export const AE_DIAGNOSTIC_URL = `${AE_SITE_URL}/diagnostico?origem=site_princip
 
 export const AE_BNI_DIAGNOSTIC_URL = `${AE_SITE_URL}/diagnostico?origem=bni_mais_20260610`;
 
-export const AE_WHATSAPP_NUMBER = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "").replace(/\D/g, "");
+export const AE_WHATSAPP_NUMBER = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
 
 export const AE_WHATSAPP_DEFAULT_MESSAGE =
   "Olá! Conheci a Automação Extrema e quero fazer um diagnóstico rápido para entender onde meu negócio perde tempo, dinheiro ou controle.";

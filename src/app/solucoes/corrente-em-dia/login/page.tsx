@@ -115,27 +115,20 @@ export default function CorrenteEmDiaClientLoginPage() {
         }
       />
 
-      <section className="mx-auto grid max-w-5xl gap-8 px-4 py-8 lg:grid-cols-[0.9fr_1.1fr] lg:py-12">
-        <div className="space-y-5">
-          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Área do cliente</p>
-          <h1 className="text-4xl font-black leading-tight text-[#00334E]">Entrar no Corrente em Dia</h1>
-          <p className="text-lg leading-8 text-slate-700">
-            Acesso para federações, associações, terreiros e responsáveis autorizados acompanharem arrecadações, contribuições, comprovantes e condições de Cliente Fundador.
-          </p>
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-            <p className="font-black text-[#00334E]">Tipos de acesso</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Responsáveis da organização acompanham a visão geral da casa, aprovações e relatórios. Contribuintes acessam apenas suas próprias contribuições, comprovantes e histórico, conforme a finalidade autorizada pela organização.
+      <section className="mx-auto max-w-3xl px-4 py-5 lg:py-8">
+        <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-slate-100 sm:p-7">
+          <div className="space-y-3">
+            <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Área do cliente - login</p>
+            <p className="text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
+              Acesse para acompanhar contribuições, comprovantes e informações de gestão. Cada perfil visualiza apenas o que corresponde ao seu papel na organização, com mais clareza, confiança e cuidado com os dados pessoais.
             </p>
           </div>
-        </div>
 
-        <div className="space-y-5">
           {recoveryMode && (
-            <form onSubmit={updatePassword} className="rounded-[2rem] bg-white p-5 shadow-xl sm:p-7">
-              <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Redefinir senha</p>
-              <h2 className="mt-2 text-3xl font-black text-[#00334E]">Criar nova senha</h2>
-              <label className="mt-6 block">
+            <form onSubmit={updatePassword} className="mt-5 rounded-[1.5rem] bg-emerald-50 p-4 ring-1 ring-emerald-100 sm:p-5">
+              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Redefinir senha</p>
+              <h2 className="mt-2 text-2xl font-black text-[#00334E]">Criar nova senha</h2>
+              <label className="mt-5 block">
                 <span className="text-sm font-bold text-slate-700">Nova senha</span>
                 <input
                   value={newPassword}
@@ -147,20 +140,19 @@ export default function CorrenteEmDiaClientLoginPage() {
                   required
                 />
               </label>
-              {newPasswordMessage && <p className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{newPasswordMessage}</p>}
+              {newPasswordMessage && <p className="mt-4 rounded-2xl bg-white p-3 text-sm font-bold text-emerald-800">{newPasswordMessage}</p>}
               <button
                 type="submit"
                 disabled={newPasswordLoading}
-                className="mt-6 w-full rounded-2xl bg-[#31C16B] px-5 py-4 text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {newPasswordLoading ? "Atualizando..." : "Atualizar senha"}
               </button>
             </form>
           )}
 
-          <form onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl sm:p-7">
-            <p className="text-sm font-black uppercase tracking-[0.25em] text-[#2F6B43]">Login do cliente</p>
-            <h2 className="mt-2 text-3xl font-black text-[#00334E]">Acessar painel</h2>
+          <form onSubmit={onSubmit} className="mt-5">
+            <h1 className="text-3xl font-black text-[#00334E]">Acessar painel</h1>
 
             <label className="mt-6 block">
               <span className="text-sm font-bold text-slate-700">E-mail</span>
@@ -205,7 +197,7 @@ export default function CorrenteEmDiaClientLoginPage() {
               disabled={loading}
               className="mt-6 w-full rounded-2xl bg-[#31C16B] px-5 py-4 text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Entrando..." : "Entrar no Corrente em Dia"}
+              {loading ? "Entrando..." : "Entrar no painel"}
             </button>
 
             <button
