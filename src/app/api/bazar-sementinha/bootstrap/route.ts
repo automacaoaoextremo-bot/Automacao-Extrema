@@ -16,11 +16,17 @@ export async function GET() {
       supabaseAdmin.from("bazar_clients").select("*").eq("event_id", eventId).order("created_at", { ascending: false }).limit(300),
       supabaseAdmin
         .from("bazar_orders")
-        .select("*, client:bazar_clients(*), items:bazar_order_items(*), payments:bazar_payments(*)")
+        .select("*")
         .eq("event_id", eventId)
         .order("created_at", { ascending: false })
         .limit(500),
     ]);
+
+    if (prices.error) throw prices.error;
+    if (categories.error) throw categories.error;
+    if (menu.error) throw menu.error;
+    if (clients.error) throw clients.error;
+    if (orders.error) throw orders.error;
 
     const unpaidTotal = (orders.data || [])
       .filter((order) => order.status !== "cancelado" && order.status !== "excluido" && order.payment_status !== "pago")
@@ -38,6 +44,7 @@ export async function GET() {
       pix,
     });
   } catch (error) {
+    console.error("[bazar-sementinha/bootstrap][GET]", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar dados." }, { status: 500 });
   }
 }
