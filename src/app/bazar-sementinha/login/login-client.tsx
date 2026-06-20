@@ -18,6 +18,11 @@ export function LoginClient() {
       setMessage(data.error || "Não foi possível entrar.");
       return;
     }
+
+    if (data.sessionToken) {
+      window.localStorage.setItem("bazar_sementinha_session", data.sessionToken);
+    }
+
     router.push("/bazar-sementinha/gestao");
     router.refresh();
   }

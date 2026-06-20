@@ -10,6 +10,7 @@ import {
   orderSignature,
   orderTotal,
   requireBazarSession,
+  sessionErrorStatus,
 } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -54,9 +55,9 @@ type BazarPaymentRow = {
   [key: string]: unknown;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const event = await getBazarEvent();
 
     const { data, error } = await supabaseAdmin
@@ -73,7 +74,7 @@ export async function GET() {
     return NextResponse.json({ orders });
   } catch (error) {
     console.error("[bazar-sementinha/orders][GET]", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar pedidos." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar pedidos." }, { status: sessionErrorStatus(error) });
   }
 }
 
@@ -217,7 +218,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const body = await request.json();
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
@@ -253,13 +254,13 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ order: await readOrder(id) });
   } catch (error) {
     console.error("[bazar-sementinha/orders][PATCH]", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao atualizar pedido." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao atualizar pedido." }, { status: sessionErrorStatus(error) });
   }
 }
 
 export async function DELETE(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
@@ -275,7 +276,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: true, order: data });
   } catch (error) {
     console.error("[bazar-sementinha/orders][DELETE]", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao excluir pedido." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao excluir pedido." }, { status: sessionErrorStatus(error) });
   }
 }
 

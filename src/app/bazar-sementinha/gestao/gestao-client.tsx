@@ -27,6 +27,23 @@ function shortDate(value?: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
+function bazarAuthHeaders(extra?: HeadersInit): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("bazar_sementinha_session");
+    if (token) headers["x-bazar-session"] = token;
+  }
+
+  if (extra) {
+    new Headers(extra).forEach((value, key) => {
+      headers[key] = value;
+    });
+  }
+
+  return headers;
+}
+
 export function GestaoClient() {
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -41,7 +58,7 @@ export function GestaoClient() {
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "excluido"), [orders]);
 
   const loadConfig = useCallback(async () => {
-    const res = await fetch("/api/bazar-sementinha/config", { cache: "no-store", credentials: "same-origin" });
+    const res = await fetch("/api/bazar-sementinha/config", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao carregar cadastros.");
     setPrices(data.prices || []);
@@ -50,7 +67,7 @@ export function GestaoClient() {
   }, []);
 
   const loadOrders = useCallback(async () => {
-    const res = await fetch("/api/bazar-sementinha/orders", { cache: "no-store", credentials: "same-origin" });
+    const res = await fetch("/api/bazar-sementinha/orders", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao carregar pedidos.");
     setOrders(data.orders || []);
@@ -77,14 +94,14 @@ export function GestaoClient() {
   }, [loadAll]);
 
   async function save(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/config", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/config", { method: "POST", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao salvar.");
     await loadConfig();
   }
 
   async function patch(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/config", { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/config", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao alterar.");
     await loadConfig();
@@ -92,14 +109,14 @@ export function GestaoClient() {
 
   async function remove(kind: string, id: string) {
     if (!confirm("Excluir definitivamente este cadastro?")) return;
-    const res = await fetch(`/api/bazar-sementinha/config?kind=${kind}&id=${id}`, { method: "DELETE", credentials: "same-origin" });
+    const res = await fetch(`/api/bazar-sementinha/config?kind=${kind}&id=${id}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao excluir.");
     await loadConfig();
   }
 
   async function updateOrder(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/orders", { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/orders", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao atualizar pedido.");
     await loadOrders();
@@ -107,7 +124,7 @@ export function GestaoClient() {
 
   async function deleteOrder(id: string) {
     if (!confirm("Excluir este pedido da visualização da gestão? Esta ação não remove fisicamente do banco, mas marca como excluído.")) return;
-    const res = await fetch(`/api/bazar-sementinha/orders?id=${id}`, { method: "DELETE", credentials: "same-origin" });
+    const res = await fetch(`/api/bazar-sementinha/orders?id=${id}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao excluir pedido.");
     await loadOrders();
