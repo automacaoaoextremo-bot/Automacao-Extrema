@@ -226,7 +226,6 @@ export function PedidosClient() {
     setMode(nextMode);
     setMessage("");
     setCreatedOrder(null);
-    setCart((current) => current.filter((item) => item.kind === nextMode));
   }
 
   function nextEditableItemId() {
@@ -455,13 +454,13 @@ export function PedidosClient() {
               <div className="flex flex-wrap gap-3">
                 <button onClick={startNewOrder} className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Novo pedido</button>
                 <button onClick={() => startAnotherOrder(createdOrder.client)} className="rounded-full bg-[#0f6b35] px-5 py-3 text-sm font-black text-white shadow-sm">Fazer outro pedido para este cliente</button>
-                <button onClick={() => startEditOrder(createdOrder)} className="rounded-full bg-[#f4e7b3] px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Editar pedido</button>
               </div>
               <div className="mt-5 rounded-3xl bg-[#fffdf7] p-5 ring-1 ring-[#dfe8df]">
                 <span className="inline-flex rounded-full bg-[#e8fff0] px-4 py-2 text-sm font-black text-[#0f6b35]">Pedido criado</span>
                 <h2 className="mt-5 text-4xl font-black">Pedido {createdOrder.code}</h2>
                 <p className="mt-3 text-lg text-[#496451]">Cliente: <strong>{createdOrder.client?.name || clientName}</strong></p>
                 <p className="mt-1 text-sm text-[#7a8278]">{formatDateTime(createdOrder.created_at)}</p>
+                <button onClick={() => startEditOrder(createdOrder)} className="mt-5 rounded-full bg-[#f4e7b3] px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Editar pedido</button>
               </div>
               <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
                 <h3 className="text-2xl font-black">Itens</h3>
