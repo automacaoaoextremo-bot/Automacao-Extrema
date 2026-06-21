@@ -60,6 +60,7 @@ export function PedidosClient() {
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [cartReviewOpen, setCartReviewOpen] = useState(false);
   const catalogRef = useRef<HTMLDivElement | null>(null);
+  const createdOrderRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
@@ -197,6 +198,7 @@ export function PedidosClient() {
       setWhatsapp("");
       setCategoryPath("");
       setSearch("");
+      window.setTimeout(() => createdOrderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
       if (order.client?.name) {
         setClients((current) => {
           const exists = current.some((client) => client.id === order.client?.id);
@@ -240,7 +242,7 @@ export function PedidosClient() {
           </div>
 
           {createdOrder && (
-            <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <div ref={createdOrderRef} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
               <div className="flex flex-wrap gap-3">
                 <button onClick={startNewOrder} className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Novo pedido</button>
                 <button onClick={() => startAnotherOrder(createdOrder.client)} className="rounded-full bg-[#0f6b35] px-5 py-3 text-sm font-black text-white shadow-sm">Fazer outro pedido para este cliente</button>

@@ -336,7 +336,9 @@ export function CaixaClient() {
       if (!res.ok) throw new Error(data.error || "Erro ao registrar pagamento.");
       setMessage(`Pagamento registrado para ${selectedClientName || "cliente"}: ${brl(selectedTotal)}.`);
       setSelected([]);
+      setExpandedGroups([]);
       await load();
+      setExpandedGroups([]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erro ao registrar pagamento.");
     } finally {
