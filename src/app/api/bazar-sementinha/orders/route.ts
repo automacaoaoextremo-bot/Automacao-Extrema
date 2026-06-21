@@ -27,6 +27,7 @@ type BazarOrderPatchBody = {
   whatsapp?: string | null;
   notes?: string | null;
   items?: Partial<BazarItemInput>[];
+  attemptId?: string | null;
   [key: string]: unknown;
 };
 
@@ -234,12 +235,29 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    await requireBazarSession(request);
     const body = (await request.json()) as BazarOrderPatchBody;
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
 
     const event = await getBazarEvent();
+
+    try {
+      await requireBazarSession(request);
+    } catch (sessionError) {
+      const attemptId = String(body.attemptId || "").trim();
+      if (!attemptId) throw sessionError;
+
+      const { data: attempt, error: attemptError } = await supabaseAdmin
+        .from("bazar_order_attempts")
+        .select("order_id")
+        .eq("event_id", event.id)
+        .eq("attempt_id", attemptId)
+        .eq("order_id", id)
+        .maybeSingle();
+
+      if (attemptError) throw attemptError;
+      if (!attempt) throw sessionError;
+    }
     const { data: currentOrder, error: currentOrderError } = await supabaseAdmin
       .from("bazar_orders")
       .select("*")

@@ -12,10 +12,29 @@ type CreatedOrder = {
   code: string;
   total_amount: number | string;
   created_at?: string | null;
+  notes?: string | null;
   client?: Client | null;
-  items?: Array<{ id: string; name: string; quantity: number; unit_price?: number | string; total_price: number | string; category_path?: string | null }>;
+  items?: Array<{
+    id: string;
+    kind?: "bazar" | "menu" | string | null;
+    source_id?: string | null;
+    name: string;
+    quantity: number;
+    unit_price?: number | string | null;
+    total_price: number | string;
+    category_path?: string | null;
+  }>;
 };
 type OrderMode = "bazar" | "menu";
+type EditableItem = {
+  id: string;
+  kind: "bazar" | "menu";
+  sourceId: string | null;
+  name: string;
+  quantity: string;
+  unitPrice: string;
+  categoryPath: string;
+};
 
 type Bootstrap = {
   prices?: Price[];
@@ -28,6 +47,38 @@ const menuCategoryOrder = ["Todos", "Salgados", "Bebidas", "Doces"];
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function priceLabel(price: Price) {
+  const amount = Number(price.amount || 0);
+  return price.label ? `${price.label} · ${brl(amount)}` : brl(amount);
+}
+
+function bazarItemName(amount: number) {
+  return `Item Bazar ${brl(amount)}`;
+}
+
+function moneyInput(value: number) {
+  return value.toFixed(2).replace(".", ",");
+}
+
+function parseMoneyInput(value: string) {
+  const normalized = value.replace(/\./g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function unitValue(item: NonNullable<CreatedOrder["items"]>[number]) {
+  const unit = Number(item.unit_price || 0);
+  if (unit > 0) return unit;
+  const quantity = Number(item.quantity || 0);
+  return quantity > 0 ? Number(item.total_price || 0) / quantity : 0;
+}
+
+function getSessionHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.localStorage.getItem("bazar_sementinha_session");
+  return token ? { "x-bazar-session": token } : {};
 }
 
 function normalize(value: string) {
@@ -59,8 +110,14 @@ export function PedidosClient() {
   const [clientSearch, setClientSearch] = useState("");
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [cartReviewOpen, setCartReviewOpen] = useState(false);
+  const [lastAttemptId, setLastAttemptId] = useState("");
+  const [editingOrder, setEditingOrder] = useState<CreatedOrder | null>(null);
+  const [editClientName, setEditClientName] = useState("");
+  const [editWhatsapp, setEditWhatsapp] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editItems, setEditItems] = useState<EditableItem[]>([]);
+  const editableItemCounterRef = useRef(0);
   const catalogRef = useRef<HTMLDivElement | null>(null);
-  const createdOrderRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
@@ -100,6 +157,10 @@ export function PedidosClient() {
     });
     return orderedCategories.map((category) => ({ category, items: groups.get(category) || [] }));
   }, [visibleMenuItems]);
+
+  const pricesById = useMemo(() => new Map(prices.map((price) => [price.id, price])), [prices]);
+  const menuItemsById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
+  const activeMenuCategories = useMemo(() => [...new Set(menuItems.map((item) => item.category))].sort((a, b) => a.localeCompare(b)), [menuItems]);
 
   const filteredClients = useMemo(() => {
     const term = normalize(clientSearch.trim());
@@ -168,6 +229,153 @@ export function PedidosClient() {
     setCart((current) => current.filter((item) => item.kind === nextMode));
   }
 
+  function nextEditableItemId() {
+    editableItemCounterRef.current += 1;
+    return `novo-${editableItemCounterRef.current}`;
+  }
+
+  function makeEditableItem(item: NonNullable<CreatedOrder["items"]>[number]): EditableItem {
+    return {
+      id: item.id || nextEditableItemId(),
+      kind: item.kind === "menu" ? "menu" : "bazar",
+      sourceId: item.source_id || null,
+      name: item.name || "",
+      quantity: String(item.quantity || 1),
+      unitPrice: moneyInput(unitValue(item)),
+      categoryPath: item.category_path || "",
+    };
+  }
+
+  function makeDefaultEditableItem(kind: "bazar" | "menu" = "bazar"): EditableItem {
+    const fallbackId = nextEditableItemId();
+
+    if (kind === "menu" && menuItems[0]) {
+      const menu = menuItems[0];
+      return {
+        id: fallbackId,
+        kind: "menu",
+        sourceId: menu.id,
+        name: menu.name,
+        quantity: "1",
+        unitPrice: moneyInput(Number(menu.price || 0)),
+        categoryPath: menu.category,
+      };
+    }
+
+    const price = prices[0];
+    const category = categories[0];
+    const amount = Number(price?.amount || 0);
+    return {
+      id: fallbackId,
+      kind: "bazar",
+      sourceId: price?.id || null,
+      name: price ? bazarItemName(amount) : "",
+      quantity: "1",
+      unitPrice: moneyInput(amount),
+      categoryPath: category?.path || "",
+    };
+  }
+
+  function startEditOrder(order: CreatedOrder) {
+    setEditingOrder(order);
+    setEditClientName(order.client?.name || "");
+    setEditWhatsapp(order.client?.whatsapp || "");
+    setEditNotes(order.notes || "");
+    setEditItems((order.items || []).map((item) => makeEditableItem(item)));
+  }
+
+  function updateEditItem(id: string, patch: Partial<EditableItem>) {
+    setEditItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
+  function addEditItem() {
+    setEditItems((current) => [...current, makeDefaultEditableItem(menuItems.length > 0 && prices.length === 0 ? "menu" : "bazar")]);
+  }
+
+  function changeEditItemKind(id: string, kind: "bazar" | "menu") {
+    const defaults = makeDefaultEditableItem(kind);
+    setEditItems((current) => current.map((item) => (item.id === id ? { ...defaults, id } : item)));
+  }
+
+  function changeEditItemPrice(id: string, priceId: string) {
+    const price = pricesById.get(priceId);
+    if (!price) return;
+    const amount = Number(price.amount || 0);
+    updateEditItem(id, { sourceId: price.id, name: bazarItemName(amount), unitPrice: moneyInput(amount) });
+  }
+
+  function changeEditMenuItem(id: string, menuId: string) {
+    const menu = menuItemsById.get(menuId);
+    if (!menu) return;
+    updateEditItem(id, { sourceId: menu.id, name: menu.name, unitPrice: moneyInput(Number(menu.price || 0)), categoryPath: menu.category });
+  }
+
+  function changeEditItemQuantity(id: string, delta: number) {
+    setEditItems((current) =>
+      current.map((item) => {
+        if (item.id !== id) return item;
+        const quantity = Math.max(1, Number(item.quantity || 1) + delta);
+        return { ...item, quantity: String(quantity) };
+      }),
+    );
+  }
+
+  function removeEditItem(id: string) {
+    setEditItems((current) => current.filter((item) => item.id !== id));
+  }
+
+  const editTotal = useMemo(
+    () => editItems.reduce((sum, item) => sum + Math.max(0, Number(item.quantity || 0)) * Math.max(0, parseMoneyInput(item.unitPrice)), 0),
+    [editItems],
+  );
+
+  async function saveEdit() {
+    if (!editingOrder || saving) return;
+    setSaving(true);
+    setMessage("");
+
+    const payloadItems = editItems
+      .map((item) => ({
+        kind: item.kind,
+        name: item.name.trim(),
+        quantity: Number(item.quantity || 0),
+        unitPrice: parseMoneyInput(item.unitPrice),
+        categoryPath: item.categoryPath.trim() || null,
+        sourceId: item.sourceId,
+      }))
+      .filter((item) => item.name && item.quantity > 0 && item.unitPrice >= 0);
+
+    if (!editClientName.trim()) {
+      setMessage("Informe o nome do cliente.");
+      setSaving(false);
+      return;
+    }
+
+    if (payloadItems.length === 0) {
+      setMessage("Mantenha pelo menos um item válido no pedido.");
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/bazar-sementinha/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getSessionHeaders() },
+        body: JSON.stringify({ id: editingOrder.id, attemptId: lastAttemptId, clientName: editClientName, whatsapp: editWhatsapp, notes: editNotes, items: payloadItems }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao editar pedido.");
+      const order = data.order as CreatedOrder;
+      setCreatedOrder(order);
+      setEditingOrder(null);
+      setMessage("Pedido atualizado.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erro ao editar pedido.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createOrder() {
     if (saving) return;
     setMessage("");
@@ -181,6 +389,7 @@ export function PedidosClient() {
     }
     setSaving(true);
     const attemptId = crypto.randomUUID();
+    setLastAttemptId(attemptId);
     try {
       const res = await fetch("/api/bazar-sementinha/orders", {
         method: "POST",
@@ -191,6 +400,7 @@ export function PedidosClient() {
       if (!res.ok) throw new Error(data.error || "Erro ao criar pedido.");
       const order = data.order as CreatedOrder;
       setCreatedOrder(order);
+      setLastAttemptId(attemptId);
       setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
       setCartReviewOpen(false);
@@ -198,7 +408,6 @@ export function PedidosClient() {
       setWhatsapp("");
       setCategoryPath("");
       setSearch("");
-      window.setTimeout(() => createdOrderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
       if (order.client?.name) {
         setClients((current) => {
           const exists = current.some((client) => client.id === order.client?.id);
@@ -242,10 +451,11 @@ export function PedidosClient() {
           </div>
 
           {createdOrder && (
-            <div ref={createdOrderRef} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
               <div className="flex flex-wrap gap-3">
                 <button onClick={startNewOrder} className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Novo pedido</button>
                 <button onClick={() => startAnotherOrder(createdOrder.client)} className="rounded-full bg-[#0f6b35] px-5 py-3 text-sm font-black text-white shadow-sm">Fazer outro pedido para este cliente</button>
+                <button onClick={() => startEditOrder(createdOrder)} className="rounded-full bg-[#f4e7b3] px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Editar pedido</button>
               </div>
               <div className="mt-5 rounded-3xl bg-[#fffdf7] p-5 ring-1 ring-[#dfe8df]">
                 <span className="inline-flex rounded-full bg-[#e8fff0] px-4 py-2 text-sm font-black text-[#0f6b35]">Pedido criado</span>
@@ -300,7 +510,7 @@ export function PedidosClient() {
               <div className="mt-4 rounded-3xl border border-[#dfe8df] bg-white p-3 shadow-sm">
                 <label className="block">
                   <span className="sr-only">Buscar item do cardápio</span>
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cachorro-quente, batata, cerveja..." className="w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar refrigerante, bolo salgado, bolo doce" className="w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
                 </label>
                 <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                   {menuCategoryOrder.map((category) => (
@@ -396,6 +606,126 @@ export function PedidosClient() {
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>
+
+      {editingOrder && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Editar pedido">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-5 text-[#214527] shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Pedido #{editingOrder.code}</p>
+                <h2 className="mt-1 text-2xl font-black">Editar pedido</h2>
+                <p className="mt-2 text-sm text-[#496451]">Use os cadastros ativos para ajustar item, categoria, valor e quantidade.</p>
+              </div>
+              <button onClick={() => setEditingOrder(null)} className="rounded-full bg-[#f9f7ef] px-4 py-2 font-black">Fechar</button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <label className="block text-sm font-black">
+                Cliente
+                <input value={editClientName} onChange={(event) => setEditClientName(event.target.value)} className="mt-2 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 font-normal outline-none focus:border-[#2f7d45]" />
+              </label>
+              <label className="block text-sm font-black">
+                WhatsApp
+                <input value={editWhatsapp} onChange={(event) => setEditWhatsapp(event.target.value)} className="mt-2 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 font-normal outline-none focus:border-[#2f7d45]" />
+              </label>
+              <label className="block text-sm font-black">
+                Observações
+                <textarea value={editNotes} onChange={(event) => setEditNotes(event.target.value)} className="mt-2 min-h-24 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 font-normal outline-none focus:border-[#2f7d45]" />
+              </label>
+
+              <section className="rounded-2xl border border-[#dfe8df] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-black">Itens do pedido</h3>
+                    <p className="text-xs text-[#496451]">Selecione item, categoria e valor nos cadastros ativos. Ajuste a quantidade com + e -.</p>
+                  </div>
+                  <button type="button" onClick={addEditItem} className="rounded-full bg-[#f4e7b3] px-3 py-2 text-xs font-black">Adicionar item</button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {editItems.map((item) => (
+                    <div key={item.id} className="rounded-2xl bg-[#fffdf7] p-3 ring-1 ring-[#dfe8df]">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="text-xs font-black">
+                          Tipo
+                          <select value={item.kind} onChange={(event) => changeEditItemKind(item.id, event.target.value === "menu" ? "menu" : "bazar")} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                            <option value="bazar">Bazar</option>
+                            <option value="menu">Cardápio</option>
+                          </select>
+                        </label>
+
+                        {item.kind === "bazar" ? (
+                          <>
+                            <label className="text-xs font-black">
+                              Valor cadastrado
+                              <select value={item.sourceId || ""} onChange={(event) => changeEditItemPrice(item.id, event.target.value)} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                                <option value="">Selecione o valor</option>
+                                {prices.map((price) => (
+                                  <option key={price.id} value={price.id}>{priceLabel(price)}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="text-xs font-black sm:col-span-2">
+                              Categoria cadastrada
+                              <select value={item.categoryPath} onChange={(event) => updateEditItem(item.id, { categoryPath: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                                <option value="">Sem categoria</option>
+                                {categories.map((category) => (
+                                  <option key={category.id} value={category.path}>{category.path}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </>
+                        ) : (
+                          <label className="text-xs font-black sm:col-span-2">
+                            Item do cardápio
+                            <select value={item.sourceId || ""} onChange={(event) => changeEditMenuItem(item.id, event.target.value)} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                              <option value="">Selecione o item</option>
+                              {activeMenuCategories.map((category) => (
+                                <optgroup key={category} label={category}>
+                                  {menuItems.filter((menu) => menu.category === category).map((menu) => (
+                                    <option key={menu.id} value={menu.id}>{menu.name} · {brl(Number(menu.price || 0))}</option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+
+                        <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[1fr_1fr]">
+                          <div className="text-xs font-black">
+                            Qtde
+                            <div className="mt-1 flex items-center justify-between gap-3 rounded-xl border border-[#dfe8df] bg-white px-3 py-2">
+                              <button type="button" onClick={() => changeEditItemQuantity(item.id, -1)} className="h-10 w-10 rounded-full bg-[#f9f7ef] text-lg font-black">−</button>
+                              <strong className="text-base">{Math.max(1, Number(item.quantity || 1))}</strong>
+                              <button type="button" onClick={() => changeEditItemQuantity(item.id, 1)} className="h-10 w-10 rounded-full bg-[#2f7d45] text-lg font-black text-white">+</button>
+                            </div>
+                          </div>
+                          <div className="text-xs font-black">
+                            Valor unit.
+                            <div className="mt-1 rounded-xl border border-[#dfe8df] bg-[#f9f7ef] px-3 py-4 font-black">
+                              {brl(parseMoneyInput(item.unitPrice))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs font-bold text-[#496451]">
+                        <span>Subtotal: {brl(Math.max(0, Number(item.quantity || 0)) * Math.max(0, parseMoneyInput(item.unitPrice)))}</span>
+                        <button type="button" onClick={() => removeEditItem(item.id)} className="rounded-full bg-[#fff0f0] px-3 py-2 font-black text-[#7d1b1b]">Remover</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 rounded-2xl bg-[#f4e7b3] p-3 text-sm font-black">Total editado: {brl(editTotal)}</p>
+              </section>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button onClick={() => setEditingOrder(null)} className="rounded-2xl border border-[#dfe8df] px-5 py-4 font-black">Voltar</button>
+              <button onClick={saveEdit} disabled={saving} className="rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white disabled:bg-[#83a847]">
+                {saving ? "Salvando..." : "Salvar edição"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {cartReviewOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Revisar itens do pedido">

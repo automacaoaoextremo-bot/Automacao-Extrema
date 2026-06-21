@@ -33,7 +33,7 @@ export async function GET() {
     const orders = (ordersRes.data || []) as OrderRow[];
     const payments = paymentsRes.data || [];
     const expenses = expensesRes.data || [];
-    const validOrders = orders.filter((order) => order.status !== "cancelado" && order.status !== "excluido");
+    const validOrders = orders.filter((order) => order.status !== "cancelado");
 
     const totals = {
       sold: validOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
@@ -47,7 +47,12 @@ export async function GET() {
     const byPayment = groupSum(payments, (payment) => payment.method, (payment) => Number(payment.amount || 0));
     const itemRows = validOrders.flatMap((order) => order.items || []);
     const byKind = groupSum(itemRows, (item) => item.kind === "bazar" ? "Bazar" : "Alimentos e bebidas", (item) => Number(item.total_price || 0), (item) => Number(item.quantity || 0));
-    const byItem = groupSum(itemRows, (item) => item.name, (item) => Number(item.total_price || 0), (item) => Number(item.quantity || 0));
+    const byItem = groupSum(
+      itemRows,
+      (item) => item.kind === "bazar" ? `${item.name} · ${item.category_path || "Sem categoria"}` : item.name,
+      (item) => Number(item.total_price || 0),
+      (item) => Number(item.quantity || 0),
+    );
     const byExpense = groupSum(expenses.filter((expense) => expense.status !== "cancelada"), (expense) => expense.category || "Geral", (expense) => Number(expense.amount || 0));
 
     return NextResponse.json({ event, orders, payments, expenses, totals: { ...totals, result }, byPayment, byKind, byItem, byExpense });
