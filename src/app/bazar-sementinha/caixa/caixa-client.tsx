@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type OrderItem = {
   id: string;
@@ -26,7 +26,16 @@ type Order = {
   items?: OrderItem[];
 };
 
-type Bootstrap = { orders: Order[]; pix?: { payload: string; dataUrl: string } };
+type PricePoint = { id: string; amount: number | string; label?: string | null; is_active: boolean };
+type CategoryNode = { id: string; path: string; is_active: boolean; is_visible: boolean };
+type MenuItemConfig = { id: string; category: string; name: string; description?: string | null; unit_label?: string | null; price: number | string; is_active: boolean };
+type Bootstrap = {
+  orders: Order[];
+  pix?: { payload: string; dataUrl: string };
+  prices?: PricePoint[];
+  categories?: CategoryNode[];
+  menuItems?: MenuItemConfig[];
+};
 type PaymentMethod = "pix" | "credito" | "debito" | "dinheiro";
 
 type ClientGroup = {
@@ -54,6 +63,19 @@ type EditableItem = {
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function priceLabel(price: PricePoint) {
+  const amount = Number(price.amount || 0);
+  return price.label ? `${price.label} · ${brl(amount)}` : brl(amount);
+}
+
+function bazarItemName(amount: number) {
+  return `Item Bazar ${brl(amount)}`;
+}
+
+function moneyInput(value: number) {
+  return value.toFixed(2).replace(".", ",");
 }
 
 function orderValue(order: Order) {
@@ -85,16 +107,15 @@ function orderClientKey(order: Order) {
   return order.client?.id || `sem-cliente-${order.client?.name || "geral"}`;
 }
 
-function makeEditableItem(item?: OrderItem): EditableItem {
-  const fallbackId = `novo-${Math.random().toString(16).slice(2)}`;
+function makeEditableItem(item: OrderItem): EditableItem {
   return {
-    id: item?.id || fallbackId,
-    kind: item?.kind === "menu" ? "menu" : "bazar",
-    sourceId: item?.source_id || null,
-    name: item?.name || "",
-    quantity: String(item?.quantity || 1),
-    unitPrice: String(unitValue(item || { id: fallbackId, name: "", quantity: 1, total_price: 0 }).toFixed(2)).replace(".", ","),
-    categoryPath: item?.category_path || "",
+    id: item.id,
+    kind: item.kind === "menu" ? "menu" : "bazar",
+    sourceId: item.source_id || null,
+    name: item.name || "",
+    quantity: String(item.quantity || 1),
+    unitPrice: String(unitValue(item).toFixed(2)).replace(".", ","),
+    categoryPath: item.category_path || "",
   };
 }
 
@@ -117,6 +138,15 @@ export function CaixaClient() {
   const [editWhatsapp, setEditWhatsapp] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editItems, setEditItems] = useState<EditableItem[]>([]);
+  const [prices, setPrices] = useState<PricePoint[]>([]);
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItemConfig[]>([]);
+  const editableItemCounterRef = useRef(0);
+
+  function nextEditableItemId() {
+    editableItemCounterRef.current += 1;
+    return `novo-${editableItemCounterRef.current}`;
+  }
 
   async function load() {
     const res = await fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" });
@@ -124,6 +154,9 @@ export function CaixaClient() {
     if (!res.ok) throw new Error("Não foi possível carregar os pedidos.");
     setOrders(data.orders || []);
     setPix(data.pix || null);
+    setPrices((data.prices || []).filter((item) => item.is_active));
+    setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
+    setMenuItems((data.menuItems || []).filter((item) => item.is_active));
   }
 
   useEffect(() => {
@@ -134,6 +167,9 @@ export function CaixaClient() {
         if (ignore) return;
         setOrders(data.orders || []);
         setPix(data.pix || null);
+        setPrices((data.prices || []).filter((item) => item.is_active));
+        setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
+        setMenuItems((data.menuItems || []).filter((item) => item.is_active));
       })
       .catch(() => {
         if (!ignore) setMessage("Não foi possível carregar os pedidos.");
@@ -152,6 +188,13 @@ export function CaixaClient() {
     () => validOrders.filter((order) => order.payment_status !== "pago"),
     [validOrders],
   );
+
+  const pricesById = useMemo(() => new Map(prices.map((price) => [price.id, price])), [prices]);
+  const menuItemsById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
+
+  const activeMenuCategories = useMemo(() => {
+    return [...new Set(menuItems.map((item) => item.category))].sort((a, b) => a.localeCompare(b));
+  }, [menuItems]);
 
   const grouped = useMemo<ClientGroup[]>(() => {
     const map = new Map<string, ClientGroup>();
@@ -320,8 +363,66 @@ export function CaixaClient() {
     setEditItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
 
+  function makeDefaultEditableItem(kind: "bazar" | "menu" = "bazar"): EditableItem {
+    const fallbackId = nextEditableItemId();
+
+    if (kind === "menu" && menuItems[0]) {
+      const menu = menuItems[0];
+      return {
+        id: fallbackId,
+        kind: "menu",
+        sourceId: menu.id,
+        name: menu.name,
+        quantity: "1",
+        unitPrice: moneyInput(Number(menu.price || 0)),
+        categoryPath: menu.category,
+      };
+    }
+
+    const price = prices[0];
+    const category = categories[0];
+    const amount = Number(price?.amount || 0);
+    return {
+      id: fallbackId,
+      kind: "bazar",
+      sourceId: price?.id || null,
+      name: price ? bazarItemName(amount) : "",
+      quantity: "1",
+      unitPrice: moneyInput(amount),
+      categoryPath: category?.path || "",
+    };
+  }
+
   function addEditItem() {
-    setEditItems((current) => [...current, makeEditableItem()]);
+    setEditItems((current) => [...current, makeDefaultEditableItem(menuItems.length > 0 && prices.length === 0 ? "menu" : "bazar")]);
+  }
+
+  function changeEditItemKind(id: string, kind: "bazar" | "menu") {
+    const defaults = makeDefaultEditableItem(kind);
+    setEditItems((current) => current.map((item) => (item.id === id ? { ...defaults, id } : item)));
+  }
+
+  function changeEditItemPrice(id: string, priceId: string) {
+    const price = pricesById.get(priceId);
+    if (!price) return;
+    const amount = Number(price.amount || 0);
+    updateEditItem(id, { sourceId: price.id, name: bazarItemName(amount), unitPrice: moneyInput(amount) });
+  }
+
+  function changeEditMenuItem(id: string, menuId: string) {
+    const menu = menuItemsById.get(menuId);
+    if (!menu) return;
+    updateEditItem(id, { sourceId: menu.id, name: menu.name, unitPrice: moneyInput(Number(menu.price || 0)), categoryPath: menu.category });
+  }
+
+  function changeEditItemQuantity(id: string, delta: number) {
+    setEditItems((current) =>
+      current.map((item) => {
+        if (item.id !== id) return item;
+        const quantity = Math.max(1, Number(item.quantity || 1) + delta);
+        return { ...item, quantity: String(quantity) };
+      }),
+    );
   }
 
   function removeEditItem(id: string) {
@@ -575,7 +676,7 @@ export function CaixaClient() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-black">Itens do pedido</h3>
-                    <p className="text-xs text-[#496451]">Edite nome, tipo, categoria, quantidade ou valor unitário.</p>
+                    <p className="text-xs text-[#496451]">Selecione item, categoria e valor nos cadastros ativos. Ajuste a quantidade com + e -.</p>
                   </div>
                   <button type="button" onClick={addEditItem} className="rounded-full bg-[#f4e7b3] px-3 py-2 text-xs font-black">Adicionar item</button>
                 </div>
@@ -584,29 +685,67 @@ export function CaixaClient() {
                     <div key={item.id} className="rounded-2xl bg-[#fffdf7] p-3 ring-1 ring-[#dfe8df]">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <label className="text-xs font-black">
-                          Item
-                          <input value={item.name} onChange={(event) => updateEditItem(item.id, { name: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]" />
-                        </label>
-                        <label className="text-xs font-black">
-                          Categoria
-                          <input value={item.categoryPath} onChange={(event) => updateEditItem(item.id, { categoryPath: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]" />
-                        </label>
-                        <label className="text-xs font-black">
                           Tipo
-                          <select value={item.kind} onChange={(event) => updateEditItem(item.id, { kind: event.target.value === "menu" ? "menu" : "bazar" })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                          <select value={item.kind} onChange={(event) => changeEditItemKind(item.id, event.target.value === "menu" ? "menu" : "bazar")} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
                             <option value="bazar">Bazar</option>
                             <option value="menu">Cardápio</option>
                           </select>
                         </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="text-xs font-black">
+
+                        {item.kind === "bazar" ? (
+                          <>
+                            <label className="text-xs font-black">
+                              Valor cadastrado
+                              <select value={item.sourceId || ""} onChange={(event) => changeEditItemPrice(item.id, event.target.value)} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                                <option value="">Selecione o valor</option>
+                                {prices.map((price) => (
+                                  <option key={price.id} value={price.id}>{priceLabel(price)}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="text-xs font-black sm:col-span-2">
+                              Categoria cadastrada
+                              <select value={item.categoryPath} onChange={(event) => updateEditItem(item.id, { categoryPath: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                                <option value="">Sem categoria</option>
+                                {categories.map((category) => (
+                                  <option key={category.id} value={category.path}>{category.path}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <label className="text-xs font-black sm:col-span-2">
+                              Item do cardápio
+                              <select value={item.sourceId || ""} onChange={(event) => changeEditMenuItem(item.id, event.target.value)} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]">
+                                <option value="">Selecione o item</option>
+                                {activeMenuCategories.map((category) => (
+                                  <optgroup key={category} label={category}>
+                                    {menuItems.filter((menu) => menu.category === category).map((menu) => (
+                                      <option key={menu.id} value={menu.id}>{menu.name} · {brl(Number(menu.price || 0))}</option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </label>
+                          </>
+                        )}
+
+                        <div className="sm:col-span-2 grid gap-2 sm:grid-cols-[1fr_1fr]">
+                          <div className="text-xs font-black">
                             Qtde
-                            <input type="number" min="1" value={item.quantity} onChange={(event) => updateEditItem(item.id, { quantity: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]" />
-                          </label>
-                          <label className="text-xs font-black">
+                            <div className="mt-1 flex items-center justify-between gap-3 rounded-xl border border-[#dfe8df] bg-white px-3 py-2">
+                              <button type="button" onClick={() => changeEditItemQuantity(item.id, -1)} className="h-10 w-10 rounded-full bg-[#f9f7ef] text-lg font-black">−</button>
+                              <strong className="text-base">{Math.max(1, Number(item.quantity || 1))}</strong>
+                              <button type="button" onClick={() => changeEditItemQuantity(item.id, 1)} className="h-10 w-10 rounded-full bg-[#2f7d45] text-lg font-black text-white">+</button>
+                            </div>
+                          </div>
+                          <div className="text-xs font-black">
                             Valor unit.
-                            <input value={item.unitPrice} onChange={(event) => updateEditItem(item.id, { unitPrice: event.target.value })} className="mt-1 w-full rounded-xl border border-[#dfe8df] px-3 py-2 font-normal outline-none focus:border-[#2f7d45]" />
-                          </label>
+                            <div className="mt-1 rounded-xl border border-[#dfe8df] bg-[#f9f7ef] px-3 py-4 font-black">
+                              {brl(parseMoneyInput(item.unitPrice))}
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-3 text-xs font-bold text-[#496451]">
