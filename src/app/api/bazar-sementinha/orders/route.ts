@@ -19,6 +19,17 @@ export const dynamic = "force-dynamic";
 type OrderStatus = "aberto" | "cancelado" | "excluido";
 type PaymentStatus = "pendente" | "pago";
 
+type BazarOrderPatchBody = {
+  id?: string;
+  status?: OrderStatus | string;
+  payment_status?: PaymentStatus | string;
+  clientName?: string;
+  whatsapp?: string | null;
+  notes?: string | null;
+  items?: Partial<BazarItemInput>[];
+  [key: string]: unknown;
+};
+
 type BazarOrderRow = {
   id: string;
   event_id: string;
@@ -42,9 +53,14 @@ type BazarClientRow = {
 
 type BazarOrderItemRow = {
   id: string;
+  event_id?: string;
   order_id: string;
+  kind?: string | null;
+  source_id?: string | null;
   name: string;
+  category_path?: string | null;
   quantity: number;
+  unit_price?: number | string | null;
   total_price: number | string;
   [key: string]: unknown;
 };
@@ -219,37 +235,129 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireBazarSession(request);
-    const body = await request.json();
+    const body = (await request.json()) as BazarOrderPatchBody;
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
 
+    const event = await getBazarEvent();
+    const { data: currentOrder, error: currentOrderError } = await supabaseAdmin
+      .from("bazar_orders")
+      .select("*")
+      .eq("event_id", event.id)
+      .eq("id", id)
+      .single();
+
+    if (currentOrderError || !currentOrder) throw currentOrderError || new Error("Pedido não encontrado.");
+
+    if (currentOrder.payment_status === "pago" && ("items" in body || "clientName" in body || "whatsapp" in body || body.status === "cancelado" || body.status === "excluido")) {
+      return NextResponse.json({ error: "Pedido pago não pode ser editado ou cancelado." }, { status: 400 });
+    }
+
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
     if ("status" in body) {
       const status = String(body.status || "") as OrderStatus;
       if (!["aberto", "cancelado", "excluido"].includes(status)) return NextResponse.json({ error: "Status inválido." }, { status: 400 });
       patch.status = status;
     }
+
     if ("payment_status" in body) {
       const paymentStatus = String(body.payment_status || "") as PaymentStatus;
       if (!["pendente", "pago"].includes(paymentStatus)) return NextResponse.json({ error: "Status de pagamento inválido." }, { status: 400 });
       patch.payment_status = paymentStatus;
     }
+
     if ("notes" in body) patch.notes = body.notes ? String(body.notes) : null;
+
+    let clientNameForSignature = "";
+
+    if ("clientName" in body || "whatsapp" in body) {
+      const requestedClientName = String(body.clientName || "").trim();
+
+      if (requestedClientName) {
+        clientNameForSignature = requestedClientName;
+        const normalizedName = normalizeClientName(requestedClientName);
+        const { data: client, error: clientError } = await supabaseAdmin
+          .from("bazar_clients")
+          .upsert(
+            {
+              event_id: event.id,
+              name: requestedClientName,
+              normalized_name: normalizedName,
+              whatsapp: body.whatsapp ? onlyDigits(String(body.whatsapp)) : null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "event_id,normalized_name" },
+          )
+          .select("*")
+          .single();
+
+        if (clientError || !client) throw clientError || new Error("Não foi possível atualizar o cliente.");
+        patch.client_id = client.id;
+      } else if ("whatsapp" in body) {
+        const { error: clientError } = await supabaseAdmin
+          .from("bazar_clients")
+          .update({ whatsapp: body.whatsapp ? onlyDigits(String(body.whatsapp)) : null, updated_at: new Date().toISOString() })
+          .eq("id", currentOrder.client_id);
+        if (clientError) throw clientError;
+      }
+    }
+
+    if (!clientNameForSignature) {
+      const { data: currentClient, error: currentClientError } = await supabaseAdmin
+        .from("bazar_clients")
+        .select("name")
+        .eq("id", patch.client_id || currentOrder.client_id)
+        .maybeSingle();
+      if (currentClientError) throw currentClientError;
+      clientNameForSignature = String(currentClient?.name || body.clientName || "Cliente");
+    }
+
+    if ("items" in body) {
+      const items: Partial<BazarItemInput>[] = Array.isArray(body.items) ? body.items : [];
+      const validItems: BazarItemInput[] = items
+        .map((item: Partial<BazarItemInput>): BazarItemInput => {
+          const kind: BazarItemInput["kind"] = item.kind === "menu" ? "menu" : "bazar";
+          return {
+            kind,
+            name: String(item.name || "").trim(),
+            quantity: Number(item.quantity || 0),
+            unitPrice: Number(item.unitPrice || 0),
+            categoryPath: item.categoryPath || null,
+            sourceId: item.sourceId || null,
+          };
+        })
+        .filter((item: BazarItemInput): item is BazarItemInput => item.name.length > 0 && item.quantity > 0 && item.unitPrice >= 0);
+
+      if (validItems.length === 0) {
+        return NextResponse.json({ error: "Mantenha pelo menos um item válido no pedido." }, { status: 400 });
+      }
+
+      const totalAmount = orderTotal(validItems);
+      patch.total_amount = totalAmount;
+      patch.dedupe_signature = orderSignature({ clientName: clientNameForSignature, whatsapp: body.whatsapp || null, notes: body.notes || null, items: validItems });
+
+      const { error: deleteItemsError } = await supabaseAdmin.from("bazar_order_items").delete().eq("order_id", id);
+      if (deleteItemsError) throw deleteItemsError;
+
+      const rows = validItems.map((item) => ({
+        event_id: event.id,
+        order_id: id,
+        kind: item.kind,
+        source_id: item.sourceId || null,
+        name: item.name,
+        category_path: item.categoryPath || null,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        total_price: item.quantity * item.unitPrice,
+      }));
+
+      const { error: insertItemsError } = await supabaseAdmin.from("bazar_order_items").insert(rows);
+      if (insertItemsError) throw insertItemsError;
+    }
 
     const { data: order, error: orderError } = await supabaseAdmin.from("bazar_orders").update(patch).eq("id", id).select("*").single();
     if (orderError || !order) throw orderError || new Error("Não foi possível atualizar o pedido.");
-
-    if ("clientName" in body || "whatsapp" in body) {
-      const clientName = String(body.clientName || "").trim();
-      const clientPatch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (clientName) {
-        clientPatch.name = clientName;
-        clientPatch.normalized_name = normalizeClientName(clientName);
-      }
-      if ("whatsapp" in body) clientPatch.whatsapp = body.whatsapp ? onlyDigits(String(body.whatsapp)) : null;
-      const { error: clientError } = await supabaseAdmin.from("bazar_clients").update(clientPatch).eq("id", order.client_id);
-      if (clientError) throw clientError;
-    }
 
     return NextResponse.json({ order: await readOrder(id) });
   } catch (error) {
