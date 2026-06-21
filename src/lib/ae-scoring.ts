@@ -107,8 +107,8 @@ export function calculateScores(payload: DiagnosticPayload): SolutionScore[] {
     },
     {
       slug: "presenca-querida",
-      score: match(text, ["convite", "convidado", "rsvp", "presença", "presenca", "aniversário", "aniversario", "casamento"]),
-      reason: "Indícios de organização de convidados, confirmações e mensagens personalizadas.",
+      score: match(text, ["convite", "convidado", "convidados", "rsvp", "presença", "presenca", "aniversário", "aniversario", "casamento", "bodas", "festa surpresa", "confirmar presença", "acompanhantes", "buffet"]),
+      reason: "Indícios de organização de convidados, confirmações, acompanhantes, lembretes e mensagens personalizadas para evento afetivo.",
     },
     {
       slug: "discoteca-digital",

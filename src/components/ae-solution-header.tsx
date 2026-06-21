@@ -58,6 +58,8 @@ export function AeSolutionHeader({
   sectionLinks = defaultSolutionLinks,
   showBrandStrip = true,
   topAction,
+  homeHref,
+  navLabel,
 }: {
   solutionName: string;
   logoSrc: string;
@@ -66,12 +68,14 @@ export function AeSolutionHeader({
   sectionLinks?: SolutionSectionLink[];
   showBrandStrip?: boolean;
   topAction?: ReactNode;
+  homeHref?: string;
+  navLabel?: string;
 }) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-5 sm:py-3">
         <Link
-          href="/solucoes/corrente-em-dia"
+          href={homeHref ?? "/solucoes/corrente-em-dia"}
           className="flex min-w-0 flex-1 items-center gap-3"
           aria-label={`Ir para ${solutionName}`}
         >
@@ -89,7 +93,7 @@ export function AeSolutionHeader({
       {showBrandStrip && <AeBrandStrip compact />}
 
       {(actions.length > 0 || sectionLinks.length > 0) && (
-        <nav className="border-t border-white/10 bg-[#00334E] px-3 py-2" aria-label="Menu do Corrente em Dia">
+        <nav className="border-t border-white/10 bg-[#00334E] px-3 py-2" aria-label={navLabel ?? `Menu do ${solutionName}`}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-2 sm:gap-2.5">
             {actions.map((action) => (
               <HeaderActionLink key={action.href + action.label} action={action} />

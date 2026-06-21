@@ -434,3 +434,172 @@ export async function sendCorrenteLeadPendingAlertEmail(input: CorrenteLeadPendi
 
   return { sent: true, reason: "Alerta interno enviado." };
 }
+
+export type PresencaLeadAccessEmailInput = {
+  responsibleName: string;
+  email: string;
+  eventName: string;
+  eventType: string;
+  city: string;
+  state: string;
+  loginUrl: string;
+  temporaryPassword: string | null;
+  trialDays: number;
+  isMinimalLead: boolean;
+};
+
+export type PresencaLeadInternalEmailInput = {
+  leadId: string;
+  responsibleName: string;
+  email: string;
+  whatsapp: string;
+  eventName: string;
+  eventType: string;
+  city: string;
+  state: string;
+  guestsEstimate: number | null;
+  eventDate: string | null;
+  eventContext: string;
+  observations: string;
+  loginUrl: string;
+  temporaryPassword: string | null;
+  trialDays: number;
+  accessDueAt: string;
+  funilUrl: string;
+  source: string;
+};
+
+export type PresencaLeadPendingAlertEmailInput = {
+  leadId: string;
+  responsibleName: string;
+  eventName: string;
+  email: string | null;
+  whatsapp: string | null;
+  status: string;
+  accessDueAt: string | null;
+  funilUrl: string;
+};
+
+export async function sendPresencaLeadAccessEmail(input: PresencaLeadAccessEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const baseUrl = siteUrl();
+  const logoUrl = `${baseUrl}/presenca-querida-logo.svg`;
+  const greeting = firstName(input.responsibleName);
+  const location = [input.city, input.state].filter(Boolean).join("/");
+  const eventLine = input.isMinimalLead
+    ? "Os dados completos do evento serão confirmados no primeiro acesso."
+    : `Evento: ${input.eventName}\nTipo: ${input.eventType}${location ? `\nCidade/UF: ${location}` : ""}`;
+  const passwordBlock = input.temporaryPassword
+    ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
+    : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: input.email,
+    subject: "Acesso liberado — Presença Querida Cliente Fundador",
+    text: `${greeting},\n\nRecebemos seu interesse no Presença Querida como Cliente Fundador.\n\nA partir de agora, você já pode acessar o painel inicial para começar a configuração do evento e avaliar a solução por ${input.trialDays} dias.\n\nO Presença Querida foi criado para ajudar famílias e pequenos organizadores a convidar, lembrar e confirmar presenças importantes sem transformar o WhatsApp em bagunça ou a confirmação em cobrança constrangedora.\n\n${eventLine}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nComo Cliente Fundador, seu evento participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença na organização dos convidados.\n\nAutomação Extrema\nPresença Querida`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
+        <div style="padding:18px 0;text-align:left">
+          <img src="${escapeHtml(logoUrl)}" alt="Presença Querida" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
+          <h2 style="margin:0;color:#00334E;font-size:24px">Acesso liberado ao Presença Querida</h2>
+        </div>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse no <strong>Presença Querida</strong> como Cliente Fundador.</p>
+        <p>A partir de agora, você já pode acessar o painel inicial para começar a configuração do evento e avaliar a solução por <strong>${escapeHtml(input.trialDays)} dias</strong>.</p>
+        <p>O Presença Querida foi criado para ajudar famílias e pequenos organizadores a convidar, lembrar e confirmar presenças importantes sem transformar o WhatsApp em bagunça ou a confirmação em cobrança constrangedora.</p>
+        <div style="background:#fff1f2;border-radius:16px;padding:16px;margin:16px 0">
+          ${input.isMinimalLead ? `<p><strong>Primeiro passo:</strong> os dados completos do evento serão confirmados no primeiro acesso.</p>` : `<p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/><strong>Tipo:</strong> ${escapeHtml(input.eventType)}${location ? `<br/><strong>Cidade/UF:</strong> ${escapeHtml(location)}` : ""}</p>`}
+          <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
+          <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
+        </div>
+        <p><strong>Cliente Fundador:</strong> seu evento participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença na organização dos convidados.</p>
+        <p style="font-size:13px;color:#475569">Ao acessar o painel, confirme os dados do evento, as autorizações de LGPD e a condição de Cliente Fundador para iniciar a avaliação.</p>
+        <p>Automação Extrema<br/>Presença Querida</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de acesso enviado." };
+}
+
+export async function sendPresencaLeadInternalEmail(input: PresencaLeadInternalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const internalMessage = `Novo lead Presença Querida - Cliente Fundador\n\nTipo: ${input.eventType}\nEvento: ${input.eventName}\nResponsável: ${input.responsibleName}\nCidade/UF: ${[input.city, input.state].filter(Boolean).join("/") || "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nE-mail: ${input.email}\nConvidados estimados: ${input.guestsEstimate ?? "não informado"}\nData do evento: ${input.eventDate ?? "não informada"}\n\nContexto:\n${input.eventContext || "não informado"}\n\nObservações:\n${input.observations || "não informado"}\n\nAcesso: ${input.loginUrl}\nPrazo de acompanhamento: confirmar primeiro acesso e configuração inicial.\nFunil: ${input.funilUrl}`;
+  const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Novo lead Presença Querida — ${input.eventName}`,
+    text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo lead Presença Querida</h2>
+        <p><strong>Tipo:</strong> ${escapeHtml(input.eventType)}<br/>
+        <strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>Cidade/UF:</strong> ${escapeHtml([input.city, input.state].filter(Boolean).join("/") || "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
+        <strong>Convidados estimados:</strong> ${escapeHtml(input.guestsEstimate ?? "não informado")}<br/>
+        <strong>Data do evento:</strong> ${escapeHtml(input.eventDate ?? "não informada")}</p>
+        <p><strong>Contexto:</strong><br/>${escapeHtml(input.eventContext || "não informado")}</p>
+        <p><strong>Observações:</strong><br/>${escapeHtml(input.observations || "não informado")}</p>
+        <p><strong>Status:</strong> acesso inicial preparado e e-mail de acesso tentado automaticamente.</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Presença Querida</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp interno</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail interno enviado." };
+}
+
+export async function sendPresencaLeadPendingAlertEmail(input: PresencaLeadPendingAlertEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Alerta Presença Querida — verificar acesso de ${input.eventName}`,
+    text: `Verificar lead Presença Querida.\n\nEvento: ${input.eventName}\nResponsável: ${input.responsibleName}\nE-mail: ${input.email ?? "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nStatus: ${input.status}\nPrazo de acesso: ${input.accessDueAt ? formatDate(input.accessDueAt) : "não informado"}\nFunil: ${input.funilUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Alerta Presença Querida</h2>
+        <p>Verifique se o acesso e o primeiro contato foram concluídos.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email ?? "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>Status:</strong> ${escapeHtml(input.status)}<br/>
+        <strong>Prazo de acesso:</strong> ${escapeHtml(input.accessDueAt ? formatDate(input.accessDueAt) : "não informado")}</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Presença Querida</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Alerta interno enviado." };
+}
