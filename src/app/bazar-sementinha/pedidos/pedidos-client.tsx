@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
@@ -13,7 +13,7 @@ type CreatedOrder = {
   total_amount: number | string;
   created_at?: string | null;
   client?: Client | null;
-  items?: Array<{ id: string; name: string; quantity: number; unit_price?: number | string; total_price: number | string }>;
+  items?: Array<{ id: string; name: string; quantity: number; unit_price?: number | string; total_price: number | string; category_path?: string | null }>;
 };
 type OrderMode = "bazar" | "menu";
 
@@ -58,6 +58,8 @@ export function PedidosClient() {
   const [search, setSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
+  const [cartReviewOpen, setCartReviewOpen] = useState(false);
+  const catalogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
@@ -109,8 +111,10 @@ export function PedidosClient() {
   function selectClient(client: Client) {
     setClientName(client.name);
     setWhatsapp(client.whatsapp || "");
+    setMode("bazar");
     setCreatedOrder(null);
     setMessage(`Cliente selecionado: ${client.name}`);
+    window.setTimeout(() => catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
   function startAnotherOrder(client?: Client | null) {
@@ -188,9 +192,12 @@ export function PedidosClient() {
       setCreatedOrder(order);
       setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
+      setCartReviewOpen(false);
+      setClientName("");
+      setWhatsapp("");
+      setCategoryPath("");
+      setSearch("");
       if (order.client?.name) {
-        setClientName(order.client.name);
-        setWhatsapp(order.client.whatsapp || whatsapp);
         setClients((current) => {
           const exists = current.some((client) => client.id === order.client?.id);
           const next = exists ? current.map((client) => (client.id === order.client?.id ? { ...client, ...order.client } as Client : client)) : [...current, order.client as Client];
@@ -252,6 +259,7 @@ export function PedidosClient() {
                       <div>
                         <strong>{item.name}</strong>
                         <p className="text-sm text-[#496451]">{item.quantity} × {brl(Number(item.unit_price || 0))}</p>
+                        {item.category_path && <p className="text-xs font-bold text-[#83a847]">Categoria: {item.category_path}</p>}
                       </div>
                       <strong>{brl(Number(item.total_price || 0))}</strong>
                     </div>
@@ -266,7 +274,7 @@ export function PedidosClient() {
           )}
 
           {mode === "bazar" ? (
-            <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <div ref={catalogRef} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
               <h2 className="text-2xl font-black">Catálogo do Bazar</h2>
               <p className="mt-2 text-sm leading-6 text-[#496451]">Caso orientado pela coordenação, selecione a categoria do item e ao clicar no valor, é adicionado ao resumo. Ao finalizar os itens a serem incluidos no pedido, clicar em Criar pedido.</p>
               <label className="mt-4 block max-w-md">
@@ -330,7 +338,7 @@ export function PedidosClient() {
           )}
           <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
             <h2 className="text-2xl font-black">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado ou toque em “Fazer pedido” para preencher o nome automaticamente.</p>
+            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente.</p>
             <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
             <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
               <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
@@ -374,10 +382,11 @@ export function PedidosClient() {
             ))}
           </div>
           <div className="mt-2 flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4">
-            <div>
+            <button type="button" onClick={() => setCartReviewOpen(true)} disabled={cart.length === 0} className="text-left disabled:cursor-not-allowed disabled:opacity-60">
               <span className="text-lg font-black lg:text-sm lg:font-bold">{cart.length} item(ns)</span>
               <strong className="block text-2xl lg:text-3xl">{brl(total)}</strong>
-            </div>
+              {cart.length > 0 && <span className="mt-1 block text-xs font-bold text-[#2f7d45]">Toque para revisar/editar</span>}
+            </button>
             <button disabled={saving || cart.length === 0} onClick={createOrder} className="min-w-36 rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:bg-[#83a847]">
               {saving ? "Registrando..." : "Criar pedido"}
             </button>
@@ -385,6 +394,59 @@ export function PedidosClient() {
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>
+
+      {cartReviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Revisar itens do pedido">
+          <div className="max-h-[86vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 text-[#214527] shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Conferência</p>
+                <h2 className="mt-1 text-2xl font-black">Resumo dos itens</h2>
+                <p className="mt-2 text-sm text-[#496451]">Revise, ajuste a quantidade ou remova itens antes de criar o pedido.</p>
+              </div>
+              <button onClick={() => setCartReviewOpen(false)} className="rounded-full bg-[#f9f7ef] px-4 py-2 font-black">Fechar</button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {cart.length === 0 ? (
+                <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item selecionado.</p>
+              ) : (
+                cart.map((item) => (
+                  <div key={item.key} className="rounded-2xl border border-[#dfe8df] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <strong>{item.name}</strong>
+                        <p className="text-sm text-[#496451]">{item.categoryPath || "Sem categoria"} · {brl(item.unitPrice)}</p>
+                      </div>
+                      <strong>{brl(item.quantity * item.unitPrice)}</strong>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => updateQty(item.key, -1)} className="h-10 w-10 rounded-full bg-[#f9f7ef] text-xl font-black">−</button>
+                        <span className="min-w-10 text-center text-xl font-black">{item.quantity}</span>
+                        <button onClick={() => updateQty(item.key, 1)} className="h-10 w-10 rounded-full bg-[#2f7d45] text-xl font-black text-white">+</button>
+                      </div>
+                      <button onClick={() => updateQty(item.key, -item.quantity)} className="rounded-full bg-[#fff0f0] px-4 py-2 text-sm font-black text-[#7d1b1b]">Remover</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-[#f4e7b3] p-4">
+              <span className="text-sm font-bold">Total revisado</span>
+              <strong className="block text-3xl">{brl(total)}</strong>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button onClick={() => setCartReviewOpen(false)} className="rounded-2xl border border-[#dfe8df] px-5 py-4 font-black">Continuar escolhendo</button>
+              <button disabled={saving || cart.length === 0} onClick={createOrder} className="rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white disabled:cursor-not-allowed disabled:bg-[#83a847]">
+                {saving ? "Registrando..." : "Criar pedido"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
