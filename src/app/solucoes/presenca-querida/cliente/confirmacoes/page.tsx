@@ -1,4 +1,4 @@
-import { PresencaBackToDashboard, PresencaClientHeader } from "@/components/presenca-client-header";
+import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
 
 const cards = [
@@ -10,10 +10,8 @@ const cards = [
 
 export default function PresencaConfirmacoesPage() {
   return (
-    <main className="min-h-screen bg-[#fffaf8] text-slate-800">
-      <PresencaClientHeader />
-      <section className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-        <PresencaBackToDashboard />
+    <PresencaClientShell>
+      <section>
         <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.36fr]">
           <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
             <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Confirmações</p>
@@ -37,6 +35,6 @@ export default function PresencaConfirmacoesPage() {
           </PresencaContextualHelp>
         </div>
       </section>
-    </main>
+    </PresencaClientShell>
   );
 }

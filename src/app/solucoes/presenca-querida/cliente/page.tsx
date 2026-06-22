@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { PresencaClientHeader } from "@/components/presenca-client-header";
+import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaOnboardingChecklist } from "@/components/presenca-onboarding-checklist";
 import {
   formatDateBR,
@@ -128,10 +128,8 @@ export default function PresencaQueridaClientDashboardPage() {
   const event = payload?.events?.[0];
 
   return (
-    <main className="min-h-screen bg-[#fffaf8] text-slate-800">
-      <PresencaClientHeader />
-
-      <section className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+    <PresencaClientShell>
+      <section>
         <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Painel do cliente</p>
         <h1 className="mt-2 text-4xl font-black leading-tight text-[#00334E]">
           {event?.name ?? "Presença Querida"}
@@ -206,6 +204,6 @@ export default function PresencaQueridaClientDashboardPage() {
           </>
         )}
       </section>
-    </main>
+    </PresencaClientShell>
   );
 }
