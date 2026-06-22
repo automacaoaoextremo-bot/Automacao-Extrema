@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { syncPresencaLeadWithBotConversa } from "@/lib/botconversa";
 import { PresencaLeadPayload, formatPresencaEventType, normalizePresencaEventType } from "@/lib/presenca-querida";
 import { toSlug } from "@/lib/ae-utils";
 import { sendPresencaLeadAccessEmail, sendPresencaLeadInternalEmail } from "@/lib/mail";
@@ -7,6 +8,11 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export const dynamic = "force-dynamic";
 
 const TRIAL_DAYS = 30;
+
+type SendResult = {
+  sent: boolean;
+  reason?: string;
+};
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -106,7 +112,7 @@ async function upsertAeClient(input: {
   const { data, error } = await supabaseAdmin
     .from("ae_clients")
     .insert({
-      client_type: `evento_${input.eventType}`,
+      client_type: "pessoa_fisica",
       display_name: input.eventName,
       slug: input.eventSlug,
       email: input.email || null,
@@ -319,7 +325,8 @@ function buildLeadReply(input: {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as PresencaLeadPayload;
+  try {
+    const body = (await request.json().catch(() => ({}))) as PresencaLeadPayload;
   const input = mapPayload(body);
 
   if (!input.responsibleName || !input.email || !input.whatsapp) {
@@ -434,18 +441,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: leadError.message }, { status: 500 });
   }
 
-  const accessEmail = await sendPresencaLeadAccessEmail({
-    responsibleName: input.responsibleName,
-    email: input.email,
-    eventName: input.eventName,
-    eventType: formatPresencaEventType(input.eventType),
-    city: input.city,
-    state: input.state,
-    loginUrl,
-    temporaryPassword,
-    trialDays: TRIAL_DAYS,
-    isMinimalLead: input.isMinimalLead,
-  });
+  let accessEmail: SendResult = { sent: false, reason: "Envio de e-mail não executado." };
+  try {
+    accessEmail = await sendPresencaLeadAccessEmail({
+      responsibleName: input.responsibleName,
+      email: input.email,
+      eventName: input.eventName,
+      eventType: formatPresencaEventType(input.eventType),
+      city: input.city,
+      state: input.state,
+      loginUrl,
+      temporaryPassword,
+      trialDays: TRIAL_DAYS,
+      isMinimalLead: input.isMinimalLead,
+    });
+  } catch (error) {
+    accessEmail = {
+      sent: false,
+      reason: error instanceof Error ? error.message : "Erro inesperado ao enviar e-mail de acesso.",
+    };
+    console.error("[Presença Querida] Falha no e-mail de acesso", {
+      leadId: lead.id,
+      email: input.email,
+      reason: accessEmail.reason,
+    });
+  }
 
   if (accessEmail.sent) {
     await supabaseAdmin
@@ -454,26 +474,39 @@ export async function POST(request: Request) {
       .eq("id", lead.id);
   }
 
-  const internalEmail = await sendPresencaLeadInternalEmail({
-    leadId: lead.id,
-    responsibleName: input.responsibleName,
-    email: input.email,
-    whatsapp: input.whatsapp,
-    eventName: input.eventName,
-    eventType: formatPresencaEventType(input.eventType),
-    city: input.city,
-    state: input.state,
-    guestsEstimate: input.guestsEstimate,
-    eventDate: input.eventDate,
-    eventContext: input.eventContext,
-    observations: input.observations,
-    loginUrl,
-    temporaryPassword,
-    trialDays: TRIAL_DAYS,
-    accessDueAt,
-    funilUrl,
-    source: input.source,
-  });
+  let internalEmail: SendResult = { sent: false, reason: "Envio interno não executado." };
+  try {
+    internalEmail = await sendPresencaLeadInternalEmail({
+      leadId: lead.id,
+      responsibleName: input.responsibleName,
+      email: input.email,
+      whatsapp: input.whatsapp,
+      eventName: input.eventName,
+      eventType: formatPresencaEventType(input.eventType),
+      city: input.city,
+      state: input.state,
+      guestsEstimate: input.guestsEstimate,
+      eventDate: input.eventDate,
+      eventContext: input.eventContext,
+      observations: input.observations,
+      loginUrl,
+      temporaryPassword,
+      trialDays: TRIAL_DAYS,
+      accessDueAt,
+      funilUrl,
+      source: input.source,
+    });
+  } catch (error) {
+    internalEmail = {
+      sent: false,
+      reason: error instanceof Error ? error.message : "Erro inesperado ao enviar e-mail interno.",
+    };
+    console.error("[Presença Querida] Falha no e-mail interno", {
+      leadId: lead.id,
+      email: input.email,
+      reason: internalEmail.reason,
+    });
+  }
 
   const leadReply = buildLeadReply({
     responsibleName: input.responsibleName,
@@ -485,6 +518,33 @@ export async function POST(request: Request) {
     founderTermsAccepted: input.founderTermsAccepted,
     accessEmailSent: accessEmail.sent,
   });
+
+  const botconversa = await syncPresencaLeadWithBotConversa({
+    leadId: lead.id,
+    responsibleName: input.responsibleName,
+    email: input.email,
+    whatsapp: input.whatsapp,
+    loginUrl,
+    source: input.source,
+    eventName: input.eventName,
+    eventType: formatPresencaEventType(input.eventType),
+    eventDate: input.eventDate,
+    guestsEstimate: input.guestsEstimate,
+    founderTermsAccepted: input.founderTermsAccepted,
+    accessEmailSent: accessEmail.sent,
+    status: accessEmail.sent ? "email_acesso_enviado" : "aguardando_primeiro_acesso",
+    trialDays: TRIAL_DAYS,
+  });
+
+  if (botconversa.enabled && !botconversa.ok) {
+    console.warn("[BotConversa] Falha ao sincronizar lead Presença Querida", {
+      leadId: lead.id,
+      email: input.email,
+      whatsapp: input.whatsapp,
+      reason: botconversa.reason,
+      steps: botconversa.steps,
+    });
+  }
 
   const internalAlertMessage = `Novo lead Presença Querida
 Contato: ${input.responsibleName}
@@ -510,9 +570,30 @@ Funil: ${funilUrl}`;
     accessEmailReason: accessEmail.reason,
     internalEmailSent: internalEmail.sent,
     internalEmailReason: internalEmail.reason,
+    botconversaSynced: botconversa.ok,
+    botconversaEnabled: botconversa.enabled,
+    botconversaReason: botconversa.reason,
+    botconversaSubscriberId: botconversa.subscriberId,
+    botconversaSteps: botconversa.steps,
     loginUrl,
     funilUrl,
     botconversaReply: leadReply,
     internalAlertMessage,
   });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erro inesperado ao criar lead Presença Querida.";
+    console.error("[Presença Querida] Erro ao processar formulário Quero Conhecer", {
+      message,
+      error,
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+        errorCode: "PRESENCA_QUERIDA_LEAD_CREATE_FAILED",
+      },
+      { status: 500 },
+    );
+  }
 }

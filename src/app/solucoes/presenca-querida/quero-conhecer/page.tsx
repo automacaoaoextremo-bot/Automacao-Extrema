@@ -65,8 +65,20 @@ export default function PresencaQueridaLeadPage() {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Não foi possível enviar o cadastro.");
+      const responseText = await response.text();
+      let result: { error?: string; leadId?: string } = {};
+
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText) as { error?: string; leadId?: string };
+        } catch {
+          result = { error: responseText };
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || `Não foi possível enviar o cadastro. Código HTTP: ${response.status}`);
+      }
 
       const params = new URLSearchParams({
         nome: contactName,
