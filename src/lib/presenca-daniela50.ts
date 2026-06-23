@@ -6,6 +6,7 @@ export type PresencaAttraction = {
   time?: string;
   description: string;
   instagramUrl?: string;
+  imageUrl?: string;
 };
 
 export type PresencaMenuSection = {
@@ -18,7 +19,7 @@ export type PresencaPublicEventExtras = {
   venueInstagramUrl: string;
   hostPhotoUrl: string;
   hostPhotoGallery: string[];
-  eventGallery: string[];
+  venueGallery: string[];
   menuGallery: string[];
   attractions: PresencaAttraction[];
   menuSections: PresencaMenuSection[];
@@ -26,6 +27,7 @@ export type PresencaPublicEventExtras = {
   buffetInstagramUrl: string;
   drinksProviderName: string;
   drinksProviderInstagramUrl: string;
+  drinksPhotoUrl: string;
   cakeInfo: string;
   locationPositivePoints: string[];
   eventPositivePoints: string[];
@@ -41,25 +43,26 @@ export const DANIELA50_HOST_PHOTOS = [
   `${DANIELA_ASSET_BASE}/daniela-03.jpeg`,
 ];
 
-export const DANIELA50_MENU_PHOTOS = Array.from({ length: 11 }, (_item, index) => `${DANIELA_ASSET_BASE}/cardapio-${String(index + 1).padStart(2, "0")}.jpeg`);
+export const DANIELA50_VENUE_PHOTOS = [`${DANIELA_ASSET_BASE}/chacara-01.png`, `${DANIELA_ASSET_BASE}/chacara-02.png`];
+export const DANIELA50_MENU_PHOTOS = [] as string[];
+export const DANIELA50_CHOPP_PHOTO = `${DANIELA_ASSET_BASE}/chopp-kremer.png`;
+export const DANIELA50_BAND_PHOTO = `${DANIELA_ASSET_BASE}/raca-de-quintal.png`;
+export const DANIELA50_DJ_PHOTO = `${DANIELA_ASSET_BASE}/dj-gabriel.png`;
 
-export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-30";
+export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-19";
 
 export const DANIELA50_REMINDER_SCHEDULE = {
-  confirmed: [
-    { date: "2026-12-12", label: "Lembrete carinhoso com horário, local e orientações finais" },
-    { date: "2026-12-18", label: "Lembrete final curto na véspera" },
-  ],
+  confirmed: [{ date: "2026-12-12", label: "Lembrete carinhoso com horário, local e orientações finais" }],
   maybe: [
-    { date: "2026-11-15", label: "Lembrete gentil para quem marcou talvez" },
-    { date: "2026-11-25", label: "Último lembrete antes do fechamento" },
-    { date: "2026-11-30", label: "Prazo final de confirmação" },
+    { date: "2026-11-07", label: "Primeiro lembrete gentil para quem marcou talvez" },
+    { date: "2026-11-14", label: "Último lembrete antes do fechamento da lista" },
+    { date: "2026-11-19", label: "Prazo final de confirmação" },
   ],
   pending: [
-    { date: "2026-11-10", label: "Primeiro lembrete para pendentes" },
-    { date: "2026-11-20", label: "Segundo lembrete carinhoso" },
-    { date: "2026-11-28", label: "Aviso de fechamento da lista" },
-    { date: "2026-11-30", label: "Prazo final de confirmação" },
+    { date: "2026-10-28", label: "Primeiro lembrete para pendentes" },
+    { date: "2026-11-10", label: "Segundo lembrete carinhoso" },
+    { date: "2026-11-17", label: "Aviso de fechamento da lista" },
+    { date: "2026-11-19", label: "Prazo final de confirmação" },
   ],
 };
 
@@ -76,7 +79,7 @@ export const DANIELA50_FALLBACK_EVENT: Partial<PresencaEvent> = {
   state: "SP",
   public_headline: "Sua presença é muito querida nos 50 anos da Daniela.",
   invitation_message:
-    "A Daniela vai celebrar 50 anos cercada de pessoas que fazem parte da história dela. Esta página reúne os detalhes da festa e, para quem recebeu o link individual, também permite confirmar presença com carinho.",
+    "Ela quer celebrar seus 50 anos cercada de pessoas que fazem parte de sua história. Esta página reúne os detalhes da festa e também permite confirmar presença com carinho.",
   dress_code: "Venha confortável para um almoço de celebração, música ao vivo e momentos especiais.",
   parking_info: "Confira o endereço pelo Google Maps antes de sair e chegue com tranquilidade.",
   status: "configuracao",
@@ -90,23 +93,25 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
   mapUrl: "https://www.google.com/maps/search/?api=1&query=Ch%C3%A1cara%20Piloto%20Campinas%20SP",
   venueInstagramUrl: "https://www.instagram.com/chacara.piloto?igsh=MWxobnJham9tMXQyZg==",
   hostPhotoUrl: DANIELA50_HOST_PHOTOS[0],
-  hostPhotoGallery: DANIELA50_HOST_PHOTOS,
-  eventGallery: DANIELA50_HOST_PHOTOS,
+  hostPhotoGallery: [DANIELA50_HOST_PHOTOS[0]],
+  venueGallery: DANIELA50_VENUE_PHOTOS,
   menuGallery: DANIELA50_MENU_PHOTOS,
   attractions: [
     {
       title: "Banda Raça de Quintal",
       subtitle: "Samba, alegria e clima de celebração",
       time: "13h30 às 16h30",
-      description: "A trilha principal da tarde fica por conta da Banda Raça de Quintal, trazendo música ao vivo para deixar a comemoração ainda mais viva e memorável.",
+      description: "No melhor momento da tarde, a Banda Raça de Quintal entra para embalar a celebração com roda, alegria e aquele clima gostoso de encontro entre pessoas queridas.",
       instagramUrl: "https://www.instagram.com/racadequintal?igsh=NmZjOGJxenNic3Ni",
+      imageUrl: DANIELA50_BAND_PHOTO,
     },
     {
       title: "DJ Gabriel Mattano",
-      subtitle: "Antes e depois da banda",
-      time: "Fora do período da banda",
-      description: "Nos intervalos da programação ao vivo, o DJ Gabriel Mattano mantém o clima gostoso da festa com seleção musical para acolher os convidados.",
-      instagramUrl: "https://www.instagram.com/mattanos_vintage?igsh=MTVld2xsbXd5czNxbA==",
+      subtitle: "Recepção musical antes e depois da banda",
+      time: "Antes do almoço, nos intervalos e no encerramento",
+      description: "O DJ Gabriel Mattano cuida da trilha da recepção e dos intervalos para que a energia da festa siga leve, acolhedora e com a cara da Dani do começo ao fim.",
+      instagramUrl: "https://www.instagram.com/gabrielmattanosilva/",
+      imageUrl: DANIELA50_DJ_PHOTO,
     },
   ],
   menuSections: [
@@ -124,20 +129,17 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
     },
   ],
   buffetName: "J_M Festas",
-  buffetInstagramUrl: "https://www.instagram.com/magali.goes.9?igsh=cW50c2dyamFmYmNp",
+  buffetInstagramUrl: "",
   drinksProviderName: "Chopp Kremer Campinas",
   drinksProviderInstagramUrl: "https://www.instagram.com/choppkremercampinas/",
+  drinksPhotoUrl: DANIELA50_CHOPP_PHOTO,
   cakeInfo: "Bolo de abacaxi e docinhos para fechar a tarde com doçura.",
   locationPositivePoints: [
     "Espaço de chácara para um almoço leve, familiar e acolhedor.",
     "Horário diurno, das 12h30 às 17h30, ideal para celebrar com tranquilidade.",
     "Endereço com acesso direto pelo Google Maps para reduzir dúvidas dos convidados.",
   ],
-  eventPositivePoints: [
-    "Música ao vivo com a Banda Raça de Quintal no melhor momento da tarde.",
-    "DJ antes e depois da banda para manter a energia da festa.",
-    "Buffet completo, bebidas, chopp, bolo e docinhos para receber bem cada pessoa querida.",
-  ],
+  eventPositivePoints: [],
 };
 
 function asStringArray(value: unknown, fallback: string[]) {
@@ -161,6 +163,7 @@ function asAttractions(value: unknown, fallback: PresencaAttraction[]) {
       time: String(record.time ?? "").trim() || undefined,
       description,
       instagramUrl: String(record.instagramUrl ?? record.instagram_url ?? "").trim() || undefined,
+      imageUrl: String(record.imageUrl ?? record.image_url ?? "").trim() || undefined,
     });
   }
 
@@ -190,33 +193,38 @@ export function isDaniela50Event(event?: { slug?: string | null; name?: string |
 }
 
 export function getPresencaPublicEventExtras(event?: Record<string, unknown> | null): PresencaPublicEventExtras {
-  const fallback = isDaniela50Event(event) || !event ? DANIELA50_EXTRAS : {
-    ...DANIELA50_EXTRAS,
-    hostPhotoUrl: "",
-    hostPhotoGallery: [],
-    eventGallery: [],
-    menuGallery: [],
-    attractions: [],
-    menuSections: [],
-    buffetName: "",
-    buffetInstagramUrl: "",
-    drinksProviderName: "",
-    drinksProviderInstagramUrl: "",
-    cakeInfo: "",
-    locationPositivePoints: [],
-    eventPositivePoints: [],
-  };
+  const fallback =
+    isDaniela50Event(event) || !event
+      ? DANIELA50_EXTRAS
+      : {
+          ...DANIELA50_EXTRAS,
+          hostPhotoUrl: "",
+          hostPhotoGallery: [],
+          venueGallery: [],
+          menuGallery: [],
+          attractions: [],
+          menuSections: [],
+          buffetName: "",
+          buffetInstagramUrl: "",
+          drinksProviderName: "",
+          drinksProviderInstagramUrl: "",
+          drinksPhotoUrl: "",
+          cakeInfo: "",
+          locationPositivePoints: [],
+          eventPositivePoints: [],
+        };
 
   const mapUrl = String(event?.map_url ?? "").trim() || fallback.mapUrl;
-  const hostPhotoGallery = asStringArray(event?.host_photo_gallery, fallback.hostPhotoGallery);
-  const hostPhotoUrl = String(event?.host_photo_url ?? "").trim() || hostPhotoGallery[0] || fallback.hostPhotoUrl;
+  const hostPhotoGallery = isDaniela50Event(event) ? fallback.hostPhotoGallery : asStringArray(event?.host_photo_gallery, fallback.hostPhotoGallery);
+  const hostPhotoUrl = isDaniela50Event(event) ? fallback.hostPhotoUrl : String(event?.host_photo_url ?? "").trim() || hostPhotoGallery[0] || fallback.hostPhotoUrl;
+  const venueGallery = isDaniela50Event(event) ? fallback.venueGallery : asStringArray(event?.event_gallery, fallback.venueGallery);
 
   return {
     mapUrl,
     venueInstagramUrl: String(event?.venue_instagram_url ?? "").trim() || fallback.venueInstagramUrl,
     hostPhotoUrl,
     hostPhotoGallery,
-    eventGallery: asStringArray(event?.event_gallery, fallback.eventGallery),
+    venueGallery,
     menuGallery: asStringArray(event?.menu_gallery, fallback.menuGallery),
     attractions: asAttractions(event?.attractions, fallback.attractions),
     menuSections: asMenuSections(event?.menu_sections, fallback.menuSections),
@@ -224,6 +232,7 @@ export function getPresencaPublicEventExtras(event?: Record<string, unknown> | n
     buffetInstagramUrl: String(event?.buffet_instagram_url ?? "").trim() || fallback.buffetInstagramUrl,
     drinksProviderName: String(event?.drinks_provider_name ?? "").trim() || fallback.drinksProviderName,
     drinksProviderInstagramUrl: String(event?.drinks_provider_instagram_url ?? "").trim() || fallback.drinksProviderInstagramUrl,
+    drinksPhotoUrl: String(event?.drinks_photo_url ?? "").trim() || fallback.drinksPhotoUrl,
     cakeInfo: String(event?.cake_info ?? "").trim() || fallback.cakeInfo,
     locationPositivePoints: asStringArray(event?.location_positive_points, fallback.locationPositivePoints),
     eventPositivePoints: asStringArray(event?.event_positive_points, fallback.eventPositivePoints),
@@ -242,19 +251,70 @@ export function buildRelationshipLine(guest: Record<string, unknown>) {
   return "pessoa querida na história da Daniela";
 }
 
+function normalizeRelation(label: string) {
+  return label.trim().toLowerCase();
+}
+
+function genderedDearWord(label: string) {
+  const relation = normalizeRelation(label);
+  const masculineWords = ["filho", "pai", "irmão", "sobrinho", "neto", "primo", "afilhado", "genro", "cunhado", "tio", "padrasto", "marido", "noivo", "amigo"];
+  return masculineWords.some((item) => relation.includes(item)) ? "querido" : "querida";
+}
+
+function capitalize(text: string) {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+export function buildGuestGreetingLine(guest: Record<string, unknown>) {
+  const firstName = String(guest.full_name ?? "").trim().split(/\s+/)[0] || "você";
+  const label = String(guest.relationship_label ?? "").trim();
+  if (!label) return `Oi, ${firstName}!`;
+  return `Oi, ${firstName}! ${capitalize(label)} ${genderedDearWord(label)}!`;
+}
+
+export function buildHostReferenceLine(guest: Record<string, unknown>, event?: Partial<PresencaEvent>) {
+  const label = normalizeRelation(String(guest.relationship_label ?? ""));
+  const hostName = String(event?.host_name ?? "Daniela").trim() || "Daniela";
+
+  const byRelation: Array<[string, string]> = [
+    ["filha", "Sua mãe"],
+    ["filho", "Sua mãe"],
+    ["neta", "Sua avó"],
+    ["neto", "Sua avó"],
+    ["irmã", "Sua irmã"],
+    ["irmão", "Sua irmã"],
+    ["prima", "Sua prima"],
+    ["primo", "Sua prima"],
+    ["sobrinha", "Sua tia"],
+    ["sobrinho", "Sua tia"],
+    ["afilhada", "Sua madrinha"],
+    ["afilhado", "Sua madrinha"],
+    ["cunhada", "Sua cunhada"],
+    ["cunhado", "Sua cunhada"],
+    ["nora", "Sua sogra"],
+    ["genro", "Sua sogra"],
+    ["amiga", `A ${hostName}`],
+    ["amigo", `A ${hostName}`],
+  ];
+
+  const matched = byRelation.find(([needle]) => label.includes(needle));
+  if (matched) return `${matched[1]} vai comemorar 50 anos e faz questão de te convidar com carinho por fazer parte dessa trajetória e dessa história.`;
+  return `${hostName} vai comemorar 50 anos e faz questão de te convidar com carinho por fazer parte dessa trajetória e dessa história.`;
+}
+
 export function buildRelationshipInviteLine(guest: Record<string, unknown>) {
   const label = String(guest.relationship_label ?? "").trim();
   const context = String(guest.relationship_context ?? "").trim();
   const group = String(guest.group_name ?? "").trim();
 
   if (label && context) {
-    return `Você recebe este convite porque é ${label.toLowerCase()} da Dani e também faz parte dessa história por ${context.toLowerCase()}.`;
+    return `Você faz parte dessa história como ${label.toLowerCase()} da Dani e também por ${context.toLowerCase()}.`;
   }
 
-  if (label) return `Você recebe este convite porque é ${label.toLowerCase()} da Dani e faz parte dessa história.`;
-  if (context) return `Você recebe este convite porque faz parte da história da Dani por ${context.toLowerCase()}.`;
-  if (group) return `Você recebe este convite porque faz parte do grupo ${group}, um círculo querido da Dani.`;
-  return "Você recebe este convite porque a Dani fez questão de ter por perto pessoas importantes da história dela.";
+  if (label) return `Você faz parte dessa história como ${label.toLowerCase()} da Dani.`;
+  if (context) return `Você faz parte dessa história por ${context.toLowerCase()}.`;
+  if (group) return `Você faz parte do grupo ${group}, um círculo muito querido da Dani.`;
+  return "Você faz parte da história da Dani e é uma presença muito querida nessa celebração.";
 }
 
 export function formatDaniela50Deadline() {
@@ -262,7 +322,7 @@ export function formatDaniela50Deadline() {
 }
 
 export function buildDaniela50EarlyInviteReason() {
-  return `Mesmo faltando alguns meses, dezembro costuma encher rápido de festas, confraternizações e compromissos de fim de ano. Por isso o convite está chegando agora: para você já reservar a data e para a família conseguir organizar buffet, bebidas, mesas e recepção com calma, sem transformar confirmação em cobrança.`;
+  return "Mesmo faltando alguns meses, dezembro costuma encher rápido de festas, confraternizações e compromissos de fim de ano. Por isso o convite está chegando agora: para você já reservar a data e para conseguirmos organizar buffet, bebidas, mesas e recepção com calma, sem transformar confirmação em cobrança.";
 }
 
 export function buildPublicConfirmationUrl(input: { baseUrl: string; event: Partial<PresencaEvent>; token: string }) {
@@ -271,26 +331,28 @@ export function buildPublicConfirmationUrl(input: { baseUrl: string; event: Part
   return `${baseUrl}/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(input.token)}#confirmacao`;
 }
 
+export function buildDaniela50HostSignature(event?: Partial<PresencaEvent>) {
+  if (isDaniela50Event(event)) return "Daniela Mattano da Silva";
+  return String(event?.host_name ?? "").trim() || "Família anfitriã";
+}
+
 export function buildPersonalizedInvitationMessage(input: {
   guest: Record<string, unknown>;
   event: Partial<PresencaEvent>;
   confirmationUrl: string;
 }) {
-  const firstName = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "tudo bem";
-  const hostName = input.event.host_name || "Dani";
-  const relationshipLine = buildRelationshipInviteLine(input.guest);
   const deadline = formatDaniela50Deadline();
 
   return [
-    `Oi, ${firstName}!`,
-    "",
-    `${hostName} vai comemorar 50 anos e fez questão de te convidar com carinho.`,
-    relationshipLine,
+    buildGuestGreetingLine(input.guest),
+    buildHostReferenceLine(input.guest, input.event),
+    buildRelationshipInviteLine(input.guest),
     "",
     buildDaniela50EarlyInviteReason(),
     "",
     `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa e os botões para responder:`,
     input.confirmationUrl,
+    buildDaniela50HostSignature(input.event),
   ]
     .filter(Boolean)
     .join("\n");

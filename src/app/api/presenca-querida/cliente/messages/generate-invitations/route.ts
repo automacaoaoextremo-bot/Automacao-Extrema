@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       guest_id: guest.id,
       message_phase: "convite_oficial",
       channel: "whatsapp",
-      template_label: "Convite curto com link da LP",
+      template_label: "Convite afetivo com confirmação na landing page",
       message_text: messageText,
       status: "aguardando_aprovacao",
       approval_status: "pendente",

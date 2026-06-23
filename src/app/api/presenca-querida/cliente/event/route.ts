@@ -117,14 +117,14 @@ export async function PATCH(request: Request) {
     patch.state = "SP";
     patch.public_headline = "Sua presença é muito querida nos 50 anos da Daniela.";
     patch.invitation_message =
-      "A Daniela vai celebrar 50 anos cercada de pessoas que fazem parte da história dela. Confirme sua presença pelo link individual para nos ajudar a preparar tudo com carinho, previsibilidade e cuidado.";
+      "Ela quer celebrar seus 50 anos cercada de pessoas que fazem parte de sua história. Esta página reúne os detalhes da festa e também permite confirmar presença com carinho.";
     patch.dress_code = "Venha confortável para um almoço de celebração, música ao vivo e momentos especiais.";
     patch.parking_info = "Confira o endereço pelo Google Maps antes de sair e chegue com tranquilidade.";
     patch.venue_instagram_url = DANIELA50_EXTRAS.venueInstagramUrl;
     patch.map_url = DANIELA50_EXTRAS.mapUrl;
     patch.host_photo_url = DANIELA50_EXTRAS.hostPhotoUrl;
     patch.host_photo_gallery = DANIELA50_EXTRAS.hostPhotoGallery;
-    patch.event_gallery = DANIELA50_EXTRAS.eventGallery;
+    patch.event_gallery = DANIELA50_EXTRAS.venueGallery;
     patch.menu_gallery = DANIELA50_EXTRAS.menuGallery;
     patch.attractions = DANIELA50_EXTRAS.attractions;
     patch.menu_sections = DANIELA50_EXTRAS.menuSections;

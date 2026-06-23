@@ -1,16 +1,13 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { buildRelationshipLine, formatDaniela50Deadline } from "@/lib/presenca-daniela50";
-import { PRESENCA_GUEST_STATUS_LABELS, type PresencaGuestStatus } from "@/lib/presenca-querida";
+import { formatDaniela50Deadline } from "@/lib/presenca-daniela50";
+import { type PresencaGuestStatus } from "@/lib/presenca-querida";
 
 type LinkedGuest = {
   id: string;
   full_name: string;
   guest_status: PresencaGuestStatus;
-  relationship_label?: string | null;
-  relationship_context?: string | null;
-  group_name?: string | null;
   adults_count?: number | null;
   children_count?: number | null;
 };
@@ -32,7 +29,7 @@ const RESPONSE_OPTIONS: Array<{ status: PresencaGuestStatus; title: string; desc
   {
     status: "confirmado",
     title: "Sim, confirmo presença",
-    description: "Esta resposta confirma você e os convidados vinculados a este convite.",
+    description: "Perfeito. Sua resposta ajuda a família a organizar tudo com carinho.",
   },
   {
     status: "talvez",
@@ -78,6 +75,7 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
   const [error, setError] = useState("");
 
   const invitedPeople = useMemo(() => [guest, ...(guest.linked_guests ?? [])], [guest]);
+  const linkedGuestNames = invitedPeople.slice(1).map((item) => item.full_name);
   const totalAdults = invitedPeople.reduce((sum, item) => sum + Number(item.adults_count ?? 1), 0);
   const totalChildren = invitedPeople.reduce((sum, item) => sum + Number(item.children_count ?? 0), 0);
 
@@ -107,38 +105,31 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
   return (
     <section id="confirmacao" className="mx-auto max-w-6xl px-4 py-10">
       <div className="rounded-[2rem] bg-white p-5 shadow-2xl ring-1 ring-rose-100 sm:p-7">
-        <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
           <aside className="rounded-[1.7rem] bg-[#fff7f4] p-5 ring-1 ring-rose-100">
             <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Seu convite</p>
-            <h2 className="mt-2 text-3xl font-black leading-tight text-[#00334E]">Confirme com carinho</h2>
-            <p className="mt-3 leading-7 text-slate-700">
-              A confirmação ajuda a preparar buffet, bebidas, mesas, crianças, recepção e lembranças com cuidado. Como a festa é em dezembro, reservar a data agora evita conflito com outras confraternizações de fim de ano.
-            </p>
+            <h2 className="mt-2 text-3xl font-black leading-tight text-[#00334E]">Convite para {guest.full_name}</h2>
+            <p className="mt-3 leading-7 text-slate-700">Sua confirmação ajuda a família a cuidar do buffet, das bebidas, das mesas, da recepção e dos detalhes da festa com mais carinho e previsibilidade.</p>
+
             <div className="mt-5 rounded-3xl bg-white p-4 ring-1 ring-rose-100">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Prazo ideal</p>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Prazo final para confirmar</p>
               <p className="mt-1 text-2xl font-black text-[#00334E]">{formatDaniela50Deadline()}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Depois dessa data, a família fecha os números principais para a operação da festa.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Como dezembro costuma ser um mês concorrido, confirmar até essa data ajuda a família a se organizar com calma.</p>
             </div>
-            <div className="mt-5 rounded-3xl bg-white p-4 ring-1 ring-rose-100">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Seu vínculo</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">{guest.invite_context || buildRelationshipLine(guest)}</p>
-            </div>
+
+            {linkedGuestNames.length > 0 && (
+              <div className="mt-5 rounded-3xl bg-white p-4 ring-1 ring-rose-100">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Este convite também inclui</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">{linkedGuestNames.join(", ")}{totalChildren > 0 ? ` e ${totalChildren} criança(s)` : ""}.</p>
+              </div>
+            )}
           </aside>
 
           <form onSubmit={onSubmit} className="grid gap-5">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Quem está neste convite</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {invitedPeople.map((item) => (
-                  <div key={item.id} className="rounded-3xl bg-[#fff7f4] p-4 ring-1 ring-rose-100">
-                    <p className="font-black text-[#00334E]">{item.full_name}</p>
-                    <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{PRESENCA_GUEST_STATUS_LABELS[item.guest_status] ?? item.guest_status}</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{buildRelationshipLine(item)}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Esta resposta vale para {invitedPeople.length === 1 ? "este convite individual" : "todos os nomes vinculados a este convite"}. Total previsto: {totalAdults} adulto(s){totalChildren > 0 ? ` e ${totalChildren} criança(s)` : ""}.
+            <div className="rounded-3xl bg-[#fffdfb] p-4 ring-1 ring-rose-100">
+              <p className="text-sm leading-7 text-slate-700">
+                Escolha abaixo a sua resposta. {linkedGuestNames.length > 0 ? `Ela valerá também para ${linkedGuestNames.join(", ")}. ` : ""}
+                Total previsto neste convite: {totalAdults} adulto(s){totalChildren > 0 ? ` e ${totalChildren} criança(s)` : ""}.
               </p>
             </div>
 
@@ -162,8 +153,13 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
             </label>
 
             <label className="grid gap-1">
-              <span className="text-sm font-black text-[#00334E]">Recado para a família</span>
-              <textarea value={notes} onChange={(item) => setNotes(item.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Opcional" />
+              <span className="text-sm font-black text-[#00334E]">Curiosidade ou recado para a Daniela</span>
+              <textarea
+                value={notes}
+                onChange={(item) => setNotes(item.target.value)}
+                className="min-h-24 rounded-2xl border border-slate-200 p-3"
+                placeholder="Deixe aqui uma curiosidade sua com a aniversariante ou um recado carinhoso."
+              />
             </label>
 
             {message && <p className="rounded-2xl bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-800">{message}</p>}
