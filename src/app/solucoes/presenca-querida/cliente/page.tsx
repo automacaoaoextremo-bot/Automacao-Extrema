@@ -39,7 +39,7 @@ const modules = [
   {
     title: "Convidados",
     href: "/solucoes/presenca-querida/cliente/convidados",
-    description: "Inclua convidados, grupos, acompanhantes, crianças e observações úteis para operação.",
+    description: "Inclua convidados, grupos, parentesco, origem do relacionamento, crianças e convidados vinculados.",
   },
   {
     title: "Mensagens",

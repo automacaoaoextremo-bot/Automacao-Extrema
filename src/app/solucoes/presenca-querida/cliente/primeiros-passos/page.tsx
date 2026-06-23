@@ -7,7 +7,7 @@ const steps = [
   ["3", "Criar mensagens por fase", "Save the Date, convite oficial, lembrete carinhoso, orientação final e agradecimento."],
   ["4", "Testar confirmação", "Abrir um link individual de teste e conferir se o painel atualiza corretamente."],
   ["5", "Enviar com cuidado", "Começar por grupo menor, medir respostas e ajustar texto antes de enviar para todos."],
-  ["6", "Fechar operação", "Exportar confirmados, adultos, crianças, acompanhantes e pendentes para buffet/recepção."],
+  ["6", "Fechar operação", "Exportar confirmados, adultos, crianças, convidados vinculados e pendentes para buffet/recepção."],
 ];
 
 export default function PresencaPrimeirosPassosPage() {

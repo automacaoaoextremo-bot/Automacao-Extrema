@@ -6,7 +6,7 @@ const benefits = [
   "Implantação assistida para os primeiros eventos Cliente Fundador",
   "Página afetiva do evento com convite, orientações e confirmação mobile",
   "Link individual por convidado para reduzir respostas perdidas no WhatsApp",
-  "Painel com confirmados, pendentes, talvez, acompanhantes, adultos e crianças",
+  "Painel com confirmados, pendentes, talvez, adultos, crianças e convidados vinculados",
   "Mensagens por fase: Save the Date, convite oficial, lembrete, orientação final e agradecimento",
   "Exportações úteis para buffet, recepção, lembrancinhas, etiquetas e mesas",
 ];
@@ -22,9 +22,9 @@ const founderBenefits = [
 
 const journey = [
   "A família ou organizador cadastra o evento e define o tom da comunicação.",
-  "A lista de convidados é cadastrada ou importada com grupos, acompanhantes e observações.",
+  "A lista de convidados é cadastrada ou importada com grupos, parentesco, origem do relacionamento e convidados vinculados.",
   "Cada convidado recebe um link individual para confirmar presença sem complicação.",
-  "O painel mostra confirmados, pendentes, talvez, adultos, crianças e acompanhantes.",
+  "O painel mostra confirmados, pendentes, talvez, adultos, crianças e convidados vinculados.",
   "Mensagens carinhosas ajudam a lembrar pendentes sem parecer cobrança.",
   "Depois do evento, o fluxo pode virar agradecimento, fotos, recados e memória afetiva.",
 ];
@@ -111,7 +111,7 @@ export default function PresencaQueridaLandingPage() {
               <p className="mt-1 text-sm text-slate-600">Daniela 50 anos • link personalizado para cada convidado</p>
               <div className="mt-4 rounded-2xl bg-rose-50 p-4 text-sm leading-6 text-slate-700">
                 <p className="font-black text-[#E85D75]">Olá, Ana!</p>
-                <p className="mt-2">Sua presença é muito importante para celebrar esse momento. Confirme se você poderá estar conosco e informe acompanhantes, crianças ou observações.</p>
+                <p className="mt-2">Sua presença é muito importante para celebrar esse momento. Confirme se você poderá estar conosco e informe observações importantes. Quando houver pessoas vinculadas ao seu convite, elas aparecerão na mesma resposta.</p>
               </div>
               <button className="mt-4 w-full rounded-2xl bg-[#E85D75] py-3 font-black text-white shadow-lg shadow-rose-100 transition hover:bg-[#f06c84]">
                 Confirmar presença

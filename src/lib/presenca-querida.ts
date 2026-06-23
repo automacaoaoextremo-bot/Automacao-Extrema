@@ -116,6 +116,9 @@ export type PresencaGuest = {
   children_count: number | null;
   companions_allowed: number | null;
   companions_confirmed_count: number | null;
+  primary_guest_id?: string | null;
+  household_label?: string | null;
+  is_invite_recipient?: boolean | null;
   dietary_notes: string | null;
   notes: string | null;
   message_preview?: string | null;
@@ -260,7 +263,7 @@ export const PRESENCA_GUEST_STATUS_LABELS: Record<PresencaGuestStatus, string> =
   reservou_data: "Reservou a data",
   talvez: "Talvez",
   confirmado: "Confirmado",
-  confirmado_com_acompanhantes: "Confirmado com acompanhantes",
+  confirmado_com_acompanhantes: "Confirmado com convidados vinculados",
   nao_podera_ir: "Não poderá ir",
   remover: "Remover da lista",
 };
@@ -432,8 +435,8 @@ export function buildPresencaOnboardingSteps(input: PresencaOnboardingInput): Pr
     {
       key: "convidados",
       title: "Cadastrar ou importar convidados",
-      description: "Inclua nome, WhatsApp, grupo, acompanhantes, crianças e observações.",
-      why: "A lista centralizada tira a organização das conversas soltas e dá previsibilidade.",
+      description: "Inclua nome, WhatsApp, grupo, parentesco, origem do relacionamento e convidados vinculados ao responsável.",
+      why: "A lista centralizada tira a organização das conversas soltas, personaliza o convite e dá previsibilidade.",
       href: "/solucoes/presenca-querida/cliente/convidados",
       done: guestCount > 0,
       required: true,
@@ -472,7 +475,7 @@ export function buildPresencaOnboardingSteps(input: PresencaOnboardingInput): Pr
     {
       key: "relatorios",
       title: "Conferir indicadores para operação",
-      description: "Veja adultos, crianças, acompanhantes, pendentes, talvez e confirmados por grupo.",
+      description: "Veja adultos, crianças, convidados vinculados, pendentes, talvez e confirmados por grupo.",
       why: "Esses dados apoiam buffet, mesas, lembrancinhas, recepção e comunicação final.",
       href: "/solucoes/presenca-querida/cliente/relatorios",
       done: hasPositiveNumber(guestCount),

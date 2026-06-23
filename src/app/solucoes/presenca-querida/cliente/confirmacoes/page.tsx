@@ -2,7 +2,7 @@ import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
 
 const cards = [
-  ["Confirmados", "Convidados que já responderam sim, com ou sem acompanhantes."],
+  ["Confirmados", "Convidados que já responderam sim. Quando houver pessoas vinculadas, a resposta vale para todo o convite."],
   ["Talvez", "Pessoas que precisam de acompanhamento antes da decisão final."],
   ["Pendentes", "Convidados que ainda não responderam e podem receber lembrete carinhoso."],
   ["Não poderão ir", "Respostas negativas registradas para melhorar a previsão real."],
@@ -30,7 +30,7 @@ export default function PresencaConfirmacoesPage() {
           </div>
           <PresencaContextualHelp title="Lembrete não é cobrança" href="/solucoes/presenca-querida/cliente/mensagens" actionLabel="Ajustar mensagem">
             <p>
-              O lembrete deve ser educado e contextualizado: a pessoa ajuda na organização do evento, sem sentir pressão ou exposição.
+              O lembrete deve ser educado e contextualizado: como a festa é em dezembro, confirmar até 30/11 ajuda a família a organizar buffet, bebidas, mesas e recepção sem correria.
             </p>
           </PresencaContextualHelp>
         </div>

@@ -8,9 +8,6 @@ type Params = { token: string };
 
 type ConfirmationBody = {
   status?: PresencaGuestStatus;
-  adultsCount?: number;
-  childrenCount?: number;
-  companionsConfirmedCount?: number;
   dietaryNotes?: string;
   notes?: string;
 };
@@ -22,94 +19,136 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
 
 function normalizeStatus(value: unknown): PresencaGuestStatus {
   const status = String(value ?? "").trim() as PresencaGuestStatus;
-  if (["confirmado", "confirmado_com_acompanhantes", "talvez", "nao_podera_ir"].includes(status)) return status;
+  if (["confirmado", "talvez", "nao_podera_ir"].includes(status)) return status;
   return "confirmado";
 }
 
-function asNonNegativeInteger(value: unknown, fallback: number) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) return fallback;
-  return Math.round(number);
+type GuestRow = Record<string, unknown> & {
+  id: string;
+  event_id: string;
+  guest_status: PresencaGuestStatus;
+  primary_guest_id?: string | null;
+  event?: unknown;
+  linked_guests?: GuestRow[];
+};
+
+const GUEST_SELECT = `
+  id,
+  event_id,
+  full_name,
+  email,
+  whatsapp,
+  group_name,
+  relationship_type,
+  relationship_label,
+  relationship_context,
+  invite_context,
+  message_preview,
+  approval_status,
+  is_active,
+  guest_status,
+  adults_count,
+  children_count,
+  companions_allowed,
+  companions_confirmed_count,
+  primary_guest_id,
+  household_label,
+  is_invite_recipient,
+  dietary_notes,
+  notes,
+  individual_token,
+  invited_at,
+  confirmed_at,
+  created_at,
+  event:pq_events(
+    id,
+    name,
+    slug,
+    host_name,
+    event_type,
+    event_date,
+    event_time,
+    venue_name,
+    address,
+    city,
+    state,
+    public_headline,
+    invitation_message,
+    dress_code,
+    parking_info,
+    venue_instagram_url,
+    map_url,
+    location_notes,
+    host_photo_url,
+    host_photo_gallery,
+    event_gallery,
+    menu_gallery,
+    attractions,
+    menu_sections,
+    buffet_name,
+    buffet_instagram_url,
+    drinks_provider_name,
+    drinks_provider_instagram_url,
+    cake_info,
+    location_positive_points,
+    event_positive_points,
+    privacy_notes,
+    landing_enabled,
+    public_status,
+    is_surprise,
+    status
+  )
+`;
+
+async function loadLinkedGuests(eventId: string, primaryGuestId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id,event_id,full_name,email,whatsapp,group_name,relationship_type,relationship_label,relationship_context,invite_context,message_preview,approval_status,is_active,guest_status,adults_count,children_count,companions_allowed,companions_confirmed_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes,individual_token,invited_at,confirmed_at,created_at")
+    .eq("event_id", eventId)
+    .eq("primary_guest_id", primaryGuestId)
+    .eq("is_active", true)
+    .order("full_name", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as GuestRow[];
 }
 
 async function getGuestByToken(token: string) {
   const { data, error } = await supabaseAdmin
     .from("pq_guests")
-    .select(
-      `
-      id,
-      event_id,
-      full_name,
-      email,
-      whatsapp,
-      group_name,
-      relationship_type,
-      relationship_label,
-      relationship_context,
-      invite_context,
-      message_preview,
-      approval_status,
-      is_active,
-      guest_status,
-      adults_count,
-      children_count,
-      companions_allowed,
-      companions_confirmed_count,
-      dietary_notes,
-      notes,
-      individual_token,
-      invited_at,
-      confirmed_at,
-      created_at,
-      event:pq_events(
-        id,
-        name,
-        slug,
-        host_name,
-        event_type,
-        event_date,
-        event_time,
-        venue_name,
-        address,
-        city,
-        state,
-        public_headline,
-        invitation_message,
-        dress_code,
-        parking_info,
-        venue_instagram_url,
-        map_url,
-        location_notes,
-        host_photo_url,
-        host_photo_gallery,
-        event_gallery,
-        menu_gallery,
-        attractions,
-        menu_sections,
-        buffet_name,
-        buffet_instagram_url,
-        drinks_provider_name,
-        drinks_provider_instagram_url,
-        cake_info,
-        location_positive_points,
-        event_positive_points,
-        privacy_notes,
-        landing_enabled,
-        public_status,
-        is_surprise,
-        status
-      )
-    `,
-    )
+    .select(GUEST_SELECT)
     .eq("individual_token", token)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) return null;
 
+  let guest = {
+    ...(data as GuestRow),
+    event: firstRelation((data as GuestRow).event),
+  };
+
+  if (guest.primary_guest_id) {
+    const { data: primary, error: primaryError } = await supabaseAdmin
+      .from("pq_guests")
+      .select(GUEST_SELECT)
+      .eq("id", guest.primary_guest_id)
+      .eq("event_id", guest.event_id)
+      .maybeSingle();
+
+    if (primaryError) throw primaryError;
+    if (primary) {
+      guest = {
+        ...(primary as GuestRow),
+        event: firstRelation((primary as GuestRow).event),
+      };
+    }
+  }
+
+  const linkedGuests = await loadLinkedGuests(guest.event_id, guest.id);
   return {
-    ...data,
-    event: firstRelation(data.event),
+    ...guest,
+    linked_guests: linkedGuests,
   };
 }
 
@@ -139,32 +178,38 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     const guest = await getGuestByToken(token);
     if (!guest) return NextResponse.json({ error: "Convite não localizado." }, { status: 404 });
 
-    const companionsAllowed = Number(guest.companions_allowed ?? 0);
-    const companionsConfirmedCount = Math.min(
-      asNonNegativeInteger(body.companionsConfirmedCount, Number(guest.companions_confirmed_count ?? 0)),
-      companionsAllowed,
-    );
+    const linkedGuests = Array.isArray(guest.linked_guests) ? guest.linked_guests : [];
+    const updateIds = [guest.id, ...linkedGuests.map((item) => item.id)];
+    const now = new Date().toISOString();
 
     const updatePayload = {
       guest_status: status,
-      adults_count: asNonNegativeInteger(body.adultsCount, Number(guest.adults_count ?? 1)),
-      children_count: asNonNegativeInteger(body.childrenCount, Number(guest.children_count ?? 0)),
-      companions_confirmed_count: companionsConfirmedCount,
-      dietary_notes: String(body.dietaryNotes ?? guest.dietary_notes ?? "").trim() || null,
-      notes: String(body.notes ?? guest.notes ?? "").trim() || null,
-      confirmed_at: new Date().toISOString(),
+      companions_confirmed_count: 0,
+      confirmed_at: now,
     };
 
-    const { data, error } = await supabaseAdmin
+    const { error: groupError } = await supabaseAdmin
       .from("pq_guests")
       .update(updatePayload)
+      .eq("event_id", guest.event_id)
+      .in("id", updateIds);
+
+    if (groupError) throw groupError;
+
+    const { error: primaryError } = await supabaseAdmin
+      .from("pq_guests")
+      .update({
+        dietary_notes: String(body.dietaryNotes ?? (guest as GuestRow).dietary_notes ?? "").trim() || null,
+        notes: String(body.notes ?? (guest as GuestRow).notes ?? "").trim() || null,
+      })
       .eq("id", guest.id)
-      .select("*")
-      .single();
+      .eq("event_id", guest.event_id);
 
-    if (error) throw error;
+    if (primaryError) throw primaryError;
 
-    return NextResponse.json({ ok: true, guest: data, statusLabel: PRESENCA_GUEST_STATUS_LABELS[status] ?? status });
+    const updatedGuest = await getGuestByToken(token);
+
+    return NextResponse.json({ ok: true, guest: updatedGuest, statusLabel: PRESENCA_GUEST_STATUS_LABELS[status] ?? status });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao confirmar presença.";
     return NextResponse.json({ error: message }, { status: 500 });

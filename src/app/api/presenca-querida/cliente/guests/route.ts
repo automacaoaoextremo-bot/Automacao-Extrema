@@ -24,12 +24,13 @@ function asNumber(value: unknown, fallback: number) {
 
 function asBoolean(value: unknown, fallback = true) {
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return ["true", "1", "sim", "s", "yes", "ativo"].includes(value.toLowerCase());
+  if (typeof value === "string") return ["true", "1", "sim", "s", "yes", "ativo", "recebe"].includes(value.toLowerCase());
   return fallback;
 }
 
 function normalizePhone(value: unknown) {
-  return asText(value).replace(/\D/g, "");
+  const phone = asText(value).replace(/\D/g, "");
+  return phone || null;
 }
 
 function normalizeStatus(value: unknown) {
@@ -40,6 +41,7 @@ function normalizeStatus(value: unknown) {
 
 function buildGuestPayload(body: GuestPayload, eventId: string) {
   const fullName = asText(body.full_name ?? body.fullName ?? body.nome);
+  const primaryGuestId = asNullableText(body.primary_guest_id ?? body.primaryGuestId ?? body.convidado_principal_id);
   const relationshipType = asText(body.relationship_type ?? body.relationshipType ?? body.parentesco) ? "parentesco" : asText(body.relationship_context ?? body.relationshipContext) ? "relacionamento" : null;
   const payload = {
     event_id: eventId,
@@ -54,8 +56,11 @@ function buildGuestPayload(body: GuestPayload, eventId: string) {
     guest_status: normalizeStatus(body.guest_status ?? body.guestStatus),
     adults_count: asNumber(body.adults_count ?? body.adultsCount ?? body.adultos, 1),
     children_count: asNumber(body.children_count ?? body.childrenCount ?? body.criancas, 0),
-    companions_allowed: asNumber(body.companions_allowed ?? body.companionsAllowed ?? body.acompanhantes_permitidos, 0),
-    companions_confirmed_count: asNumber(body.companions_confirmed_count ?? body.companionsConfirmedCount, 0),
+    companions_allowed: 0,
+    companions_confirmed_count: 0,
+    primary_guest_id: primaryGuestId,
+    household_label: asNullableText(body.household_label ?? body.householdLabel ?? body.grupo_familiar),
+    is_invite_recipient: asBoolean(body.is_invite_recipient ?? body.isInviteRecipient ?? body.recebe_convite, !primaryGuestId),
     dietary_notes: asNullableText(body.dietary_notes ?? body.dietaryNotes ?? body.observacao_alimentar),
     notes: asNullableText(body.notes ?? body.observacoes),
     is_active: asBoolean(body.is_active ?? body.isActive, true),
@@ -75,7 +80,8 @@ export async function GET(request: Request) {
     .from("pq_guests")
     .select("*")
     .eq("event_id", auth.context.eventId)
-    .order("created_at", { ascending: false });
+    .order("is_invite_recipient", { ascending: false })
+    .order("full_name", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, guests: data ?? [] });
@@ -91,6 +97,22 @@ export async function POST(request: Request) {
 
   if (!payload.full_name) {
     return NextResponse.json({ error: "Informe o nome do convidado." }, { status: 400 });
+  }
+
+  if (payload.primary_guest_id && payload.primary_guest_id === id) {
+    return NextResponse.json({ error: "O convidado não pode ser vinculado a ele mesmo." }, { status: 400 });
+  }
+
+  if (payload.primary_guest_id) {
+    const { data: primary, error: primaryError } = await supabaseAdmin
+      .from("pq_guests")
+      .select("id")
+      .eq("id", payload.primary_guest_id)
+      .eq("event_id", auth.context.eventId)
+      .maybeSingle();
+
+    if (primaryError) return NextResponse.json({ error: primaryError.message }, { status: 500 });
+    if (!primary) return NextResponse.json({ error: "Convidado principal não localizado para este evento." }, { status: 400 });
   }
 
   const query = id
@@ -116,6 +138,10 @@ export async function PATCH(request: Request) {
   const patch: Record<string, unknown> = {};
   if (action === "activate") patch.is_active = true;
   if (action === "inactivate") patch.is_active = false;
+  if (action === "make_recipient") {
+    patch.is_invite_recipient = true;
+    patch.primary_guest_id = null;
+  }
   if (action === "approve") {
     patch.approval_status = "aprovado";
     patch.approved_at = new Date().toISOString();

@@ -11,6 +11,12 @@ type ImportBody = {
 
 type CsvRow = Record<string, string>;
 
+type PendingPrimaryLink = {
+  guestId: string;
+  primaryName: string;
+  lineNumber: number;
+};
+
 function parseCsvLine(line: string) {
   const cells: string[] = [];
   let current = "";
@@ -53,6 +59,15 @@ function normalizeKey(value: string) {
     .replace(/^_+|_+$/g, "");
 }
 
+function normalizeName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseCsv(csv: string) {
   const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const headers = parseCsvLine(lines[0] ?? "").map(normalizeKey);
@@ -70,8 +85,34 @@ function asNumber(value: string, fallback: number) {
   return digits ? Number(digits) : fallback;
 }
 
+function asBoolean(value: string, fallback: boolean) {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  if (["sim", "s", "true", "1", "yes", "recebe"].includes(normalized)) return true;
+  if (["nao", "n", "false", "0", "no", "vinculado"].includes(normalized)) return false;
+  return fallback;
+}
+
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
+}
+
+async function findPrimaryGuestId(eventId: string, primaryName: string, nameToId: Map<string, string>) {
+  const normalized = normalizeName(primaryName);
+  const localId = nameToId.get(normalized);
+  if (localId) return localId;
+
+  const { data } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id")
+    .eq("event_id", eventId)
+    .ilike("full_name", primaryName)
+    .maybeSingle();
+
+  return data?.id ?? null;
 }
 
 export async function POST(request: Request) {
@@ -85,17 +126,24 @@ export async function POST(request: Request) {
   const rows = parseCsv(csv);
   let imported = 0;
   let skipped = 0;
+  let linked = 0;
   const errors: string[] = [];
+  const nameToId = new Map<string, string>();
+  const pendingLinks: PendingPrimaryLink[] = [];
 
   for (const [index, row] of rows.entries()) {
+    const lineNumber = index + 2;
     const fullName = String(row.nome ?? row.full_name ?? "").trim();
     if (!fullName) {
       skipped += 1;
-      errors.push(`Linha ${index + 2}: nome não informado.`);
+      errors.push(`Linha ${lineNumber}: nome não informado.`);
       continue;
     }
 
     const whatsapp = normalizePhone(row.whatsapp ?? "");
+    const primaryName = String(row.convidado_principal ?? row.primary_guest ?? row.responsavel_convite ?? "").trim();
+    const receivesInvite = asBoolean(row.recebe_convite ?? row.is_invite_recipient ?? "", !primaryName);
+
     const existingQuery = supabaseAdmin
       .from("pq_guests")
       .select("id")
@@ -108,12 +156,14 @@ export async function POST(request: Request) {
 
     if (existingError) {
       skipped += 1;
-      errors.push(`Linha ${index + 2}: ${existingError.message}`);
+      errors.push(`Linha ${lineNumber}: ${existingError.message}`);
       continue;
     }
 
     if (existing?.id) {
       skipped += 1;
+      nameToId.set(normalizeName(fullName), existing.id);
+      if (primaryName) pendingLinks.push({ guestId: existing.id, primaryName, lineNumber });
       continue;
     }
 
@@ -131,26 +181,54 @@ export async function POST(request: Request) {
       guest_status: "pendente",
       adults_count: asNumber(row.adultos ?? row.adults_count ?? "", 1),
       children_count: asNumber(row.criancas ?? row.children_count ?? "", 0),
-      companions_allowed: asNumber(row.acompanhantes_permitidos ?? row.companions_allowed ?? "", 0),
+      companions_allowed: 0,
       companions_confirmed_count: 0,
+      primary_guest_id: null,
+      household_label: String(row.grupo_familiar ?? row.household_label ?? "").trim() || null,
+      is_invite_recipient: receivesInvite,
       dietary_notes: String(row.observacao_alimentar ?? row.dietary_notes ?? "").trim() || null,
       notes: String(row.observacoes ?? row.notes ?? "").trim() || null,
       is_active: true,
     };
 
-    const { error } = await supabaseAdmin.from("pq_guests").insert({
+    const { data, error } = await supabaseAdmin.from("pq_guests").insert({
       ...payload,
       invite_context: buildRelationshipLine(payload),
-    });
+    }).select("id").single();
 
     if (error) {
       skipped += 1;
-      errors.push(`Linha ${index + 2}: ${error.message}`);
+      errors.push(`Linha ${lineNumber}: ${error.message}`);
       continue;
     }
 
     imported += 1;
+    nameToId.set(normalizeName(fullName), data.id);
+    if (primaryName) pendingLinks.push({ guestId: data.id, primaryName, lineNumber });
   }
 
-  return NextResponse.json({ ok: true, imported, skipped, errors });
+  for (const item of pendingLinks) {
+    const primaryId = await findPrimaryGuestId(auth.context.eventId, item.primaryName, nameToId);
+    if (!primaryId) {
+      errors.push(`Linha ${item.lineNumber}: convidado principal "${item.primaryName}" não localizado.`);
+      continue;
+    }
+
+    if (primaryId === item.guestId) continue;
+
+    const { error } = await supabaseAdmin
+      .from("pq_guests")
+      .update({ primary_guest_id: primaryId, is_invite_recipient: false })
+      .eq("id", item.guestId)
+      .eq("event_id", auth.context.eventId);
+
+    if (error) {
+      errors.push(`Linha ${item.lineNumber}: ${error.message}`);
+      continue;
+    }
+
+    linked += 1;
+  }
+
+  return NextResponse.json({ ok: true, imported, skipped, linked, errors });
 }

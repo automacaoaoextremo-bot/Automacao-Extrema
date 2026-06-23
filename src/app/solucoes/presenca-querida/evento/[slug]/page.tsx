@@ -1,14 +1,32 @@
 import Link from "next/link";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
-import { DANIELA50_FALLBACK_EVENT, getPresencaPublicEventExtras, isDaniela50Event } from "@/lib/presenca-daniela50";
+import { PresencaPublicConfirmation, type PresencaPublicGuestPayload } from "@/components/presenca-public-confirmation";
+import {
+  DANIELA50_FALLBACK_EVENT,
+  buildDaniela50EarlyInviteReason,
+  formatDaniela50Deadline,
+  getPresencaPublicEventExtras,
+  isDaniela50Event,
+} from "@/lib/presenca-daniela50";
 import { formatDateBR, type PresencaEvent } from "@/lib/presenca-querida";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
 type Params = { slug: string };
+type SearchParams = { convite?: string | string[]; token?: string | string[] };
 
 type EventWithExtras = PresencaEvent & Record<string, unknown>;
+
+type GuestRow = PresencaPublicGuestPayload & {
+  event_id?: string;
+  primary_guest_id?: string | null;
+  is_invite_recipient?: boolean | null;
+};
+
+function firstValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 async function loadEvent(slug: string) {
   const { data, error } = await supabaseAdmin.from("pq_events").select("*").eq("slug", slug).maybeSingle();
@@ -18,9 +36,56 @@ async function loadEvent(slug: string) {
   return null;
 }
 
-export default async function PresencaQueridaEventoPublicoPage({ params }: { params: Promise<Params> }) {
+async function loadGuestForEvent(token: string, eventId?: string | null) {
+  if (!token || !eventId) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+    .eq("individual_token", token)
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  let recipient = data as GuestRow;
+  if (recipient.primary_guest_id) {
+    const { data: primary } = await supabaseAdmin
+      .from("pq_guests")
+      .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+      .eq("id", recipient.primary_guest_id)
+      .eq("event_id", eventId)
+      .maybeSingle();
+
+    if (primary) recipient = primary as GuestRow;
+  }
+
+  const { data: linked } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+    .eq("event_id", eventId)
+    .eq("primary_guest_id", recipient.id)
+    .eq("is_active", true)
+    .order("full_name", { ascending: true });
+
+  return {
+    ...recipient,
+    linked_guests: (linked ?? []) as PresencaPublicGuestPayload[],
+  } satisfies PresencaPublicGuestPayload;
+}
+
+export default async function PresencaQueridaEventoPublicoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams?: Promise<SearchParams>;
+}) {
   const { slug } = await params;
+  const query = searchParams ? await searchParams : {};
+  const inviteToken = String(firstValue(query.convite) ?? firstValue(query.token) ?? "").trim();
   const event = await loadEvent(slug);
+  const guest = event?.id && inviteToken ? await loadGuestForEvent(inviteToken, event.id) : null;
 
   if (!event) {
     return (
@@ -47,6 +112,12 @@ export default async function PresencaQueridaEventoPublicoPage({ params }: { par
           <h1 className="mt-3 text-4xl font-black leading-tight text-[#00334E] sm:text-6xl">{event.public_headline || event.name}</h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-700">{event.invitation_message}</p>
 
+          <div className="mt-6 rounded-[1.7rem] bg-white p-5 shadow-sm ring-1 ring-rose-100">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#E85D75]">Por que o convite está chegando agora?</p>
+            <p className="mt-3 leading-7 text-slate-700">{buildDaniela50EarlyInviteReason()}</p>
+            <p className="mt-3 text-sm font-black text-[#00334E]">Prazo ideal para confirmar: {formatDaniela50Deadline()}.</p>
+          </div>
+
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-rose-100">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Quando</p>
@@ -69,7 +140,7 @@ export default async function PresencaQueridaEventoPublicoPage({ params }: { par
               </a>
             )}
           </div>
-          <p className="mt-4 text-sm leading-6 text-slate-500">A confirmação deve ser feita pelo link individual recebido no WhatsApp, para manter a organização de acompanhantes, crianças e observações.</p>
+          {!inviteToken && <p className="mt-4 text-sm leading-6 text-slate-500">Recebeu um link individual pelo WhatsApp? Abra por ele para responder direto nesta página.</p>}
         </div>
 
         <div className="rounded-[2.2rem] bg-white p-3 shadow-2xl ring-1 ring-rose-100">
@@ -81,6 +152,13 @@ export default async function PresencaQueridaEventoPublicoPage({ params }: { par
           )}
         </div>
       </section>
+
+      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} initialGuest={guest} />}
+      {inviteToken && !guest && (
+        <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
+          <div className="rounded-[2rem] bg-red-50 p-6 font-bold text-red-700 ring-1 ring-red-100">Não localizamos este convite individual. Confira o link recebido no WhatsApp ou fale com a família.</div>
+        </section>
+      )}
 
       <section className="mx-auto max-w-6xl px-4 pb-10">
         <div className="grid gap-4 md:grid-cols-3">
@@ -159,7 +237,7 @@ export default async function PresencaQueridaEventoPublicoPage({ params }: { par
 
       <section className="mx-auto max-w-4xl px-4 py-10 text-center">
         <h2 className="text-3xl font-black text-[#00334E]">Recebeu seu link individual?</h2>
-        <p className="mt-3 leading-7 text-slate-600">Use o link enviado no WhatsApp para confirmar sua presença. Assim a organização consegue cuidar melhor de buffet, acompanhantes, crianças, recepção e orientações finais.</p>
+        <p className="mt-3 leading-7 text-slate-600">Abra o link enviado no WhatsApp para confirmar direto nesta landing page. Assim a família consegue cuidar melhor de buffet, convidados vinculados, crianças, recepção e orientações finais.</p>
         <Link href="/solucoes/presenca-querida" className="mt-6 inline-flex rounded-2xl bg-[#E85D75] px-6 py-4 font-black text-white shadow-lg shadow-rose-900/15">Conhecer Presença Querida</Link>
       </section>
     </main>

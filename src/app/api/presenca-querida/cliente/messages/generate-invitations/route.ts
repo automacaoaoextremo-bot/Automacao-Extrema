@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPresencaAuthContext } from "@/lib/presenca-auth";
-import { buildPersonalizedInvitationMessage } from "@/lib/presenca-daniela50";
+import { buildPersonalizedInvitationMessage, buildPublicConfirmationUrl } from "@/lib/presenca-daniela50";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,8 @@ export async function POST(request: Request) {
     .select("*")
     .eq("event_id", auth.context.eventId)
     .eq("is_active", true)
+    .eq("is_invite_recipient", true)
+    .is("primary_guest_id", null)
     .order("full_name", { ascending: true });
 
   if (guestsError) return NextResponse.json({ error: guestsError.message }, { status: 500 });
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
   const baseUrl = siteUrl();
 
   for (const guest of guests ?? []) {
-    const confirmationUrl = `${baseUrl}/solucoes/presenca-querida/confirmar/${guest.individual_token}`;
+    const confirmationUrl = buildPublicConfirmationUrl({ baseUrl, event: auth.context.event, token: guest.individual_token });
     const messageText = buildPersonalizedInvitationMessage({ guest, event: auth.context.event, confirmationUrl });
 
     const { data: existing } = await supabaseAdmin
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
       guest_id: guest.id,
       message_phase: "convite_oficial",
       channel: "whatsapp",
-      template_label: "Convite personalizado",
+      template_label: "Convite curto com link da LP",
       message_text: messageText,
       status: "aguardando_aprovacao",
       approval_status: "pendente",

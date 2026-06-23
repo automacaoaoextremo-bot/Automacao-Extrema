@@ -3,7 +3,7 @@ import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
 
 const reports = [
   "Lista de confirmados para recepção",
-  "Adultos, crianças e acompanhantes para buffet",
+  "Adultos, crianças e convidados vinculados para buffet",
   "Pendentes por grupo para lembretes",
   "Convidados com observações ou restrições alimentares",
   "Lista para lembrancinhas, etiquetas e organização de mesas",

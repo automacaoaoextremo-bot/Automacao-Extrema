@@ -43,6 +43,26 @@ export const DANIELA50_HOST_PHOTOS = [
 
 export const DANIELA50_MENU_PHOTOS = Array.from({ length: 11 }, (_item, index) => `${DANIELA_ASSET_BASE}/cardapio-${String(index + 1).padStart(2, "0")}.jpeg`);
 
+export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-30";
+
+export const DANIELA50_REMINDER_SCHEDULE = {
+  confirmed: [
+    { date: "2026-12-12", label: "Lembrete carinhoso com horário, local e orientações finais" },
+    { date: "2026-12-18", label: "Lembrete final curto na véspera" },
+  ],
+  maybe: [
+    { date: "2026-11-15", label: "Lembrete gentil para quem marcou talvez" },
+    { date: "2026-11-25", label: "Último lembrete antes do fechamento" },
+    { date: "2026-11-30", label: "Prazo final de confirmação" },
+  ],
+  pending: [
+    { date: "2026-11-10", label: "Primeiro lembrete para pendentes" },
+    { date: "2026-11-20", label: "Segundo lembrete carinhoso" },
+    { date: "2026-11-28", label: "Aviso de fechamento da lista" },
+    { date: "2026-11-30", label: "Prazo final de confirmação" },
+  ],
+};
+
 export const DANIELA50_FALLBACK_EVENT: Partial<PresencaEvent> = {
   event_type: "aniversario",
   name: "Daniela 50 anos",
@@ -56,7 +76,7 @@ export const DANIELA50_FALLBACK_EVENT: Partial<PresencaEvent> = {
   state: "SP",
   public_headline: "Sua presença é muito querida nos 50 anos da Daniela.",
   invitation_message:
-    "A Daniela vai celebrar 50 anos cercada de pessoas que fazem parte da história dela. Confirme sua presença pelo link individual para nos ajudar a preparar tudo com carinho, previsibilidade e cuidado.",
+    "A Daniela vai celebrar 50 anos cercada de pessoas que fazem parte da história dela. Esta página reúne os detalhes da festa e, para quem recebeu o link individual, também permite confirmar presença com carinho.",
   dress_code: "Venha confortável para um almoço de celebração, música ao vivo e momentos especiais.",
   parking_info: "Confira o endereço pelo Google Maps antes de sair e chegue com tranquilidade.",
   status: "configuracao",
@@ -215,11 +235,40 @@ export function buildRelationshipLine(guest: Record<string, unknown>) {
   const context = String(guest.relationship_context ?? "").trim();
   const group = String(guest.group_name ?? "").trim();
 
-  if (label && context) return `${label}: ${context}`;
-  if (label) return label;
+  if (label && context) return `${label} da Daniela — ${context}`;
+  if (label) return `${label} da Daniela`;
   if (context) return context;
-  if (group) return `Grupo: ${group}`;
-  return "Pessoa querida na história da Daniela";
+  if (group) return `grupo ${group}`;
+  return "pessoa querida na história da Daniela";
+}
+
+export function buildRelationshipInviteLine(guest: Record<string, unknown>) {
+  const label = String(guest.relationship_label ?? "").trim();
+  const context = String(guest.relationship_context ?? "").trim();
+  const group = String(guest.group_name ?? "").trim();
+
+  if (label && context) {
+    return `Você recebe este convite porque é ${label.toLowerCase()} da Dani e também faz parte dessa história por ${context.toLowerCase()}.`;
+  }
+
+  if (label) return `Você recebe este convite porque é ${label.toLowerCase()} da Dani e faz parte dessa história.`;
+  if (context) return `Você recebe este convite porque faz parte da história da Dani por ${context.toLowerCase()}.`;
+  if (group) return `Você recebe este convite porque faz parte do grupo ${group}, um círculo querido da Dani.`;
+  return "Você recebe este convite porque a Dani fez questão de ter por perto pessoas importantes da história dela.";
+}
+
+export function formatDaniela50Deadline() {
+  return new Date(`${DANIELA50_CONFIRMATION_DEADLINE}T12:00:00`).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+export function buildDaniela50EarlyInviteReason() {
+  return `Mesmo faltando alguns meses, dezembro costuma encher rápido de festas, confraternizações e compromissos de fim de ano. Por isso o convite está chegando agora: para você já reservar a data e para a família conseguir organizar buffet, bebidas, mesas e recepção com calma, sem transformar confirmação em cobrança.`;
+}
+
+export function buildPublicConfirmationUrl(input: { baseUrl: string; event: Partial<PresencaEvent>; token: string }) {
+  const baseUrl = input.baseUrl.replace(/\/+$/, "");
+  const slug = String(input.event.slug ?? DANIELA50_FALLBACK_EVENT.slug ?? "daniela-50-anos").trim() || "daniela-50-anos";
+  return `${baseUrl}/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(input.token)}#confirmacao`;
 }
 
 export function buildPersonalizedInvitationMessage(input: {
@@ -228,24 +277,20 @@ export function buildPersonalizedInvitationMessage(input: {
   confirmationUrl: string;
 }) {
   const firstName = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "tudo bem";
-  const eventName = input.event.name || "Daniela 50 anos";
-  const date = input.event.event_date ? new Date(`${input.event.event_date}T12:00:00`).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "19/12/2026";
-  const time = input.event.event_time || "12h30 às 17h30";
-  const venue = input.event.venue_name || "Chácara Piloto";
-  const relationship = buildRelationshipLine(input.guest);
+  const hostName = input.event.host_name || "Dani";
+  const relationshipLine = buildRelationshipInviteLine(input.guest);
+  const deadline = formatDaniela50Deadline();
 
   return [
     `Oi, ${firstName}!`,
     "",
-    `A Daniela vai celebrar os 50 anos dela e a sua presença é muito querida nessa história.`,
-    relationship ? `Você está recebendo esse convite de forma especial porque faz parte deste círculo: ${relationship}.` : "",
+    `${hostName} vai comemorar 50 anos e fez questão de te convidar com carinho.`,
+    relationshipLine,
     "",
-    `Será no dia ${date}, das ${time}, na ${venue}. Teremos almoço, música ao vivo, DJ, chopp, bolo e um encontro preparado com carinho para receber bem cada pessoa.`,
+    buildDaniela50EarlyInviteReason(),
     "",
-    "Para nos ajudar a organizar buffet, bebidas, crianças, acompanhantes e recepção sem correria, confirme sua presença pelo seu link individual:",
+    `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa e os botões para responder:`,
     input.confirmationUrl,
-    "",
-    `Com carinho, equipe ${eventName}.`,
   ]
     .filter(Boolean)
     .join("\n");
