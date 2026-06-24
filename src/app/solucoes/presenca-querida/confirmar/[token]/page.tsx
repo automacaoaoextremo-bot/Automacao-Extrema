@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 type Params = { token: string };
 
 function eventLandingUrl(slug: string, token: string) {
-  return `/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(token)}#confirmacao`;
+  return `/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(token)}`;
 }
 
 export default async function PresencaConfirmarRedirectPage({ params }: { params: Promise<Params> }) {

@@ -332,7 +332,7 @@ export function buildDaniela50EarlyInviteReason() {
 export function buildPublicConfirmationUrl(input: { baseUrl: string; event: Partial<PresencaEvent>; token: string }) {
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
   const slug = String(input.event.slug ?? DANIELA50_FALLBACK_EVENT.slug ?? "daniela-50-anos").trim() || "daniela-50-anos";
-  return `${baseUrl}/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(input.token)}#confirmacao`;
+  return `${baseUrl}/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(input.token)}`;
 }
 
 export function buildDaniela50HostSignature(event?: Partial<PresencaEvent>) {
@@ -354,7 +354,7 @@ export function buildPersonalizedInvitationMessage(input: {
     "",
     buildDaniela50EarlyInviteReason(),
     "",
-    `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa e os botões para responder:`,
+    `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa. Depois de conhecer tudo, ao final da página estão os botões para responder:`,
     input.confirmationUrl,
     buildDaniela50HostSignature(input.event),
   ]

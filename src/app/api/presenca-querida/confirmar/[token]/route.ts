@@ -6,11 +6,18 @@ export const dynamic = "force-dynamic";
 
 type Params = { token: string };
 
+type ConfirmationResponse = {
+  id?: string;
+  guestId?: string;
+  status?: PresencaGuestStatus;
+};
+
 type ConfirmationBody = {
   status?: PresencaGuestStatus;
   dietaryNotes?: string;
   notes?: string;
   includeLinkedGuests?: boolean;
+  responses?: ConfirmationResponse[];
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -20,7 +27,7 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
 
 function normalizeStatus(value: unknown): PresencaGuestStatus {
   const status = String(value ?? "").trim() as PresencaGuestStatus;
-  if (["confirmado", "talvez", "nao_podera_ir"].includes(status)) return status;
+  if (["pendente", "confirmado", "talvez", "nao_podera_ir"].includes(status)) return status;
   return "confirmado";
 }
 
@@ -153,6 +160,30 @@ async function getGuestByToken(token: string) {
   };
 }
 
+function buildResponseList(body: ConfirmationBody, guest: GuestRow) {
+  const linkedGuests = Array.isArray(guest.linked_guests) ? guest.linked_guests : [];
+  const allowedGuests = [guest, ...linkedGuests];
+  const allowedIds = new Set(allowedGuests.map((item) => item.id));
+
+  if (Array.isArray(body.responses) && body.responses.length > 0) {
+    const responseMap = new Map<string, PresencaGuestStatus>();
+    for (const response of body.responses) {
+      const id = String(response.id ?? response.guestId ?? "").trim();
+      if (!id || !allowedIds.has(id)) continue;
+      responseMap.set(id, normalizeStatus(response.status));
+    }
+
+    if (responseMap.size > 0) {
+      return Array.from(responseMap.entries()).map(([id, status]) => ({ id, status }));
+    }
+  }
+
+  const includeLinkedGuests = body.includeLinkedGuests !== false;
+  const fallbackStatus = normalizeStatus(body.status);
+  const fallbackGuests = includeLinkedGuests ? allowedGuests : [guest];
+  return fallbackGuests.map((item) => ({ id: item.id, status: fallbackStatus }));
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<Params> }) {
   const { token } = await params;
   if (!token) return NextResponse.json({ error: "Token não informado." }, { status: 400 });
@@ -173,36 +204,35 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   if (!token) return NextResponse.json({ error: "Token não informado." }, { status: 400 });
 
   const body = (await request.json().catch(() => ({}))) as ConfirmationBody;
-  const status = normalizeStatus(body.status);
 
   try {
     const guest = await getGuestByToken(token);
     if (!guest) return NextResponse.json({ error: "Convite não localizado." }, { status: 404 });
 
-    const linkedGuests = Array.isArray(guest.linked_guests) ? guest.linked_guests : [];
-    const includeLinkedGuests = body.includeLinkedGuests !== false;
-    const updateIds = includeLinkedGuests ? [guest.id, ...linkedGuests.map((item) => item.id)] : [guest.id];
+    const responses = buildResponseList(body, guest);
+    if (responses.length === 0) return NextResponse.json({ error: "Informe pelo menos uma resposta." }, { status: 400 });
+
     const now = new Date().toISOString();
 
-    const updatePayload = {
-      guest_status: status,
-      companions_confirmed_count: 0,
-      confirmed_at: now,
-    };
+    for (const item of responses) {
+      const { error: updateError } = await supabaseAdmin
+        .from("pq_guests")
+        .update({
+          guest_status: item.status,
+          companions_confirmed_count: 0,
+          confirmed_at: item.status === "pendente" ? null : now,
+        })
+        .eq("event_id", guest.event_id)
+        .eq("id", item.id);
 
-    const { error: groupError } = await supabaseAdmin
-      .from("pq_guests")
-      .update(updatePayload)
-      .eq("event_id", guest.event_id)
-      .in("id", updateIds);
-
-    if (groupError) throw groupError;
+      if (updateError) throw updateError;
+    }
 
     const { error: primaryError } = await supabaseAdmin
       .from("pq_guests")
       .update({
-        dietary_notes: String(body.dietaryNotes ?? (guest as GuestRow).dietary_notes ?? "").trim() || null,
-        notes: String(body.notes ?? (guest as GuestRow).notes ?? "").trim() || null,
+        dietary_notes: String(body.dietaryNotes ?? "").trim() || null,
+        notes: String(body.notes ?? "").trim() || null,
       })
       .eq("id", guest.id)
       .eq("event_id", guest.event_id);
@@ -211,7 +241,12 @@ export async function POST(request: Request, { params }: { params: Promise<Param
 
     const updatedGuest = await getGuestByToken(token);
 
-    return NextResponse.json({ ok: true, guest: updatedGuest, statusLabel: PRESENCA_GUEST_STATUS_LABELS[status] ?? status });
+    return NextResponse.json({
+      ok: true,
+      guest: updatedGuest,
+      responses,
+      statusLabel: responses.length === 1 ? PRESENCA_GUEST_STATUS_LABELS[responses[0].status] ?? responses[0].status : "Respostas registradas",
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao confirmar presença.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -28,7 +28,7 @@ function HeaderActionLink({ action }: { action: SolutionHeaderAction }) {
   return (
     <Link
       href={action.href}
-      className={`inline-flex min-h-9 items-center justify-center rounded-full border px-4 py-2 text-center text-[0.72rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:text-sm ${
+      className={`inline-flex min-h-7 items-center justify-center rounded-full border px-2.5 py-1 text-center text-[0.62rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
         primary
           ? "border-[#31C16B] bg-[#31C16B] text-[#00334E] shadow-emerald-950/10 hover:-translate-y-0.5 hover:bg-[#43db7c] hover:shadow-lg"
           : "border-white/15 bg-white/10 text-white shadow-none ring-1 ring-white/10 hover:-translate-y-0.5 hover:bg-white hover:text-[#00334E]"
@@ -43,7 +43,7 @@ function SectionMenuLink({ link }: { link: SolutionSectionLink }) {
   return (
     <Link
       href={link.href}
-      className="inline-flex min-h-9 items-center justify-center rounded-full bg-white/10 px-4 py-2 text-center text-[0.72rem] font-black uppercase tracking-[0.08em] text-white shadow-sm ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-[#31C16B] hover:text-[#00334E] sm:min-h-10 sm:px-5 sm:text-xs"
+      className="inline-flex min-h-7 items-center justify-center rounded-full bg-white/10 px-2.5 py-1 text-center text-[0.6rem] font-black uppercase tracking-[0.04em] text-white shadow-sm ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-[#31C16B] hover:text-[#00334E] sm:min-h-10 sm:px-5 sm:py-2 sm:text-xs sm:tracking-[0.08em]"
     >
       {link.label}
     </Link>
@@ -93,8 +93,8 @@ export function AeSolutionHeader({
       {showBrandStrip && <AeBrandStrip compact />}
 
       {(actions.length > 0 || sectionLinks.length > 0) && (
-        <nav className="border-t border-white/10 bg-[#00334E] px-3 py-2" aria-label={navLabel ?? `Menu do ${solutionName}`}>
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-2 sm:gap-2.5">
+        <nav className="border-t border-white/10 bg-[#00334E] px-2 py-1.5 sm:px-3 sm:py-2" aria-label={navLabel ?? `Menu do ${solutionName}`}>
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
             {actions.map((action) => (
               <HeaderActionLink key={action.href + action.label} action={action} />
             ))}

@@ -213,6 +213,28 @@ export default function PresencaMensagensPage() {
     }
   }
 
+  async function copyMessageText(text: string, guestName?: string | null) {
+    setError("");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const element = document.createElement("textarea");
+        element.value = text;
+        element.style.position = "fixed";
+        element.style.left = "-9999px";
+        document.body.appendChild(element);
+        element.select();
+        document.execCommand("copy");
+        document.body.removeChild(element);
+      }
+      setMessage(`Mensagem${guestName ? ` de ${guestName}` : ""} copiada para enviar no WhatsApp.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível copiar a mensagem.");
+    }
+  }
+
+
   async function deleteMessage(id: string) {
     if (!window.confirm("Excluir definitivamente esta mensagem?")) return;
     setSaving(true);
@@ -290,6 +312,7 @@ export default function PresencaMensagensPage() {
                     <pre className="mt-4 whitespace-pre-wrap rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">{item.message_text}</pre>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button type="button" onClick={() => startEditingMessage(item)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar</button>
+                      <button type="button" onClick={() => copyMessageText(item.message_text, guest?.full_name)} className="rounded-xl bg-[#00334E] px-3 py-2 text-sm font-black text-white">Copiar WhatsApp</button>
                       <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Reprovar" : "Aprovar"}</button>
                       {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
                       <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>
@@ -308,7 +331,7 @@ export default function PresencaMensagensPage() {
                 <article key={item.id} className="rounded-2xl bg-[#fff7f4] p-4 ring-1 ring-rose-100">
                   <h3 className="font-black text-[#00334E]">{item.template_label || phaseLabels[item.message_phase] || item.message_phase}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">{item.message_text}</p>
-                  <div className="mt-3 flex gap-2"><button type="button" onClick={() => startEditingMessage(item)} className="text-sm font-black text-[#00334E] underline">Editar</button><button type="button" onClick={() => deleteMessage(item.id)} className="text-sm font-black text-red-700 underline">Excluir</button></div>
+                  <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => startEditingMessage(item)} className="text-sm font-black text-[#00334E] underline">Editar</button><button type="button" onClick={() => copyMessageText(item.message_text)} className="text-sm font-black text-[#00334E] underline">Copiar</button><button type="button" onClick={() => deleteMessage(item.id)} className="text-sm font-black text-red-700 underline">Excluir</button></div>
                 </article>
               ))}
             </div>
