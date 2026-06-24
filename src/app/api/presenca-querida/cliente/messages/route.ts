@@ -98,10 +98,13 @@ export async function PATCH(request: Request) {
     patch.approval_status = "pendente";
     patch.approved_at = null;
     patch.approved_by_person_id = null;
+    patch.rejected_at = null;
   }
   if (action === "reject") {
     patch.status = "revisar";
     patch.approval_status = "reprovado";
+    patch.approved_at = null;
+    patch.approved_by_person_id = null;
     patch.rejected_at = new Date().toISOString();
   }
 

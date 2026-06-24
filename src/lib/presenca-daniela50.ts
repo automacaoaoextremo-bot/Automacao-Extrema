@@ -124,8 +124,12 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
       items: ["Contra filé", "Maminha", "Linguiça", "Tulipa de frango", "Arroz branco", "Arroz primavera", "Feijão gordo"],
     },
     {
-      title: "Bebidas e sobremesa",
-      items: ["Coca-Cola", "Guaraná", "Água aromatizada", "Chopp Kremer", "Bolo de abacaxi", "Docinhos"],
+      title: "Bebidas para refrescar a tarde",
+      items: ["Coca-Cola", "Guaraná", "Água aromatizada", "Chopp Kremer"],
+    },
+    {
+      title: "Bolo e docinhos",
+      items: ["Bolo de abacaxi", "Docinhos"],
     },
   ],
   buffetName: "J_M Festas",
@@ -227,7 +231,7 @@ export function getPresencaPublicEventExtras(event?: Record<string, unknown> | n
     venueGallery,
     menuGallery: asStringArray(event?.menu_gallery, fallback.menuGallery),
     attractions: asAttractions(event?.attractions, fallback.attractions),
-    menuSections: asMenuSections(event?.menu_sections, fallback.menuSections),
+    menuSections: isDaniela50Event(event) ? fallback.menuSections : asMenuSections(event?.menu_sections, fallback.menuSections),
     buffetName: String(event?.buffet_name ?? "").trim() || fallback.buffetName,
     buffetInstagramUrl: String(event?.buffet_instagram_url ?? "").trim() || fallback.buffetInstagramUrl,
     drinksProviderName: String(event?.drinks_provider_name ?? "").trim() || fallback.drinksProviderName,

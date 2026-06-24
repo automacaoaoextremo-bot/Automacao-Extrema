@@ -25,7 +25,8 @@ type GuestRow = PresencaPublicGuestPayload & {
 const MENU_SECTION_COPY: Record<string, string> = {
   "Entradinhas e acompanhamentos": "Para receber bem desde o começo, com sabores leves, variados e aquele clima de mesa farta que acolhe cada convidado.",
   "Carnes e pratos quentes": "Um almoço pensado para celebrar com fartura, conforto e sabor, deixando a tarde ainda mais especial.",
-  "Bebidas e sobremesa": "Para refrescar, brindar e fechar a celebração com leveza, doçura e boas memórias.",
+  "Bebidas para refrescar a tarde": "Para refrescar, brindar e acompanhar as conversas com leveza durante toda a tarde.",
+  "Bolo e docinhos": "Um fechamento doce para marcar os 50 anos da Dani com sabor, carinho e memória afetiva.",
 };
 
 const MENU_ITEM_COPY: Record<string, string> = {
@@ -234,13 +235,6 @@ export default async function PresencaQueridaEventoPublicoPage({
         </div>
       </section>
 
-      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} initialGuest={guest} />}
-      {inviteToken && !guest && (
-        <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
-          <div className="rounded-[2rem] bg-red-50 p-6 font-bold text-red-700 ring-1 ring-red-100">Não localizamos este convite individual. Confira o link recebido no WhatsApp ou fale com a família.</div>
-        </section>
-      )}
-
       <section id="programacao" className="bg-white/70 py-10">
         <div className="mx-auto max-w-6xl px-4">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Programação</p>
@@ -274,46 +268,41 @@ export default async function PresencaQueridaEventoPublicoPage({
         <h2 className="mt-2 text-3xl font-black text-[#00334E]">Tudo preparado para receber bem</h2>
         <p className="mt-3 max-w-3xl leading-7 text-slate-600">Um cardápio pensado para acolher, refrescar e prolongar os bons encontros — com variedade, sabor e detalhes que ajudam a transformar a tarde em memória afetiva.</p>
 
-        <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="grid gap-4">
-            {extras.menuSections.map((section) => (
-              <article key={section.title} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-rose-100">
-                <p className="inline-flex rounded-full bg-[#eef8f0] px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{section.title}</p>
-                <p className="mt-4 leading-7 text-slate-600">{MENU_SECTION_COPY[section.title] ?? "Itens escolhidos com cuidado para acolher quem faz parte dessa celebração."}</p>
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {section.items.map((item) => (
-                    <div key={item} className="rounded-3xl border border-[#efe7d2] bg-[#fffdf7] p-4 shadow-sm">
-                      <p className="font-black text-[#173323]">{item}</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{MENU_ITEM_COPY[item] ?? "Presença escolhida para deixar a experiência ainda mais completa e gostosa."}</p>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <aside className="grid gap-4">
-            <article className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-rose-100">
-              {extras.drinksPhotoUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={extras.drinksPhotoUrl} alt={extras.drinksProviderName} className="h-72 w-full object-cover" />
-              )}
-              <div className="p-6">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Brinde especial</p>
-                <h3 className="mt-2 text-2xl font-black text-[#00334E]">{extras.drinksProviderName}</h3>
-                <p className="mt-3 leading-7 text-slate-600">Uma opção artesanal para quem gosta de brindar momentos especiais com sabor, presença e boa companhia.</p>
-                {extras.drinksProviderInstagramUrl && (
-                  <a href={extras.drinksProviderInstagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
-                    Conhecer o Chopp Kremer
-                  </a>
-                )}
+        <div className="mt-6 grid gap-4">
+          {extras.menuSections.map((section) => (
+            <article key={section.title} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-rose-100">
+              <p className="inline-flex rounded-full bg-[#eef8f0] px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{section.title}</p>
+              <p className="mt-4 leading-7 text-slate-600">{MENU_SECTION_COPY[section.title] ?? "Itens escolhidos com cuidado para acolher quem faz parte dessa celebração."}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {section.items.map((item) => (
+                  <div key={item} className="rounded-3xl border border-[#efe7d2] bg-[#fffdf7] p-4 shadow-sm">
+                    <p className="font-black text-[#173323]">{item}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{MENU_ITEM_COPY[item] ?? "Presença escolhida para deixar a experiência ainda mais completa e gostosa."}</p>
+                    {item === "Chopp Kremer" && extras.drinksPhotoUrl && (
+                      <div className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#efe7d2]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={extras.drinksPhotoUrl} alt={extras.drinksProviderName || "Chopp Kremer"} className="h-56 w-full object-cover" />
+                      </div>
+                    )}
+                    {item === "Chopp Kremer" && extras.drinksProviderInstagramUrl && (
+                      <a href={extras.drinksProviderInstagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
+                        Conhecer o Chopp Kremer
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
             </article>
-
-            {extras.cakeInfo && <div className="rounded-[2rem] bg-[#fff7f4] p-6 font-bold leading-7 text-[#00334E] ring-1 ring-rose-100">{extras.cakeInfo}</div>}
-          </aside>
+          ))}
         </div>
       </section>
+
+      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} initialGuest={guest} />}
+      {inviteToken && !guest && (
+        <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
+          <div className="rounded-[2rem] bg-red-50 p-6 font-bold text-red-700 ring-1 ring-red-100">Não localizamos este convite individual. Confira o link recebido no WhatsApp ou fale com a família.</div>
+        </section>
+      )}
 
       <section className="bg-[#00334E] py-10 text-white">
         <div className="mx-auto max-w-4xl px-4 text-center">

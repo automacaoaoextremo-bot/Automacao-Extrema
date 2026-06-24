@@ -10,6 +10,7 @@ type ConfirmationBody = {
   status?: PresencaGuestStatus;
   dietaryNotes?: string;
   notes?: string;
+  includeLinkedGuests?: boolean;
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -179,7 +180,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     if (!guest) return NextResponse.json({ error: "Convite não localizado." }, { status: 404 });
 
     const linkedGuests = Array.isArray(guest.linked_guests) ? guest.linked_guests : [];
-    const updateIds = [guest.id, ...linkedGuests.map((item) => item.id)];
+    const includeLinkedGuests = body.includeLinkedGuests !== false;
+    const updateIds = includeLinkedGuests ? [guest.id, ...linkedGuests.map((item) => item.id)] : [guest.id];
     const now = new Date().toISOString();
 
     const updatePayload = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -27,6 +27,7 @@ type MessageRow = {
 
 type MessageForm = {
   id: string;
+  guest_id: string;
   message_phase: string;
   template_label: string;
   message_text: string;
@@ -37,6 +38,7 @@ type MessageForm = {
 
 const emptyForm: MessageForm = {
   id: "",
+  guest_id: "",
   message_phase: "convite_oficial",
   template_label: "Modelo geral",
   message_text: "",
@@ -61,6 +63,7 @@ function getGuest(message: MessageRow) {
 function messageToForm(message: MessageRow): MessageForm {
   return {
     id: message.id,
+    guest_id: message.guest_id ?? "",
     message_phase: message.message_phase,
     template_label: message.template_label ?? "",
     message_text: message.message_text,
@@ -77,6 +80,7 @@ export default function PresencaMensagensPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
 
   async function getToken() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
@@ -126,6 +130,16 @@ export default function PresencaMensagensPage() {
 
   function update<K extends keyof MessageForm>(field: K, value: MessageForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function startEditingMessage(item: MessageRow) {
+    const guest = getGuest(item);
+    setForm(messageToForm(item));
+    setError("");
+    setMessage(`Editando mensagem${guest?.full_name ? ` de ${guest.full_name}` : ""}. Faça os ajustes e clique em Salvar alterações.`);
+    window.setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -186,7 +200,11 @@ export default function PresencaMensagensPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar mensagem.");
-      setMessage("Mensagem atualizada.");
+      const successMessage = action === "approve" ? "Convite aprovado com sucesso." : action === "reject" ? "Convite reprovado e voltou para revisão." : "Mensagem atualizada.";
+      setMessage(successMessage);
+      if (action === "approve") {
+        window.alert("Convite aprovado com sucesso.");
+      }
       await loadMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar mensagem.");
@@ -241,14 +259,14 @@ export default function PresencaMensagensPage() {
             {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</p>}
           </div>
 
-          <form onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
-            <h2 className="text-2xl font-black text-[#00334E]">{form.id ? "Editar modelo/mensagem" : "Criar modelo de mensagem"}</h2>
+          <form ref={formRef} onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
+            <h2 className="text-2xl font-black text-[#00334E]">{form.id ? "Editar e salvar mensagem" : "Criar modelo de mensagem"}</h2>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Fase</span><select value={form.message_phase} onChange={(item) => update("message_phase", item.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">{Object.entries(phaseLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Rótulo</span><input value={form.template_label} onChange={(item) => update("template_label", item.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
             </div>
             <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Texto</span><textarea value={form.message_text} onChange={(item) => update("message_text", item.target.value)} className="min-h-40 rounded-2xl border border-slate-200 p-3" /></label>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">Salvar modelo</button>{form.id && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar modelo"}</button>{form.id && <button type="button" onClick={() => { setForm(emptyForm); setMessage(""); }} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
           </form>
 
           <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
@@ -257,19 +275,25 @@ export default function PresencaMensagensPage() {
               {loading && <p className="font-bold text-slate-500">Carregando...</p>}
               {!loading && personalizedMessages.map((item) => {
                 const guest = getGuest(item);
+                const approved = item.approval_status === "aprovado";
                 return (
                   <article key={item.id} className="rounded-3xl bg-[#fff7f4] p-5 ring-1 ring-rose-100">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div><p className="text-lg font-black text-[#00334E]">{guest?.full_name || "Convidado"}</p><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{phaseLabels[item.message_phase] || item.message_phase} · {item.approval_status || "pendente"}</p></div>
+                      <div>
+                        <p className="text-lg font-black text-[#00334E]">{guest?.full_name || "Convidado"}</p>
+                        <p className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.14em] ${approved ? "bg-emerald-100 text-emerald-800" : item.approval_status === "reprovado" ? "bg-amber-100 text-amber-800" : "bg-white text-slate-500"}`}>
+                          {phaseLabels[item.message_phase] || item.message_phase} · {approved ? "Aprovado" : item.approval_status === "reprovado" ? "Reprovado" : "Pendente"}
+                        </p>
+                      </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-black ${item.is_active === false ? "bg-slate-200 text-slate-600" : "bg-white text-[#00334E]"}`}>{item.is_active === false ? "Inativa" : "Ativa"}</span>
                     </div>
                     <pre className="mt-4 whitespace-pre-wrap rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">{item.message_text}</pre>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <button onClick={() => setForm(messageToForm(item))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar</button>
-                      <button onClick={() => actionMessage(item.id, "approve")} className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-black text-white">Aprovar</button>
-                      <button onClick={() => actionMessage(item.id, "pending")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>
-                      <button onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>
-                      <button onClick={() => deleteMessage(item.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>
+                      <button type="button" onClick={() => startEditingMessage(item)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar</button>
+                      <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Reprovar" : "Aprovar"}</button>
+                      {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
+                      <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>
+                      <button type="button" onClick={() => deleteMessage(item.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>
                     </div>
                   </article>
                 );
@@ -284,7 +308,7 @@ export default function PresencaMensagensPage() {
                 <article key={item.id} className="rounded-2xl bg-[#fff7f4] p-4 ring-1 ring-rose-100">
                   <h3 className="font-black text-[#00334E]">{item.template_label || phaseLabels[item.message_phase] || item.message_phase}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">{item.message_text}</p>
-                  <div className="mt-3 flex gap-2"><button onClick={() => setForm(messageToForm(item))} className="text-sm font-black text-[#00334E] underline">Editar</button><button onClick={() => deleteMessage(item.id)} className="text-sm font-black text-red-700 underline">Excluir</button></div>
+                  <div className="mt-3 flex gap-2"><button type="button" onClick={() => startEditingMessage(item)} className="text-sm font-black text-[#00334E] underline">Editar</button><button type="button" onClick={() => deleteMessage(item.id)} className="text-sm font-black text-red-700 underline">Excluir</button></div>
                 </article>
               ))}
             </div>

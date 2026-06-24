@@ -49,17 +49,19 @@ function statusClass(active: boolean) {
     : "border-rose-100 bg-white text-[#00334E] hover:border-[#E85D75]/40";
 }
 
-function responseMessage(status: PresencaGuestStatus) {
+function responseMessage(status: PresencaGuestStatus, includeLinkedGuests: boolean, hasLinkedGuests: boolean) {
+  const scope = hasLinkedGuests && !includeLinkedGuests ? " para você" : "";
+
   if (status === "confirmado") {
-    return "Obrigado por confirmar. Mais perto da festa, vamos te mandar um lembrete carinhoso relembrando horário, local e orientações finais.";
+    return `Obrigado por confirmar${scope}. Mais perto da festa, vamos te mandar um lembrete carinhoso relembrando horário, local e orientações finais.`;
   }
 
   if (status === "talvez") {
-    return `Resposta registrada com carinho. Como dezembro costuma ter muitos compromissos, vamos retomar antes do prazo final de ${formatDaniela50Deadline()} para ajudar no fechamento da lista.`;
+    return `Resposta registrada${scope} com carinho. Como dezembro costuma ter muitos compromissos, vamos retomar antes do prazo final de ${formatDaniela50Deadline()} para ajudar no fechamento da lista.`;
   }
 
   if (status === "nao_podera_ir") {
-    return "Obrigado por responder. Sua resposta ajuda a família a organizar a recepção, o buffet e os detalhes finais com mais tranquilidade.";
+    return `Obrigado por responder${scope}. Sua resposta ajuda a família a organizar a recepção, o buffet e os detalhes finais com mais tranquilidade.`;
   }
 
   return "Resposta registrada com carinho.";
@@ -70,12 +72,14 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
   const [status, setStatus] = useState<PresencaGuestStatus>(initialGuest.guest_status === "talvez" || initialGuest.guest_status === "nao_podera_ir" ? initialGuest.guest_status : "confirmado");
   const [dietaryNotes, setDietaryNotes] = useState(initialGuest.dietary_notes ?? "");
   const [notes, setNotes] = useState(initialGuest.notes ?? "");
+  const [includeLinkedGuests, setIncludeLinkedGuests] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const invitedPeople = useMemo(() => [guest, ...(guest.linked_guests ?? [])], [guest]);
   const linkedGuestNames = invitedPeople.slice(1).map((item) => item.full_name);
+  const hasLinkedGuests = linkedGuestNames.length > 0;
   const totalAdults = invitedPeople.reduce((sum, item) => sum + Number(item.adults_count ?? 1), 0);
   const totalChildren = invitedPeople.reduce((sum, item) => sum + Number(item.children_count ?? 0), 0);
 
@@ -89,12 +93,12 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
       const response = await fetch(`/api/presenca-querida/confirmar/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, dietaryNotes, notes }),
+        body: JSON.stringify({ status, dietaryNotes, notes, includeLinkedGuests }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar sua confirmação.");
       setGuest(result.guest ?? guest);
-      setMessage(responseMessage(status));
+      setMessage(responseMessage(status, includeLinkedGuests, hasLinkedGuests));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar confirmação.");
     } finally {
@@ -117,7 +121,7 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
               <p className="mt-2 text-sm leading-6 text-slate-600">Como dezembro costuma ser um mês concorrido, confirmar até essa data ajuda a família a se organizar com calma.</p>
             </div>
 
-            {linkedGuestNames.length > 0 && (
+            {hasLinkedGuests && (
               <div className="mt-5 rounded-3xl bg-white p-4 ring-1 ring-rose-100">
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Este convite também inclui</p>
                 <p className="mt-2 text-sm leading-6 text-slate-700">{linkedGuestNames.join(", ")}{totalChildren > 0 ? ` e ${totalChildren} criança(s)` : ""}.</p>
@@ -128,10 +132,20 @@ export function PresencaPublicConfirmation({ token, initialGuest }: Props) {
           <form onSubmit={onSubmit} className="grid gap-5">
             <div className="rounded-3xl bg-[#fffdfb] p-4 ring-1 ring-rose-100">
               <p className="text-sm leading-7 text-slate-700">
-                Escolha abaixo a sua resposta. {linkedGuestNames.length > 0 ? `Ela valerá também para ${linkedGuestNames.join(", ")}. ` : ""}
+                Escolha abaixo a sua resposta. {hasLinkedGuests ? `Este convite também tem ${linkedGuestNames.join(", ")}. ` : ""}
                 Total previsto neste convite: {totalAdults} adulto(s){totalChildren > 0 ? ` e ${totalChildren} criança(s)` : ""}.
               </p>
             </div>
+
+            {hasLinkedGuests && (
+              <label className="flex items-start gap-3 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <input type="checkbox" checked={includeLinkedGuests} onChange={(item) => setIncludeLinkedGuests(item.target.checked)} className="mt-1 h-5 w-5" />
+                <span className="text-sm leading-6 text-[#00334E]">
+                  <strong>Estou confirmando por todos deste convite.</strong><br />
+                  Desmarque se quiser registrar a resposta somente para {guest.full_name} neste momento.
+                </span>
+              </label>
+            )}
 
             <div className="grid gap-3 md:grid-cols-3">
               {RESPONSE_OPTIONS.map((option) => (

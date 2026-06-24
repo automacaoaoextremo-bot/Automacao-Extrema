@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
 import { PRESENCA_GUEST_STATUS_LABELS, type PresencaGuest, type PresencaGuestStatus } from "@/lib/presenca-querida";
@@ -85,6 +85,7 @@ export default function PresencaConvidadosPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
 
   async function getToken() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
@@ -152,6 +153,15 @@ export default function PresencaConvidadosPage() {
       }
       return next;
     });
+  }
+
+  function startEditingGuest(guest: PresencaGuest) {
+    setForm(guestToForm(guest));
+    setError("");
+    setMessage(`Editando cadastro de ${guest.full_name}. Faça os ajustes e clique em Salvar convidado.`);
+    window.setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -269,7 +279,7 @@ export default function PresencaConvidadosPage() {
             </div>
           </div>
 
-          <form onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
+          <form ref={formRef} onSubmit={onSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
             <h2 className="text-2xl font-black text-[#00334E]">{form.id ? "Editar convidado" : "Incluir convidado"}</h2>
             {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">{message}</p>}
             {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</p>}
@@ -290,7 +300,7 @@ export default function PresencaConvidadosPage() {
             <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Observação alimentar</span><input value={form.dietary_notes} onChange={(item) => update("dietary_notes", item.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
             <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Observações internas</span><textarea value={form.notes} onChange={(item) => update("notes", item.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
             <p className="mt-3 text-sm leading-6 text-slate-500">Para marido, esposa, filho ou filha sem WhatsApp próprio, crie uma linha separada e selecione o convidado principal. Não use acompanhante livre.</p>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">Salvar convidado</button>{form.id && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar convidado"}</button>{form.id && <button type="button" onClick={() => { setForm(emptyForm); setMessage(""); }} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
           </form>
 
           <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
@@ -322,7 +332,7 @@ export default function PresencaConvidadosPage() {
                         <td className="py-3"><p>{guest.group_name || "-"}</p><p className="text-xs text-slate-500">{guest.relationship_label || guest.relationship_context || "sem vínculo descrito"}</p></td>
                         <td className="py-3">A:{guest.adults_count} C:{guest.children_count}</td>
                         <td className="py-3"><span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-[#00334E]">{PRESENCA_GUEST_STATUS_LABELS[guest.guest_status] || guest.guest_status}</span><br /><span className="text-xs text-slate-500">{guest.is_active === false ? "Inativo" : "Ativo"}</span></td>
-                        <td className="py-3"><div className="flex flex-wrap gap-2"><button onClick={() => setForm(guestToForm(guest))} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button><button onClick={() => actionGuest(guest.id, guest.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{guest.is_active === false ? "Ativar" : "Inativar"}</button>{guest.primary_guest_id && <button onClick={() => actionGuest(guest.id, "make_recipient")} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Tornar principal</button>}<button onClick={() => deleteGuest(guest.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td>
+                        <td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => startEditingGuest(guest)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button><button type="button" onClick={() => actionGuest(guest.id, guest.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{guest.is_active === false ? "Ativar" : "Inativar"}</button>{guest.primary_guest_id && <button type="button" onClick={() => actionGuest(guest.id, "make_recipient")} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Tornar principal</button>}<button type="button" onClick={() => deleteGuest(guest.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td>
                       </tr>
                     );
                   })}
