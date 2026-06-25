@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { buildFollowupMessage, FOLLOWUP_LABELS, FollowupKind } from "@/lib/followups";
+import type { PresencaGuestStatus } from "@/lib/presenca-querida";
 
 export type LeadEmailInput = {
   leadName: string | null;
@@ -603,3 +604,209 @@ export async function sendPresencaLeadPendingAlertEmail(input: PresencaLeadPendi
 
   return { sent: true, reason: "Alerta interno enviado." };
 }
+
+const PRESENCA_RESPONSE_STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  reservou_data: "Reservou a data",
+  talvez: "Talvez",
+  confirmado: "Confirmado",
+  confirmado_com_acompanhantes: "Confirmado com convidados vinculados",
+  nao_podera_ir: "Não poderá ir",
+  remover: "Remover da lista",
+};
+
+function presencaResponseStatusLabel(status: string | null | undefined) {
+  return PRESENCA_RESPONSE_STATUS_LABELS[String(status ?? "")] ?? String(status ?? "-");
+}
+
+export type PresencaGuestResponseEmailInput = {
+  eventName: string | null;
+  eventSlug: string | null;
+  principalGuestName: string;
+  principalGuestWhatsapp?: string | null;
+  principalGuestEmail?: string | null;
+  responses: Array<{
+    id: string;
+    name: string;
+    previousStatus?: PresencaGuestStatus | string | null;
+    newStatus: PresencaGuestStatus | string;
+  }>;
+  dietaryNotes?: string | null;
+  notes?: string | null;
+  confirmationUrl: string;
+};
+
+export async function sendPresencaGuestResponseEmail(input: PresencaGuestResponseEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const responseLines = input.responses.map((item) => {
+    const previous = item.previousStatus ? ` antes: ${presencaResponseStatusLabel(item.previousStatus)} |` : "";
+    return `- ${item.name}:${previous} agora: ${presencaResponseStatusLabel(item.newStatus)}`;
+  });
+
+  const htmlRows = input.responses
+    .map(
+      (item) => `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.name)}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.previousStatus ? presencaResponseStatusLabel(item.previousStatus) : "-")}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(presencaResponseStatusLabel(item.newStatus))}</strong></td>
+        </tr>`
+    )
+    .join("");
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Presença Querida - resposta registrada: ${input.principalGuestName}`,
+    text: [
+      "Uma resposta de convite foi registrada/alterada no Presença Querida.",
+      "",
+      `Evento: ${input.eventName || input.eventSlug || "-"}`,
+      `Convidado principal: ${input.principalGuestName}`,
+      `WhatsApp: ${input.principalGuestWhatsapp || "-"}`,
+      `E-mail: ${input.principalGuestEmail || "-"}`,
+      "",
+      "Respostas:",
+      ...responseLines,
+      "",
+      `Observação alimentar/cuidados: ${input.dietaryNotes || "-"}`,
+      `Curiosidade ou recado: ${input.notes || "-"}`,
+      "",
+      `Link do convite: ${input.confirmationUrl}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Resposta registrada no Presença Querida</h2>
+        <p>Uma resposta de convite foi registrada ou alterada.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName || input.eventSlug || "-")}<br/>
+        <strong>Convidado principal:</strong> ${escapeHtml(input.principalGuestName)}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.principalGuestWhatsapp || "-")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.principalGuestEmail || "-")}</p>
+        <h3>Respostas</h3>
+        <table style="border-collapse:collapse;width:100%;font-size:14px">
+          <thead>
+            <tr>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Convidado</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Antes</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Agora</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <p><strong>Observação alimentar/cuidados:</strong><br/>${escapeHtml(input.dietaryNotes || "-")}</p>
+        <p><strong>Curiosidade ou recado:</strong><br/>${escapeHtml(input.notes || "-")}</p>
+        <p><a href="${escapeHtml(input.confirmationUrl)}">Abrir convite</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de resposta do convidado enviado para AE." };
+}
+
+export type PresencaReminderDigestEmailInput = {
+  eventName: string;
+  eventSlug: string;
+  reminderDate: string;
+  reminderLabel: string;
+  targetStatus: string;
+  guests: Array<{
+    name: string;
+    whatsapp?: string | null;
+    email?: string | null;
+    relationship?: string | null;
+    status?: string | null;
+    inviteUrl?: string | null;
+  }>;
+};
+
+export async function sendPresencaReminderDigestEmail(input: PresencaReminderDigestEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const guestLines = input.guests.length
+    ? input.guests.map(
+        (guest, index) =>
+          `${index + 1}. ${guest.name} | ${guest.whatsapp || "sem WhatsApp"} | ${guest.email || "sem e-mail"} | ${guest.relationship || "-"} | ${presencaResponseStatusLabel(guest.status)}${guest.inviteUrl ? ` | ${guest.inviteUrl}` : ""}`
+      )
+    : ["Nenhum convidado localizado para este lembrete."];
+
+  const htmlRows = input.guests.length
+    ? input.guests
+        .map(
+          (guest, index) => `
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${index + 1}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(guest.name)}</strong></td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.whatsapp || "sem WhatsApp")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.email || "sem e-mail")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.relationship || "-")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(presencaResponseStatusLabel(guest.status))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${guest.inviteUrl ? `<a href="${escapeHtml(guest.inviteUrl)}">Abrir convite</a>` : "-"}</td>
+          </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="7" style="padding:8px">Nenhum convidado localizado para este lembrete.</td></tr>`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Presença Querida - lembrete em 2 dias: ${input.reminderLabel}`,
+    text: [
+      "Faltam 2 dias para um lembrete programado do Presença Querida.",
+      "",
+      `Evento: ${input.eventName}`,
+      `Slug: ${input.eventSlug}`,
+      `Data do lembrete: ${input.reminderDate}`,
+      `Lembrete: ${input.reminderLabel}`,
+      `Status-alvo: ${presencaResponseStatusLabel(input.targetStatus)}`,
+      "",
+      "Convidados para avaliar/acionar:",
+      ...guestLines,
+      "",
+      "Sugestão: avaliar lista de transmissão no WhatsApp quando fizer sentido e evitar enviar dados sensíveis.",
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Lembrete Presença Querida em 2 dias</h2>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Slug:</strong> ${escapeHtml(input.eventSlug)}<br/>
+        <strong>Data do lembrete:</strong> ${escapeHtml(input.reminderDate)}<br/>
+        <strong>Lembrete:</strong> ${escapeHtml(input.reminderLabel)}<br/>
+        <strong>Status-alvo:</strong> ${escapeHtml(presencaResponseStatusLabel(input.targetStatus))}</p>
+        <h3>Convidados para avaliar/acionar</h3>
+        <table style="border-collapse:collapse;width:100%;font-size:13px">
+          <thead>
+            <tr>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">#</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Nome</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">WhatsApp</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">E-mail</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Relação</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Status</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Convite</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <p style="font-size:13px;color:#475569">Sugestão: avaliar lista de transmissão no WhatsApp quando fizer sentido e evitar enviar dados sensíveis.</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de lembrete Presença Querida enviado para AE." };
+}
+

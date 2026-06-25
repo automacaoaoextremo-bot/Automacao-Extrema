@@ -79,10 +79,10 @@ export function AeSolutionHeader({
           className="flex min-w-0 flex-1 items-center gap-3"
           aria-label={`Ir para ${solutionName}`}
         >
-          <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2F6B43] shadow sm:h-16 sm:w-16">
+          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2F6B43] shadow sm:h-14 sm:w-14">
             <Image src={logoSrc} alt={logoAlt} width={72} height={72} className="h-full w-full object-cover" priority />
           </span>
-          <span className="min-w-0 whitespace-nowrap text-[1.35rem] font-black leading-[1.05] text-[#173323] sm:text-3xl">
+          <span className="min-w-0 whitespace-nowrap text-[1.2rem] font-black leading-[1.05] text-[#173323] sm:text-[1.65rem]">
             {solutionName}
           </span>
         </Link>
@@ -117,16 +117,16 @@ export function AeBrandStrip({ compact = false }: { compact?: boolean }) {
           className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[#ded8ca] bg-white/90 px-3 py-1.5 text-center shadow-sm transition hover:bg-white sm:min-h-12 sm:gap-4 sm:px-5"
           aria-label="Conhecer a Automação Extrema"
         >
-          <span className="shrink-0 text-base font-black leading-none text-[#173323] sm:text-2xl">Desenvolvido por</span>
+          <span className="shrink-0 text-sm font-black leading-none text-[#173323] sm:text-xl">Desenvolvido por</span>
           <Image
             src="/ae-logo-horizontal.png"
             alt="Automação Extrema"
             width={200}
             height={60}
-            className="h-8 w-auto rounded-xl bg-[#00334E] object-contain px-2 py-1 sm:h-9"
+            className="h-7 w-auto rounded-xl bg-[#00334E] object-contain px-2 py-1 sm:h-8"
             priority
           />
-          <span className="text-sm font-semibold leading-tight text-slate-500 sm:text-xl">Clique no logo e nos conheça</span>
+          <span className="text-xs font-semibold leading-tight text-slate-500 sm:text-lg">Clique no logo e nos conheça</span>
         </Link>
       </div>
     </div>

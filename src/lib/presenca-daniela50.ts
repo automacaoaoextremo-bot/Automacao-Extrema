@@ -52,17 +52,20 @@ export const DANIELA50_DJ_PHOTO = `${DANIELA_ASSET_BASE}/dj-gabriel.png`;
 export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-19";
 
 export const DANIELA50_REMINDER_SCHEDULE = {
-  confirmed: [{ date: "2026-12-12", label: "Lembrete carinhoso com horário, local e orientações finais" }],
+  confirmed: [
+    { date: "2026-12-12", label: "Lembrete com local, horário, mapa e clima da festa" },
+    { date: "2026-12-18", label: "Lembrete final curto" },
+  ],
   maybe: [
-    { date: "2026-11-07", label: "Primeiro lembrete gentil para quem marcou talvez" },
-    { date: "2026-11-14", label: "Último lembrete antes do fechamento da lista" },
-    { date: "2026-11-19", label: "Prazo final de confirmação" },
+    { date: "2026-11-05", label: "Lembrete gentil para quem marcou talvez" },
+    { date: "2026-11-12", label: "Último lembrete antes do fechamento" },
+    { date: "2026-11-19", label: "Prazo final" },
   ],
   pending: [
-    { date: "2026-10-28", label: "Primeiro lembrete para pendentes" },
-    { date: "2026-11-10", label: "Segundo lembrete carinhoso" },
-    { date: "2026-11-17", label: "Aviso de fechamento da lista" },
-    { date: "2026-11-19", label: "Prazo final de confirmação" },
+    { date: "2026-11-01", label: "Primeiro lembrete para pendentes" },
+    { date: "2026-11-10", label: "Segundo lembrete para pendentes" },
+    { date: "2026-11-18", label: "Aviso de fechamento" },
+    { date: "2026-11-19", label: "Prazo final" },
   ],
 };
 
@@ -329,7 +332,7 @@ export function buildDaniela50EarlyInviteReason() {
   return "Mesmo faltando alguns meses, dezembro costuma encher rápido de festas, confraternizações e compromissos de fim de ano. Por isso o convite está chegando agora: para você já reservar a data e para conseguirmos organizar buffet, bebidas, mesas e recepção com calma, sem transformar confirmação em cobrança.";
 }
 
-export function buildPublicConfirmationUrl(input: { baseUrl: string; event: Partial<PresencaEvent>; token: string }) {
+export function buildPublicConfirmationUrl(input: { baseUrl: string; event: { slug?: string | null }; token: string }) {
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
   const slug = String(input.event.slug ?? DANIELA50_FALLBACK_EVENT.slug ?? "daniela-50-anos").trim() || "daniela-50-anos";
   return `${baseUrl}/solucoes/presenca-querida/evento/${encodeURIComponent(slug)}?convite=${encodeURIComponent(input.token)}`;

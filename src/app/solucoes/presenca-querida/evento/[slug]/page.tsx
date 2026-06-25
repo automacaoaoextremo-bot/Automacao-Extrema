@@ -138,8 +138,8 @@ export default async function PresencaQueridaEventoPublicoPage({
       <main className="min-h-screen bg-[#fffaf8] text-slate-800">
         <AeSolutionHeader solutionName="Presença Querida" logoSrc="/presenca-querida-logo.svg" logoAlt="Logo Presença Querida" homeHref="/solucoes/presenca-querida" navLabel="Menu" actions={[]} sectionLinks={[]} />
         <section className="mx-auto max-w-3xl px-4 py-12">
-          <h1 className="text-3xl font-black text-[#00334E]">Evento não localizado</h1>
-          <p className="mt-3 leading-7 text-slate-600">Confira se o link está correto ou fale com quem enviou o convite.</p>
+          <h1 className="text-2xl font-black text-[#00334E] sm:text-3xl">Evento não localizado</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">Confira se o link está correto ou fale com quem enviou o convite.</p>
         </section>
       </main>
     );
@@ -168,16 +168,16 @@ export default async function PresencaQueridaEventoPublicoPage({
       <section id="convite-afetivo" className="mx-auto max-w-5xl px-4 py-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Convite afetivo</p>
-          <h1 className="mt-3 text-4xl font-black leading-tight text-[#00334E] sm:text-6xl">{headline}</h1>
+          <h1 className="mt-3 text-3xl font-black leading-tight text-[#00334E] sm:text-5xl">{headline}</h1>
 
           {hostPhoto && (
             <div className="mt-6 overflow-hidden rounded-[1.8rem] bg-[#fff7f4] ring-1 ring-rose-100">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={hostPhoto} alt={`Foto de ${event.host_name || event.name}`} className="h-[22rem] w-full object-cover object-center sm:h-[30rem]" />
+              <img src={hostPhoto} alt={`Foto de ${event.host_name || event.name}`} className="h-[19rem] w-full object-cover object-center sm:h-[28rem]" />
             </div>
           )}
 
-          <div className="mt-6 space-y-4 text-lg leading-8 text-slate-700">
+          <div className="mt-6 space-y-4 text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
             <p>{introMessage}</p>
           </div>
         </div>
@@ -186,19 +186,19 @@ export default async function PresencaQueridaEventoPublicoPage({
       <section id="quando-onde" className="mx-auto max-w-6xl px-4 py-2">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Quando e onde</p>
-          <h2 className="mt-2 text-3xl font-black text-[#00334E]">Tudo o que você precisa para se programar com calma</h2>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Tudo o que você precisa para se programar com calma</h2>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
             <div className="rounded-[1.7rem] bg-[#fff7f4] p-5 ring-1 ring-rose-100">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Quando</p>
-                  <p className="mt-2 text-2xl font-black text-[#00334E]">{formatDateBR(event.event_date)}</p>
+                  <p className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{formatDateBR(event.event_date)}</p>
                   <p className="mt-1 text-base font-semibold text-slate-700">{event.event_time}</p>
                 </div>
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Onde</p>
-                  <p className="mt-2 text-2xl font-black text-[#00334E]">{event.venue_name}</p>
+                  <p className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{event.venue_name}</p>
                   <p className="mt-1 text-base text-slate-700">{event.address || `${event.city}${event.state ? `/${event.state}` : ""}`}</p>
                 </div>
               </div>
@@ -207,7 +207,7 @@ export default async function PresencaQueridaEventoPublicoPage({
                 {extras.venueGallery.slice(0, 2).map((src, index) => (
                   <div key={src} className="overflow-hidden rounded-[1.5rem] bg-white ring-1 ring-rose-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt={`Foto da Chácara Piloto ${index + 1}`} className="h-60 w-full object-cover" />
+                    <img src={src} alt={`Foto da Chácara Piloto ${index + 1}`} className="h-52 w-full object-cover sm:h-60" />
                   </div>
                 ))}
               </div>
@@ -216,7 +216,7 @@ export default async function PresencaQueridaEventoPublicoPage({
             <div className="rounded-[1.7rem] bg-[#00334E] p-6 text-white shadow-lg">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-[#9bd8b0]">Organização com carinho</p>
               <h3 className="mt-2 text-2xl font-black">Confirme até {formatDaniela50Deadline()}</h3>
-              <p className="mt-4 leading-7 text-white/90">
+              <p className="mt-4 text-sm leading-6 text-white/90 sm:text-base sm:leading-7">
                 Confirmar até essa data ajuda a família a cuidar do buffet, das bebidas, das mesas e da recepção com mais organização e carinho.
               </p>
 
@@ -238,19 +238,19 @@ export default async function PresencaQueridaEventoPublicoPage({
       <section id="programacao" className="bg-white/70 py-10">
         <div className="mx-auto max-w-6xl px-4">
           <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Programação</p>
-          <h2 className="mt-2 text-3xl font-black text-[#00334E]">Música, recepção e clima de celebração</h2>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Música, recepção e clima de celebração</h2>
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             {extras.attractions.map((item) => (
               <article key={item.title} className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-rose-100">
                 {item.imageUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.imageUrl} alt={item.title} className="h-72 w-full object-cover" />
+                  <img src={item.imageUrl} alt={item.title} className="h-60 w-full object-cover sm:h-72" />
                 )}
                 <div className="p-6">
                   {item.time && <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">{item.time}</p>}
-                  <h3 className="mt-2 text-2xl font-black text-[#00334E]">{item.title}</h3>
+                  <h3 className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{item.title}</h3>
                   {item.subtitle && <p className="mt-1 font-bold text-[#E85D75]">{item.subtitle}</p>}
-                  <p className="mt-3 leading-7 text-slate-600">{item.description}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">{item.description}</p>
                   {item.instagramUrl && (
                     <a href={item.instagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
                       Ver Instagram
@@ -265,14 +265,14 @@ export default async function PresencaQueridaEventoPublicoPage({
 
       <section id="cardapio" className="mx-auto max-w-6xl px-4 py-10">
         <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Cardápio</p>
-        <h2 className="mt-2 text-3xl font-black text-[#00334E]">Tudo preparado para receber bem</h2>
-        <p className="mt-3 max-w-3xl leading-7 text-slate-600">Um cardápio pensado para acolher, refrescar e prolongar os bons encontros — com variedade, sabor e detalhes que ajudam a transformar a tarde em memória afetiva.</p>
+        <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Tudo preparado para receber bem</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">Um cardápio pensado para acolher, refrescar e prolongar os bons encontros — com variedade, sabor e detalhes que ajudam a transformar a tarde em memória afetiva.</p>
 
         <div className="mt-6 grid gap-4">
           {extras.menuSections.map((section) => (
             <article key={section.title} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-rose-100">
               <p className="inline-flex rounded-full bg-[#eef8f0] px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{section.title}</p>
-              <p className="mt-4 leading-7 text-slate-600">{MENU_SECTION_COPY[section.title] ?? "Itens escolhidos com cuidado para acolher quem faz parte dessa celebração."}</p>
+              <p className="mt-4 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">{MENU_SECTION_COPY[section.title] ?? "Itens escolhidos com cuidado para acolher quem faz parte dessa celebração."}</p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {section.items.map((item) => (
                   <div key={item} className="rounded-3xl border border-[#efe7d2] bg-[#fffdf7] p-4 shadow-sm">
@@ -281,7 +281,7 @@ export default async function PresencaQueridaEventoPublicoPage({
                     {item === "Chopp Kremer" && extras.drinksPhotoUrl && (
                       <div className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#efe7d2]">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={extras.drinksPhotoUrl} alt={extras.drinksProviderName || "Chopp Kremer"} className="h-56 w-full object-cover" />
+                        <img src={extras.drinksPhotoUrl} alt={extras.drinksProviderName || "Chopp Kremer"} className="h-48 w-full object-cover sm:h-56" />
                       </div>
                     )}
                     {item === "Chopp Kremer" && extras.drinksProviderInstagramUrl && (
@@ -297,16 +297,16 @@ export default async function PresencaQueridaEventoPublicoPage({
         </div>
       </section>
 
-      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} initialGuest={guest} />}
+      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} eventSlug={event.slug ?? slug} initialGuest={guest} />}
       {inviteToken && !guest && (
         <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
           <div className="rounded-[2rem] bg-red-50 p-6 font-bold text-red-700 ring-1 ring-red-100">Não localizamos este convite individual. Confira o link recebido no WhatsApp ou fale com a família.</div>
         </section>
       )}
 
-      <section className="bg-[#00334E] py-10 text-white">
+      <section className="bg-[#00334E] py-8 text-white sm:py-10">
         <div className="mx-auto max-w-4xl px-4 text-center">
-          <h2 className="text-3xl font-black">Uma celebração com presença, carinho e memória</h2>
+          <h2 className="text-2xl font-black sm:text-3xl">Uma celebração com presença, carinho e memória</h2>
         </div>
       </section>
     </main>

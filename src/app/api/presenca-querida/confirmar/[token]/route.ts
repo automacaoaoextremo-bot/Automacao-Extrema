@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { buildPublicConfirmationUrl } from "@/lib/presenca-daniela50";
+import { sendPresencaGuestResponseEmail } from "@/lib/mail";
 import { PRESENCA_GUEST_STATUS_LABELS, type PresencaGuestStatus } from "@/lib/presenca-querida";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -34,11 +36,31 @@ function normalizeStatus(value: unknown): PresencaGuestStatus {
 type GuestRow = Record<string, unknown> & {
   id: string;
   event_id: string;
+  full_name?: string | null;
+  email?: string | null;
+  whatsapp?: string | null;
   guest_status: PresencaGuestStatus;
   primary_guest_id?: string | null;
   event?: unknown;
   linked_guests?: GuestRow[];
 };
+
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/+$/, "");
+}
+
+function getEventRecord(guest: GuestRow) {
+  const event = firstRelation(guest.event);
+  return event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+}
+
+function guestNameMap(guest: GuestRow) {
+  const linkedGuests = Array.isArray(guest.linked_guests) ? guest.linked_guests : [];
+  const map = new Map<string, GuestRow>();
+  for (const item of [guest, ...linkedGuests]) map.set(item.id, item);
+  return map;
+}
 
 const GUEST_SELECT = `
   id,
@@ -214,6 +236,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
 
     const now = new Date().toISOString();
 
+    const beforeById = guestNameMap(guest);
+
     for (const item of responses) {
       const { error: updateError } = await supabaseAdmin
         .from("pq_guests")
@@ -240,11 +264,35 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     if (primaryError) throw primaryError;
 
     const updatedGuest = await getGuestByToken(token);
+    const eventRecord = getEventRecord(guest);
+    const confirmationUrl = buildPublicConfirmationUrl({ baseUrl: siteUrl(), event: eventRecord, token });
+
+    const emailResult = await sendPresencaGuestResponseEmail({
+      eventName: String(eventRecord.name ?? "").trim() || null,
+      eventSlug: String(eventRecord.slug ?? "").trim() || null,
+      principalGuestName: String(guest.full_name ?? "Convidado").trim() || "Convidado",
+      principalGuestWhatsapp: String(guest.whatsapp ?? "").trim() || null,
+      principalGuestEmail: String(guest.email ?? "").trim() || null,
+      responses: responses.map((item) => {
+        const before = beforeById.get(item.id);
+        return {
+          id: item.id,
+          name: String(before?.full_name ?? item.id).trim() || item.id,
+          previousStatus: before?.guest_status ?? null,
+          newStatus: item.status,
+        };
+      }),
+      dietaryNotes: String(body.dietaryNotes ?? "").trim() || null,
+      notes: String(body.notes ?? "").trim() || null,
+      confirmationUrl,
+    }).catch((error) => ({ sent: false, reason: error instanceof Error ? error.message : "Erro ao enviar e-mail." }));
 
     return NextResponse.json({
       ok: true,
       guest: updatedGuest,
       responses,
+      email: emailResult,
+      redirectUrl: `/solucoes/presenca-querida/evento/${encodeURIComponent(String(eventRecord.slug ?? "daniela-50-anos"))}/obrigado?convite=${encodeURIComponent(token)}`,
       statusLabel: responses.length === 1 ? PRESENCA_GUEST_STATUS_LABELS[responses[0].status] ?? responses[0].status : "Respostas registradas",
     });
   } catch (error) {
