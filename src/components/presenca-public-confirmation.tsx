@@ -52,8 +52,8 @@ const RESPONSE_OPTIONS: Array<{ status: PublicConfirmationStatus; title: string;
 ];
 
 function normalizePublicStatus(status: PresencaGuestStatus | null | undefined): PublicConfirmationStatus {
-  if (status === "talvez" || status === "confirmado" || status === "nao_podera_ir") return status;
-  return "confirmado";
+  if (status === "talvez" || status === "confirmado" || status === "nao_podera_ir" || status === "pendente") return status;
+  return "pendente";
 }
 
 function optionClass(active: boolean) {
@@ -163,11 +163,9 @@ export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: P
                         <p className="text-base font-black text-[#00334E] sm:text-lg">{item.full_name}</p>
                         <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-400 sm:text-xs sm:tracking-[0.16em]">{index === 0 ? "Convidado principal" : "Convidado vinculado"}</p>
                       </div>
-                      {alreadyAnswered(item.guest_status) && (
-                        <span className="mt-2 inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-rose-100 sm:mt-0">
-                          Atual: {statusLabel(item.guest_status)}
-                        </span>
-                      )}
+                      <span className={`mt-2 inline-flex w-fit rounded-full px-3 py-1 text-xs font-black ring-1 sm:mt-0 ${alreadyAnswered(item.guest_status) ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-amber-50 text-amber-800 ring-amber-100"}`}>
+                        Atual: {statusLabel(item.guest_status ?? "pendente")}
+                      </span>
                     </div>
 
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
