@@ -52,8 +52,8 @@ const RESPONSE_OPTIONS: Array<{ status: PublicConfirmationStatus; title: string;
 ];
 
 function normalizePublicStatus(status: PresencaGuestStatus | null | undefined): PublicConfirmationStatus {
-  if (status === "talvez" || status === "confirmado" || status === "nao_podera_ir" || status === "pendente") return status;
-  return "pendente";
+  if (status === "talvez" || status === "confirmado" || status === "nao_podera_ir") return status;
+  return "confirmado";
 }
 
 function optionClass(active: boolean) {

@@ -112,12 +112,12 @@ export async function PATCH(request: Request) {
     patch.event_date = "2026-12-19";
     patch.event_time = "12h30 às 17h30";
     patch.venue_name = "Chácara Piloto";
-    patch.address = "Chácara Piloto, Campinas - SP";
-    patch.city = "Campinas";
+    patch.address = "Valinhos, Campinas - SP";
+    patch.city = "Valinhos";
     patch.state = "SP";
-    patch.public_headline = "Sua presença é muito querida nos 50 anos da Daniela.";
+    patch.public_headline = "Sua presença é muito querida nos meus 50 anos.";
     patch.invitation_message =
-      "Ela quer celebrar seus 50 anos cercada de pessoas que fazem parte de sua história. Esta página reúne os detalhes da festa e também permite confirmar presença com carinho.";
+      "Quero celebrar meus 50 anos com pessoas que fazem parte da minha história.\nEsta página reúne detalhes da festa e também permite a confirmação da sua presença.";
     patch.dress_code = "Venha confortável para um almoço de celebração, música ao vivo e momentos especiais.";
     patch.parking_info = "Confira o endereço pelo Google Maps antes de sair e chegue com tranquilidade.";
     patch.venue_instagram_url = DANIELA50_EXTRAS.venueInstagramUrl;

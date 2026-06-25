@@ -25,8 +25,8 @@ type GuestRow = PresencaPublicGuestPayload & {
 const MENU_SECTION_COPY: Record<string, string> = {
   "Entradinhas e acompanhamentos": "Para receber bem desde o começo, com sabores leves, variados e aquele clima de mesa farta que acolhe cada convidado.",
   "Carnes e pratos quentes": "Um almoço pensado para celebrar com fartura, conforto e sabor, deixando a tarde ainda mais especial.",
-  "Bebidas para refrescar a tarde": "Para refrescar, brindar e acompanhar as conversas com leveza durante toda a tarde.",
-  "Bolo e docinhos": "Um fechamento doce para marcar os 50 anos da Dani com sabor, carinho e memória afetiva.",
+  "Bebidas para refrescar a tarde": "Para refrescar, brindar e acompanhar as conversas com leveza durante toda a tarde — incluindo café para quem gosta de fechar o almoço com aconchego.",
+  "Bolo e doces finos": "Um fechamento doce para marcar os 50 anos com sabor, carinho e memória afetiva.",
 };
 
 const MENU_ITEM_COPY: Record<string, string> = {
@@ -51,8 +51,10 @@ const MENU_ITEM_COPY: Record<string, string> = {
   Guaraná: "Opção refrescante para brindar o encontro em família.",
   "Água aromatizada": "Leveza e frescor para uma tarde de celebração diurna.",
   "Chopp Kremer": "Brinde artesanal para quem gosta de celebrar com sabor e boa companhia.",
-  "Bolo de abacaxi": "Doçura especial para marcar os 50 anos da Dani.",
-  Docinhos: "Pequenos detalhes que deixam a memória da festa ainda mais gostosa.",
+  Café: "Aquele fechamento acolhedor para acompanhar boas conversas depois do almoço.",
+  Bolo: "Doçura especial para marcar os 50 anos com carinho.",
+  "Doces finos": "Pequenos detalhes elegantes para deixar a memória da festa ainda mais gostosa.",
+  "Petit fours": "Delicadezas para acompanhar o café e prolongar o sabor do encontro.",
 };
 
 function firstValue(value: string | string[] | undefined) {
@@ -152,6 +154,8 @@ export default async function PresencaQueridaEventoPublicoPage({
   const { actions, sectionLinks } = buildHeaderLinks(Boolean(inviteToken), inviteTitleName);
   const headline = isDaniela ? DANIELA50_FALLBACK_EVENT.public_headline : event.public_headline || event.name;
   const introMessage = isDaniela ? DANIELA50_FALLBACK_EVENT.invitation_message : event.invitation_message || DANIELA50_FALLBACK_EVENT.invitation_message;
+  const introParagraphs = String(introMessage ?? "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+  const displayAddress = isDaniela ? DANIELA50_FALLBACK_EVENT.address : event.address || `${event.city}${event.state ? `/${event.state}` : ""}`;
 
   return (
     <main className="min-h-screen bg-[#fffaf8] text-slate-800">
@@ -178,7 +182,9 @@ export default async function PresencaQueridaEventoPublicoPage({
           )}
 
           <div className="mt-6 space-y-4 text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
-            <p>{introMessage}</p>
+            {introParagraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
           </div>
         </div>
       </section>
@@ -199,7 +205,7 @@ export default async function PresencaQueridaEventoPublicoPage({
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Onde</p>
                   <p className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{event.venue_name}</p>
-                  <p className="mt-1 text-base text-slate-700">{event.address || `${event.city}${event.state ? `/${event.state}` : ""}`}</p>
+                  <p className="mt-1 text-base text-slate-700">{displayAddress}</p>
                 </div>
               </div>
 
