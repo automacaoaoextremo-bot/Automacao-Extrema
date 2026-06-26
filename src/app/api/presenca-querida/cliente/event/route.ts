@@ -112,7 +112,7 @@ export async function PATCH(request: Request) {
     patch.event_date = "2026-12-19";
     patch.event_time = "12h30 às 17h30";
     patch.venue_name = "Chácara Piloto";
-    patch.address = "Valinhos, Campinas - SP";
+    patch.address = "Valinhos, SP";
     patch.city = "Valinhos";
     patch.state = "SP";
     patch.public_headline = "Sua presença é muito querida nos meus 50 anos.";

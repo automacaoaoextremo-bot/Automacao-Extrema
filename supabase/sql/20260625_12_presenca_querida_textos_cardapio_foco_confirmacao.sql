@@ -3,7 +3,7 @@
 
 update pq_events
 set
-  address = 'Valinhos, Campinas - SP',
+  address = 'Valinhos, SP',
   city = 'Valinhos',
   state = 'SP',
   public_headline = 'Sua presença é muito querida nos meus 50 anos.',

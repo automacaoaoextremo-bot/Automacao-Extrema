@@ -77,7 +77,7 @@ export const DANIELA50_FALLBACK_EVENT: Partial<PresencaEvent> = {
   event_date: "2026-12-19",
   event_time: "12h30 às 17h30",
   venue_name: "Chácara Piloto",
-  address: "Valinhos, Campinas - SP",
+  address: "Valinhos, SP",
   city: "Valinhos",
   state: "SP",
   public_headline: "Sua presença é muito querida nos meus 50 anos.",

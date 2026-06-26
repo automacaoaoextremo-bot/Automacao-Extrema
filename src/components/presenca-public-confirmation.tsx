@@ -70,6 +70,11 @@ function alreadyAnswered(status: PresencaGuestStatus | null | undefined) {
   return status === "confirmado" || status === "talvez" || status === "nao_podera_ir";
 }
 
+function initialSelectedStatus(status: PresencaGuestStatus | null | undefined): PublicConfirmationStatus {
+  if (alreadyAnswered(status)) return normalizePublicStatus(status);
+  return "confirmado";
+}
+
 export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: Props) {
   const [guest, setGuest] = useState(initialGuest);
   const [dietaryNotes, setDietaryNotes] = useState(initialGuest.dietary_notes ?? "");
@@ -80,7 +85,7 @@ export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: P
   const invitedPeople = useMemo(() => [guest, ...(guest.linked_guests ?? [])], [guest]);
   const [responses, setResponses] = useState<Record<string, PublicConfirmationStatus>>(() => {
     return [initialGuest, ...(initialGuest.linked_guests ?? [])].reduce<Record<string, PublicConfirmationStatus>>((acc, item) => {
-      acc[item.id] = normalizePublicStatus(item.guest_status);
+      acc[item.id] = initialSelectedStatus(item.guest_status);
       return acc;
     }, {});
   });
@@ -103,7 +108,7 @@ export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: P
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          responses: invitedPeople.map((item) => ({ id: item.id, status: responses[item.id] ?? normalizePublicStatus(item.guest_status) })),
+          responses: invitedPeople.map((item) => ({ id: item.id, status: responses[item.id] ?? initialSelectedStatus(item.guest_status) })),
           dietaryNotes,
           notes,
         }),
@@ -155,7 +160,7 @@ export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: P
 
             <div className="grid gap-4">
               {invitedPeople.map((item, index) => {
-                const selected = responses[item.id] ?? normalizePublicStatus(item.guest_status);
+                const selected = responses[item.id] ?? initialSelectedStatus(item.guest_status);
                 return (
                   <div key={item.id} className="rounded-3xl bg-[#fff7f4] p-4 ring-1 ring-rose-100">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
