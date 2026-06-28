@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { getPresencaAuthContext } from "@/lib/presenca-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -19,6 +20,39 @@ function asBoolean(value: unknown, fallback = true) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return ["true", "1", "sim", "s", "yes", "ativo"].includes(value.toLowerCase());
   return fallback;
+}
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/+$/, "");
+}
+
+type EventTokenRow = {
+  id: string;
+  public_approval_token?: string | null;
+};
+
+async function ensurePublicApprovalLink(eventId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("pq_events")
+    .select("id, public_approval_token")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  const event = data as EventTokenRow | null;
+  let token = String(event?.public_approval_token ?? "").trim();
+
+  if (!token) {
+    token = randomUUID();
+    const { error: updateError } = await supabaseAdmin
+      .from("pq_events")
+      .update({ public_approval_token: token, public_approval_enabled: true })
+      .eq("id", eventId);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  return `${siteUrl()}/solucoes/presenca-querida/acompanhamento/${encodeURIComponent(token)}`;
 }
 
 function buildMessagePayload(body: MessagePayload, eventId: string) {
@@ -51,7 +85,16 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, messages: data ?? [] });
+
+  try {
+    const publicApprovalUrl = await ensurePublicApprovalLink(auth.context.eventId);
+    return NextResponse.json({ ok: true, messages: data ?? [], publicApprovalUrl });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Não foi possível gerar o link público de acompanhamento." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {

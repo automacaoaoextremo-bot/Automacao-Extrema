@@ -80,6 +80,7 @@ export default function PresencaMensagensPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [publicApprovalUrl, setPublicApprovalUrl] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
   async function getToken() {
@@ -95,6 +96,7 @@ export default function PresencaMensagensPage() {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Não foi possível carregar mensagens.");
     setMessages(result.messages ?? []);
+    setPublicApprovalUrl(result.publicApprovalUrl ?? "");
   }
 
   useEffect(() => {
@@ -234,6 +236,28 @@ export default function PresencaMensagensPage() {
     }
   }
 
+  async function copyPublicApprovalUrl() {
+    if (!publicApprovalUrl) return;
+    setError("");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(publicApprovalUrl);
+      } else {
+        const element = document.createElement("textarea");
+        element.value = publicApprovalUrl;
+        element.style.position = "fixed";
+        element.style.left = "-9999px";
+        document.body.appendChild(element);
+        element.select();
+        document.execCommand("copy");
+        document.body.removeChild(element);
+      }
+      setMessage("Link público de acompanhamento copiado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível copiar o link público.");
+    }
+  }
+
 
   async function deleteMessage(id: string) {
     if (!window.confirm("Excluir definitivamente esta mensagem?")) return;
@@ -268,8 +292,21 @@ export default function PresencaMensagensPage() {
                 <h1 className="mt-2 text-3xl font-black text-[#00334E]">Aprovação dos convites personalizados</h1>
                 <p className="mt-3 max-w-3xl leading-7 text-slate-600">Gere uma prévia individual para cada convidado, revise o texto e aprove antes de enviar pelo WhatsApp. Convites já aprovados são preservados; novos convidados e convites ainda pendentes são criados ou atualizados.</p>
               </div>
-              <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
+              <div className="flex flex-col gap-2 sm:items-end">
+                <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
+                {publicApprovalUrl && (
+                  <button type="button" onClick={copyPublicApprovalUrl} className="rounded-2xl bg-[#00334E] px-4 py-3 text-sm font-black text-white">Copiar link público</button>
+                )}
+              </div>
             </div>
+
+            {publicApprovalUrl && (
+              <div className="mt-4 rounded-2xl bg-[#f4fbf7] p-4 ring-1 ring-emerald-100">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Acompanhamento público</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Link somente leitura para acompanhar as aprovações sem login. Não permite editar, aprovar, reprovar ou excluir.</p>
+                <p className="mt-2 break-all rounded-xl bg-white p-3 text-xs font-bold text-[#00334E] ring-1 ring-emerald-100">{publicApprovalUrl}</p>
+              </div>
+            )}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-4">
               <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Personalizados</p><p className="text-2xl font-black text-[#00334E]">{totals.personalized}</p></div>
