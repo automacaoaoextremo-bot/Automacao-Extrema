@@ -57,6 +57,7 @@ type Payload = {
   };
   guests: ConfirmationGuest[];
   reminders: ReminderRow[];
+  publicConfirmationUrl?: string | null;
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -189,6 +190,19 @@ export default function PresencaConfirmacoesPage() {
     }
   }
 
+
+  async function copyPublicConfirmationUrl() {
+    const url = payload?.publicConfirmationUrl;
+    if (!url) return;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setMessage("Link público de confirmações copiado.");
+    } catch {
+      setError("Não foi possível copiar automaticamente. Selecione e copie o link exibido na tela.");
+    }
+  }
+
   const summary = payload?.summary;
 
   return (
@@ -203,15 +217,35 @@ export default function PresencaConfirmacoesPage() {
                 Acompanhe quem confirmou, quem ainda está pendente, quem marcou talvez e quais lembretes precisam ser preparados para WhatsApp ou lista de transmissão.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={resetAllResponses}
-              disabled={saving || loading || !payload?.guests?.length}
-              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 ring-1 ring-red-100 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancelar respostas de teste
-            </button>
+            <div className="flex flex-col gap-2 sm:items-end">
+              {payload?.publicConfirmationUrl && (
+                <button
+                  type="button"
+                  onClick={copyPublicConfirmationUrl}
+                  className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-[#00334E] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5"
+                >
+                  Copiar link público de confirmações
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={resetAllResponses}
+                disabled={saving || loading || !payload?.guests?.length}
+                className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-700 ring-1 ring-red-100 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar respostas de teste
+              </button>
+            </div>
           </div>
+
+
+          {payload?.publicConfirmationUrl && (
+            <div className="mt-4 rounded-2xl bg-[#f4fbf7] p-4 ring-1 ring-emerald-100">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Link público de confirmações</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">Compartilhe este link somente leitura para acompanhar confirmações sem login. Ele não permite limpar testes, alterar respostas ou editar convidados.</p>
+              <p className="mt-2 break-all rounded-xl bg-white p-3 text-xs font-bold text-[#00334E] ring-1 ring-emerald-100">{payload.publicConfirmationUrl}</p>
+            </div>
+          )}
 
           {loading && <p className="mt-6 rounded-2xl bg-slate-50 p-5 text-sm font-bold text-slate-600">Carregando confirmações...</p>}
           {error && <p className="mt-6 rounded-2xl bg-red-50 p-5 text-sm font-bold text-red-700">{error}</p>}

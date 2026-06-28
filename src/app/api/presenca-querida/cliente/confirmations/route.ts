@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { DANIELA50_REMINDER_SCHEDULE } from "@/lib/presenca-daniela50";
 import { getPresencaAuthContext } from "@/lib/presenca-auth";
@@ -38,6 +39,41 @@ type ReminderPlan = {
   targetStatus: ReminderTarget;
   audience: string;
 };
+
+type EventTokenRow = {
+  id: string;
+  public_confirmation_token?: string | null;
+};
+
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/+$/, "");
+}
+
+async function ensurePublicConfirmationLink(eventId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("pq_events")
+    .select("id, public_confirmation_token")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  const event = data as EventTokenRow | null;
+  let token = String(event?.public_confirmation_token ?? "").trim();
+
+  if (!token) {
+    token = randomUUID();
+    const { error: updateError } = await supabaseAdmin
+      .from("pq_events")
+      .update({ public_confirmation_token: token, public_confirmation_enabled: true })
+      .eq("id", eventId);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  return `${siteUrl()}/solucoes/presenca-querida/confirmacoes/${encodeURIComponent(token)}`;
+}
 
 function normalizeStatus(status: unknown): PresencaGuestStatus {
   const value = String(status ?? "pendente").trim() as PresencaGuestStatus;
@@ -182,12 +218,22 @@ export async function GET(request: Request) {
     daysUntil: daysUntil(plan.date),
   }));
 
-  return NextResponse.json({
-    ok: true,
-    event: auth.context.event,
-    summary,
-    guests: normalizedGuests,
-    reminders,
-    statusLabels: PRESENCA_GUEST_STATUS_LABELS,
-  });
+  try {
+    const publicConfirmationUrl = await ensurePublicConfirmationLink(auth.context.eventId);
+
+    return NextResponse.json({
+      ok: true,
+      event: auth.context.event,
+      summary,
+      guests: normalizedGuests,
+      reminders,
+      statusLabels: PRESENCA_GUEST_STATUS_LABELS,
+      publicConfirmationUrl,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Não foi possível gerar o link público de confirmações." },
+      { status: 500 },
+    );
+  }
 }

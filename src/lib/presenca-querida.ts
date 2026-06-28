@@ -70,6 +70,8 @@ export type PresencaEvent = {
   public_status?: string | null;
   public_approval_token?: string | null;
   public_approval_enabled?: boolean | null;
+  public_confirmation_token?: string | null;
+  public_confirmation_enabled?: boolean | null;
   status: string;
   is_surprise: boolean;
   is_demo: boolean;
