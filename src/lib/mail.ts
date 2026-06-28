@@ -810,3 +810,99 @@ export async function sendPresencaReminderDigestEmail(input: PresencaReminderDig
   return { sent: true, reason: "E-mail de lembrete Presença Querida enviado para AE." };
 }
 
+
+export type OrganizacaoHarmoniaLeadAccessEmailInput = {
+  contactName: string;
+  email: string;
+  whatsapp: string;
+  moduleName: string;
+  organizationName: string | null;
+  loginUrl: string;
+  trialDays: number;
+};
+
+export type OrganizacaoHarmoniaLeadInternalEmailInput = OrganizacaoHarmoniaLeadAccessEmailInput & {
+  leadId: string;
+  source: string;
+  funilUrl: string;
+};
+
+export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoHarmoniaLeadAccessEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const baseUrl = siteUrl();
+  const logoUrl = `${baseUrl}/organizacao-em-harmonia-logo.svg`;
+  const greeting = firstName(input.contactName);
+  const organizationLine = input.organizationName
+    ? `Organização informada: ${input.organizationName}`
+    : "Nome da organização: será confirmado na próxima etapa.";
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: input.email,
+    subject: `Recebemos seu interesse — ${input.moduleName}`,
+    text: `${greeting},\n\nRecebemos seu interesse na ${input.moduleName}.\n\nA proposta da Organização em Harmonia é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\n${organizationLine}\nWhatsApp: ${input.whatsapp}\n\nPróximo passo: continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação como Cliente Fundador.\n\nLink de referência: ${input.loginUrl}\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
+        <div style="padding:18px 0;text-align:left">
+          <img src="${escapeHtml(logoUrl)}" alt="Organização em Harmonia" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
+          <h2 style="margin:0;color:#00334E;font-size:24px">Interesse recebido — ${escapeHtml(input.moduleName)}</h2>
+        </div>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse na <strong>${escapeHtml(input.moduleName)}</strong>.</p>
+        <p>A proposta da <strong>Organização em Harmonia</strong> é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.</p>
+        <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
+          <p><strong>${escapeHtml(organizationLine)}</strong><br/><strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}</p>
+          <p><strong>Próximo passo:</strong> continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação como Cliente Fundador.</p>
+          <p><strong>Referência:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p style="font-size:13px;color:#335">Se esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.</p>
+        </div>
+        <p>Automação Extrema<br/>Organização em Harmonia</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de interesse enviado." };
+}
+
+export async function sendOrganizacaoHarmoniaLeadInternalEmail(input: OrganizacaoHarmoniaLeadInternalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const internalMessage = `Novo lead Organização em Harmonia\n\nMódulo: ${input.moduleName}\nContato: ${input.contactName}\nOrganização: ${input.organizationName || "não informada"}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nOrigem: ${input.source}\nLead: ${input.leadId}\n\nFunil/gestão: ${input.funilUrl}`;
+  const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Novo lead Organização em Harmonia — ${input.moduleName}`,
+    text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo lead Organização em Harmonia</h2>
+        <p><strong>Módulo:</strong> ${escapeHtml(input.moduleName)}<br/>
+        <strong>Contato:</strong> ${escapeHtml(input.contactName)}<br/>
+        <strong>Organização:</strong> ${escapeHtml(input.organizationName || "não informada")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
+        <strong>Origem:</strong> ${escapeHtml(input.source)}<br/>
+        <strong>Lead:</strong> ${escapeHtml(input.leadId)}</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir gestão AE</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp do Márcio</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail interno enviado para AE." };
+}

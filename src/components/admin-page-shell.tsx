@@ -18,6 +18,7 @@ const navItems: NavItem[] = [
   { href: "/admin/ae/sites-clientes", label: "Sites / páginas de clientes", group: "Clientes" },
   { href: "/admin/ae/corrente-em-dia", label: "Corrente em Dia", group: "Clientes" },
   { href: "/admin/ae/corrente-em-dia/funil", label: "Funil Corrente em Dia", group: "Comercial" },
+  { href: "/admin/ae/organizacao-em-harmonia", label: "Organização em Harmonia", group: "Clientes" },
   { href: "/admin/ae/parceiros", label: "Parceiros", group: "Comercial" },
   { href: "/admin/ae/relatorios", label: "Relatórios", group: "Indicadores" },
 ];
