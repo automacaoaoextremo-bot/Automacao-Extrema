@@ -178,7 +178,7 @@ export default function PresencaMensagensPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível gerar convites.");
-      setMessage(`Convites gerados: ${result.generated}. Ignorados: ${result.skipped}.`);
+      setMessage(`Convites gerados/atualizados: ${result.generated ?? 0} (${result.created ?? 0} novos, ${result.updated ?? 0} atualizados). Preservados por já estarem aprovados: ${result.skippedApproved ?? 0}. Ignorados: ${result.skipped ?? 0}.`);
       await loadMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao gerar convites.");
@@ -266,7 +266,7 @@ export default function PresencaMensagensPage() {
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Mensagens</p>
                 <h1 className="mt-2 text-3xl font-black text-[#00334E]">Aprovação dos convites personalizados</h1>
-                <p className="mt-3 max-w-3xl leading-7 text-slate-600">Gere uma prévia individual para cada convidado, revise o texto e aprove antes de enviar pelo WhatsApp.</p>
+                <p className="mt-3 max-w-3xl leading-7 text-slate-600">Gere uma prévia individual para cada convidado, revise o texto e aprove antes de enviar pelo WhatsApp. Convites já aprovados são preservados; novos convidados e convites ainda pendentes são criados ou atualizados.</p>
               </div>
               <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
             </div>

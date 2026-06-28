@@ -348,19 +348,20 @@ export function buildPersonalizedInvitationMessage(input: {
   event: Partial<PresencaEvent>;
   confirmationUrl: string;
 }) {
+  const firstName = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "você";
   const deadline = formatDaniela50Deadline();
 
   return [
-    buildGuestGreetingLine(input.guest),
-    buildHostReferenceLine(input.guest, input.event),
-    buildRelationshipInviteLine(input.guest),
+    `Oi, ${firstName}!`,
+    "",
+    "Vou comemorar meus 50 anos e faço questão de te convidar.",
     "",
     buildDaniela50EarlyInviteReason(),
     "",
     `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa. Depois de conhecer tudo, ao final da página estão os botões para responder:`,
+    "",
     input.confirmationUrl,
+    "",
     buildDaniela50HostSignature(input.event),
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].join("\n");
 }
