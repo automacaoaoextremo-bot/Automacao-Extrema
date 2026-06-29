@@ -3,18 +3,18 @@ import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { ORGANIZACAO_CLIENT_NAV_ITEMS } from "@/lib/organizacao-em-harmonia";
 
 const checklist = [
-  "Confirmar dados principais da organização.",
-  "Cadastrar ou revisar pessoas na Base Única.",
-  "Definir funções e permissões por perfil.",
-  "Escolher quais módulos serão habilitados na validação.",
-  "Configurar regras de aprovação para agenda, atendimento e contribuições.",
+  "Confirmar dados principais da organização, mantendo apenas o essencial como obrigatório.",
+  "Cadastrar ou revisar pessoas, funções e permissões na Base Única.",
+  "Habilitar os módulos que farão parte da validação: Agenda Viva, Atendimento em Harmonia e Corrente em Dia.",
+  "Começar pelo Agenda Viva: calendário anual, grupos, eventos, aprovações, férias e responsáveis.",
+  "Concluir configuração e treinamento mínimos antes de iniciar a avaliação de 30 dias como Cliente Fundador.",
 ];
 
 export default function OrganizacaoClientePage() {
   return (
     <OrganizacaoClientShell
       title="Painel inicial da Organização em Harmonia"
-      description="Comece pela Base Única. Depois habilite Corrente em Dia, Atendimento em Harmonia e Agenda Viva conforme a necessidade real da organização."
+      description="Comece pela Base Única e pelo Agenda Viva. A avaliação de Cliente Fundador deve iniciar somente após configuração e treinamento mínimos dos envolvidos."
     >
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {ORGANIZACAO_CLIENT_NAV_ITEMS.slice(1).map((item) => (

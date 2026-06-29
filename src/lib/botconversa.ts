@@ -36,6 +36,8 @@ export type OrganizacaoBotConversaSyncInput = {
   whatsapp: string;
   moduleName: string;
   moduleSlug: string;
+  priorityModuleName?: string;
+  priorityModuleSlug?: string;
   organizationName?: string | null;
   loginUrl: string;
   source: string;
@@ -43,6 +45,8 @@ export type OrganizacaoBotConversaSyncInput = {
   accessEmailSent: boolean;
   status: string;
   trialDays: number;
+  implantationDueAt?: string | null;
+  reminderHoursBeforeDue?: number | null;
 };
 
 type BotConversaContactInput = {
@@ -252,32 +256,41 @@ export function buildOrganizacaoLeadBotConversaMessage(
   input: OrganizacaoBotConversaSyncInput,
 ) {
   const greeting = firstName(input.contactName);
+  const priorityModuleName = input.priorityModuleName || input.moduleName;
+  const dueLine = input.implantationDueAt
+    ? `Prazo sugerido para concluir configuração e treinamento: ${new Date(input.implantationDueAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })}`
+    : "Prazo de implantação assistida: será combinado com a equipe da AE.";
 
   return [
-    `Pronto, ${greeting}. Seu cadastro da ${input.moduleName} já foi recebido.`,
+    `Pronto, ${greeting}. Seu cadastro da Organização em Harmonia já foi recebido.`,
     "",
     "A Automação Extrema já registrou seu interesse para iniciar a validação com calma, clareza e respeito ao processo da sua organização.",
     "",
-    "Link de referência:",
-    input.loginUrl,
-    "",
-    "E-mail usado no cadastro:",
-    input.email,
-    "",
-    "Também enviamos uma confirmação para esse e-mail. Se não encontrar, confira spam/lixo eletrônico.",
+    "Também enviamos uma confirmação para seu e-mail. Se não encontrar, confira spam/lixo eletrônico.",
     "",
     "Dados recebidos:",
     `Nome do contato: ${input.contactName}`,
+    `E-mail: ${input.email}`,
     `WhatsApp informado: ${input.whatsapp}`,
     input.organizationName
       ? `Organização: ${input.organizationName}`
       : "Organização: será confirmada na próxima etapa",
-    `Interesse: ${input.moduleName}`,
+    `Interesse inicial: ${input.moduleName}`,
+    `Primeiro módulo recomendado: ${priorityModuleName}`,
     `Código do lead: ${input.leadId}`,
     `Cliente Fundador: ${input.founderTermsAccepted ? "interesse confirmado" : "será confirmado com aceite expresso"}`,
     "",
+    "Como funcionará a validação:",
+    "1. Primeiro, configuramos a organização, pessoas, funções e permissões.",
+    "2. Depois, configuramos o primeiro módulo e treinamos os envolvidos.",
+    `3. A avaliação de ${input.trialDays} dias começa após configuração e treinamento mínimos, não antes disso.`,
+    dueLine,
+    "",
     "Próximo passo:",
-    "vamos entender quais módulos fazem sentido primeiro, quais regras precisam ser configuradas e quem poderá aprovar, editar ou acompanhar cada informação.",
+    "acesse a área da Organização em Harmonia e comece pela Base Única. Para o Tucxa, a recomendação é iniciar pelo Agenda Viva, organizando calendário, grupos, atividades, eventos, aprovações e responsáveis.",
+    "",
+    "Link de referência:",
+    input.loginUrl,
     "",
     "Se tiver qualquer dificuldade, responda AJUDA por aqui.",
   ].join("\n");
@@ -835,6 +848,22 @@ function organizacaoCustomFields(input: OrganizacaoBotConversaSyncInput) {
       ),
       label: "oh_modulo_slug",
       value: input.moduleSlug,
+    },
+    {
+      fieldId: firstEnv(
+        "BOTCONVERSA_OH_FIELD_PRIORITY_MODULE_ID",
+        "BOTCONVERSA_OH_FIELD_PRIORITY_MODULE",
+      ),
+      label: "oh_modulo_prioritario",
+      value: input.priorityModuleName || input.moduleName,
+    },
+    {
+      fieldId: firstEnv(
+        "BOTCONVERSA_OH_FIELD_IMPLANTATION_DUE_AT_ID",
+        "BOTCONVERSA_OH_FIELD_IMPLANTATION_DUE_AT",
+      ),
+      label: "oh_prazo_implantacao",
+      value: optionalValue(input.implantationDueAt),
     },
     {
       fieldId: firstEnv(

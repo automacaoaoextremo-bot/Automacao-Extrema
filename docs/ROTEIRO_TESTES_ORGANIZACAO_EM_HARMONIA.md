@@ -1,81 +1,56 @@
-# Roteiro de testes — Organização em Harmonia
+# Roteiro de testes — Organização em Harmonia / Agenda Viva Tucxa
 
-## 1. Páginas públicas
+## Teste 1 — Quero Conhecer mínimo
 
-Testar:
+1. Acessar `/solucoes/organizacao-em-harmonia/quero-conhecer`.
+2. Confirmar que aparecem somente campos obrigatórios:
+   - Nome do contato
+   - WhatsApp
+   - E-mail
+3. Confirmar que não aparecem:
+   - Solução de interesse
+   - Nome da organização
+4. Enviar sem marcar LGPD/Cliente Fundador e confirmar que não bloqueia.
+5. Verificar redirecionamento para Obrigado.
+6. Verificar e-mail enviado.
+7. Clicar em Continuar pelo WhatsApp.
 
-```txt
-/solucoes/organizacao-em-harmonia
-/solucoes/atendimento-em-harmonia
-/solucoes/agenda-viva
-```
+## Teste 2 — Interesse vindo do módulo Agenda Viva
 
-Validar:
+1. Acessar `/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=agenda-viva`.
+2. Confirmar que o formulário continua mínimo.
+3. Confirmar que a mensagem registra Agenda Viva como interesse, sem exigir seleção manual.
 
-- cabeçalho igual ao padrão Corrente em Dia;
-- menu mobile em pílulas no cabeçalho;
-- página pública sem texto “Oceano Azul”;
-- seção Benefícios em cards;
-- Cliente Fundador no padrão visual do Corrente em Dia;
-- módulos com link para Quero Conhecer pré-selecionado;
-- módulos citando Organização em Harmonia como solução completa.
+## Teste 3 — Supabase
 
-## 2. Quero Conhecer único
-
-Testar:
-
-```txt
-/solucoes/organizacao-em-harmonia/quero-conhecer
-/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=corrente-em-dia
-/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=atendimento-em-harmonia
-/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=agenda-viva
-```
-
-Validar:
-
-- solução de interesse vem preenchida corretamente;
-- opções não duplicam “Pacote Completo” e “Organização em Harmonia”;
-- nome, WhatsApp e e-mail são obrigatórios;
-- LGPD e Cliente Fundador não barram o envio;
-- formulário redireciona para a página Obrigado;
-- e-mail de confirmação é enviado;
-- botão WhatsApp leva mensagem pré-preenchida para a AE.
-
-## 3. Área logada
-
-Testar:
+Verificar se o lead foi criado em `oh_leads` com:
 
 ```txt
-/solucoes/organizacao-em-harmonia/cliente
-/solucoes/organizacao-em-harmonia/cliente/base-unica
-/solucoes/organizacao-em-harmonia/cliente/modulos
-/solucoes/organizacao-em-harmonia/cliente/configuracoes
-/solucoes/organizacao-em-harmonia/cliente/relatorios
+priority_module = agenda-viva
+implantation_due_at preenchido
+founder_evaluation_days = 30
+next_reminder_at preenchido
+enabled_modules_requested preenchido
 ```
 
-Desktop:
+## Teste 4 — Área logada
 
-- menu lateral aparece;
-- menu superior permanece para navegação rápida;
-- conteúdo fica à direita.
+1. Acessar `/solucoes/organizacao-em-harmonia/cliente`.
+2. No desktop, confirmar menu lateral.
+3. No celular, confirmar menu em pílulas no cabeçalho.
+4. Acessar `/cliente/agenda-viva`.
+5. Confirmar tipos de atividades do Tucxa e regras iniciais.
 
-Mobile:
+## Teste 5 — BotConversa
 
-- menu lateral não aparece;
-- pílulas ficam no cabeçalho;
-- conteúdo fica em uma coluna.
+1. Confirmar fluxo `OH - Lead vindo do site`.
+2. Palavra-chave com condição Contém.
+3. Confirmar envio da mensagem `{oh_resp_botconversa}` ou mensagem fixa de segurança.
+4. Testar palavra AJUDA.
 
-## 4. BotConversa
+## Teste 6 — Lembretes
 
-- Preencher Quero Conhecer.
-- Clicar em Continuar pelo WhatsApp.
-- Confirmar que o fluxo OH - Lead vindo do site inicia.
-- Confirmar mensagem fixa segura ou `{oh_resp_botconversa}`.
-- Confirmar orientação para procurar e-mail em spam/lixo eletrônico.
-
-## 5. Git/Vercel
-
-- Rodar `npm run lint`.
-- Rodar `npm run build`.
-- Fazer push na branch `feature/organizacao-em-harmonia`.
-- Validar deploy preview.
+1. Ajustar um lead de teste com `next_reminder_at` no passado e `last_reminder_sent_at` nulo.
+2. Chamar `/api/cron/organizacao-em-harmonia-reminders?token=SEU_TOKEN`.
+3. Confirmar e-mail para AE e contato.
+4. Confirmar `last_reminder_sent_at` preenchido.

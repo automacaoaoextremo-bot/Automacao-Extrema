@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
 import {
   moduleInfo,
   moduleLabel,
   normalizeOrganizacaoModulo,
   normalizeWhatsapp,
-  ORGANIZACAO_INTEREST_OPTIONS,
   type OrganizacaoModulo,
 } from "@/lib/organizacao-em-harmonia";
 
@@ -18,19 +17,18 @@ type SubmitState = {
 };
 
 export function OrganizacaoLeadForm({ initialModule }: { initialModule: OrganizacaoModulo }) {
-  const [selectedModule, setSelectedModule] = useState<OrganizacaoModulo>(normalizeOrganizacaoModulo(initialModule));
+  const selectedModule = useMemo(() => normalizeOrganizacaoModulo(initialModule), [initialModule]);
   const [contactName, setContactName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
-  const [organizationName, setOrganizationName] = useState("");
   const [consent, setConsent] = useState(false);
   const [founderConsent, setFounderConsent] = useState(false);
   const [touched, setTouched] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle", message: "" });
 
   const current = moduleInfo(selectedModule);
-  const solutionArticle = current.slug === "agenda-viva" || current.slug === "organizacao-em-harmonia" ? "a" : "o";
   const canSend = contactName.trim() && whatsapp.trim() && email.trim();
+  const interestLine = selectedModule === "organizacao-em-harmonia" ? "Organização em Harmonia" : moduleLabel(selectedModule);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,6 +38,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
     setSubmitState({ status: "sending", message: "Registrando seu interesse..." });
 
     try {
+      const normalizedWhatsapp = normalizeWhatsapp(whatsapp);
       const response = await fetch("/api/organizacao-em-harmonia/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -48,14 +47,13 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
           modulo: selectedModule,
           contactName,
           responsibleName: contactName,
-          whatsapp: normalizeWhatsapp(whatsapp),
+          whatsapp: normalizedWhatsapp,
           email,
-          organizationName,
           founderTermsAccepted: founderConsent,
           testimonialPermission: founderConsent,
           lgpdContactConsent: consent,
           observations:
-            "Cadastro mínimo pelo Quero Conhecer único da Organização em Harmonia. Dados completos, regras, permissões e módulos serão confirmados na próxima etapa.",
+            "Cadastro mínimo pelo Quero Conhecer único da Organização em Harmonia. A organização, os módulos habilitados, regras, permissões, LGPD e termos de Cliente Fundador serão confirmados na área logada.",
         }),
       });
 
@@ -66,14 +64,13 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
         modulo: selectedModule,
         nome: contactName,
         email,
-        whatsapp: normalizeWhatsapp(whatsapp),
+        whatsapp: normalizedWhatsapp,
         leadId: String(result.leadId ?? ""),
       });
 
       setContactName("");
       setWhatsapp("");
       setEmail("");
-      setOrganizationName("");
       setConsent(false);
       setFounderConsent(false);
       setTouched(false);
@@ -112,30 +109,21 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
             Cadastro de interesse
           </p>
           <h1 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
-            Quero conhecer {solutionArticle} {moduleLabel(selectedModule)}
+            Quero conhecer a Organização em Harmonia
           </h1>
 
           <p className="mt-3 rounded-3xl bg-emerald-50 p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-emerald-100 sm:text-base sm:leading-7">
-            Informe nome do contato, WhatsApp e e-mail para liberar o primeiro atendimento. Se fizer sentido para sua organização, você pode entrar como Cliente Fundador, com condições especiais, prioridade nas melhorias e acompanhamento mais próximo. Os demais dados da organização, os módulos habilitados, permissões e LGPD serão confirmados depois, dentro da área logada.
+            Informe apenas nome do contato, WhatsApp e e-mail para iniciar o atendimento. Os dados da organização, módulos habilitados, permissões, regras, LGPD e condição de Cliente Fundador serão confirmados depois, dentro da área logada, com mais calma e segurança.
           </p>
+
+          {selectedModule !== "organizacao-em-harmonia" && (
+            <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-700 ring-1 ring-slate-100">
+              Interesse indicado pela página anterior: {interestLine}. Essa informação será registrada sem criar mais uma etapa no formulário.
+            </p>
+          )}
 
           <form onSubmit={onSubmit} className="mt-4">
             <div className="grid gap-3">
-              <label>
-                <span className="text-sm font-bold text-slate-700">Solução de interesse</span>
-                <select
-                  value={selectedModule === "pacote-completo" ? "organizacao-em-harmonia" : selectedModule}
-                  onChange={(event) => setSelectedModule(normalizeOrganizacaoModulo(event.target.value))}
-                  className="mt-1 w-full rounded-2xl border border-slate-300 bg-white p-3"
-                >
-                  {ORGANIZACAO_INTEREST_OPTIONS.map((item) => (
-                    <option key={item.slug} value={item.slug}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
               <label>
                 <span className="text-sm font-bold text-slate-700">Nome do contato *</span>
                 <input
@@ -176,16 +164,6 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
                   <span className="mt-1 block text-sm font-bold text-red-600">Informe o e-mail.</span>
                 )}
               </label>
-
-              <label>
-                <span className="text-sm font-bold text-slate-700">Nome da organização</span>
-                <input
-                  value={organizationName}
-                  onChange={(event) => setOrganizationName(event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-300 p-3"
-                  placeholder="Opcional neste primeiro contato"
-                />
-              </label>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -197,7 +175,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
                   className="mt-1 h-5 w-5 shrink-0"
                 />
                 <span>
-                  Autorizo a Automação Extrema a usar estes dados para contato sobre a {moduleLabel(selectedModule)}. A confirmação formal de LGPD será feita no primeiro acesso.
+                  Autorizo a Automação Extrema a usar estes dados para contato sobre a Organização em Harmonia. A confirmação formal de LGPD será feita no primeiro acesso.
                 </span>
               </label>
 
@@ -223,7 +201,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
               disabled={submitState.status === "sending"}
               className="mt-5 inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitState.status === "sending" ? "Enviando interesse..." : "Enviar interesse"}
+              {submitState.status === "sending" ? "Enviando..." : "Enviar interesse"}
             </button>
           </form>
         </div>

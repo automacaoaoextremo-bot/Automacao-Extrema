@@ -21,6 +21,10 @@ export type OrganizacaoLeadPayload = {
   organization_name?: unknown;
   organizationType?: unknown;
   organization_type?: unknown;
+  priorityModule?: unknown;
+  priority_module?: unknown;
+  enabledModules?: unknown;
+  enabled_modules?: unknown;
   observations?: unknown;
   notes?: unknown;
   founderTermsAccepted?: unknown;
@@ -65,6 +69,11 @@ export const ORGANIZACAO_CLIENT_NAV_ITEMS: OrganizacaoClientNavItem[] = [
     href: "/solucoes/organizacao-em-harmonia/cliente/base-unica",
     label: "Base Única",
     description: "Pessoas, funções, permissões e módulos habilitados.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva",
+    label: "Agenda Viva",
+    description: "Calendário anual, atividades, eventos, recorrências e aprovações.",
   },
   {
     href: "/solucoes/organizacao-em-harmonia/cliente/modulos",
@@ -164,6 +173,91 @@ export const ORGANIZACAO_INTEREST_OPTIONS: Array<{
     description: "Calendário único, atividades, responsáveis, aprovações e conflitos.",
   },
 ];
+
+
+export const ORGANIZACAO_FOUNDER_TRIAL_DAYS = 30;
+export const ORGANIZACAO_IMPLANTATION_DUE_DAYS = 30;
+export const ORGANIZACAO_DEFAULT_REMINDER_HOURS_BEFORE_DUE = 48;
+
+export const AGENDA_VIVA_TUCXA_EVENT_TYPES = [
+  "Atendimento filhos de fora",
+  "Atendimento filhos da corrente",
+  "Tratamento espiritual / transformação",
+  "Grupo segunda-feira",
+  "Grupo terça-feira",
+  "Grupo 1",
+  "Grupo 2",
+  "Mutirão de limpeza",
+  "Férias",
+  "Encerramento",
+  "Clube do Livro",
+  "Grupo de Estudos",
+  "Bazar",
+  "Bingo",
+  "Venda de pizzas",
+  "Ação beneficente",
+  "Feijoada",
+  "Festa Junina",
+  "Rifa",
+  "Vaquinha",
+  "Reunião de diretoria",
+  "Trabalho especial",
+  "Casamento",
+  "Batizado",
+] as const;
+
+export const AGENDA_VIVA_TUCXA_INITIAL_RULES = [
+  "Segundas e terças: trabalhos voltados aos filhos de fora/consulentes, conforme calendário anual da casa.",
+  "Quartas: transformação/tratamento espiritual apenas para pessoas encaminhadas e agendadas pela coordenação.",
+  "Quintas: desenvolvimento dos filhos da corrente, com Grupo I na 1ª e 3ª quinta e Grupo II na 2ª e 4ª quinta.",
+  "Eventos, campanhas e ações beneficentes devem permitir criação por responsáveis e aprovação por diretoria/presidência.",
+  "Períodos de férias, mutirões e encerramentos devem bloquear ou alertar conflitos no calendário.",
+] as const;
+
+export function numberFromEnv(name: string, fallback: number) {
+  const raw = process.env[name];
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+export function addHours(date: Date, hours: number) {
+  const next = new Date(date);
+  next.setHours(next.getHours() + hours);
+  return next;
+}
+
+export function subtractHours(date: Date, hours: number) {
+  const next = new Date(date);
+  next.setHours(next.getHours() - hours);
+  return next;
+}
+
+export function founderTimelineFrom(now = new Date()) {
+  const implantationDueDays = numberFromEnv("OH_IMPLANTATION_DUE_DAYS", ORGANIZACAO_IMPLANTATION_DUE_DAYS);
+  const founderEvaluationDays = numberFromEnv("OH_FOUNDER_EVALUATION_DAYS", ORGANIZACAO_FOUNDER_TRIAL_DAYS);
+  const reminderHoursBeforeDue = numberFromEnv(
+    "OH_REMINDER_HOURS_BEFORE_IMPLANTATION_DUE",
+    ORGANIZACAO_DEFAULT_REMINDER_HOURS_BEFORE_DUE,
+  );
+  const implantationStartedAt = now;
+  const implantationDueAt = addDays(now, implantationDueDays);
+  const nextReminderAt = subtractHours(implantationDueAt, reminderHoursBeforeDue);
+
+  return {
+    implantationDueDays,
+    founderEvaluationDays,
+    reminderHoursBeforeDue,
+    implantationStartedAt: implantationStartedAt.toISOString(),
+    implantationDueAt: implantationDueAt.toISOString(),
+    nextReminderAt: nextReminderAt.toISOString(),
+  };
+}
 
 export function normalizeOrganizacaoModulo(value: unknown): OrganizacaoModulo {
   const text = String(value ?? "")

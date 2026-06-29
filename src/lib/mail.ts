@@ -816,16 +816,33 @@ export type OrganizacaoHarmoniaLeadAccessEmailInput = {
   email: string;
   whatsapp: string;
   moduleName: string;
+  priorityModuleName?: string;
   organizationName: string | null;
   loginUrl: string;
   trialDays: number;
+  implantationDueAt?: string | null;
+  reminderHoursBeforeDue?: number | null;
 };
 
 export type OrganizacaoHarmoniaLeadInternalEmailInput = OrganizacaoHarmoniaLeadAccessEmailInput & {
   leadId: string;
   source: string;
   funilUrl: string;
+  nextReminderAt?: string | null;
 };
+
+function formatOptionalDate(value: string | null | undefined) {
+  if (!value) return "não informado";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
 
 export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoHarmoniaLeadAccessEmailInput) {
   if (!isEnabled()) {
@@ -843,23 +860,30 @@ export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoH
   const organizationLine = input.organizationName
     ? `Organização informada: ${input.organizationName}`
     : "Nome da organização: será confirmado na próxima etapa.";
+  const priorityModule = input.priorityModuleName || input.moduleName;
+  const implantationDue = formatOptionalDate(input.implantationDueAt);
 
   await config.transporter.sendMail({
     from: config.from,
     to: input.email,
-    subject: `Recebemos seu interesse — ${input.moduleName}`,
-    text: `${greeting},\n\nRecebemos seu interesse na ${input.moduleName}.\n\nA proposta da Organização em Harmonia é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\n${organizationLine}\nWhatsApp: ${input.whatsapp}\n\nPróximo passo: continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação como Cliente Fundador.\n\nLink de referência: ${input.loginUrl}\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
+    subject: `Recebemos seu interesse — Organização em Harmonia`,
+    text: `${greeting},\n\nRecebemos seu interesse na Organização em Harmonia.\n\nA proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\n${organizationLine}\nWhatsApp: ${input.whatsapp}\nInteresse inicial: ${input.moduleName}\nPrimeiro módulo recomendado: ${priorityModule}\n\nComo Cliente Fundador, a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de ${input.trialDays} dias começa depois que a configuração e o treinamento inicial estiverem concluídos.\nPrazo sugerido para concluir configuração/treinamento: ${implantationDue}.\n\nPróximo passo: continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação.\n\nLink de referência: ${input.loginUrl}\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
         <div style="padding:18px 0;text-align:left">
           <img src="${escapeHtml(logoUrl)}" alt="Organização em Harmonia" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
-          <h2 style="margin:0;color:#00334E;font-size:24px">Interesse recebido — ${escapeHtml(input.moduleName)}</h2>
+          <h2 style="margin:0;color:#00334E;font-size:24px">Interesse recebido — Organização em Harmonia</h2>
         </div>
-        <p>${escapeHtml(greeting)}, recebemos seu interesse na <strong>${escapeHtml(input.moduleName)}</strong>.</p>
-        <p>A proposta da <strong>Organização em Harmonia</strong> é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.</p>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse na <strong>Organização em Harmonia</strong>.</p>
+        <p>A proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.</p>
         <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
-          <p><strong>${escapeHtml(organizationLine)}</strong><br/><strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}</p>
-          <p><strong>Próximo passo:</strong> continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação como Cliente Fundador.</p>
+          <p><strong>${escapeHtml(organizationLine)}</strong><br/>
+          <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}<br/>
+          <strong>Interesse inicial:</strong> ${escapeHtml(input.moduleName)}<br/>
+          <strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}</p>
+          <p><strong>Cliente Fundador:</strong> a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de <strong>${escapeHtml(input.trialDays)} dias</strong> começa depois que a configuração e o treinamento inicial estiverem concluídos.</p>
+          <p><strong>Prazo sugerido de configuração/treinamento:</strong> ${escapeHtml(implantationDue)}</p>
+          <p><strong>Próximo passo:</strong> continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação.</p>
           <p><strong>Referência:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
           <p style="font-size:13px;color:#335">Se esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.</p>
         </div>
@@ -881,28 +905,87 @@ export async function sendOrganizacaoHarmoniaLeadInternalEmail(input: Organizaca
     return { sent: false, reason: config.reason };
   }
 
-  const internalMessage = `Novo lead Organização em Harmonia\n\nMódulo: ${input.moduleName}\nContato: ${input.contactName}\nOrganização: ${input.organizationName || "não informada"}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nOrigem: ${input.source}\nLead: ${input.leadId}\n\nFunil/gestão: ${input.funilUrl}`;
+  const priorityModule = input.priorityModuleName || input.moduleName;
+  const internalMessage = `Novo lead Organização em Harmonia\n\nMódulo informado: ${input.moduleName}\nPrimeiro módulo recomendado: ${priorityModule}\nContato: ${input.contactName}\nOrganização: ${input.organizationName || "não informada"}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nOrigem: ${input.source}\nLead: ${input.leadId}\n\nPrazo sugerido para concluir configuração/treinamento: ${formatOptionalDate(input.implantationDueAt)}\nLembrete configurado: ${input.reminderHoursBeforeDue ?? "não informado"}h antes\nPróximo lembrete previsto: ${formatOptionalDate(input.nextReminderAt)}\nAvaliação Cliente Fundador: ${input.trialDays} dias após configuração e treinamento mínimos\n\nFunil/gestão: ${input.funilUrl}`;
   const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
 
   await config.transporter.sendMail({
     from: config.from,
     to: config.copyTo,
-    subject: `Novo lead Organização em Harmonia — ${input.moduleName}`,
+    subject: `Novo lead Organização em Harmonia — ${priorityModule}`,
     text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
         <h2>Novo lead Organização em Harmonia</h2>
-        <p><strong>Módulo:</strong> ${escapeHtml(input.moduleName)}<br/>
+        <p><strong>Módulo informado:</strong> ${escapeHtml(input.moduleName)}<br/>
+        <strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}<br/>
         <strong>Contato:</strong> ${escapeHtml(input.contactName)}<br/>
         <strong>Organização:</strong> ${escapeHtml(input.organizationName || "não informada")}<br/>
         <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}<br/>
         <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
         <strong>Origem:</strong> ${escapeHtml(input.source)}<br/>
         <strong>Lead:</strong> ${escapeHtml(input.leadId)}</p>
+        <div style="background:#f8fafc;border-radius:14px;padding:14px;margin:14px 0">
+          <p><strong>Prazo sugerido para concluir configuração/treinamento:</strong> ${escapeHtml(formatOptionalDate(input.implantationDueAt))}<br/>
+          <strong>Lembrete configurado:</strong> ${escapeHtml(input.reminderHoursBeforeDue ?? "não informado")}h antes<br/>
+          <strong>Próximo lembrete previsto:</strong> ${escapeHtml(formatOptionalDate(input.nextReminderAt))}<br/>
+          <strong>Avaliação Cliente Fundador:</strong> ${escapeHtml(input.trialDays)} dias após configuração e treinamento mínimos.</p>
+        </div>
         <p><a href="${escapeHtml(input.funilUrl)}">Abrir gestão AE</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp do Márcio</a>` : ""}</p>
       </div>
     `,
   });
 
   return { sent: true, reason: "E-mail interno enviado para AE." };
+}
+
+export type OrganizacaoHarmoniaImplantationReminderEmailInput = {
+  leadId: string;
+  contactName: string;
+  email: string | null;
+  whatsapp: string | null;
+  moduleName: string | null;
+  priorityModuleName: string | null;
+  implantationDueAt: string | null;
+  funilUrl: string;
+  loginUrl: string;
+};
+
+export async function sendOrganizacaoHarmoniaImplantationReminderEmail(
+  input: OrganizacaoHarmoniaImplantationReminderEmailInput,
+) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const recipients = Array.from(new Set([config.copyTo, input.email].filter(Boolean))) as string[];
+  const priorityModule = input.priorityModuleName || input.moduleName || "Agenda Viva";
+  const dueDate = formatOptionalDate(input.implantationDueAt);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: recipients.join(","),
+    subject: `Lembrete Organização em Harmonia — configuração e treinamento`,
+    text: `Lembrete Organização em Harmonia\n\nLead: ${input.contactName}\nE-mail: ${input.email ?? "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nMódulo prioritário: ${priorityModule}\nPrazo sugerido para concluir configuração/treinamento: ${dueDate}\n\nA avaliação de Cliente Fundador deve começar somente após configuração e treinamento mínimos.\n\nÁrea do cliente: ${input.loginUrl}\nGestão AE: ${input.funilUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Lembrete Organização em Harmonia</h2>
+        <p>Verificar configuração e treinamento antes de iniciar a avaliação de Cliente Fundador.</p>
+        <p><strong>Lead:</strong> ${escapeHtml(input.contactName)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email ?? "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>Módulo prioritário:</strong> ${escapeHtml(priorityModule)}<br/>
+        <strong>Prazo sugerido:</strong> ${escapeHtml(dueDate)}</p>
+        <p><strong>Regra:</strong> a avaliação de Cliente Fundador começa somente após configuração e treinamento mínimos.</p>
+        <p><a href="${escapeHtml(input.loginUrl)}">Área do cliente</a> · <a href="${escapeHtml(input.funilUrl)}">Gestão AE</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Lembrete Organização em Harmonia enviado." };
 }
