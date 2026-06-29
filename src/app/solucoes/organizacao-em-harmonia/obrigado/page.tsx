@@ -66,7 +66,7 @@ export default async function OrganizacaoObrigadoPage({
           <div className="mt-4 rounded-3xl bg-emerald-50 p-5 text-slate-800">
             <p className="font-black text-[#00334E]">Próximo passo recomendado</p>
             <p className="mt-2 leading-7">
-              Toque no botão abaixo e envie a mensagem pré-preenchida. Ela já leva nome, WhatsApp, e-mail, código do lead e módulo de interesse para o BotConversa identificar seu cadastro sem pedir tudo de novo.
+              Toque no botão abaixo e envie a mensagem pré-preenchida. Ela já leva nome, WhatsApp, e-mail, código do lead e solução de interesse para o BotConversa identificar seu cadastro sem pedir tudo de novo.
             </p>
           </div>
 

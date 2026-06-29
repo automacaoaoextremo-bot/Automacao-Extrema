@@ -1,34 +1,25 @@
-# BotConversa — Organização em Harmonia
+# Passo a passo BotConversa — Organização em Harmonia
 
-## Estratégia recomendada
+## 1. Estratégia
 
-Manter a mesma estratégia validada no Corrente em Dia:
-
-```txt
-Site → Quero Conhecer → Página Obrigado → WhatsApp pré-preenchido → BotConversa responde automaticamente
-```
-
-A AE também pode enriquecer o contato via API do BotConversa:
+Usar um único fluxo para a suíte:
 
 ```txt
-Formulário enviado
-↓
-AE cria lead em oh_leads
-↓
-AE envia e-mail de confirmação
-↓
-AE atualiza contato no BotConversa
-↓
-AE aplica etiquetas
-↓
-AE preenche campos personalizados
-↓
-Opcional: AE dispara fluxo OH - Lead vindo do site
+OH - Lead vindo do site
 ```
 
-## Campos personalizados sugeridos
+Esse fluxo atende leads vindos da página principal e das páginas dos módulos:
 
-Crie em **Configurações > Campos**:
+- Organização em Harmonia
+- Corrente em Dia
+- Atendimento em Harmonia
+- Agenda Viva
+
+O formulário é único e envia no texto do WhatsApp qual foi o interesse escolhido.
+
+## 2. Campos personalizados recomendados
+
+Crie ou confira estes campos:
 
 ```txt
 oh_nome_contato
@@ -46,83 +37,40 @@ oh_email_enviado
 oh_resp_botconversa
 ```
 
-Depois encontre o ID real de cada campo pelo Swagger/API ou pela aba Network do navegador e coloque na Vercel/.env.local:
+Quando for integrar via API, usar os IDs reais dos campos no `.env.local` e na Vercel.
 
-```env
-BOTCONVERSA_OH_FIELD_NAME_ID=
-BOTCONVERSA_OH_FIELD_EMAIL_ID=
-BOTCONVERSA_OH_FIELD_WHATSAPP_ID=
-BOTCONVERSA_OH_FIELD_LEAD_ID_ID=
-BOTCONVERSA_OH_FIELD_MODULE_ID=
-BOTCONVERSA_OH_FIELD_MODULE_SLUG_ID=
-BOTCONVERSA_OH_FIELD_ORGANIZATION_ID=
-BOTCONVERSA_OH_FIELD_ORIGIN_ID=
-BOTCONVERSA_OH_FIELD_STATUS_ID=
-BOTCONVERSA_OH_FIELD_LOGIN_URL_ID=
-BOTCONVERSA_OH_FIELD_FOUNDER_ID=
-BOTCONVERSA_OH_FIELD_EMAIL_SENT_ID=
-BOTCONVERSA_OH_FIELD_RESPONSE_ID=
-```
-
-## Etiquetas sugeridas
-
-Crie em **Configurações > Etiquetas**:
+## 3. Etiquetas recomendadas
 
 ```txt
 oh_lead_site
 oh_email_confirmacao_enviado
 oh_cliente_fundador_interesse
 oh_aguardando_validacao
+oh_whatsapp_iniciado
+oh_precisa_humano
+oh_ajuda_solicitada
 ```
 
-Depois preencha os IDs reais:
+## 4. Palavra-chave
 
-```env
-BOTCONVERSA_OH_TAG_LEAD_SITE_ID=
-BOTCONVERSA_OH_TAG_EMAIL_SENT_ID=
-BOTCONVERSA_OH_TAG_FOUNDER_ID=
-BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID=
-```
+Criar uma palavra-chave com condição **Contém**.
 
-## Variáveis gerais da API BotConversa
-
-```env
-BOTCONVERSA_ENABLED=true
-BOTCONVERSA_API_KEY=SUA_CHAVE_WEBHOOK_INTEGRATION
-BOTCONVERSA_API_BASE_URL=https://backend.botconversa.com.br
-BOTCONVERSA_API_HEADER_NAME=API-KEY
-BOTCONVERSA_AUTH_SCHEME=
-BOTCONVERSA_CREATE_CONTACT_PATH=/api/v1/webhook/subscriber/
-BOTCONVERSA_TAG_PATH_TEMPLATE=/api/v1/webhook/subscriber/{subscriberId}/tags/{tagId}/
-BOTCONVERSA_FIELD_PATH_TEMPLATE=/api/v1/webhook/subscriber/{subscriberId}/custom_fields/{fieldId}/
-BOTCONVERSA_FLOW_PATH_TEMPLATE=/api/v1/webhook/subscriber/{subscriberId}/send_flow/{flowId}/
-BOTCONVERSA_FIELD_METHOD=POST
-BOTCONVERSA_FIELD_BODY_MODE=value
-```
-
-## Fluxo recomendado
-
-Nome do fluxo:
-
-```txt
-OH - Lead vindo do site
-```
-
-Palavras-chave com condição **Contém**:
+Frases:
 
 ```txt
 Organização em Harmonia
+Corrente em Dia
 Atendimento em Harmonia
 Agenda Viva
-Corrente em Dia
 Cliente Fundador
 Quero conhecer
 Preenchi o Quero Conhecer
+Código do lead
 ```
 
-## Bloco de conteúdo seguro
+## 5. Fluxo recomendado agora
 
-Enquanto valida os campos via API, use uma mensagem fixa para nunca deixar o lead sem resposta:
+Enquanto a atualização via API do campo `oh_resp_botconversa` ainda estiver em validação, usar mensagem fixa segura:
 
 ```txt
 Olá, {primeiro-nome}! Recebi seu cadastro da Organização em Harmonia.
@@ -137,70 +85,68 @@ vamos entender qual módulo faz mais sentido primeiro, quais regras precisam ser
 Se tiver qualquer dificuldade, responda AJUDA por aqui.
 ```
 
-Depois que confirmar que `oh_resp_botconversa` está sendo preenchido, o bloco pode usar:
+Ações após a mensagem:
+
+```txt
+Adicionar etiqueta: oh_lead_site
+Adicionar etiqueta: oh_whatsapp_iniciado
+Definir oh_status = whatsapp_iniciado
+Notificar equipe/Márcio
+```
+
+## 6. Fluxo depois da API validada
+
+Quando o campo `oh_resp_botconversa` estiver sendo preenchido corretamente pela API da AE, o fluxo pode ter só o bloco:
 
 ```txt
 {oh_resp_botconversa}
 ```
 
-## Bloco de integração opcional: lookup
+A mensagem gravada pela AE deve conter:
 
-Se quiser manter lookup no fluxo, crie um bloco de integração:
+- nome do contato;
+- e-mail;
+- WhatsApp;
+- código do lead;
+- solução de interesse;
+- orientação para procurar o e-mail no spam/lixo eletrônico;
+- próximos passos;
+- orientação para responder AJUDA.
 
-```txt
-POST
-https://www.automacaoextrema.com/api/organizacao-em-harmonia/leads/lookup
-```
+## 7. Fluxo AJUDA
 
-Headers:
-
-```txt
-Content-Type: application/json
-```
-
-Corpo:
-
-```json
-{
-  "source": "botconversa_oh_site",
-  "whatsapp": "{telefone}"
-}
-```
-
-Mapeamento de resposta:
+Criar palavra-chave separada:
 
 ```txt
-botconversaMessage -> oh_resp_botconversa
-found               -> oh_found
-name                -> oh_nome_contato
-email               -> oh_email
-leadId              -> oh_lead_id
-loginUrl            -> oh_login_url
+AJUDA
 ```
 
-## Quando ativar envio automático de fluxo pela AE
+Mensagem:
 
-Inicialmente deixe:
+```txt
+Claro. Vou te ajudar.
 
-```env
-BOTCONVERSA_OH_SEND_FLOW=false
-BOTCONVERSA_OH_FLOW_ID=
+Escolha a etapa:
+
+1 - Não encontrei o e-mail de confirmação
+2 - Quero entender a Organização em Harmonia completa
+3 - Quero falar sobre Corrente em Dia
+4 - Quero falar sobre Atendimento em Harmonia
+5 - Quero falar sobre Agenda Viva
+6 - Quero falar com a equipe
 ```
 
-Quando confirmar que contato, etiquetas e campos estão sendo atualizados, coloque:
+Aplicar etiqueta:
 
-```env
-BOTCONVERSA_OH_SEND_FLOW=true
-BOTCONVERSA_OH_FLOW_ID=ID_REAL_DO_FLUXO
+```txt
+oh_ajuda_solicitada
+oh_precisa_humano
 ```
 
-## Teste recomendado
+## 8. Observações importantes
 
-1. Preencha Quero Conhecer no site.
-2. Confirme `oh_leads` no Supabase.
-3. Confirme e-mail recebido.
-4. Confira contato no BotConversa.
-5. Confirme campos personalizados.
-6. Clique no botão da página Obrigado.
-7. Veja se o fluxo responde.
-8. Teste com mesmo telefone/e-mail repetido.
+- Não pedir novamente todos os dados do formulário no WhatsApp.
+- Não enviar senha por WhatsApp.
+- Sempre orientar a procurar e-mail também em spam/lixo eletrônico.
+- Se o campo `oh_resp_botconversa` estiver vazio, usar mensagem fixa para não deixar o lead sem resposta.
+- O WhatsApp deve ser continuação do cadastro, não uma nova barreira.

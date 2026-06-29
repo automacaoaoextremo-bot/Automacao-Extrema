@@ -1,88 +1,95 @@
-# Organização em Harmonia — implantação inicial
+# Organização em Harmonia — implementação mastigada
 
-## Objetivo
+## 1. Arquitetura funcional recomendada da suíte
 
-Criar uma suíte mais genérica que reaproveita os padrões do Corrente em Dia e prepara três módulos comerciais:
+### Guarda-chuva comercial
 
-- **Corrente em Dia**: contribuições, Pix, comprovantes, aprovações e lembretes.
-- **Atendimento em Harmonia**: recepção, agenda de atendimento, fila, retornos, check-in, encaixes, capacidade e cambonos.
-- **Agenda Viva**: calendário único de atividades/eventos, responsáveis, recorrências, aprovações, conflitos e comunicação.
+**Organização em Harmonia** é a solução completa da Automação Extrema para organizações que precisam centralizar rotina, pessoas, permissões, agenda, atendimentos e contribuições.
 
-O nome guarda-chuva passa a ser **Organização em Harmonia**, mais genérico que Casa em Harmonia e aplicável a terreiros, associações, federações, ONGs, clubes, grupos voluntários e outras instituições.
+### Núcleo interno
 
-## Arquivos novos principais
+**Base Única** é o núcleo compartilhado. Ela não é apresentada como módulo comercial separado no primeiro momento, mas como diferencial estrutural da suíte.
 
-```txt
-src/lib/organizacao-em-harmonia.ts
-src/components/organizacao-em-harmonia-landing.tsx
-src/app/solucoes/organizacao-em-harmonia/page.tsx
-src/app/solucoes/organizacao-em-harmonia/quero-conhecer/page.tsx
-src/app/solucoes/organizacao-em-harmonia/quero-conhecer/lead-form.tsx
-src/app/solucoes/organizacao-em-harmonia/obrigado/page.tsx
-src/app/solucoes/atendimento-em-harmonia/page.tsx
-src/app/solucoes/agenda-viva/page.tsx
-src/app/api/organizacao-em-harmonia/leads/route.ts
-src/app/api/organizacao-em-harmonia/leads/lookup/route.ts
-src/app/admin/ae/organizacao-em-harmonia/page.tsx
-public/organizacao-em-harmonia-logo.svg
-public/atendimento-em-harmonia-logo.svg
-public/agenda-viva-logo.svg
-supabase/sql/20260627_14_organizacao_em_harmonia_base.sql
-```
+Ela concentra:
 
-## O que foi preservado do Corrente em Dia
+- organizações;
+- pessoas;
+- contatos;
+- funções;
+- permissões;
+- vínculos;
+- módulos habilitados;
+- consentimentos;
+- auditoria.
 
-- Cabeçalho `AeSolutionHeader`.
-- Linha “Desenvolvido por Automação Extrema”.
-- Formulário mínimo com nome, WhatsApp e e-mail.
-- Estratégia de reduzir fricção no “Quero Conhecer”.
-- Página de Obrigado com botão de WhatsApp pré-preenchido.
-- BotConversa enriquecido via API com etiquetas/campos.
-- E-mail automático e alerta interno para AE.
-- Mobile-first.
-- Copy orientada por Deep Dive: menos foco em sistema, mais foco em clareza, tempo, segurança, menos retrabalho e menos tensão.
+### Módulos comerciais
 
-## Passo a passo no projeto local
+1. **Corrente em Dia**
+   - contribuições;
+   - Pix;
+   - comprovantes;
+   - aprovações;
+   - lembretes;
+   - prestação de contas.
 
-1. Extraia o ZIP atualizado por cima da pasta do projeto:
+2. **Atendimento em Harmonia**
+   - recepção;
+   - fila;
+   - agenda de atendimento;
+   - check-in;
+   - retornos;
+   - encaixes;
+   - cambonos;
+   - status do atendimento.
 
-```powershell
-cd C:\Users\lacos\Documents\GitHub\automacao-extrema
-```
+3. **Agenda Viva**
+   - calendário único;
+   - atividades;
+   - recorrências;
+   - responsáveis;
+   - aprovações;
+   - conflitos;
+   - comunicação interna.
 
-2. Rode validação:
+## 2. Estrutura de menus
 
-```powershell
-npm run lint
-npm run build
-```
+### Público
 
-3. Rode localmente:
+Na página pública:
 
-```powershell
-npm run dev
-```
+- Quero Conhecer
+- Já sou Cliente
+- Visão
+- Módulos
+- Base Única
+- Benefícios
+- Como Funciona
+- Cliente Fundador
 
-4. Teste as páginas:
+### Área logada desktop
 
-```txt
-http://localhost:3000/solucoes/organizacao-em-harmonia
-http://localhost:3000/solucoes/atendimento-em-harmonia
-http://localhost:3000/solucoes/agenda-viva
-http://localhost:3000/solucoes/organizacao-em-harmonia/quero-conhecer
-```
+Seguir o padrão do Bazar no Controle:
 
-## Passo a passo no Supabase
+- cabeçalho superior;
+- faixa “Desenvolvido por”;
+- menu superior de módulos;
+- menu lateral esquerdo para opções internas;
+- conteúdo principal à direita.
 
-1. Acesse o Supabase.
-2. Vá em **SQL Editor**.
-3. Rode o arquivo:
+### Área logada mobile
 
-```txt
-supabase/sql/20260627_14_organizacao_em_harmonia_base.sql
-```
+Seguir o padrão do Corrente em Dia:
 
-4. Confirme se foram criadas as tabelas:
+- cabeçalho fixo;
+- menu em pílulas no cabeçalho;
+- sem menu lateral;
+- conteúdo em cards de uma coluna.
+
+## 3. Estrutura da Base Única
+
+A Base Única precisa evitar que o mesmo cliente cadastre a mesma pessoa várias vezes.
+
+### Tabelas recomendadas
 
 ```txt
 oh_organizations
@@ -91,101 +98,103 @@ oh_roles
 oh_permissions
 oh_role_permissions
 oh_memberships
-oh_leads
-agv_events
-agv_event_approvals
-aeh_service_days
-aeh_attendance_requests
+oh_module_settings
+oh_audit_logs
 ```
 
-5. Confirme se foram cadastradas as soluções:
+### Regras principais
 
-```sql
-select name, slug, current_status, stage, priority
-from public.ae_solutions
-where slug in ('organizacao-em-harmonia', 'atendimento-em-harmonia', 'agenda-viva', 'corrente-em-dia')
-order by priority;
-```
+- Uma organização pode ter vários módulos habilitados.
+- Uma pessoa pode ter uma ou mais funções.
+- Uma função pode ter permissões diferentes por módulo.
+- O cliente define quem aprova calendário, atendimento, contribuição e alterações críticas.
+- A auditoria deve registrar ações sensíveis.
 
-## Passo a passo no GitHub
+## 4. Formulário único de Quero Conhecer
 
-```powershell
-cd C:\Users\lacos\Documents\GitHub\automacao-extrema
-
-git status
-git add .
-git commit -m "Cria suite Organizacao em Harmonia"
-git push origin main
-```
-
-Se sua branch principal for `master`:
-
-```powershell
-git push origin master
-```
-
-## Passo a passo na Vercel
-
-1. Acesse o projeto na Vercel.
-2. Vá em **Settings > Environment Variables**.
-3. Confirme as variáveis já usadas pelo projeto:
-
-```env
-NEXT_PUBLIC_SITE_URL=https://www.automacaoextrema.com
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-EMAIL_NOTIFICATIONS_ENABLED=true
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASS=
-EMAIL_FROM_NAME=Automação Extrema
-EMAIL_FROM=
-EMAIL_COPY_TO=automacao.ao.extremo@gmail.com
-AE_INTERNAL_WHATSAPP=19992360856
-```
-
-4. Inclua/valide as variáveis BotConversa de Organização em Harmonia descritas em:
+Rota:
 
 ```txt
-docs/PASSO_A_PASSO_BOTCONVERSA_ORGANIZACAO_EM_HARMONIA.md
+/solucoes/organizacao-em-harmonia/quero-conhecer
 ```
 
-5. Faça redeploy.
-
-## Teste de cadastro
-
-1. Acesse:
+Parâmetros:
 
 ```txt
-https://www.automacaoextrema.com/solucoes/organizacao-em-harmonia/quero-conhecer
+?modulo=corrente-em-dia
+?modulo=atendimento-em-harmonia
+?modulo=agenda-viva
 ```
 
-2. Preencha:
+Sem parâmetro, a opção padrão é:
 
 ```txt
-Módulo: Atendimento em Harmonia ou Agenda Viva
-Nome do contato
-WhatsApp
-E-mail
-Organização opcional
+Organização em Harmonia — solução completa
 ```
 
-3. Verifique:
+Campos:
 
-- Registro em `oh_leads`.
-- E-mail para o lead.
-- E-mail interno para AE.
-- Página de Obrigado.
-- WhatsApp pré-preenchido para o número da AE.
-- Campos e etiquetas no BotConversa, se configurado.
+- Solução de interesse
+- Nome do contato
+- WhatsApp
+- E-mail
+- Nome da organização opcional
+- LGPD opcional no primeiro contato
+- Interesse Cliente Fundador opcional no primeiro contato
 
-## Próximos incrementos recomendados
+O envio deve:
 
-1. Criar área logada única da Organização em Harmonia.
-2. Implementar tela Configurações com funções/permissões por módulo.
-3. Implementar Agenda Viva: eventos, recorrência, aprovação e conflitos.
-4. Implementar Atendimento em Harmonia: dias de atendimento, check-in, fila, retorno e cambonos.
-5. Integrar Corrente em Dia à base `oh_people`/`oh_roles` futuramente, sem quebrar a base `ced_*` atual.
+1. gravar lead em `oh_leads`;
+2. enviar e-mail de confirmação;
+3. abrir página Obrigado;
+4. orientar continuidade pelo WhatsApp;
+5. levar no WhatsApp nome, e-mail, WhatsApp, código do lead e solução de interesse.
+
+## 5. Página Obrigado
+
+A página deve orientar:
+
+- continuar pelo WhatsApp;
+- procurar o e-mail em spam/lixo eletrônico se não encontrar;
+- não preencher novamente o formulário;
+- usar o WhatsApp como canal principal para validação.
+
+## 6. BotConversa
+
+Fluxo único:
+
+```txt
+OH - Lead vindo do site
+```
+
+No início, usar mensagem fixa segura. Depois que a API preencher `oh_resp_botconversa`, usar o campo personalizado.
+
+## 7. Supabase
+
+Rodar o SQL:
+
+```txt
+supabase/sql/20260628_15_organizacao_em_harmonia_base_unica.sql
+```
+
+Esse SQL cria ou complementa a Base Única.
+
+## 8. GitHub
+
+Branch recomendada:
+
+```txt
+feature/organizacao-em-harmonia
+```
+
+## 9. Vercel
+
+Após push, validar deploy preview. Só promover para produção quando:
+
+- lint OK;
+- build OK;
+- formulário OK;
+- e-mail OK;
+- WhatsApp OK;
+- páginas públicas OK;
+- mobile OK.

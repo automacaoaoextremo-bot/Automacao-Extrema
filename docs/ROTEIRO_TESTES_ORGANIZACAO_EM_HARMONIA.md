@@ -8,112 +8,74 @@ Testar:
 /solucoes/organizacao-em-harmonia
 /solucoes/atendimento-em-harmonia
 /solucoes/agenda-viva
+```
+
+Validar:
+
+- cabeçalho igual ao padrão Corrente em Dia;
+- menu mobile em pílulas no cabeçalho;
+- página pública sem texto “Oceano Azul”;
+- seção Benefícios em cards;
+- Cliente Fundador no padrão visual do Corrente em Dia;
+- módulos com link para Quero Conhecer pré-selecionado;
+- módulos citando Organização em Harmonia como solução completa.
+
+## 2. Quero Conhecer único
+
+Testar:
+
+```txt
 /solucoes/organizacao-em-harmonia/quero-conhecer
-/solucoes/organizacao-em-harmonia/obrigado
+/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=corrente-em-dia
+/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=atendimento-em-harmonia
+/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=agenda-viva
 ```
 
-Critérios:
+Validar:
 
-- Cabeçalho igual ao padrão do Corrente em Dia.
-- Logo da solução no topo.
-- Linha Desenvolvido por Automação Extrema.
-- Layout mobile-friendly.
-- Botão Quero Conhecer funcionando.
-- Botão WhatsApp apontando para o WhatsApp da AE, não para o telefone do lead.
+- solução de interesse vem preenchida corretamente;
+- opções não duplicam “Pacote Completo” e “Organização em Harmonia”;
+- nome, WhatsApp e e-mail são obrigatórios;
+- LGPD e Cliente Fundador não barram o envio;
+- formulário redireciona para a página Obrigado;
+- e-mail de confirmação é enviado;
+- botão WhatsApp leva mensagem pré-preenchida para a AE.
 
-## 2. Formulário Quero Conhecer
+## 3. Área logada
 
-Campos mínimos obrigatórios:
+Testar:
 
 ```txt
-Nome do contato
-WhatsApp
-E-mail
+/solucoes/organizacao-em-harmonia/cliente
+/solucoes/organizacao-em-harmonia/cliente/base-unica
+/solucoes/organizacao-em-harmonia/cliente/modulos
+/solucoes/organizacao-em-harmonia/cliente/configuracoes
+/solucoes/organizacao-em-harmonia/cliente/relatorios
 ```
 
-Campos opcionais:
+Desktop:
 
-```txt
-Módulo de interesse
-Nome da organização
-LGPD
-Cliente Fundador
-```
+- menu lateral aparece;
+- menu superior permanece para navegação rápida;
+- conteúdo fica à direita.
 
-Critérios:
+Mobile:
 
-- Não envia sem nome, WhatsApp e e-mail.
-- LGPD e Cliente Fundador não bloqueiam envio.
-- Ao enviar, redireciona para Obrigado.
-- Campos são limpos antes do redirecionamento.
+- menu lateral não aparece;
+- pílulas ficam no cabeçalho;
+- conteúdo fica em uma coluna.
 
-## 3. Supabase
+## 4. BotConversa
 
-Após envio, conferir:
+- Preencher Quero Conhecer.
+- Clicar em Continuar pelo WhatsApp.
+- Confirmar que o fluxo OH - Lead vindo do site inicia.
+- Confirmar mensagem fixa segura ou `{oh_resp_botconversa}`.
+- Confirmar orientação para procurar e-mail em spam/lixo eletrônico.
 
-```sql
-select *
-from public.oh_leads
-order by created_at desc
-limit 10;
-```
+## 5. Git/Vercel
 
-Critérios:
-
-- Lead criado.
-- `interest_module` correto.
-- `contact_name`, `email`, `whatsapp` corretos.
-- `status` muda para `email_confirmacao_enviado` se e-mail foi enviado.
-
-## 4. E-mail
-
-Critérios:
-
-- E-mail chega ao lead.
-- E-mail cita módulo de interesse.
-- Orienta continuar pelo WhatsApp.
-- Cita spam/lixo eletrônico.
-- E-mail interno chega para AE.
-
-## 5. BotConversa
-
-Critérios:
-
-- Contato criado/atualizado.
-- Etiquetas aplicadas.
-- Campos `oh_*` preenchidos.
-- Campo `oh_resp_botconversa` preenchido se ID estiver configurado.
-- Fluxo responde com mensagem fixa ou variável.
-
-## 6. Lookup
-
-PowerShell:
-
-```powershell
-$body = @{
-  source = "debug"
-  whatsapp = "19992360856"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Uri "https://www.automacaoextrema.com/api/organizacao-em-harmonia/leads/lookup" `
-  -Method Post `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Critérios:
-
-- Retorna `ok=true`.
-- Se encontrar, `found=true`.
-- Mensagem cita spam/lixo eletrônico.
-- Fallback não manda preencher novamente o formulário.
-
-## 7. Próximo ciclo funcional
-
-Depois de validar entrada e BotConversa, iniciar MVP logado:
-
-- Configurações: módulos ativos, funções e permissões.
-- Agenda Viva: criar atividade, aprovar, detectar conflito.
-- Atendimento em Harmonia: criar dia de atendimento, check-in, fila, status e retorno.
-- Corrente em Dia: manter funcionando com base atual e planejar integração gradual com `oh_people`.
+- Rodar `npm run lint`.
+- Rodar `npm run build`.
+- Fazer push na branch `feature/organizacao-em-harmonia`.
+- Validar deploy preview.

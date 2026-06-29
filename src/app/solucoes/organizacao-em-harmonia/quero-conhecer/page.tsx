@@ -12,6 +12,8 @@ export default async function OrganizacaoLeadPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = (await searchParams) ?? {};
-  const initialModule = normalizeOrganizacaoModulo(asParam(params.modulo));
+  const initialModule = normalizeOrganizacaoModulo(
+    asParam(params.modulo) || asParam(params.interesse) || asParam(params.module),
+  );
   return <OrganizacaoLeadForm initialModule={initialModule} />;
 }

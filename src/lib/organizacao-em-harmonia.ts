@@ -48,8 +48,43 @@ export type OrganizacaoLead = {
   updated_at: string;
 };
 
+
+export type OrganizacaoClientNavItem = {
+  href: string;
+  label: string;
+  description: string;
+};
+
+export const ORGANIZACAO_CLIENT_NAV_ITEMS: OrganizacaoClientNavItem[] = [
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente",
+    label: "Painel",
+    description: "Visão inicial, checklist e próximos passos.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/base-unica",
+    label: "Base Única",
+    description: "Pessoas, funções, permissões e módulos habilitados.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/modulos",
+    label: "Módulos",
+    description: "Corrente em Dia, Atendimento em Harmonia e Agenda Viva.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes",
+    label: "Configurações",
+    description: "Regras, aprovações, LGPD, permissões e preferências.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/relatorios",
+    label: "Relatórios",
+    description: "Indicadores e acompanhamento da validação.",
+  },
+];
+
 export const ORGANIZACAO_MODULOS: Array<{
-  slug: OrganizacaoModulo;
+  slug: Exclude<OrganizacaoModulo, "pacote-completo">;
   name: string;
   shortName: string;
   headline: string;
@@ -60,10 +95,10 @@ export const ORGANIZACAO_MODULOS: Array<{
   {
     slug: "organizacao-em-harmonia",
     name: "Organização em Harmonia",
-    shortName: "Organização",
+    shortName: "Solução completa",
     headline: "Uma base única para pessoas, funções, permissões, agenda, atendimentos e contribuições.",
     description:
-      "Suíte modular da Automação Extrema para organizações que precisam reduzir desencontros, retrabalho e decisões na memória sem perder o jeito humano de funcionar.",
+      "Suíte modular da Automação Extrema para organizações que precisam reduzir desencontros, retrabalho e decisões soltas sem perder o jeito humano de funcionar.",
     href: "/solucoes/organizacao-em-harmonia",
     logoSrc: "/organizacao-em-harmonia-logo.svg",
   },
@@ -99,6 +134,37 @@ export const ORGANIZACAO_MODULOS: Array<{
   },
 ];
 
+export const ORGANIZACAO_MODULOS_COMERCIAIS = ORGANIZACAO_MODULOS.filter(
+  (item) => item.slug !== "organizacao-em-harmonia",
+);
+
+export const ORGANIZACAO_INTEREST_OPTIONS: Array<{
+  slug: Exclude<OrganizacaoModulo, "pacote-completo">;
+  label: string;
+  description: string;
+}> = [
+  {
+    slug: "organizacao-em-harmonia",
+    label: "Organização em Harmonia — solução completa",
+    description: "Base Única + Corrente em Dia + Atendimento em Harmonia + Agenda Viva.",
+  },
+  {
+    slug: "corrente-em-dia",
+    label: "Corrente em Dia",
+    description: "Contribuições, Pix, comprovantes, lembretes e aprovações.",
+  },
+  {
+    slug: "atendimento-em-harmonia",
+    label: "Atendimento em Harmonia",
+    description: "Recepção, agenda, fila, retornos, check-in e apoio dos cambonos.",
+  },
+  {
+    slug: "agenda-viva",
+    label: "Agenda Viva",
+    description: "Calendário único, atividades, responsáveis, aprovações e conflitos.",
+  },
+];
+
 export function normalizeOrganizacaoModulo(value: unknown): OrganizacaoModulo {
   const text = String(value ?? "")
     .trim()
@@ -119,28 +185,16 @@ export function normalizeOrganizacaoModulo(value: unknown): OrganizacaoModulo {
     return "corrente-em-dia";
   }
 
-  if (["pacote", "pacote-completo", "todos", "todas", "suite", "suíte"].includes(text)) {
-    return "pacote-completo";
+  if (["pacote", "pacote-completo", "todos", "todas", "suite", "suíte", "completo"].includes(text)) {
+    return "organizacao-em-harmonia";
   }
 
   return "organizacao-em-harmonia";
 }
 
 export function moduleInfo(slug: OrganizacaoModulo) {
-  if (slug === "pacote-completo") {
-    return {
-      slug,
-      name: "Pacote Organização em Harmonia",
-      shortName: "Pacote completo",
-      headline: "Corrente em Dia, Atendimento em Harmonia e Agenda Viva trabalhando sobre a mesma base.",
-      description:
-        "Para validar uma operação mais integrada, com pessoas, funções, permissões e dados compartilhados entre os módulos.",
-      href: "/solucoes/organizacao-em-harmonia",
-      logoSrc: "/organizacao-em-harmonia-logo.svg",
-    };
-  }
-
-  return ORGANIZACAO_MODULOS.find((item) => item.slug === slug) ?? ORGANIZACAO_MODULOS[0];
+  const normalizedSlug = slug === "pacote-completo" ? "organizacao-em-harmonia" : slug;
+  return ORGANIZACAO_MODULOS.find((item) => item.slug === normalizedSlug) ?? ORGANIZACAO_MODULOS[0];
 }
 
 export function moduleLabel(slug: OrganizacaoModulo) {
@@ -149,6 +203,11 @@ export function moduleLabel(slug: OrganizacaoModulo) {
 
 export function normalizeWhatsapp(value: string) {
   return value.replace(/\D/g, "");
+}
+
+export function interesseQuery(slug: OrganizacaoModulo) {
+  const normalizedSlug = normalizeOrganizacaoModulo(slug);
+  return normalizedSlug === "organizacao-em-harmonia" ? "" : `?modulo=${normalizedSlug}`;
 }
 
 export function organizacaoWhatsappMessage(input: {

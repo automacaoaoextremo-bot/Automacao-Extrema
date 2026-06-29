@@ -1,17 +1,53 @@
 # Passo a passo de atualização — Organização em Harmonia
 
-## 1. Arquivos do projeto local
+## 1. Objetivo desta atualização
 
-1. Feche o servidor local, se estiver rodando.
-2. Faça backup:
+Esta atualização ajusta a Organização em Harmonia para seguir a estratégia definida:
+
+- Organização em Harmonia = suíte completa.
+- Corrente em Dia, Atendimento em Harmonia e Agenda Viva = módulos comerciais.
+- Base Única = núcleo interno compartilhado de pessoas, funções, permissões e módulos habilitados.
+- Quero Conhecer = formulário único, com interesse pré-selecionado por módulo.
+- Cliente Fundador = padronizado visualmente no mesmo modelo do Corrente em Dia.
+- Página pública sem citar “Oceano Azul”; o conceito fica como estratégia interna.
+- Área logada preparada com menu lateral no desktop e menu no cabeçalho no mobile.
+
+## 2. Arquivos principais alterados
+
+```txt
+src/lib/organizacao-em-harmonia.ts
+src/components/organizacao-em-harmonia-landing.tsx
+src/components/organizacao-client-shell.tsx
+src/app/solucoes/organizacao-em-harmonia/page.tsx
+src/app/solucoes/organizacao-em-harmonia/quero-conhecer/page.tsx
+src/app/solucoes/organizacao-em-harmonia/quero-conhecer/lead-form.tsx
+src/app/solucoes/organizacao-em-harmonia/obrigado/page.tsx
+src/app/solucoes/organizacao-em-harmonia/cliente/page.tsx
+src/app/solucoes/organizacao-em-harmonia/cliente/base-unica/page.tsx
+src/app/solucoes/organizacao-em-harmonia/cliente/modulos/page.tsx
+src/app/solucoes/organizacao-em-harmonia/cliente/configuracoes/page.tsx
+src/app/solucoes/organizacao-em-harmonia/cliente/relatorios/page.tsx
+src/app/solucoes/atendimento-em-harmonia/page.tsx
+src/app/solucoes/agenda-viva/page.tsx
+```
+
+## 3. Atualização local
+
+Na pasta do projeto:
 
 ```powershell
 cd C:\Users\lacos\Documents\GitHub\automacao-extrema
-Compress-Archive -Path .\* -DestinationPath ..\automacao-extrema-backup-antes-organizacao-em-harmonia.zip -Force
 ```
 
-3. Extraia o ZIP atualizado por cima da pasta do projeto.
-4. Rode:
+Faça backup:
+
+```powershell
+Compress-Archive -Path .\* -DestinationPath ..\automacao-extrema-backup-antes-oh-ajustes.zip -Force
+```
+
+Extraia o ZIP atualizado por cima do projeto.
+
+Depois rode:
 
 ```powershell
 npm run lint
@@ -19,113 +55,110 @@ npm run build
 npm run dev
 ```
 
-5. Teste localmente:
+## 4. Rotas para testar localmente
 
 ```txt
 http://localhost:3000/solucoes/organizacao-em-harmonia
 http://localhost:3000/solucoes/atendimento-em-harmonia
 http://localhost:3000/solucoes/agenda-viva
 http://localhost:3000/solucoes/organizacao-em-harmonia/quero-conhecer
+http://localhost:3000/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=corrente-em-dia
+http://localhost:3000/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=atendimento-em-harmonia
+http://localhost:3000/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=agenda-viva
+http://localhost:3000/solucoes/organizacao-em-harmonia/cliente
 ```
 
-## 2. Supabase
+## 5. Supabase
 
-No Supabase SQL Editor, rode:
+Se a base `oh_*` ainda não existir no projeto, rode o SQL da Organização em Harmonia já entregue anteriormente.
+
+A estrutura recomendada para próximas evoluções é:
 
 ```txt
-supabase/sql/20260627_14_organizacao_em_harmonia_base.sql
+oh_organizations
+oh_people
+oh_roles
+oh_permissions
+oh_role_permissions
+oh_memberships
+oh_leads
+agv_events
+agv_event_approvals
+aeh_service_days
+aeh_attendance_requests
 ```
 
-Depois valide:
+Nesta atualização visual/arquitetural, não há SQL destrutivo obrigatório.
 
-```sql
-select name, slug, current_status, stage, priority
-from public.ae_solutions
-where slug in ('organizacao-em-harmonia', 'atendimento-em-harmonia', 'agenda-viva')
-order by priority;
+## 6. GitHub
 
-select * from public.oh_permissions_matrix;
+Usar a branch específica:
+
+```powershell
+git checkout feature/organizacao-em-harmonia
 ```
 
-## 3. Variáveis de ambiente local
+Se ainda não existir:
 
-Atualize `.env.local` com os campos BotConversa da Organização em Harmonia, quando os IDs reais forem criados:
-
-```env
-BOTCONVERSA_OH_SEND_FLOW=false
-BOTCONVERSA_OH_FLOW_ID=
-BOTCONVERSA_OH_TAG_LEAD_SITE_ID=
-BOTCONVERSA_OH_TAG_EMAIL_SENT_ID=
-BOTCONVERSA_OH_TAG_FOUNDER_ID=
-BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID=
-BOTCONVERSA_OH_FIELD_NAME_ID=
-BOTCONVERSA_OH_FIELD_EMAIL_ID=
-BOTCONVERSA_OH_FIELD_WHATSAPP_ID=
-BOTCONVERSA_OH_FIELD_LEAD_ID_ID=
-BOTCONVERSA_OH_FIELD_MODULE_ID=
-BOTCONVERSA_OH_FIELD_MODULE_SLUG_ID=
-BOTCONVERSA_OH_FIELD_ORGANIZATION_ID=
-BOTCONVERSA_OH_FIELD_ORIGIN_ID=
-BOTCONVERSA_OH_FIELD_STATUS_ID=
-BOTCONVERSA_OH_FIELD_LOGIN_URL_ID=
-BOTCONVERSA_OH_FIELD_FOUNDER_ID=
-BOTCONVERSA_OH_FIELD_EMAIL_SENT_ID=
-BOTCONVERSA_OH_FIELD_RESPONSE_ID=
+```powershell
+git checkout -b feature/organizacao-em-harmonia
 ```
 
-## 4. GitHub
+Depois:
 
 ```powershell
 git status
 git add .
-git commit -m "Cria Organizacao em Harmonia com Atendimento e Agenda Viva"
-git push origin main
+git commit -m "Ajusta Organizacao em Harmonia com Base Unica e padroes de modulos"
+git push origin feature/organizacao-em-harmonia
 ```
 
-Se usar `master`:
+## 7. Vercel
+
+Após o push, se a branch estiver conectada à Vercel, aguarde o deploy preview.
+
+Para forçar produção somente quando validado:
 
 ```powershell
-git push origin master
+npx vercel --prod
 ```
 
-## 5. Vercel
+## 8. BotConversa
 
-1. Vá em **Project Settings > Environment Variables**.
-2. Copie as variáveis `BOTCONVERSA_OH_*` do `.env.example`.
-3. Deixe `BOTCONVERSA_OH_SEND_FLOW=false` até validar campos e etiquetas.
-4. Faça redeploy.
-5. Teste em produção:
+Manter fluxo único:
 
 ```txt
-https://www.automacaoextrema.com/solucoes/organizacao-em-harmonia
-https://www.automacaoextrema.com/solucoes/atendimento-em-harmonia
-https://www.automacaoextrema.com/solucoes/agenda-viva
+OH - Lead vindo do site
 ```
 
-## 6. BotConversa
-
-Siga o documento:
+Usar palavras-chave com condição **Contém**:
 
 ```txt
-docs/PASSO_A_PASSO_BOTCONVERSA_ORGANIZACAO_EM_HARMONIA.md
+Organização em Harmonia
+Corrente em Dia
+Atendimento em Harmonia
+Agenda Viva
+Cliente Fundador
+Quero conhecer
+Preenchi o Quero Conhecer
 ```
 
-Resumo:
+Enquanto a API não preencher `oh_resp_botconversa` de forma confiável, usar mensagem fixa segura no bloco do fluxo.
 
-1. Criar campos personalizados `oh_*`.
-2. Criar etiquetas `oh_*`.
-3. Descobrir os IDs reais.
-4. Preencher `.env.local` e Vercel.
-5. Criar fluxo `OH - Lead vindo do site`.
-6. Usar mensagem fixa primeiro.
-7. Depois, se `oh_resp_botconversa` estiver preenchendo corretamente, trocar para `{oh_resp_botconversa}`.
+Depois de validar API e campos, trocar para:
 
-## 7. Validação final
+```txt
+{oh_resp_botconversa}
+```
 
-1. Preencher Quero Conhecer.
-2. Conferir `oh_leads`.
-3. Conferir e-mail do lead e e-mail interno.
-4. Conferir contato BotConversa.
-5. Clicar no botão da página Obrigado.
-6. Confirmar que o WhatsApp abre para a AE.
-7. Confirmar que o fluxo responde.
+## 9. Checklist de validação
+
+- Página principal não cita “Oceano Azul”.
+- Benefícios aparecem em cards claros.
+- Cliente Fundador segue padrão do Corrente em Dia.
+- Quero Conhecer segue padrão do Corrente em Dia.
+- O seletor não mostra “Pacote Completo” separado de Organização em Harmonia.
+- Páginas dos módulos apontam para a solução completa.
+- Base Única aparece como núcleo interno compartilhado.
+- Desktop da área logada tem menu lateral.
+- Mobile da área logada mantém menu fixo no cabeçalho.

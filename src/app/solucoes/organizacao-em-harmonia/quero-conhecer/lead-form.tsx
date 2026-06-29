@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
-import { moduleInfo, moduleLabel, normalizeWhatsapp, ORGANIZACAO_MODULOS, type OrganizacaoModulo } from "@/lib/organizacao-em-harmonia";
+import {
+  moduleInfo,
+  moduleLabel,
+  normalizeOrganizacaoModulo,
+  normalizeWhatsapp,
+  ORGANIZACAO_INTEREST_OPTIONS,
+  type OrganizacaoModulo,
+} from "@/lib/organizacao-em-harmonia";
 
 type SubmitState = {
   status: "idle" | "sending" | "error";
@@ -11,7 +18,7 @@ type SubmitState = {
 };
 
 export function OrganizacaoLeadForm({ initialModule }: { initialModule: OrganizacaoModulo }) {
-  const [module, setModule] = useState<OrganizacaoModulo>(initialModule);
+  const [selectedModule, setSelectedModule] = useState<OrganizacaoModulo>(normalizeOrganizacaoModulo(initialModule));
   const [contactName, setContactName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
@@ -21,7 +28,8 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
   const [touched, setTouched] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle", message: "" });
 
-  const current = moduleInfo(module);
+  const current = moduleInfo(selectedModule);
+  const solutionArticle = current.slug === "agenda-viva" || current.slug === "organizacao-em-harmonia" ? "a" : "o";
   const canSend = contactName.trim() && whatsapp.trim() && email.trim();
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -37,7 +45,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source: "site_organizacao_em_harmonia_minimo",
-          modulo: module,
+          modulo: selectedModule,
           contactName,
           responsibleName: contactName,
           whatsapp: normalizeWhatsapp(whatsapp),
@@ -47,7 +55,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
           testimonialPermission: founderConsent,
           lgpdContactConsent: consent,
           observations:
-            "Cadastro mínimo pela página Quero Conhecer. Dados completos da organização, regras e permissões serão confirmados na próxima etapa.",
+            "Cadastro mínimo pelo Quero Conhecer único da Organização em Harmonia. Dados completos, regras, permissões e módulos serão confirmados na próxima etapa.",
         }),
       });
 
@@ -55,7 +63,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
       if (!response.ok) throw new Error(result.error || "Não foi possível enviar o cadastro de interesse.");
 
       const params = new URLSearchParams({
-        modulo: module,
+        modulo: selectedModule,
         nome: contactName,
         email,
         whatsapp: normalizeWhatsapp(whatsapp),
@@ -104,26 +112,25 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
             Cadastro de interesse
           </p>
           <h1 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
-            Quero conhecer a Organização em Harmonia
+            Quero conhecer {solutionArticle} {moduleLabel(selectedModule)}
           </h1>
 
           <p className="mt-3 rounded-3xl bg-emerald-50 p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-emerald-100 sm:text-base sm:leading-7">
-            Informe apenas nome do contato, WhatsApp e e-mail. A proposta é reduzir fricção: primeiro entendemos o interesse, depois confirmamos dados da organização, permissões, regras de aprovação e módulos que fazem sentido para a validação.
+            Informe nome do contato, WhatsApp e e-mail para liberar o primeiro atendimento. Se fizer sentido para sua organização, você pode entrar como Cliente Fundador, com condições especiais, prioridade nas melhorias e acompanhamento mais próximo. Os demais dados da organização, os módulos habilitados, permissões e LGPD serão confirmados depois, dentro da área logada.
           </p>
 
           <form onSubmit={onSubmit} className="mt-4">
             <div className="grid gap-3">
               <label>
-                <span className="text-sm font-bold text-slate-700">Módulo de interesse</span>
+                <span className="text-sm font-bold text-slate-700">Solução de interesse</span>
                 <select
-                  value={module}
-                  onChange={(event) => setModule(event.target.value as OrganizacaoModulo)}
+                  value={selectedModule === "pacote-completo" ? "organizacao-em-harmonia" : selectedModule}
+                  onChange={(event) => setSelectedModule(normalizeOrganizacaoModulo(event.target.value))}
                   className="mt-1 w-full rounded-2xl border border-slate-300 bg-white p-3"
                 >
-                  <option value="pacote-completo">Pacote completo — Corrente, Atendimento e Agenda</option>
-                  {ORGANIZACAO_MODULOS.map((item) => (
+                  {ORGANIZACAO_INTEREST_OPTIONS.map((item) => (
                     <option key={item.slug} value={item.slug}>
-                      {item.name}
+                      {item.label}
                     </option>
                   ))}
                 </select>
@@ -190,7 +197,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
                   className="mt-1 h-5 w-5 shrink-0"
                 />
                 <span>
-                  Autorizo a Automação Extrema a usar estes dados para contato sobre a {moduleLabel(module)}. A confirmação formal de LGPD será feita na próxima etapa.
+                  Autorizo a Automação Extrema a usar estes dados para contato sobre a {moduleLabel(selectedModule)}. A confirmação formal de LGPD será feita no primeiro acesso.
                 </span>
               </label>
 
@@ -202,7 +209,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
                   className="mt-1 h-5 w-5 shrink-0"
                 />
                 <span>
-                  Tenho interesse em participar como Cliente Fundador. A confirmação dos termos da avaliação será feita depois, com clareza e aceite expresso.
+                  Tenho interesse em participar como Cliente Fundador. A confirmação dos termos da avaliação será feita dentro da área logada, com clareza e aceite expresso.
                 </span>
               </label>
             </div>
@@ -214,7 +221,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
             <button
               type="submit"
               disabled={submitState.status === "sending"}
-              className="mt-5 inline-flex w-full min-h-14 items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitState.status === "sending" ? "Enviando interesse..." : "Enviar interesse"}
             </button>
