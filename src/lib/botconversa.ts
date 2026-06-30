@@ -530,7 +530,20 @@ function organizacaoTagIds(input: OrganizacaoBotConversaSyncInput) {
     firstEnv(
       "BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID",
       "BOTCONVERSA_OH_TAG_WAITING_ACCESS",
+      "BOTCONVERSA_OH_TAG_IMPLANTATION_ID",
     ),
+    input.priorityModuleSlug === "agenda-viva"
+      ? firstEnv(
+          "BOTCONVERSA_OH_TAG_AGENDA_VIVA_ID",
+          "BOTCONVERSA_OH_TAG_AGENDA_VIVA",
+        )
+      : "",
+    input.organizationName?.toLowerCase().includes("tucxa")
+      ? firstEnv(
+          "BOTCONVERSA_OH_TAG_TUCXA_ID",
+          "BOTCONVERSA_OH_TAG_TUCXA",
+        )
+      : "",
   ].filter(isConfigured);
 }
 
@@ -1029,6 +1042,10 @@ async function sendFlow(
 }
 
 export function getBotConversaConfigSummary() {
+  const ohFlowId = firstEnv("BOTCONVERSA_OH_FLOW_ID", "BOTCONVERSA_OH_FLOW");
+  const cedFlowId = firstEnv("BOTCONVERSA_CED_FLOW_ID", "BOTCONVERSA_CED_FLOW");
+  const pqFlowId = firstEnv("BOTCONVERSA_PQ_FLOW_ID", "BOTCONVERSA_PQ_FLOW");
+
   return {
     enabled: isEnabled(),
     baseUrl: cleanBaseUrl(env("BOTCONVERSA_API_BASE_URL")),
@@ -1047,6 +1064,8 @@ export function getBotConversaConfigSummary() {
     hasApiKey: Boolean(
       env("BOTCONVERSA_API_KEY") || env("BOTCONVERSA_WEBHOOK_INTEGRATION_KEY"),
     ),
+    cedSendFlowEnabled: env("BOTCONVERSA_CED_SEND_FLOW").toLowerCase() === "true",
+    cedFlowConfigured: isConfigured(cedFlowId),
     cedResponseFieldConfigured: Boolean(
       firstEnv(
         "BOTCONVERSA_CED_FIELD_RESPONSE_ID",
@@ -1055,6 +1074,8 @@ export function getBotConversaConfigSummary() {
         "BOTCONVERSA_CED_FIELD_MESSAGE",
       ),
     ),
+    pqSendFlowEnabled: env("BOTCONVERSA_PQ_SEND_FLOW").toLowerCase() === "true",
+    pqFlowConfigured: isConfigured(pqFlowId),
     pqResponseFieldConfigured: Boolean(
       firstEnv(
         "BOTCONVERSA_PQ_FIELD_RESPONSE_ID",
@@ -1063,6 +1084,8 @@ export function getBotConversaConfigSummary() {
         "BOTCONVERSA_PQ_FIELD_MESSAGE",
       ),
     ),
+    ohSendFlowEnabled: env("BOTCONVERSA_OH_SEND_FLOW").toLowerCase() === "true",
+    ohFlowConfigured: isConfigured(ohFlowId),
     ohResponseFieldConfigured: Boolean(
       firstEnv(
         "BOTCONVERSA_OH_FIELD_RESPONSE_ID",
@@ -1071,6 +1094,20 @@ export function getBotConversaConfigSummary() {
         "BOTCONVERSA_OH_FIELD_MESSAGE",
       ),
     ),
+    ohTagsConfigured: {
+      leadSite: Boolean(firstEnv("BOTCONVERSA_OH_TAG_LEAD_SITE_ID", "BOTCONVERSA_OH_TAG_LEAD_SITE")),
+      emailSent: Boolean(firstEnv("BOTCONVERSA_OH_TAG_EMAIL_SENT_ID", "BOTCONVERSA_OH_TAG_EMAIL_SENT")),
+      founder: Boolean(firstEnv("BOTCONVERSA_OH_TAG_FOUNDER_ID", "BOTCONVERSA_OH_TAG_FOUNDER")),
+      waitingAccess: Boolean(
+        firstEnv(
+          "BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID",
+          "BOTCONVERSA_OH_TAG_WAITING_ACCESS",
+          "BOTCONVERSA_OH_TAG_IMPLANTATION_ID",
+        ),
+      ),
+      agendaViva: Boolean(firstEnv("BOTCONVERSA_OH_TAG_AGENDA_VIVA_ID", "BOTCONVERSA_OH_TAG_AGENDA_VIVA")),
+      tucxa: Boolean(firstEnv("BOTCONVERSA_OH_TAG_TUCXA_ID", "BOTCONVERSA_OH_TAG_TUCXA")),
+    },
   };
 }
 
