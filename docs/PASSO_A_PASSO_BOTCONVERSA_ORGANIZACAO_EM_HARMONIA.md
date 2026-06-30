@@ -214,3 +214,95 @@ E-mail: tucxacentro@gmail.com
 3. Clicar em Continuar cadastro pelo WhatsApp.
 4. Conferir no BotConversa se `oh_resp_botconversa` foi preenchido.
 5. Conferir se o fluxo respondeu com Organização em Harmonia, não Corrente em Dia.
+
+## Ajuste importante — palavras-chave sem sobreposição entre módulos
+
+Como Corrente em Dia, Agenda Viva, Atendimento em Harmonia e Organização em Harmonia podem ter fluxos separados no BotConversa, evite repetir palavras-chave genéricas em mais de um fluxo.
+
+### Regra prática
+
+- Não use apenas `Quero conhecer`, `Cliente Fundador`, `Código do lead` ou `Continuar cadastro` como palavra-chave exclusiva de um fluxo.
+- Sempre combine a palavra-chave com o nome do módulo.
+- Use condição `Contém`, mas com frases específicas.
+
+### Fluxo OH - Lead vindo do site
+
+Palavras-chave recomendadas:
+
+```txt
+Organização em Harmonia
+Quero conhecer a Organização em Harmonia
+Preenchi o Quero Conhecer da Organização em Harmonia
+Validação da Organização em Harmonia
+OH
+```
+
+Bloco principal:
+
+```txt
+{oh_resp_botconversa}
+```
+
+### Fluxo CED - Lead vindo do site
+
+Palavras-chave recomendadas:
+
+```txt
+Corrente em Dia
+Quero conhecer o Corrente em Dia
+Preenchi o Quero Conhecer do Corrente em Dia
+CED
+```
+
+Bloco principal:
+
+```txt
+{ced_resp_botconversa}
+```
+
+### Fluxo Agenda Viva - Lead vindo do site
+
+Quando o fluxo separado do Agenda Viva for criado, use palavras-chave específicas:
+
+```txt
+Agenda Viva
+Quero conhecer o Agenda Viva
+Preenchi o Quero Conhecer do Agenda Viva
+Calendário da organização
+AGV
+```
+
+### Fluxo Atendimento em Harmonia - Lead vindo do site
+
+Quando o fluxo separado do Atendimento em Harmonia for criado, use palavras-chave específicas:
+
+```txt
+Atendimento em Harmonia
+Quero conhecer o Atendimento em Harmonia
+Preenchi o Quero Conhecer do Atendimento em Harmonia
+Recepção e fila
+AEH
+```
+
+### Recomendação para evitar conflito
+
+Se dois fluxos responderem à mesma mensagem, revise as palavras-chave e deixe no fluxo mais amplo apenas frases com `Organização em Harmonia`. Para módulos, deixe sempre o nome exato do módulo. Isso evita o caso em que o lead entra pelo WhatsApp da Organização em Harmonia e recebe uma resposta do Corrente em Dia.
+
+## Ajuste temporário seguro
+
+Se algum campo de resposta personalizada ainda não estiver preenchido no contato, troque temporariamente o bloco `{oh_resp_botconversa}` por uma mensagem fixa:
+
+```txt
+Olá, {primeiro-nome}! Recebi seu cadastro da Organização em Harmonia.
+
+Seu acesso inicial já foi preparado e as orientações também foram enviadas para o e-mail informado no formulário. Se não encontrar, confira spam/lixo eletrônico.
+
+Link de acesso:
+https://www.automacaoextrema.com/solucoes/organizacao-em-harmonia/login
+
+A recomendação inicial para o Tucxa é começar pelo Agenda Viva, organizando calendário, grupos, atividades, eventos, aprovações e responsáveis.
+
+Se tiver qualquer dificuldade, responda AJUDA por aqui.
+```
+
+Depois que o campo `oh_resp_botconversa` estiver preenchido automaticamente pela AE, volte o bloco para `{oh_resp_botconversa}`.

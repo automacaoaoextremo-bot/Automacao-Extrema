@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { AeSolutionHeader } from "@/components/ae-solution-header";
 import { ORGANIZACAO_CLIENT_NAV_ITEMS } from "@/lib/organizacao-em-harmonia";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -22,6 +23,13 @@ export function OrganizacaoClientShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await supabaseBrowser.auth.signOut();
+    router.replace("/solucoes/organizacao-em-harmonia/login");
+    router.refresh();
+  }
 
   return (
     <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
@@ -34,12 +42,13 @@ export function OrganizacaoClientShell({
         homeHref="/solucoes/organizacao-em-harmonia/cliente"
         navLabel="Menu da área do cliente Organização em Harmonia"
         topAction={
-          <Link
-            href="/solucoes/organizacao-em-harmonia"
+          <button
+            type="button"
+            onClick={handleLogout}
             className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
           >
             Sair
-          </Link>
+          </button>
         }
       />
 
@@ -61,7 +70,8 @@ export function OrganizacaoClientShell({
                     active ? "bg-[#fff0ae] text-[#173323]" : "text-white/90 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  {item.label}
+                  <span className="block">{item.label}</span>
+                  <span className="mt-0.5 block text-xs font-medium leading-5 opacity-70">{item.description}</span>
                 </Link>
               );
             })}
