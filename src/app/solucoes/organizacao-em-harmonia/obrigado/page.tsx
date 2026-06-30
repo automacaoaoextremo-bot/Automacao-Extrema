@@ -60,13 +60,13 @@ export default async function OrganizacaoObrigadoPage({
             Seu interesse já está salvo.
           </h1>
           <p className="mt-3 text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
-            Você deu o primeiro passo para tirar atividades, atendimentos, contribuições e decisões soltas da memória da organização. Agora continue pelo WhatsApp da Automação Extrema para manter o atendimento salvo no celular e validar os próximos passos da {info.name}.
+            Você deu o primeiro passo para tirar atividades, atendimentos, contribuições e decisões soltas da memória da organização. Agora continue pelo WhatsApp da Automação Extrema para manter o atendimento salvo no celular e receber as orientações de acesso da Organização em Harmonia.
           </p>
 
           <div className="mt-4 rounded-3xl bg-emerald-50 p-5 text-slate-800">
             <p className="font-black text-[#00334E]">Próximo passo recomendado</p>
             <p className="mt-2 leading-7">
-              Toque no botão abaixo e envie a mensagem pré-preenchida. Ela já leva nome, WhatsApp, e-mail, código do lead e solução de interesse para o BotConversa identificar seu cadastro sem pedir tudo de novo.
+              Toque no botão abaixo e envie a mensagem pré-preenchida. Ela já leva nome, WhatsApp, e-mail, código do lead e a validação da Organização em Harmonia para o BotConversa identificar seu cadastro sem pedir tudo de novo.
             </p>
           </div>
 
@@ -77,7 +77,7 @@ export default async function OrganizacaoObrigadoPage({
               rel="noreferrer"
               className="inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
             >
-              Continuar pelo WhatsApp
+              Continuar cadastro pelo WhatsApp
             </a>
           </div>
 

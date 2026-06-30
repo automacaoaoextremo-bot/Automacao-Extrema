@@ -118,6 +118,7 @@ create table if not exists public.oh_people (
   email text,
   whatsapp text,
   document text,
+  auth_user_id uuid,
   active boolean not null default true,
   lgpd_consent_at timestamptz,
   notes text,
@@ -132,6 +133,7 @@ alter table public.oh_people alter column full_name set not null;
 alter table public.oh_people add column if not exists email text;
 alter table public.oh_people add column if not exists whatsapp text;
 alter table public.oh_people add column if not exists document text;
+alter table public.oh_people add column if not exists auth_user_id uuid;
 alter table public.oh_people add column if not exists active boolean not null default true;
 alter table public.oh_people add column if not exists lgpd_consent_at timestamptz;
 alter table public.oh_people add column if not exists notes text;
@@ -310,6 +312,7 @@ create table if not exists public.oh_leads (
   email_sent_at timestamptz,
   botconversa_synced_at timestamptz,
   converted_organization_id uuid references public.oh_organizations(id) on delete set null,
+  auth_user_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -326,6 +329,8 @@ alter table public.oh_leads add column if not exists reminder_hours_before_due i
 alter table public.oh_leads add column if not exists next_reminder_at timestamptz;
 alter table public.oh_leads add column if not exists last_reminder_sent_at timestamptz;
 alter table public.oh_leads add column if not exists botconversa_synced_at timestamptz;
+alter table public.oh_leads add column if not exists converted_organization_id uuid references public.oh_organizations(id) on delete set null;
+alter table public.oh_leads add column if not exists auth_user_id uuid;
 
 create table if not exists public.oh_lead_reminders (
   id uuid primary key default gen_random_uuid(),
@@ -584,6 +589,10 @@ on conflict (organization_id, slug) do update set
   sort_order = excluded.sort_order,
   updated_at = now();
 
+create index if not exists idx_oh_people_email on public.oh_people(lower(email)) where email is not null;
+create index if not exists idx_oh_people_auth_user_id on public.oh_people(auth_user_id) where auth_user_id is not null;
+create index if not exists idx_oh_organizations_email on public.oh_organizations(lower(email)) where email is not null;
+create index if not exists idx_oh_leads_email on public.oh_leads(lower(email)) where email is not null;
 create index if not exists idx_oh_people_organization on public.oh_people(organization_id);
 create index if not exists idx_oh_roles_organization on public.oh_roles(organization_id);
 create index if not exists idx_oh_memberships_organization on public.oh_memberships(organization_id);

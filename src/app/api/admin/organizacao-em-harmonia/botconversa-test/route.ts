@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   const timeline = founderTimelineFrom();
   const selectedModule = moduleInfo(normalizeOrganizacaoModulo(moduleSlug));
   const priorityModule = moduleInfo(normalizeOrganizacaoModulo(priorityModuleSlug));
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/login`;
 
   const result = await syncOrganizacaoLeadWithBotConversa({
     leadId,

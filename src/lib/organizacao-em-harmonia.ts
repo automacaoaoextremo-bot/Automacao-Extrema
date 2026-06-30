@@ -312,16 +312,21 @@ export function organizacaoWhatsappMessage(input: {
   leadId?: string | null;
 }) {
   const info = moduleInfo(input.module);
+  const priorityLine =
+    info.slug === "organizacao-em-harmonia"
+      ? "Primeiro módulo recomendado: Agenda Viva"
+      : `Módulo de interesse: ${info.name}`;
+
   return [
-    `Olá! Preenchi o Quero Conhecer da ${info.name} e quero continuar pelo WhatsApp.`,
+    "Olá! Preenchi o Quero Conhecer da Organização em Harmonia e quero continuar meu cadastro pelo WhatsApp.",
     "",
     `Nome do contato: ${input.contactName}`,
     `E-mail: ${input.email}`,
     `WhatsApp: ${input.whatsapp}`,
     input.leadId ? `Código do lead: ${input.leadId}` : "",
-    `Interesse: ${info.name}`,
+    priorityLine,
     "",
-    "Quero receber as orientações e seguir com a validação como Cliente Fundador.",
+    "Quero receber as orientações de acesso e seguir com a validação da Organização em Harmonia.",
   ]
     .filter(Boolean)
     .join("\n");

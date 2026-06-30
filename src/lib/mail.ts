@@ -819,6 +819,7 @@ export type OrganizacaoHarmoniaLeadAccessEmailInput = {
   priorityModuleName?: string;
   organizationName: string | null;
   loginUrl: string;
+  temporaryPassword?: string | null;
   trialDays: number;
   implantationDueAt?: string | null;
   reminderHoursBeforeDue?: number | null;
@@ -859,32 +860,35 @@ export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoH
   const greeting = firstName(input.contactName);
   const organizationLine = input.organizationName
     ? `Organização informada: ${input.organizationName}`
-    : "Nome da organização: será confirmado na próxima etapa.";
+    : "Os dados completos da organização serão confirmados no primeiro acesso.";
   const priorityModule = input.priorityModuleName || input.moduleName;
   const implantationDue = formatOptionalDate(input.implantationDueAt);
+  const passwordBlock = input.temporaryPassword
+    ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
+    : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
 
   await config.transporter.sendMail({
     from: config.from,
     to: input.email,
-    subject: `Recebemos seu interesse — Organização em Harmonia`,
-    text: `${greeting},\n\nRecebemos seu interesse na Organização em Harmonia.\n\nA proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\n${organizationLine}\nWhatsApp: ${input.whatsapp}\nInteresse inicial: ${input.moduleName}\nPrimeiro módulo recomendado: ${priorityModule}\n\nComo Cliente Fundador, a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de ${input.trialDays} dias começa depois que a configuração e o treinamento inicial estiverem concluídos.\nPrazo sugerido para concluir configuração/treinamento: ${implantationDue}.\n\nPróximo passo: continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação.\n\nLink de referência: ${input.loginUrl}\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
+    subject: `Acesso liberado — Organização em Harmonia Cliente Fundador`,
+    text: `${greeting},\n\nRecebemos seu interesse na Organização em Harmonia.\n\nA partir de agora, você já pode acessar a área inicial para começar a configuração da organização, confirmar módulos, pessoas, funções, permissões e iniciar a validação pelo Agenda Viva.\n\nA proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\nPrimeiro passo: ${organizationLine}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nPrimeiro módulo recomendado: ${priorityModule}\n\nComo Cliente Fundador, a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de ${input.trialDays} dias começa depois que a configuração e o treinamento inicial estiverem concluídos.\nPrazo sugerido para concluir configuração/treinamento: ${implantationDue}.\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
         <div style="padding:18px 0;text-align:left">
           <img src="${escapeHtml(logoUrl)}" alt="Organização em Harmonia" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
-          <h2 style="margin:0;color:#00334E;font-size:24px">Interesse recebido — Organização em Harmonia</h2>
+          <h2 style="margin:0;color:#00334E;font-size:24px">Acesso liberado — Organização em Harmonia</h2>
         </div>
         <p>${escapeHtml(greeting)}, recebemos seu interesse na <strong>Organização em Harmonia</strong>.</p>
+        <p>A partir de agora, você já pode acessar a área inicial para começar a configuração da organização, confirmar módulos, pessoas, funções, permissões e iniciar a validação pelo <strong>Agenda Viva</strong>.</p>
         <p>A proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.</p>
         <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
-          <p><strong>${escapeHtml(organizationLine)}</strong><br/>
-          <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}<br/>
-          <strong>Interesse inicial:</strong> ${escapeHtml(input.moduleName)}<br/>
-          <strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}</p>
+          <p><strong>Primeiro passo:</strong> ${escapeHtml(organizationLine)}</p>
+          <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
+          <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
+          <p><strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}</p>
           <p><strong>Cliente Fundador:</strong> a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de <strong>${escapeHtml(input.trialDays)} dias</strong> começa depois que a configuração e o treinamento inicial estiverem concluídos.</p>
           <p><strong>Prazo sugerido de configuração/treinamento:</strong> ${escapeHtml(implantationDue)}</p>
-          <p><strong>Próximo passo:</strong> continue pelo WhatsApp da Automação Extrema para confirmar o melhor caminho de validação.</p>
-          <p><strong>Referência:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
           <p style="font-size:13px;color:#335">Se esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.</p>
         </div>
         <p>Automação Extrema<br/>Organização em Harmonia</p>
@@ -892,7 +896,7 @@ export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoH
     `,
   });
 
-  return { sent: true, reason: "E-mail de interesse enviado." };
+  return { sent: true, reason: "E-mail de acesso enviado." };
 }
 
 export async function sendOrganizacaoHarmoniaLeadInternalEmail(input: OrganizacaoHarmoniaLeadInternalEmailInput) {

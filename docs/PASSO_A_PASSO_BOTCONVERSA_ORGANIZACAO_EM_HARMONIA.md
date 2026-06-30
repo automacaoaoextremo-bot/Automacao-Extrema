@@ -1,10 +1,24 @@
-# Passo a passo BotConversa — Organização em Harmonia
+# BotConversa — Organização em Harmonia
 
 ## Objetivo
 
-Criar um fluxo inicial muito parecido com o que foi definido para o Corrente em Dia: o site coleta somente o mínimo necessário, a página de obrigado abre o WhatsApp da AE com mensagem pré-preenchida e o BotConversa responde automaticamente sem pedir tudo de novo.
+Configurar o fluxo **OH - Lead vindo do site** para funcionar no mesmo padrão do **CED - Lead vindo do site**:
 
-## Fluxo principal
+```txt
+Site → Quero Conhecer → e-mail de acesso → página Obrigado → WhatsApp → BotConversa
+```
+
+O bloco principal do BotConversa pode usar:
+
+```txt
+{oh_resp_botconversa}
+```
+
+Esse campo é preenchido pela Automação Extrema via API.
+
+---
+
+## 1. Fluxo principal
 
 Nome recomendado:
 
@@ -12,87 +26,21 @@ Nome recomendado:
 OH - Lead vindo do site
 ```
 
-Esse fluxo atende leads da suíte e dos módulos:
+Estrutura:
 
 ```txt
-Organização em Harmonia
-Agenda Viva
-Atendimento em Harmonia
-Corrente em Dia
+Bloco Inicial
+↓
+Conteúdo: {oh_resp_botconversa}
 ```
 
-## Campos personalizados
+Use o seletor de campos do BotConversa para inserir `oh_resp_botconversa`.
 
-Crie os campos abaixo em **Configurações > Campos**. Depois, copie os IDs reais para o `.env.local` e Vercel.
+---
 
-```txt
-oh_nome_contato
-oh_email
-oh_whatsapp
-oh_lead_id
-oh_modulo
-oh_modulo_slug
-oh_modulo_prioritario
-oh_organizacao
-oh_origem
-oh_status
-oh_login_url
-oh_interesse_cliente_fundador
-oh_email_enviado
-oh_prazo_implantacao
-oh_resp_botconversa
-```
+## 2. Palavras-chave
 
-Variáveis correspondentes:
-
-```env
-BOTCONVERSA_OH_FIELD_NAME_ID=4999222
-BOTCONVERSA_OH_FIELD_EMAIL_ID=4999223
-BOTCONVERSA_OH_FIELD_WHATSAPP_ID=4999224
-BOTCONVERSA_OH_FIELD_LEAD_ID_ID=4999535
-BOTCONVERSA_OH_FIELD_MODULE_ID=4999536
-BOTCONVERSA_OH_FIELD_MODULE_SLUG_ID=4999537
-BOTCONVERSA_OH_FIELD_PRIORITY_MODULE_ID=4999538
-BOTCONVERSA_OH_FIELD_ORGANIZATION_ID=4999708
-BOTCONVERSA_OH_FIELD_ORIGIN_ID=4999710
-BOTCONVERSA_OH_FIELD_STATUS_ID=4999711
-BOTCONVERSA_OH_FIELD_LOGIN_URL_ID=4999712
-BOTCONVERSA_OH_FIELD_FOUNDER_ID=4999713
-BOTCONVERSA_OH_FIELD_EMAIL_SENT_ID=4999714
-BOTCONVERSA_OH_FIELD_IMPLANTATION_DUE_AT_ID=4999715
-BOTCONVERSA_OH_FIELD_RESPONSE_ID=4999717
-```
-
-## Etiquetas
-
-Crie as etiquetas:
-
-```txt
-oh_lead_site
-oh_email_confirmacao_enviado
-oh_cliente_fundador_interesse
-oh_aguardando_validacao
-oh_whatsapp_iniciado
-oh_precisa_humano
-oh_ajuda_solicitada
-oh_agenda_viva_interesse
-oh_tucxa_cliente_fundador
-```
-
-Variáveis correspondentes:
-
-```env
-BOTCONVERSA_OH_TAG_LEAD_SITE_ID=
-BOTCONVERSA_OH_TAG_EMAIL_SENT_ID=
-BOTCONVERSA_OH_TAG_FOUNDER_ID=
-BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID=
-```
-
-## Palavra-chave do fluxo principal
-
-Em **Automação > Palavras-chave**, crie uma palavra-chave com condição **Contém**.
-
-Frases:
+Configurar condição **Contém**:
 
 ```txt
 Organização em Harmonia
@@ -105,61 +53,87 @@ Cliente Fundador
 Código do lead
 ```
 
-## Estrutura do fluxo
+Importante: evite que o fluxo CED capture a mensagem da Organização em Harmonia. A mensagem da página Obrigado agora menciona claramente Organização em Harmonia e Agenda Viva.
 
-### Versão recomendada após API validada
+---
 
-Use exatamente a estrutura simples:
+## 3. Campos personalizados OH
 
-```txt
-Bloco inicial
-↓
-Conteúdo: {oh_resp_botconversa}
-```
-
-Essa mensagem é preenchida pela AE assim que o lead envia o formulário do site. Ela contém:
+Crie ou confirme os campos abaixo e use os IDs reais no `.env.local` e Vercel:
 
 ```txt
-nome do contato
-e-mail
-WhatsApp
-código do lead
-interesse inicial
-primeiro módulo recomendado
-prazo sugerido de implantação
-a orientação para procurar o e-mail em spam/lixo eletrônico
-próximos passos
+oh_nome_contato
+oh_email
+oh_whatsapp
+oh_lead_id
+oh_modulo
+oh_modulo_slug
+oh_modulo_prioritario
+oh_prazo_implantacao
+oh_organizacao
+oh_origem
+oh_status
+oh_login_url
+oh_interesse_cliente_fundador
+oh_email_enviado
+oh_resp_botconversa
 ```
 
-### Mensagem fixa de segurança, se a variável estiver vazia
+Variáveis correspondentes:
 
-Durante os testes, se o campo `{oh_resp_botconversa}` ainda não estiver sendo preenchido, use temporariamente este texto no bloco de conteúdo:
+```env
+BOTCONVERSA_OH_FIELD_NAME_ID=
+BOTCONVERSA_OH_FIELD_EMAIL_ID=
+BOTCONVERSA_OH_FIELD_WHATSAPP_ID=
+BOTCONVERSA_OH_FIELD_LEAD_ID_ID=
+BOTCONVERSA_OH_FIELD_MODULE_ID=
+BOTCONVERSA_OH_FIELD_MODULE_SLUG_ID=
+BOTCONVERSA_OH_FIELD_PRIORITY_MODULE_ID=
+BOTCONVERSA_OH_FIELD_IMPLANTATION_DUE_AT_ID=
+BOTCONVERSA_OH_FIELD_ORGANIZATION_ID=
+BOTCONVERSA_OH_FIELD_ORIGIN_ID=
+BOTCONVERSA_OH_FIELD_STATUS_ID=
+BOTCONVERSA_OH_FIELD_LOGIN_URL_ID=
+BOTCONVERSA_OH_FIELD_FOUNDER_ID=
+BOTCONVERSA_OH_FIELD_EMAIL_SENT_ID=
+BOTCONVERSA_OH_FIELD_RESPONSE_ID=
+```
+
+---
+
+## 4. Etiquetas OH
+
+Crie ou confirme:
 
 ```txt
-Olá, {primeiro-nome}! Recebi seu cadastro da Organização em Harmonia.
-
-Seu interesse já está salvo e também enviamos uma confirmação para o e-mail informado no formulário. Se não encontrar, confira spam/lixo eletrônico.
-
-A proposta é começar pelas dores reais da organização: pessoas, funções, permissões, agenda, atendimentos e contribuições em uma base mais clara, sem obrigar a rotina a mudar sua essência.
-
-No caso do Tucxa, o primeiro módulo recomendado para validação é o Agenda Viva, organizando calendário, grupos, atividades, eventos, aprovações e responsáveis.
-
-Se tiver qualquer dificuldade, responda AJUDA por aqui.
+oh_lead_site
+oh_email_confirmacao_enviado
+oh_cliente_fundador_interesse
+oh_aguardando_implantacao
+oh_agenda_viva
+oh_tucxa
+oh_ajuda_solicitada
+oh_precisa_humano
 ```
 
-Ações após a mensagem:
+Variáveis correspondentes:
 
-```txt
-Adicionar etiqueta: oh_lead_site
-Adicionar etiqueta: oh_whatsapp_iniciado
-Adicionar etiqueta: oh_aguardando_validacao
-Definir oh_status = whatsapp_iniciado
-Notificar equipe/Márcio
+```env
+BOTCONVERSA_OH_TAG_LEAD_SITE_ID=
+BOTCONVERSA_OH_TAG_EMAIL_SENT_ID=
+BOTCONVERSA_OH_TAG_FOUNDER_ID=
+BOTCONVERSA_OH_TAG_WAITING_ACCESS_ID=
+BOTCONVERSA_OH_TAG_AGENDA_VIVA_ID=
+BOTCONVERSA_OH_TAG_TUCXA_ID=
+BOTCONVERSA_OH_TAG_HELP_REQUESTED_ID=
+BOTCONVERSA_OH_TAG_NEEDS_HUMAN_ID=
 ```
 
-## Fluxo AJUDA
+---
 
-Crie uma palavra-chave separada:
+## 5. Fluxo AJUDA
+
+Criar palavra-chave com condição **Começa com** ou **Contém**:
 
 ```txt
 AJUDA
@@ -168,62 +142,75 @@ AJUDA
 Mensagem:
 
 ```txt
-Claro. Vou te ajudar.
+Claro. Para te ajudar melhor, escolha uma opção:
 
-Escolha a etapa:
-
-1 - Não encontrei o e-mail de confirmação
-2 - Quero entender a Organização em Harmonia completa
-3 - Quero falar sobre Agenda Viva
+1 - Não encontrei o e-mail de acesso
+2 - Quero entender o Cliente Fundador
+3 - Quero começar pelo Agenda Viva
 4 - Quero falar sobre Atendimento em Harmonia
 5 - Quero falar sobre Corrente em Dia
 6 - Quero falar com a equipe
 ```
 
-Ações:
+Ações recomendadas:
 
 ```txt
 Adicionar etiqueta: oh_ajuda_solicitada
-Adicionar etiqueta: oh_precisa_humano
 Definir oh_status = ajuda_solicitada
-Notificar equipe/Márcio
+Notificar equipe / Márcio
 ```
 
-## Configuração da API AE → BotConversa
+---
 
-No `.env.local` e Vercel:
+## 6. Mensagem esperada no WhatsApp
 
-```env
-BOTCONVERSA_ENABLED=true
-BOTCONVERSA_API_KEY=SUA_CHAVE_WEBHOOK_INTEGRATION
-BOTCONVERSA_API_BASE_URL=https://backend.botconversa.com.br
-BOTCONVERSA_API_HEADER_NAME=API-KEY
-BOTCONVERSA_AUTH_SCHEME=
-BOTCONVERSA_CREATE_CONTACT_PATH=/api/v1/webhook/subscriber/
-BOTCONVERSA_TAG_PATH_TEMPLATE=/api/v1/webhook/subscriber/{subscriberId}/tags/{tagId}/
-BOTCONVERSA_FIELD_PATH_TEMPLATE=/api/v1/webhook/subscriber/{subscriberId}/custom_fields/{fieldId}/
-BOTCONVERSA_FIELD_METHOD=POST
-BOTCONVERSA_FIELD_BODY_MODE=value
+A mensagem final do campo `oh_resp_botconversa` deve conter:
+
+```txt
+Pronto, [nome]. Seu cadastro da Organização em Harmonia já foi recebido.
+
+Seu acesso inicial já foi preparado para começar a configuração da organização.
+
+Link de acesso:
+https://www.automacaoextrema.com/solucoes/organizacao-em-harmonia/login
+
+E-mail usado no cadastro:
+[e-mail informado]
+
+As orientações também foram enviadas para esse e-mail. Se não encontrar a mensagem de acesso, confira também spam/lixo eletrônico.
+
+Se já tiver senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.
+
+Dados recebidos:
+Nome do contato: ...
+WhatsApp informado: ...
+Organização: será confirmada no primeiro acesso
+Interesse inicial: Organização em Harmonia
+Primeiro módulo recomendado: Agenda Viva
+Código do lead: ...
+Cliente Fundador: será confirmado no primeiro acesso
+
+Próximo passo:
+acesse a área da Organização em Harmonia, complete o cadastro da organização e comece pela Base Única.
+
+Se tiver qualquer dificuldade, responda AJUDA por aqui.
 ```
 
-O envio automático do fluxo pode ficar desligado no começo:
+Não enviar senha temporária pelo WhatsApp.
 
-```env
-BOTCONVERSA_OH_SEND_FLOW=false
-BOTCONVERSA_OH_FLOW_ID=
+---
+
+## 7. Teste recomendado
+
+1. Preencher o Quero Conhecer com:
+
+```txt
+Nome do contato: Márcio Alexandre
+WhatsApp: 19992360856
+E-mail: tucxacentro@gmail.com
 ```
 
-Depois que confirmar que `oh_resp_botconversa` está sendo preenchido no contato, pode ligar:
-
-```env
-BOTCONVERSA_OH_SEND_FLOW=true
-BOTCONVERSA_OH_FLOW_ID=ID_REAL_DO_FLUXO_OH_LEAD_VINDO_DO_SITE
-```
-
-## Observações importantes
-
-- Não pedir nome, WhatsApp e e-mail novamente no fluxo principal.
-- Não enviar senha por WhatsApp.
-- Sempre orientar a procurar o e-mail no spam/lixo eletrônico.
-- O WhatsApp deve ser continuação do cadastro, não uma nova barreira.
-- Para o Tucxa, a recomendação inicial é começar pelo módulo Agenda Viva.
+2. Conferir o e-mail recebido: deve conter login, e-mail e senha temporária quando for novo usuário.
+3. Clicar em Continuar cadastro pelo WhatsApp.
+4. Conferir no BotConversa se `oh_resp_botconversa` foi preenchido.
+5. Conferir se o fluxo respondeu com Organização em Harmonia, não Corrente em Dia.
