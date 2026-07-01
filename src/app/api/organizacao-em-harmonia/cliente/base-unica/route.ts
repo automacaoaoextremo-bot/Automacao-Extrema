@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -11,6 +12,15 @@ function asBool(value: unknown, fallback = true) {
   const text = asText(value).toLowerCase();
   if (!text) return fallback;
   return ["sim", "s", "yes", "true", "1", "ativo"].includes(text);
+}
+
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "funcao";
 }
 
 function normalizeModules(value: unknown) {
@@ -198,6 +208,64 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
   return selectedPersonId;
 }
 
+async function upsertRole(organizationId: string, body: Record<string, unknown>) {
+  const roleId = asText(body.roleId ?? body.id);
+  const name = asText(body.name);
+  const description = asText(body.description);
+  const requestedSlug = slugify(asText(body.slug) || name);
+  const active = asBool(body.active, true);
+
+  if (!name) throw new Error("Informe o nome da função.");
+
+  if (roleId) {
+    const { error } = await supabaseAdmin
+      .from("oh_roles")
+      .update({ name, slug: requestedSlug, description: description || null, active, updated_at: new Date().toISOString() })
+      .eq("id", roleId)
+      .eq("organization_id", organizationId);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("oh_roles")
+    .insert({ organization_id: organizationId, name, slug: requestedSlug, description: description || null, active, is_system: false });
+  if (error) throw error;
+}
+
+async function toggleRole(organizationId: string, body: Record<string, unknown>) {
+  const roleId = asText(body.roleId);
+  const active = asBool(body.active, true);
+  if (!roleId) throw new Error("Função não informada.");
+  const { error } = await supabaseAdmin
+    .from("oh_roles")
+    .update({ active, updated_at: new Date().toISOString() })
+    .eq("id", roleId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+async function deleteRole(organizationId: string, body: Record<string, unknown>) {
+  const roleId = asText(body.roleId);
+  if (!roleId) throw new Error("Função não informada.");
+
+  const { data: role, error: roleError } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id, is_system")
+    .eq("id", roleId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (roleError) throw roleError;
+  if (!role) throw new Error("Função não encontrada.");
+
+  const { error } = await supabaseAdmin
+    .from("oh_roles")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", roleId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
 export async function GET(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
@@ -243,6 +311,12 @@ export async function POST(request: Request) {
         .eq("organization_id", auth.context.organizationId)
         .eq("person_id", personId);
       if (membershipError) throw membershipError;
+    } else if (action === "upsertRole") {
+      await upsertRole(auth.context.organizationId, body);
+    } else if (action === "toggleRole") {
+      await toggleRole(auth.context.organizationId, body);
+    } else if (action === "deleteRole") {
+      await deleteRole(auth.context.organizationId, body);
     } else {
       await upsertPerson(auth.context.organizationId, body);
     }

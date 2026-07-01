@@ -993,3 +993,76 @@ export async function sendOrganizacaoHarmoniaImplantationReminderEmail(
 
   return { sent: true, reason: "Lembrete Organização em Harmonia enviado." };
 }
+
+export type AgendaVivaApprovalRequestEmailInput = {
+  organizationName: string;
+  eventTitle: string;
+  eventTypeName: string;
+  requestedByName: string;
+  requestedByEmail?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  approvalUrl: string;
+  whatsappApprovalUrl?: string | null;
+  approverEmail?: string | null;
+};
+
+export async function sendAgendaVivaApprovalRequestEmail(input: AgendaVivaApprovalRequestEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const recipients = Array.from(new Set([input.approverEmail, config.copyTo].filter(Boolean))) as string[];
+  const startsAt = input.startsAt ? formatDate(input.startsAt) : "data ainda não informada";
+  const endsAt = input.endsAt ? formatDate(input.endsAt) : "não informado";
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: recipients.join(","),
+    subject: `Agenda Viva — atividade aguardando aprovação: ${input.eventTitle}`,
+    text: [
+      "Nova solicitação de atividade/evento no Agenda Viva.",
+      "",
+      `Organização: ${input.organizationName}`,
+      `Atividade: ${input.eventTitle}`,
+      `Tipo: ${input.eventTypeName}`,
+      `Solicitante: ${input.requestedByName}`,
+      `E-mail do solicitante: ${input.requestedByEmail || "não informado"}`,
+      `Início: ${startsAt}`,
+      `Fim: ${endsAt}`,
+      `Local: ${input.location || "não informado"}`,
+      "",
+      `Observações: ${input.notes || "não informado"}`,
+      "",
+      `Abrir aprovação: ${input.approvalUrl}`,
+      input.whatsappApprovalUrl ? `Avisar/aprovar pelo WhatsApp: ${input.whatsappApprovalUrl}` : "",
+    ].filter(Boolean).join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Agenda Viva — atividade aguardando aprovação</h2>
+        <p>Uma pessoa ativa cadastrou uma atividade/evento e ela precisa ser validada antes de aparecer como aprovada no calendário.</p>
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin:16px 0">
+          <p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
+          <strong>Atividade:</strong> ${escapeHtml(input.eventTitle)}<br/>
+          <strong>Tipo:</strong> ${escapeHtml(input.eventTypeName)}<br/>
+          <strong>Solicitante:</strong> ${escapeHtml(input.requestedByName)}<br/>
+          <strong>E-mail do solicitante:</strong> ${escapeHtml(input.requestedByEmail || "não informado")}<br/>
+          <strong>Início:</strong> ${escapeHtml(startsAt)}<br/>
+          <strong>Fim:</strong> ${escapeHtml(endsAt)}<br/>
+          <strong>Local:</strong> ${escapeHtml(input.location || "não informado")}</p>
+          <p><strong>Observações:</strong><br/>${escapeHtml(input.notes || "não informado")}</p>
+        </div>
+        <p><a href="${escapeHtml(input.approvalUrl)}">Abrir aprovação no Agenda Viva</a>${input.whatsappApprovalUrl ? ` · <a href="${escapeHtml(input.whatsappApprovalUrl)}">Abrir WhatsApp do aprovador</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Solicitação de aprovação Agenda Viva enviada." };
+}

@@ -1,204 +1,465 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
-import {
-  AGENDA_VIVA_TUCXA_EVENT_TYPES,
-  AGENDA_VIVA_TUCXA_INITIAL_RULES,
-  TUCXA_WEEKDAY_SERVICE_RULES,
-} from "@/lib/organizacao-em-harmonia";
+import { AGENDA_VIVA_TUCXA_INITIAL_RULES, TUCXA_WEEKDAY_SERVICE_RULES } from "@/lib/organizacao-em-harmonia";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
-const agendaSteps = [
-  {
-    title: "1. Confirmar calendário base",
-    description: "Cadastrar ano, grupos, dias de trabalho, períodos de férias, mutirões e encerramentos antes de publicar a agenda.",
-  },
-  {
-    title: "2. Configurar envolvidos por função",
-    description: "Associar cavalinhos, cambonos, recepção, organização, entidades e grupos para que cada atividade já mostre quem deve participar.",
-  },
-  {
-    title: "3. Definir aprovação",
-    description: "Indicar quais funções podem criar, alterar, cancelar e aprovar eventos, com histórico e justificativa nas mudanças importantes.",
-  },
-  {
-    title: "4. Validar conflitos",
-    description: "Sinalizar sobreposição de data, local, responsável, período de férias e capacidade da equipe antes de confirmar a atividade.",
-  },
-];
+type Person = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  whatsapp: string | null;
+  active: boolean;
+};
 
-const nextActivities = [
-  { date: "Segunda", label: "Atendimento filhos de fora", detail: "Cavalinhos, cambonos e organização", chip: "bg-rose-100 text-rose-900" },
-  { date: "Terça", label: "Atendimento filhos de fora", detail: "Recepção, senhas e fichas individuais", chip: "bg-sky-100 text-sky-900" },
-  { date: "Quarta", label: "Transformação", detail: "Apenas encaminhados e agendados", chip: "bg-emerald-100 text-emerald-900" },
-  { date: "Quinta", label: "Grupo 1 / Grupo 2", detail: "Conforme 1ª/3ª ou 2ª/4ª quinta", chip: "bg-blue-100 text-blue-900" },
-];
+type EventType = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  requires_approval: boolean;
+  active: boolean;
+  sort_order: number;
+};
 
-const annualLegend = [
-  { slug: "fora", label: "Filhos de fora", className: "bg-rose-100 text-rose-900" },
-  { slug: "transformacao", label: "Transformação", className: "bg-emerald-100 text-emerald-900" },
-  { slug: "grupo1", label: "Grupo 1", className: "bg-green-100 text-green-900" },
-  { slug: "grupo2", label: "Grupo 2", className: "bg-sky-100 text-sky-900" },
-  { slug: "evento", label: "Evento / mutirão", className: "bg-amber-100 text-amber-900" },
-  { slug: "ferias", label: "Férias", className: "bg-slate-100 text-slate-700" },
-];
+type AgendaEvent = {
+  id: string;
+  title: string;
+  event_type: string;
+  event_type_id: string | null;
+  status: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  all_day: boolean;
+  recurrence_rule: string | null;
+  location: string | null;
+  group_slug: string | null;
+  responsible_person_id: string | null;
+  created_by_person_id: string | null;
+  approved_by_person_id: string | null;
+  approved_at: string | null;
+  requires_approval: boolean;
+  notes: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
 
-function eventClassForDay(date: Date) {
-  const day = date.getDay();
-  const dateNumber = date.getDate();
-  const month = date.getMonth();
-  if (month === 0 && dateNumber <= 28) return "bg-slate-100 text-slate-500";
-  if (month === 6 && dateNumber <= 29) return "bg-slate-100 text-slate-500";
-  if (month === 11 && dateNumber >= 21) return "bg-slate-100 text-slate-500";
-  if (month === 0 && dateNumber === 24) return "bg-amber-100 text-amber-900";
-  if (month === 11 && dateNumber === 20) return "bg-amber-100 text-amber-900";
-  if (day === 1 || day === 2) return "bg-rose-100 text-rose-900";
-  if (day === 3) return "bg-emerald-100 text-emerald-900";
-  if (day === 4) {
-    const weekOfMonth = Math.ceil(dateNumber / 7);
-    return weekOfMonth === 1 || weekOfMonth === 3 ? "bg-green-100 text-green-900" : "bg-sky-100 text-sky-900";
-  }
-  return "bg-white text-slate-700";
+type Payload = {
+  organization: { id: string; name: string; slug: string | null } | null;
+  people: Person[];
+  eventTypes: EventType[];
+  events: AgendaEvent[];
+};
+
+type FormState = {
+  eventId: string;
+  title: string;
+  eventTypeId: string;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  location: string;
+  groupSlug: string;
+  responsiblePersonId: string;
+  notes: string;
+  requiresApproval: boolean;
+};
+
+const emptyForm: FormState = {
+  eventId: "",
+  title: "",
+  eventTypeId: "",
+  startsAt: "",
+  endsAt: "",
+  allDay: false,
+  location: "",
+  groupSlug: "",
+  responsiblePersonId: "",
+  notes: "",
+  requiresApproval: true,
+};
+
+const statusLabels: Record<string, string> = {
+  rascunho: "Rascunho",
+  recorrente: "Recorrente",
+  pendente_aprovacao: "Pendente de aprovação",
+  aprovado: "Aprovado",
+  reprovado: "Reprovado",
+  ajuste_solicitado: "Ajuste solicitado",
+};
+
+const eventColorClasses: Record<string, string> = {
+  bazar: "bg-lime-100 text-lime-950 ring-lime-200",
+  caminhada: "bg-emerald-100 text-emerald-950 ring-emerald-200",
+  "grupo-estudos": "bg-yellow-100 text-yellow-950 ring-yellow-200",
+  "dia-filme": "bg-rose-100 text-rose-950 ring-rose-200",
+  "mostra-cultural": "bg-orange-100 text-orange-950 ring-orange-200",
+  "clube-livro": "bg-amber-100 text-amber-950 ring-amber-200",
+  "grupo-1": "bg-green-100 text-green-950 ring-green-200",
+  "grupo-2": "bg-sky-100 text-sky-950 ring-sky-200",
+  "grupo-segunda-feira": "bg-rose-100 text-rose-950 ring-rose-200",
+  "grupo-terca-feira": "bg-sky-100 text-sky-950 ring-sky-200",
+  "tratamento-espiritual-transformacao": "bg-emerald-100 text-emerald-950 ring-emerald-200",
+};
+
+function dateInputValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "Data a confirmar";
+  return new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+}
+
+function dayKey(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.toLocaleString("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric" });
+  const month = date.toLocaleString("en-CA", { timeZone: "America/Sao_Paulo", month: "2-digit" });
+  const day = date.toLocaleString("en-CA", { timeZone: "America/Sao_Paulo", day: "2-digit" });
+  return `${year}-${month}-${day}`;
+}
+
+function localDate(year: number, month: number, day: number) {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function monthMatrix(year: number, month: number) {
   const first = new Date(year, month, 1);
   const totalDays = new Date(year, month + 1, 0).getDate();
-  const cells: Array<{ day: number | null; className: string }> = [];
+  const cells: Array<{ day: number | null; key: string }> = [];
   for (let index = 0; index < first.getDay(); index += 1) {
-    cells.push({ day: null, className: "bg-transparent" });
+    cells.push({ day: null, key: `empty-${index}` });
   }
   for (let day = 1; day <= totalDays; day += 1) {
-    cells.push({ day, className: eventClassForDay(new Date(year, month, day)) });
+    cells.push({ day, key: localDate(year, month, day) });
   }
   while (cells.length % 7 !== 0) {
-    cells.push({ day: null, className: "bg-transparent" });
+    cells.push({ day: null, key: `tail-${cells.length}` });
   }
   return cells;
 }
 
-const months = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-];
+function eventTypeFor(event: AgendaEvent, types: EventType[]) {
+  return types.find((item) => item.id === event.event_type_id) ?? null;
+}
+
+function colorFor(event: AgendaEvent, types: EventType[]) {
+  const type = eventTypeFor(event, types);
+  return eventColorClasses[type?.slug ?? event.event_type] ?? "bg-white text-[#00334E] ring-slate-200";
+}
+
+function publicStatusClass(status: string) {
+  if (status === "aprovado") return "bg-emerald-50 text-emerald-900 ring-emerald-100";
+  if (status === "pendente_aprovacao") return "bg-amber-50 text-amber-900 ring-amber-100";
+  if (status === "reprovado") return "bg-red-50 text-red-700 ring-red-100";
+  return "bg-slate-50 text-slate-700 ring-slate-100";
+}
 
 export default function OrganizacaoAgendaVivaPage() {
+  const router = useRouter();
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
   const year = 2026;
+  const month = 6;
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const { data: sessionData } = await supabaseBrowser.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        router.replace("/solucoes/organizacao-em-harmonia/login");
+        return;
+      }
+
+      const response = await fetch("/api/organizacao-em-harmonia/cliente/agenda-viva", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível carregar Agenda Viva.");
+      if (active) setPayload(result);
+    }
+
+    const timer = window.setTimeout(() => {
+      load()
+        .catch((err) => {
+          if (active) setError(err instanceof Error ? err.message : "Erro ao carregar Agenda Viva.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [router]);
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, AgendaEvent[]>();
+    for (const event of payload?.events ?? []) {
+      const key = dayKey(event.starts_at);
+      if (!key) continue;
+      const list = map.get(key) ?? [];
+      list.push(event);
+      map.set(key, list);
+    }
+    return map;
+  }, [payload?.events]);
+
+  const upcomingEvents = useMemo(() => {
+    const now = new Date("2026-07-01T00:00:00-03:00");
+    return (payload?.events ?? [])
+      .filter((event) => event.starts_at && new Date(event.starts_at).getTime() >= now.getTime())
+      .slice(0, 8);
+  }, [payload?.events]);
+
+  const pendingEvents = useMemo(() => {
+    return (payload?.events ?? []).filter((event) => event.status === "pendente_aprovacao");
+  }, [payload?.events]);
+
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function authenticatedRequest(init: RequestInit) {
+    const { data: sessionData } = await supabaseBrowser.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      router.replace("/solucoes/organizacao-em-harmonia/login");
+      return null;
+    }
+
+    const response = await fetch("/api/organizacao-em-harmonia/cliente/agenda-viva", {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(init.headers ?? {}),
+      },
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Não foi possível concluir a ação.");
+    return result as Payload & { approvalWhatsappUrl?: string };
+  }
+
+  async function saveEvent() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    setApprovalWhatsappUrl("");
+    try {
+      const selectedType = payload?.eventTypes.find((item) => item.id === form.eventTypeId);
+      const result = await authenticatedRequest({
+        method: "POST",
+        body: JSON.stringify({
+          action: "upsertEvent",
+          ...form,
+          eventType: selectedType?.slug || "atividade",
+        }),
+      });
+      if (result) setPayload(result);
+      if (result?.approvalWhatsappUrl) setApprovalWhatsappUrl(result.approvalWhatsappUrl);
+      setForm(emptyForm);
+      setMessage("Atividade/evento enviado para aprovação. O aprovador recebeu e-mail e você pode abrir o WhatsApp pré-preenchido abaixo.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar atividade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function decideEvent(eventId: string, action: "approveEvent" | "rejectEvent" | "requestAdjustments") {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({
+        method: "POST",
+        body: JSON.stringify({ action, eventId }),
+      });
+      if (result) setPayload(result);
+      setMessage(action === "approveEvent" ? "Atividade aprovada e liberada no calendário." : "Status da atividade atualizado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar atividade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteEvent(eventId: string) {
+    if (!window.confirm("Excluir esta atividade ainda não aprovada?")) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({
+        method: "POST",
+        body: JSON.stringify({ action: "deleteEvent", eventId }),
+      });
+      if (result) setPayload(result);
+      setMessage("Atividade excluída.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir atividade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editEvent(event: AgendaEvent) {
+    setForm({
+      eventId: event.id,
+      title: event.title,
+      eventTypeId: event.event_type_id ?? "",
+      startsAt: dateInputValue(event.starts_at),
+      endsAt: dateInputValue(event.ends_at),
+      allDay: event.all_day,
+      location: event.location ?? "",
+      groupSlug: event.group_slug ?? "",
+      responsiblePersonId: event.responsible_person_id ?? "",
+      notes: event.notes ?? "",
+      requiresApproval: event.requires_approval,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const visualMonthCells = monthMatrix(year, month);
 
   return (
     <OrganizacaoClientShell
       eyebrow="Agenda Viva"
       title="Calendário vivo, aprovado e fácil de acompanhar"
-      description="Comece pelo calendário do Tucxa: grupos, atendimentos, transformação, férias, mutirões, eventos beneficentes e aprovações da diretoria em uma rotina mobile-first."
+      description="Cadastre atividades, eventos e recorrências com aprovação da Presidência/Diretoria. No celular, a pessoa vê o calendário, suas responsabilidades e o que precisa fazer em cada atividade."
     >
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {agendaSteps.map((item) => (
-          <div key={item.title} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
-            <h2 className="text-xl font-black text-[#00334E]">{item.title}</h2>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">{item.description}</p>
-          </div>
-        ))}
-      </section>
+      {loading && <p className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">Carregando Agenda Viva...</p>}
+      {error && <p className="rounded-3xl bg-red-50 p-5 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+      {message && <p className="rounded-3xl bg-emerald-50 p-5 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
+      {approvalWhatsappUrl && <a href={approvalWhatsappUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-2xl bg-[#31C16B] px-5 py-3 font-black text-[#00334E] shadow">Enviar solicitação também pelo WhatsApp</a>}
 
-      <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Mobile-first</p>
-        <h2 className="mt-2 text-2xl font-black text-[#00334E]">Primeira visão: o que vem agora</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          No celular, a agenda deve abrir com os próximos compromissos e permitir tocar no dia para ver responsáveis, cavalinhos, cambonos, recepção, pendências e status de aprovação.
-        </p>
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {nextActivities.map((item) => (
-            <article key={`${item.date}-${item.label}`} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
-              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${item.chip}`}>{item.date}</span>
-              <h3 className="mt-3 text-lg font-black text-[#00334E]">{item.label}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow sm:p-6">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-200">Tucxa — validação inicial</p>
-        <h2 className="mt-2 text-2xl font-black">Regras mínimas para cadastrar antes dos eventos</h2>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {AGENDA_VIVA_TUCXA_INITIAL_RULES.map((item) => (
-            <div key={item} className="rounded-2xl bg-white/10 p-4 text-sm font-semibold leading-6 text-white/85">
-              {item}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-        <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Vínculos operacionais</p>
-        <h2 className="mt-2 text-2xl font-black text-[#00334E]">O calendário depende da Base Única</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Cada envolvido pode ser associado como cavalinho, cambono, apoio da recepção, organização, Grupo 1, Grupo 2 ou ambos. Assim, cada atividade já nasce com as pessoas certas vinculadas.
-        </p>
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {TUCXA_WEEKDAY_SERVICE_RULES.map((item) => (
-            <article key={item.slug} className={`rounded-2xl p-4 text-sm font-semibold leading-6 ring-1 ${item.colorClass}`}>
-              <p className="font-black">{item.label}</p>
-              <p className="mt-1 font-black">{item.title}</p>
-              <p className="mt-2 opacity-80">{item.summary}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Calendário {year}</p>
-            <h2 className="mt-2 text-2xl font-black text-[#00334E]">Visão anual compacta</h2>
+      {!loading && payload && (
+        <>
+          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Solicitar atividade/evento</p>
+            <h2 className="mt-2 text-2xl font-black text-[#00334E]">{form.eventId ? "Editar solicitação" : "Cadastrar nova solicitação"}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Mantém a familiaridade com o calendário impresso, mas em formato clicável e filtrável. No mobile, esta visão fica abaixo dos próximos dias e da visão mensal.
+              Qualquer pessoa ativa pode registrar uma atividade. Ela fica pendente até a Presidência/Diretoria aprovar. Antes da aprovação, a solicitação pode ser editada.
             </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {annualLegend.map((item) => (
-              <span key={item.slug} className={`rounded-full px-3 py-1 text-xs font-black ${item.className}`}>{item.label}</span>
-            ))}
-          </div>
-        </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Nome da atividade/evento *</span><input value={form.title} onChange={(event) => update("title", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: Grupo de Estudos, Bazar, Clube do Livro, Festa Junina" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Tipo de atividade</span><select value={form.eventTypeId} onChange={(event) => update("eventTypeId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar tipo</option>{payload.eventTypes.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Responsável</span><select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">A definir</option>{payload.people.filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Início</span><input type="datetime-local" value={form.startsAt} onChange={(event) => update("startsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Fim</span><input type="datetime-local" value={form.endsAt} onChange={(event) => update("endsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo / categoria</span><select value={form.groupSlug} onChange={(event) => update("groupSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="evento">Evento</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="segunda">Segunda</option><option value="terca">Terça</option><option value="quarta">Quarta</option><option value="ferias">Férias</option></select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Local</span><input value={form.location} onChange={(event) => update("location", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Presencial, online, salão, etc." /></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Precisa de aprovação</span></label>
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Descreva objetivo, público, responsáveis, materiais, comunicação e qualquer regra importante." /></label>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={saveEvent} disabled={saving || !form.title.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.eventId ? "Salvar e reenviar para aprovação" : "Enviar para aprovação"}</button>{form.eventId && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
+          </section>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {months.map((month, monthIndex) => (
-            <article key={month} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
-              <h3 className="text-center text-sm font-black uppercase tracking-[0.18em] text-[#00334E]">{month}</h3>
-              <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[0.68rem] font-black text-slate-400">
-                {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
+          <section className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow sm:p-6">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-200">Tucxa — validação inicial</p>
+            <h2 className="mt-2 text-2xl font-black">Regras mínimas antes de publicar atividades</h2>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {AGENDA_VIVA_TUCXA_INITIAL_RULES.map((item) => <div key={item} className="rounded-2xl bg-white/10 p-4 text-sm font-semibold leading-6 text-white/85">{item}</div>)}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Julho Cultural TUCXA</p>
+                <h2 className="mt-2 text-3xl font-black text-[#00334E]">Calendário visual — Julho 2026</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Uma visão mais bonita e familiar para divulgação e consulta no celular, com eventos dentro de cada dia e status de aprovação.</p>
               </div>
-              <div className="mt-1 grid grid-cols-7 gap-1">
-                {monthMatrix(year, monthIndex).map((cell, index) => (
-                  <span key={`${month}-${index}`} className={`flex aspect-square items-center justify-center rounded-lg text-xs font-bold ring-1 ring-slate-100 ${cell.className}`}>
-                    {cell.day ?? ""}
-                  </span>
+              <div className="rounded-3xl bg-lime-50 px-5 py-4 text-sm font-black text-lime-950 ring-1 ring-lime-100">Toque/edite eventos pendentes antes da aprovação.</div>
+            </div>
+            <div className="mt-6 rounded-[2rem] bg-lime-100/70 p-3 ring-1 ring-lime-200 sm:p-5">
+              <div className="grid grid-cols-7 gap-2 text-center text-xs font-black uppercase tracking-[0.15em] text-lime-950/70">
+                {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => <span key={day}>{day}</span>)}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-2">
+                {visualMonthCells.map((cell) => {
+                  const events = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
+                  return (
+                    <div key={cell.key} className={`min-h-24 rounded-3xl p-2 ring-1 ${cell.day ? "bg-white/80 ring-lime-200" : "bg-transparent ring-transparent"}`}>
+                      {cell.day && <p className="text-sm font-black text-lime-950">{String(cell.day).padStart(2, "0")}/07</p>}
+                      <div className="mt-2 space-y-1">
+                        {events.slice(0, 3).map((event) => (
+                          <button key={event.id} type="button" onClick={() => editEvent(event)} className={`w-full rounded-2xl px-2 py-1 text-left text-[0.68rem] font-black leading-4 ring-1 ${colorFor(event, payload.eventTypes)}`}>
+                            {event.title}
+                          </button>
+                        ))}
+                        {events.length > 3 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{events.length - 3}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Próximos compromissos</p>
+              <h2 className="mt-2 text-2xl font-black text-[#00334E]">O que vem agora</h2>
+              <div className="mt-5 space-y-3">
+                {upcomingEvents.map((event) => (
+                  <article key={event.id} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><h3 className="font-black text-[#00334E]">{event.title}</h3><span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>{statusLabels[event.status] ?? event.status}</span></div>
+                    <p className="mt-2 text-sm font-semibold text-slate-600">{formatDate(event.starts_at)} · {event.location || "local a confirmar"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => editEvent(event)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-slate-100">Editar</button>{["rascunho", "pendente_aprovacao", "ajuste_solicitado"].includes(event.status) && <button type="button" onClick={() => deleteEvent(event.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>}</div>
+                  </article>
                 ))}
+                {upcomingEvents.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500">Nenhuma atividade futura cadastrada.</p>}
               </div>
-            </article>
-          ))}
-        </div>
-      </section>
+            </div>
 
-      <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-        <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Tipos de atividade</p>
-        <h2 className="mt-2 text-2xl font-black text-[#00334E]">Cadastros iniciais sugeridos</h2>
-        <div className="mt-5 flex flex-wrap gap-2">
-          {AGENDA_VIVA_TUCXA_EVENT_TYPES.map((item) => (
-            <span key={item} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-[#17442a] ring-1 ring-emerald-100">
-              {item}
-            </span>
-          ))}
-        </div>
-      </section>
+            <div className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Aprovações</p>
+              <h2 className="mt-2 text-2xl font-black text-[#00334E]">Pendentes da Presidência/Diretoria</h2>
+              <div className="mt-5 space-y-3">
+                {pendingEvents.map((event) => (
+                  <article key={event.id} className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100">
+                    <h3 className="font-black text-[#00334E]">{event.title}</h3>
+                    <p className="mt-2 text-sm font-semibold text-slate-700">{formatDate(event.starts_at)} · {event.location || "local a confirmar"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => decideEvent(event.id, "approveEvent")} className="rounded-xl bg-[#31C16B] px-3 py-2 text-sm font-black text-[#00334E]">Aprovar</button><button type="button" onClick={() => decideEvent(event.id, "requestAdjustments")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-amber-100">Pedir ajuste</button><button type="button" onClick={() => decideEvent(event.id, "rejectEvent")} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Reprovar</button></div>
+                  </article>
+                ))}
+                {pendingEvents.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500">Nenhuma solicitação pendente.</p>}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
+            <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Vínculos operacionais</p>
+            <h2 className="mt-2 text-2xl font-black text-[#00334E]">O calendário depende da Base Única</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Cada envolvido pode ser associado como cavalinho, cambono, apoio da recepção, organização, Grupo 1, Grupo 2 ou ambos. Assim, cada atividade já nasce com as pessoas certas vinculadas.</p>
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {TUCXA_WEEKDAY_SERVICE_RULES.map((item) => <article key={item.slug} className={`rounded-2xl p-4 text-sm font-semibold leading-6 ring-1 ${item.colorClass}`}><p className="font-black">{item.label}</p><p className="mt-1 font-black">{item.title}</p><p className="mt-2 opacity-80">{item.summary}</p></article>)}
+            </div>
+          </section>
+        </>
+      )}
     </OrganizacaoClientShell>
   );
 }

@@ -647,3 +647,66 @@ create index if not exists idx_oh_leads_created_at on public.oh_leads(created_at
 create index if not exists idx_oh_leads_implantation_due_at on public.oh_leads(implantation_due_at);
 create index if not exists idx_oh_leads_next_reminder_at on public.oh_leads(next_reminder_at);
 create index if not exists idx_oh_permissions_module on public.oh_permissions(module_slug);
+
+-- =========================================================
+-- Agenda Viva — atualização eventos, funções e aprovações (Julho Cultural / piloto Tucxa)
+-- =========================================================
+
+with tucxa as (
+  select id from public.oh_organizations where slug = 'tucxa'
+), types as (
+  select * from (values
+    ('caminhada', 'Caminhada', 'Atividade de convivência, cuidado e integração da comunidade.', true, 230),
+    ('dia-filme', 'Dia do Filme', 'Encontro cultural com filme, conversa e convivência.', true, 240),
+    ('mostra-cultural', 'Mostra Cultural', 'Atividade cultural, apresentações, leitura e integração.', true, 250),
+    ('clube-livro-extra', 'Clube do Livro Extra', 'Encontro extra online ou presencial do Clube do Livro.', true, 260)
+  ) as t(slug, name, description, requires_approval, sort_order)
+)
+insert into public.agv_event_types (organization_id, slug, name, description, requires_approval, sort_order)
+select tucxa.id, types.slug, types.name, types.description, types.requires_approval, types.sort_order
+from tucxa cross join types
+on conflict (organization_id, slug) do update set
+  name = excluded.name,
+  description = excluded.description,
+  requires_approval = excluded.requires_approval,
+  sort_order = excluded.sort_order,
+  updated_at = now();
+
+-- Eventos de referência do calendário visual de Julho Cultural 2026.
+with tucxa as (
+  select id from public.oh_organizations where slug = 'tucxa'
+), event_types as (
+  select organization_id, slug, id from public.agv_event_types where organization_id = (select id from tucxa)
+), events as (
+  select * from (values
+    ('agenda-viva-julho-cultural-bazar-2026-07-04', 'Bazar Sementinha', 'bazar', 'evento', '2026-07-04 09:00:00-03'::timestamptz, null::timestamptz, 'Evento beneficente do Sementinha no calendário cultural de julho.'),
+    ('agenda-viva-julho-cultural-caminhada-2026-07-11', 'Caminhada TUCXA', 'caminhada', 'evento', '2026-07-11 08:00:00-03'::timestamptz, null::timestamptz, 'Atividade de convivência e integração.'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-12', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-12 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.'),
+    ('agenda-viva-julho-cultural-filme-2026-07-16', 'Dia do Filme', 'dia-filme', 'evento', '2026-07-16 19:00:00-03'::timestamptz, null::timestamptz, 'Dia do Filme às 19h.'),
+    ('agenda-viva-julho-cultural-mostra-2026-07-21', 'Mostra Cultural e Clube do Livro', 'mostra-cultural', 'evento', '2026-07-21 19:00:00-03'::timestamptz, null::timestamptz, 'Mostra Cultural e Clube do Livro às 19h.'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-26', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-26 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.'),
+    ('agenda-viva-julho-cultural-livro-extra-2026-07-31', 'Clube do Livro Extra', 'clube-livro-extra', 'evento', '2026-07-31 19:00:00-03'::timestamptz, null::timestamptz, 'Clube do Livro Extra online às 19h.')
+  ) as e(external_key, title, event_type_slug, group_slug, starts_at, ends_at, notes)
+)
+insert into public.agv_events (organization_id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, group_slug, requires_approval, notes, metadata)
+select
+  tucxa.id,
+  events.title,
+  events.event_type_slug,
+  event_types.id,
+  'aprovado',
+  events.starts_at,
+  events.ends_at,
+  false,
+  events.group_slug,
+  true,
+  events.notes,
+  jsonb_build_object('source', 'Julho Cultural Tucxa 2026', 'external_key', events.external_key, 'visual_calendar', true)
+from tucxa
+join events on true
+left join event_types on event_types.slug = events.event_type_slug
+where not exists (
+  select 1 from public.agv_events existing
+  where existing.organization_id = tucxa.id
+    and existing.metadata->>'external_key' = events.external_key
+);

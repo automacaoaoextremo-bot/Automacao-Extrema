@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -26,6 +27,16 @@ type OrganizationPayload = {
   zip_code: string | null;
   enabled_modules: string[] | null;
   notes: string | null;
+};
+
+type CepResponse = {
+  erro?: boolean;
+  cep?: string;
+  logradouro?: string;
+  complemento?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
 };
 
 type FormState = {
@@ -76,10 +87,26 @@ function formFromOrganization(organization: OrganizationPayload | null): FormSta
   };
 }
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatCep(value: string) {
+  const digits = onlyDigits(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+function addressFromCep(data: CepResponse) {
+  return [data.logradouro, data.bairro].filter(Boolean).join(" - ");
+}
+
 export default function OrganizacaoCadastroPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepMessage, setCepMessage] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -132,6 +159,40 @@ export default function OrganizacaoCadastroPage() {
           : [...current.enabledModules, moduleSlug],
       };
     });
+  }
+
+  async function searchCep() {
+    const cep = onlyDigits(form.zipCode);
+    setCepMessage("");
+    if (!cep) return;
+    if (cep.length !== 8) {
+      setCepMessage("Informe um CEP com 8 dígitos para pesquisar automaticamente.");
+      return;
+    }
+
+    setCepLoading(true);
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const data = (await response.json()) as CepResponse;
+      if (!response.ok || data.erro) {
+        setCepMessage("CEP não localizado. Você pode preencher o endereço manualmente.");
+        return;
+      }
+
+      setForm((current) => ({
+        ...current,
+        zipCode: data.cep ?? formatCep(cep),
+        address: addressFromCep(data) || current.address,
+        city: data.localidade || current.city,
+        state: data.uf || current.state,
+        complement: current.complement || data.complemento || "",
+      }));
+      setCepMessage("Endereço preenchido pelo CEP. Confira e informe número/complemento se necessário.");
+    } catch {
+      setCepMessage("Não foi possível consultar o CEP agora. Você pode preencher manualmente.");
+    } finally {
+      setCepLoading(false);
+    }
   }
 
   async function save() {
@@ -201,10 +262,22 @@ export default function OrganizacaoCadastroPage() {
               <span className="text-sm font-black text-[#00334E]">E-mail principal</span>
               <input value={form.email} onChange={(event) => update("email", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="contato@exemplo.com" />
             </label>
-            <label className="grid gap-1">
+            <div className="grid gap-1">
               <span className="text-sm font-black text-[#00334E]">CEP</span>
-              <input value={form.zipCode} onChange={(event) => update("zipCode", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="00000-000" />
-            </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={form.zipCode}
+                  onBlur={searchCep}
+                  onChange={(event) => update("zipCode", formatCep(event.target.value))}
+                  className="min-w-0 flex-1 rounded-2xl border border-slate-200 p-3"
+                  placeholder="00000-000"
+                />
+                <button type="button" onClick={searchCep} disabled={cepLoading || onlyDigits(form.zipCode).length !== 8} className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-[#00334E] ring-1 ring-emerald-100 disabled:opacity-50">
+                  {cepLoading ? "Pesquisando..." : "Pesquisar CEP"}
+                </button>
+              </div>
+              {cepMessage && <span className="text-xs font-semibold text-slate-500">{cepMessage}</span>}
+            </div>
             <label className="grid gap-1">
               <span className="text-sm font-black text-[#00334E]">UF</span>
               <input value={form.state} onChange={(event) => update("state", event.target.value.toUpperCase())} maxLength={2} className="rounded-2xl border border-slate-200 p-3" />

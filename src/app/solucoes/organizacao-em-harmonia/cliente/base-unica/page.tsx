@@ -1,3 +1,4 @@
+
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -95,6 +96,14 @@ type FormState = {
   attendanceNotes: string;
 };
 
+type RoleFormState = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  active: boolean;
+};
+
 const emptyForm: FormState = {
   id: "",
   fullName: "",
@@ -121,6 +130,14 @@ const emptyForm: FormState = {
   canEditCalendar: false,
   canViewReports: false,
   attendanceNotes: "",
+};
+
+const emptyRoleForm: RoleFormState = {
+  id: "",
+  name: "",
+  slug: "",
+  description: "",
+  active: true,
 };
 
 const moduleLabels: Record<string, string> = {
@@ -175,15 +192,26 @@ function profileSummary(profile: AgendaVivaProfile | null | undefined) {
   return parts.join(" • ") || "Sem vínculos operacionais";
 }
 
+function slugFromName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export default function OrganizacaoBaseUnicaPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [roleForm, setRoleForm] = useState<RoleFormState>(emptyRoleForm);
   const [csvText, setCsvText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const envolvidosSectionRef = useRef<HTMLElement | null>(null);
+  const funcoesSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -243,6 +271,10 @@ export default function OrganizacaoBaseUnicaPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updateRole<K extends keyof RoleFormState>(key: K, value: RoleFormState[K]) {
+    setRoleForm((current) => ({ ...current, [key]: value }));
+  }
+
   async function authenticatedRequest(url: string, init: RequestInit) {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -261,7 +293,88 @@ export default function OrganizacaoBaseUnicaPage() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a ação.");
-    return result;
+    return result as Payload & { ok?: boolean; imported?: number };
+  }
+
+  async function refreshPayload() {
+    const result = await authenticatedRequest("/api/organizacao-em-harmonia/cliente/base-unica", { method: "GET", headers: {} });
+    if (result) setPayload(result);
+  }
+
+  async function saveRole() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest("/api/organizacao-em-harmonia/cliente/base-unica", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "upsertRole",
+          roleId: roleForm.id || undefined,
+          name: roleForm.name,
+          slug: roleForm.slug || slugFromName(roleForm.name),
+          description: roleForm.description,
+          active: roleForm.active,
+        }),
+      });
+      if (result) setPayload(result);
+      setRoleForm(emptyRoleForm);
+      setMessage("Função salva. Use essa função no cadastro dos envolvidos e nas responsabilidades da Agenda Viva.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar função.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleRole(role: Role) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest("/api/organizacao-em-harmonia/cliente/base-unica", {
+        method: "POST",
+        body: JSON.stringify({ action: "toggleRole", roleId: role.id, active: role.active === false }),
+      });
+      if (result) setPayload(result);
+      setMessage(role.active === false ? "Função ativada." : "Função inativada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao alterar função.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRole(role: Role) {
+    if (!window.confirm(`Inativar a função ${role.name}?`)) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest("/api/organizacao-em-harmonia/cliente/base-unica", {
+        method: "POST",
+        body: JSON.stringify({ action: "deleteRole", roleId: role.id }),
+      });
+      if (result) setPayload(result);
+      setMessage("Função inativada. Mantivemos o histórico dos envolvidos que já usaram essa função.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao inativar função.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editRole(role: Role) {
+    setRoleForm({
+      id: role.id,
+      name: role.name,
+      slug: role.slug,
+      description: role.description ?? "",
+      active: role.active !== false,
+    });
+    window.setTimeout(() => {
+      funcoesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }
 
   async function savePerson() {
@@ -397,9 +510,8 @@ export default function OrganizacaoBaseUnicaPage() {
         method: "POST",
         body: JSON.stringify({ csv: csvText }),
       });
-      setMessage(`${result?.imported ?? 0} envolvido(s) importado(s). Atualize a tela se a lista não recarregar automaticamente.`);
-      const refreshed = await authenticatedRequest("/api/organizacao-em-harmonia/cliente/base-unica", { method: "GET", headers: {} });
-      if (refreshed) setPayload(refreshed);
+      setMessage(`${result?.imported ?? 0} envolvido(s) importado(s).`);
+      await refreshPayload();
       setCsvText("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao importar CSV.");
@@ -442,6 +554,58 @@ export default function OrganizacaoBaseUnicaPage() {
             </div>
           </section>
 
+          <section ref={funcoesSectionRef} id="funcoes" className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Funções e responsabilidades</p>
+            <h2 className="mt-2 text-2xl font-black text-[#00334E]">{roleForm.id ? "Editar função" : "Cadastrar função"}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              As funções definem responsabilidades, permissões e o que cada pessoa verá no calendário. Use esta área para ajustar Presidente, Diretoria, Coordenação, Cambono, Cavalinho, Recepção, Organização e funções personalizadas.
+            </p>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#00334E]">Nome da função *</span>
+                <input value={roleForm.name} onChange={(event) => updateRole("name", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: Aprovador de eventos" />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#00334E]">Código interno</span>
+                <input value={roleForm.slug} onChange={(event) => updateRole("slug", slugFromName(event.target.value))} className="rounded-2xl border border-slate-200 p-3" placeholder={slugFromName(roleForm.name) || "aprovador-eventos"} />
+              </label>
+              <label className="grid gap-1 md:col-span-2">
+                <span className="text-sm font-black text-[#00334E]">Descrição / responsabilidade</span>
+                <textarea value={roleForm.description} onChange={(event) => updateRole("description", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: pode receber solicitações de eventos, aprovar atividades e acompanhar pendências do Agenda Viva." />
+              </label>
+              <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <input type="checkbox" checked={roleForm.active} onChange={(event) => updateRole("active", event.target.checked)} className="h-5 w-5" />
+                <span className="text-sm font-black text-[#00334E]">Função ativa</span>
+              </label>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <button type="button" onClick={saveRole} disabled={saving || !roleForm.name.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">
+                {roleForm.id ? "Salvar função" : "Cadastrar função"}
+              </button>
+              {roleForm.id && <button type="button" onClick={() => setRoleForm(emptyRoleForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}
+            </div>
+
+            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {payload.roles.map((role) => (
+                <article key={role.id} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-black text-[#00334E]">{role.name}</h3>
+                      <p className="mt-1 text-xs font-bold text-slate-500">{role.slug}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${role.active === false ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-900"}`}>{role.active === false ? "Inativa" : "Ativa"}</span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{role.description || "Sem descrição."}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => editRole(role)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-slate-100">Editar</button>
+                    <button type="button" onClick={() => toggleRole(role)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-slate-100">{role.active === false ? "Ativar" : "Inativar"}</button>
+                    {!role.is_system && <button type="button" onClick={() => deleteRole(role)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section id="envolvidos" ref={envolvidosSectionRef} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
             <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Envolvidos</p>
             <h2 className="mt-2 text-2xl font-black text-[#00334E]">{form.id ? "Editar envolvido" : "Incluir envolvido"}</h2>
@@ -449,7 +613,7 @@ export default function OrganizacaoBaseUnicaPage() {
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome completo *</span><input value={form.fullName} onChange={(event) => update("fullName", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">WhatsApp</span><input value={form.whatsapp} onChange={(event) => update("whatsapp", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="(19) 99999-9999" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">E-mail</span><input value={form.email} onChange={(event) => update("email", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
-              <label id="funcoes" className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => update("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => update("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.filter((role) => role.active !== false).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select><button type="button" onClick={() => funcoesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} className="mt-1 text-left text-xs font-black text-[#2F6B43] underline">Cadastrar nova função</button></label>
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Módulos liberados</span><select multiple value={form.moduleSlugs} onChange={(event) => update("moduleSlugs", Array.from(event.target.selectedOptions).map((option) => option.value))} className="min-h-28 rounded-2xl border border-slate-200 bg-white p-3">{availableModules.map((module) => <option key={module} value={module}>{moduleLabels[module] ?? module}</option>)}</select><span className="text-xs text-slate-500">Segure Ctrl para selecionar mais de um módulo no desktop.</span></label>
             </div>
 
