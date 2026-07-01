@@ -316,8 +316,8 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
   if (!data) {
     return (
       <main className="min-h-screen overflow-x-hidden bg-[#fffaf8] text-slate-800">
-        <AeSolutionHeader solutionName="Presença Querida" logoSrc="/presenca-querida-logo.svg" logoAlt="Logo Presença Querida" homeHref="/solucoes/presenca-querida" navLabel="Confirmações" actions={[]} sectionLinks={[]} />
-        <section className="mx-auto w-full max-w-3xl px-4 py-12">
+        <AeSolutionHeader solutionName="Presença Querida" logoSrc="/presenca-querida-logo.svg" logoAlt="Logo Presença Querida" homeHref="/solucoes/presenca-querida" navLabel="Confirmações" actions={[]} sectionLinks={[]} fixed />
+        <section className="mx-auto w-full max-w-3xl px-4 pb-12 pt-[8.5rem] sm:pt-[9.5rem]">
           <div className="rounded-[2rem] bg-white p-6 shadow-xl ring-1 ring-rose-100">
             <p className="text-sm font-black uppercase tracking-[0.25em] text-[#E85D75]">Confirmações</p>
             <h1 className="mt-2 break-words text-3xl font-black text-[#00334E]">Link não localizado</h1>
@@ -340,6 +340,7 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
         navLabel="Confirmações"
         actions={[]}
         sectionLinks={[]}
+        fixed
         subHeader={
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3 py-2 text-center text-[0.72rem] font-extrabold leading-tight text-[#00334E] sm:px-5 sm:text-sm">
             <span className="max-w-full truncate">{event.name || "Evento"}</span>
@@ -359,7 +360,7 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
         }
       />
 
-      <section className="mx-auto grid w-full max-w-6xl gap-4 px-3 py-5 sm:gap-5 sm:px-5 sm:py-8">
+      <section className="mx-auto grid w-full max-w-6xl gap-4 px-3 pb-5 pt-[10.75rem] sm:gap-5 sm:px-5 sm:pb-8 sm:pt-[11.5rem]">
         <div className="min-w-0 rounded-[1.6rem] bg-white p-4 shadow-xl ring-1 ring-rose-100 sm:rounded-[2rem] sm:p-7">
           <p className="break-words text-xs font-black uppercase tracking-[0.2em] text-[#E85D75] sm:text-sm sm:tracking-[0.3em]">Acompanhamento público</p>
           <div className="mt-3 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_180px] lg:items-end">
