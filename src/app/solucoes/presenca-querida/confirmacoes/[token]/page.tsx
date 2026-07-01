@@ -101,10 +101,6 @@ function isPending(status: PresencaGuestStatus) {
   return status === "pendente" || status === "reservou_data";
 }
 
-function hasAnswered(status: PresencaGuestStatus) {
-  return isConfirmed(status) || status === "talvez" || status === "nao_podera_ir";
-}
-
 function integerBR(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
@@ -334,12 +330,34 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
 
   const { event, items, summary, responseRate, reminders } = data;
   const statusSections = buildStatusSections(items);
-  const respondedItems = items.filter((item) => hasAnswered(item.status));
-  const latestRespondedItems = [...respondedItems].sort((a, b) => String(b.confirmedAt ?? "").localeCompare(String(a.confirmedAt ?? ""))).slice(0, 12);
-
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#fffaf8] text-slate-800">
-      <AeSolutionHeader solutionName="Presença Querida" logoSrc="/presenca-querida-logo.svg" logoAlt="Logo Presença Querida" homeHref="/solucoes/presenca-querida" navLabel="Confirmações" actions={[]} sectionLinks={[]} />
+      <AeSolutionHeader
+        solutionName="Presença Querida"
+        logoSrc="/presenca-querida-logo.svg"
+        logoAlt="Logo Presença Querida"
+        homeHref="/solucoes/presenca-querida"
+        navLabel="Confirmações"
+        actions={[]}
+        sectionLinks={[]}
+        subHeader={
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3 py-2 text-center text-[0.72rem] font-extrabold leading-tight text-[#00334E] sm:px-5 sm:text-sm">
+            <span className="max-w-full truncate">{event.name || "Evento"}</span>
+            {event.event_date && (
+              <>
+                <span className="text-[#E85D75]">•</span>
+                <span>{formatDateBR(event.event_date)}</span>
+              </>
+            )}
+            {event.event_time && (
+              <>
+                <span className="text-[#E85D75]">•</span>
+                <span>{event.event_time}</span>
+              </>
+            )}
+          </div>
+        }
+      />
 
       <section className="mx-auto grid w-full max-w-6xl gap-4 px-3 py-5 sm:gap-5 sm:px-5 sm:py-8">
         <div className="min-w-0 rounded-[1.6rem] bg-white p-4 shadow-xl ring-1 ring-rose-100 sm:rounded-[2rem] sm:p-7">
@@ -347,11 +365,6 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
           <div className="mt-3 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_180px] lg:items-end">
             <div className="min-w-0">
               <h1 className="max-w-full break-words text-[2rem] font-black leading-[1.08] text-[#00334E] sm:text-4xl lg:text-5xl">Confirmações de presença</h1>
-              <p className="mt-3 flex flex-wrap gap-x-2 gap-y-1 break-words text-sm font-semibold leading-6 text-slate-600 sm:text-base">
-                <span>{event.name || "Evento"}</span>
-                {event.event_date && <span>• {formatDateBR(event.event_date)}</span>}
-                {event.event_time && <span>• {event.event_time}</span>}
-              </p>
             </div>
             <div className="w-full rounded-2xl bg-[#fff7f4] px-4 py-4 text-left ring-1 ring-rose-100 sm:text-center lg:w-auto">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Taxa de resposta</p>
@@ -389,28 +402,6 @@ export default async function PresencaConfirmacoesPublicasPage({ params }: { par
             <p className="mt-2 text-2xl font-black text-[#00334E]">A:{integerBR(summary.adults)} C:{integerBR(summary.children)}</p>
           </div>
         </div>
-
-        <section className="min-w-0 rounded-[1.6rem] bg-white p-4 shadow-xl ring-1 ring-rose-100 sm:rounded-[2rem] sm:p-7">
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#E85D75] sm:text-sm sm:tracking-[0.25em]">Já responderam</p>
-              <h2 className="mt-2 break-words text-2xl font-black text-[#00334E] sm:text-3xl">Nomes das pessoas com resposta registrada</h2>
-            </div>
-            <p className="text-sm font-bold text-slate-500">{integerBR(respondedItems.length)} resposta(s)</p>
-          </div>
-
-          {latestRespondedItems.length > 0 ? (
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {latestRespondedItems.map((guest) => (
-                <GuestCard key={guest.id} guest={guest} compact />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm font-bold leading-6 text-slate-600 ring-1 ring-slate-200">
-              Nenhuma resposta registrada ainda. Assim que alguém confirmar, marcar talvez ou avisar que não poderá ir, o nome aparece aqui.
-            </div>
-          )}
-        </section>
 
         <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <section className="min-w-0 rounded-[1.6rem] bg-white p-4 shadow-xl ring-1 ring-rose-100 sm:rounded-[2rem] sm:p-7">

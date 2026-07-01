@@ -60,6 +60,7 @@ export function AeSolutionHeader({
   topAction,
   homeHref,
   navLabel,
+  subHeader,
 }: {
   solutionName: string;
   logoSrc: string;
@@ -70,6 +71,7 @@ export function AeSolutionHeader({
   topAction?: ReactNode;
   homeHref?: string;
   navLabel?: string;
+  subHeader?: ReactNode;
 }) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
@@ -91,6 +93,8 @@ export function AeSolutionHeader({
       </div>
 
       {showBrandStrip && <AeBrandStrip compact />}
+
+      {subHeader && <div className="border-t border-[#f4e2df] bg-[#fffaf8]/95">{subHeader}</div>}
 
       {(actions.length > 0 || sectionLinks.length > 0) && (
         <nav className="border-t border-white/10 bg-[#00334E] px-2 py-1.5 sm:px-3 sm:py-2" aria-label={navLabel ?? `Menu do ${solutionName}`}>
