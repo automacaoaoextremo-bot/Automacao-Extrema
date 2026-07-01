@@ -392,7 +392,7 @@ export async function POST(request: Request) {
   const selectedModule = moduleInfo(input.interestModule);
   const priorityModule = moduleInfo(input.priorityModule);
   const loginUrl = `${baseUrl}/solucoes/organizacao-em-harmonia/login`;
-  const funilUrl = `${baseUrl}/admin/ae/organizacao-em-harmonia`;
+  const funilUrl = `${baseUrl}/admin/ae/funil?solution=organizacao-em-harmonia`;
   const solutionId = await getSolutionId(selectedModule.slug);
   const timeline = founderTimelineFrom();
   const organizationName = defaultOrganizationName({

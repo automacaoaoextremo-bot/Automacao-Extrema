@@ -322,7 +322,7 @@ export async function POST(request: Request) {
   const now = new Date();
   const baseUrl = siteUrl();
   const loginUrl = `${baseUrl}/solucoes/corrente-em-dia/login`;
-  const funilUrl = `${baseUrl}/admin/ae/corrente-em-dia/funil`;
+  const funilUrl = `${baseUrl}/admin/ae/funil?solution=corrente-em-dia`;
   const organizationSlugBase = toSlug(input.organizationName) || `corrente-${Date.now()}`;
   const organizationSlug = input.isMinimalLead ? `${organizationSlugBase}-${Date.now()}` : organizationSlugBase;
   const solutionId = await getCorrenteSolutionId();
