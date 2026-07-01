@@ -21,6 +21,36 @@ function normalizeModules(value: unknown) {
     .filter(Boolean);
 }
 
+function asTextList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  return asText(value)
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function agendaVivaProfileFromBody(body: Record<string, unknown>) {
+  return {
+    isCavalinho: asBool(body.isCavalinho, false),
+    entityNames: asTextList(body.entityNames ?? body.entidades),
+    spiritualLines: asTextList(body.spiritualLines ?? body.linhas),
+    isCambono: asBool(body.isCambono, false),
+    cambonoEntityNames: asTextList(body.cambonoEntityNames ?? body.entidadesCambonadas),
+    isReserveCambono: asBool(body.isReserveCambono, false),
+    supportsReception: asBool(body.supportsReception, false),
+    supportsOrganization: asBool(body.supportsOrganization, false),
+    participatesMonday: asBool(body.participatesMonday, false),
+    participatesTuesday: asBool(body.participatesTuesday, false),
+    participatesWednesday: asBool(body.participatesWednesday, false),
+    participatesThursday: asBool(body.participatesThursday, false),
+    thursdayGroup: asText(body.thursdayGroup) || "",
+    canApproveEvents: asBool(body.canApproveEvents, false),
+    canEditCalendar: asBool(body.canEditCalendar, false),
+    canViewReports: asBool(body.canViewReports, false),
+    attendanceNotes: asText(body.attendanceNotes),
+  };
+}
+
 async function listPayload(organizationId: string) {
   const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult] = await Promise.all([
     supabaseAdmin
@@ -40,7 +70,7 @@ async function listPayload(organizationId: string) {
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("oh_memberships")
-      .select("id, person_id, role_id, module_slugs, active, status, is_main_contact, can_receive_notifications")
+      .select("id, person_id, role_id, module_slugs, active, status, is_main_contact, can_receive_notifications, agenda_viva_profile")
       .eq("organization_id", organizationId),
     supabaseAdmin
       .from("oh_module_settings")
@@ -71,6 +101,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
   const roleId = asText(body.roleId ?? body.role_id);
   const moduleSlugs = normalizeModules(body.moduleSlugs ?? body.module_slugs ?? body.modulos);
   const active = asBool(body.active, true);
+  const agendaVivaProfile = agendaVivaProfileFromBody(body);
 
   if (!fullName) throw new Error("Informe o nome completo do envolvido.");
 
@@ -148,6 +179,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
       module_slugs: moduleSlugs.length > 0 ? moduleSlugs : ["agenda-viva"],
       active,
       status: active ? "ativo" : "inativo",
+      agenda_viva_profile: agendaVivaProfile,
       updated_at: new Date().toISOString(),
     };
 

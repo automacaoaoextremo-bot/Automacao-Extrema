@@ -234,6 +234,7 @@ alter table public.oh_memberships add column if not exists active boolean not nu
 alter table public.oh_memberships add column if not exists status text not null default 'ativo';
 alter table public.oh_memberships add column if not exists is_main_contact boolean not null default false;
 alter table public.oh_memberships add column if not exists can_receive_notifications boolean not null default true;
+alter table public.oh_memberships add column if not exists agenda_viva_profile jsonb not null default '{}'::jsonb;
 alter table public.oh_memberships add column if not exists created_at timestamptz not null default now();
 alter table public.oh_memberships add column if not exists updated_at timestamptz not null default now();
 create unique index if not exists idx_oh_memberships_org_person_role_unique on public.oh_memberships(organization_id, person_id, role_id);
@@ -588,6 +589,49 @@ on conflict (organization_id, slug) do update set
   requires_approval = excluded.requires_approval,
   sort_order = excluded.sort_order,
   updated_at = now();
+
+
+-- Eventos/atividades iniciais do Agenda Viva para facilitar a validação com o Tucxa.
+with tucxa as (
+  select id from public.oh_organizations where slug = 'tucxa'
+), event_types as (
+  select organization_id, slug, id from public.agv_event_types where organization_id = (select id from tucxa)
+), events as (
+  select * from (values
+    ('agenda-viva-atendimento-segunda', 'Atendimento aos filhos de fora — Segunda-feira', 'grupo-segunda-feira', 'segunda', 'RRULE:FREQ=WEEKLY;BYDAY=MO', 'Atendimento voltado aos consulentes/filhos de fora, com cavalinhos, cambonos e equipe de organização.'),
+    ('agenda-viva-atendimento-terca', 'Atendimento aos filhos de fora — Terça-feira', 'grupo-terca-feira', 'terca', 'RRULE:FREQ=WEEKLY;BYDAY=TU', 'Atendimento voltado aos consulentes/filhos de fora, com senhas, fichas individuais e orientação pela organização.'),
+    ('agenda-viva-transformacao-quarta', 'Tratamento espiritual / transformação — Quarta-feira', 'tratamento-espiritual-transformacao', 'quarta', 'RRULE:FREQ=WEEKLY;BYDAY=WE', 'Atendimento para pessoas encaminhadas e previamente agendadas pela coordenação.'),
+    ('agenda-viva-grupo-1-quinta', 'Filhos da corrente — Grupo 1', 'grupo-1', 'grupo-1', 'RRULE:FREQ=MONTHLY;BYDAY=1TH,3TH', 'Gira de desenvolvimento dos filhos da corrente do Grupo 1.'),
+    ('agenda-viva-grupo-2-quinta', 'Filhos da corrente — Grupo 2', 'grupo-2', 'grupo-2', 'RRULE:FREQ=MONTHLY;BYDAY=2TH,4TH', 'Gira de desenvolvimento dos filhos da corrente do Grupo 2.'),
+    ('agenda-viva-mutirao-2026-01-24', 'Mutirão de limpeza', 'mutirao-limpeza', 'evento', null, 'Mutirão de limpeza de 24/01 conforme calendário Tucxa 2026.'),
+    ('agenda-viva-trabalho-todos-2026-01-29', 'Trabalho para todos os Cavalinhos e Cambonos', 'trabalho-especial', 'evento', null, 'Trabalho de 29/01 para todos os Cavalinhos e Cambonos.'),
+    ('agenda-viva-trabalho-todos-2026-07-30', 'Trabalho para todos os Cavalinhos e Cambonos', 'trabalho-especial', 'evento', null, 'Trabalho de 30/07 para todos os Cavalinhos e Cambonos.'),
+    ('agenda-viva-encerramento-2026-12-20', 'Encerramento anual', 'encerramento', 'evento', null, 'Encerramento de 20/12 conforme calendário Tucxa 2026.'),
+    ('agenda-viva-ferias-janeiro-2026', 'Férias — janeiro até 28', 'ferias', 'ferias', null, 'Período de férias de janeiro até 28.'),
+    ('agenda-viva-ferias-julho-2026', 'Férias — julho até 29', 'ferias', 'ferias', null, 'Período de férias de julho até 29.'),
+    ('agenda-viva-ferias-dezembro-2026', 'Férias — a partir de 21/12', 'ferias', 'ferias', null, 'Período de férias a partir de 21 de dezembro.')
+  ) as e(external_key, title, event_type_slug, group_slug, recurrence_rule, notes)
+)
+insert into public.agv_events (organization_id, title, event_type, event_type_id, status, recurrence_rule, group_slug, requires_approval, notes, metadata)
+select
+  tucxa.id,
+  events.title,
+  events.event_type_slug,
+  event_types.id,
+  case when events.group_slug in ('evento', 'ferias') then 'aprovado' else 'recorrente' end,
+  events.recurrence_rule,
+  events.group_slug,
+  events.group_slug = 'evento',
+  events.notes,
+  jsonb_build_object('source', 'Calendario Tucxa 2026', 'external_key', events.external_key)
+from tucxa
+join events on true
+left join event_types on event_types.slug = events.event_type_slug
+where not exists (
+  select 1 from public.agv_events existing
+  where existing.organization_id = tucxa.id
+    and existing.metadata->>'external_key' = events.external_key
+);
 
 create index if not exists idx_oh_people_email on public.oh_people(lower(email)) where email is not null;
 create index if not exists idx_oh_people_auth_user_id on public.oh_people(auth_user_id) where auth_user_id is not null;

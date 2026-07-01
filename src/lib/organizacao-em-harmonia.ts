@@ -66,6 +66,11 @@ export const ORGANIZACAO_CLIENT_NAV_ITEMS: OrganizacaoClientNavItem[] = [
     description: "Visão inicial, checklist e próximos passos.",
   },
   {
+    href: "/solucoes/organizacao-em-harmonia/cliente/cadastro",
+    label: "Cadastro",
+    description: "Dados da organização, contatos, endereço e aceite inicial.",
+  },
+  {
     href: "/solucoes/organizacao-em-harmonia/cliente/base-unica",
     label: "Base Única",
     description: "Pessoas, funções, permissões e módulos habilitados.",
@@ -178,6 +183,54 @@ export const ORGANIZACAO_INTEREST_OPTIONS: Array<{
 export const ORGANIZACAO_FOUNDER_TRIAL_DAYS = 30;
 export const ORGANIZACAO_IMPLANTATION_DUE_DAYS = 30;
 export const ORGANIZACAO_DEFAULT_REMINDER_HOURS_BEFORE_DUE = 48;
+
+
+export const TUCXA_WEEKDAY_SERVICE_RULES = [
+  {
+    slug: "segunda",
+    label: "Segunda-feira",
+    title: "Atendimento aos filhos de fora",
+    summary: "Trabalho voltado aos consulentes/filhos de fora, conforme calendário anual, com participação de cavalinhos, cambonos e organização.",
+    colorClass: "bg-rose-100 text-rose-900 ring-rose-200",
+  },
+  {
+    slug: "terca",
+    label: "Terça-feira",
+    title: "Atendimento aos filhos de fora",
+    summary: "Trabalho voltado aos consulentes/filhos de fora, conforme calendário anual, com o mesmo cuidado de recepção e fila.",
+    colorClass: "bg-sky-100 text-sky-900 ring-sky-200",
+  },
+  {
+    slug: "quarta",
+    label: "Quarta-feira",
+    title: "Tratamento espiritual / transformação",
+    summary: "Atendimento para pessoas encaminhadas e previamente agendadas pela coordenação, respeitando preparo e regras da casa.",
+    colorClass: "bg-emerald-100 text-emerald-900 ring-emerald-200",
+  },
+  {
+    slug: "grupo-1",
+    label: "Grupo 1",
+    title: "Filhos da corrente — 1ª e 3ª quinta",
+    summary: "Gira de desenvolvimento dos filhos da corrente do Grupo 1, conforme calendário anual.",
+    colorClass: "bg-green-100 text-green-900 ring-green-200",
+  },
+  {
+    slug: "grupo-2",
+    label: "Grupo 2",
+    title: "Filhos da corrente — 2ª e 4ª quinta",
+    summary: "Gira de desenvolvimento dos filhos da corrente do Grupo 2, conforme calendário anual.",
+    colorClass: "bg-blue-100 text-blue-900 ring-blue-200",
+  },
+] as const;
+
+export const TUCXA_BASE_UNICA_PROFILE_FIELDS = [
+  "Cavalinho e entidades vinculadas",
+  "Cambono fixo ou volante/reserva",
+  "Apoio na recepção e organização",
+  "Disponibilidade por dia da semana",
+  "Grupo 1, Grupo 2 ou ambos nas quintas",
+  "Permissão para aprovar eventos ou alterar calendário",
+] as const;
 
 export const AGENDA_VIVA_TUCXA_EVENT_TYPES = [
   "Atendimento filhos de fora",

@@ -37,6 +37,36 @@ function normalizeModules(value: string) {
   return modules.length > 0 ? modules : ["agenda-viva"];
 }
 
+function asTextList(value: string) {
+  return value
+    .replace(/^['"]|['"]$/g, "")
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function agendaVivaProfileFromRow(row: Record<string, string>) {
+  return {
+    isCavalinho: asBool(row.e_cavalinho ?? row.cavalinho ?? "nao"),
+    entityNames: asTextList(row.entidades ?? row.entidades_vinculadas ?? ""),
+    spiritualLines: asTextList(row.linhas ?? row.linhas_trabalho ?? ""),
+    isCambono: asBool(row.e_cambono ?? row.cambono ?? "nao"),
+    cambonoEntityNames: asTextList(row.entidades_cambonadas ?? row.cambona_entidades ?? ""),
+    isReserveCambono: asBool(row.cambono_reserva ?? row.cambono_volante ?? "nao"),
+    supportsReception: asBool(row.apoia_recepcao ?? row.recepcao ?? "nao"),
+    supportsOrganization: asBool(row.apoia_organizacao ?? row.organizacao ?? "nao"),
+    participatesMonday: asBool(row.segunda ?? "nao"),
+    participatesTuesday: asBool(row.terca ?? row.terça ?? "nao"),
+    participatesWednesday: asBool(row.quarta ?? "nao"),
+    participatesThursday: asBool(row.quinta ?? "nao"),
+    thursdayGroup: (row.grupo_quinta ?? row.grupo ?? "").trim().toLowerCase(),
+    canApproveEvents: asBool(row.pode_aprovar_eventos ?? "nao"),
+    canEditCalendar: asBool(row.pode_alterar_calendario ?? "nao"),
+    canViewReports: asBool(row.pode_ver_relatorios ?? "nao"),
+    attendanceNotes: row.observacoes_atendimento || row.observações_atendimento || "",
+  };
+}
+
 async function roleIdFor(organizationId: string, slug: string) {
   const normalizedSlug = slug.trim().toLowerCase() || "filho-da-corrente";
   const { data: existing } = await supabaseAdmin
@@ -82,6 +112,7 @@ export async function POST(request: Request) {
       const notes = row.observacoes || row.observação || row.notes || "Importado por CSV na Base Única.";
       const roleId = await roleIdFor(auth.context.organizationId, row.funcao_slug || row.funcao || row.função || "filho-da-corrente");
       const moduleSlugs = normalizeModules(row.modulos || row.módulos || row.module_slugs || "agenda-viva");
+      const agendaVivaProfile = agendaVivaProfileFromRow(row);
 
       let personId = "";
       const { data: existing } = email
@@ -133,6 +164,7 @@ export async function POST(request: Request) {
         module_slugs: moduleSlugs,
         active,
         status: active ? "ativo" : "inativo",
+        agenda_viva_profile: agendaVivaProfile,
         updated_at: new Date().toISOString(),
       };
 

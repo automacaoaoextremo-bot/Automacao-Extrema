@@ -15,7 +15,7 @@ export const ORGANIZACAO_ONBOARDING_STEPS: OrganizacaoOnboardingStep[] = [
     title: "Completar dados da organização",
     description: "Confirme nome, tipo, contato responsável, e-mail, WhatsApp e dados básicos.",
     why: "Evita dúvidas na comunicação e deixa claro quem responde pela configuração inicial.",
-    href: "/solucoes/organizacao-em-harmonia/cliente/base-unica",
+    href: "/solucoes/organizacao-em-harmonia/cliente/cadastro",
     status: "pending",
   },
   {
