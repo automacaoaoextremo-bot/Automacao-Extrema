@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildPublicConfirmationUrl } from "@/lib/presenca-daniela50";
-import { sendPresencaGuestResponseEmail } from "@/lib/mail";
+import { sendPresencaGuestNoteApprovalEmail, sendPresencaGuestResponseEmail } from "@/lib/mail";
 import { PRESENCA_GUEST_STATUS_LABELS, type PresencaGuestStatus } from "@/lib/presenca-querida";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -106,6 +106,7 @@ const GUEST_SELECT = `
     invitation_message,
     dress_code,
     parking_info,
+    email,
     venue_instagram_url,
     map_url,
     location_notes,
@@ -180,6 +181,45 @@ async function getGuestByToken(token: string) {
     ...guest,
     linked_guests: linkedGuests,
   };
+}
+
+
+async function saveGuestNoteForApproval(input: { eventId: string; guestId: string; noteText: string }) {
+  const noteText = input.noteText.trim();
+  if (!noteText) return { created: false, messageId: null as string | null, noteText: null as string | null };
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("pq_guest_messages")
+    .select("id")
+    .eq("event_id", input.eventId)
+    .eq("guest_id", input.guestId)
+    .eq("message_phase", "recado_convidado")
+    .eq("message_text", noteText)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (existing?.id) return { created: false, messageId: String(existing.id), noteText };
+
+  const { data, error } = await supabaseAdmin
+    .from("pq_guest_messages")
+    .insert({
+      event_id: input.eventId,
+      guest_id: input.guestId,
+      message_phase: "recado_convidado",
+      channel: "landing_page",
+      template_label: "Recado enviado pelo convidado",
+      message_text: noteText,
+      status: "aguardando_aprovacao",
+      approval_status: "pendente",
+      is_active: true,
+      sort_order: 30,
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return { created: true, messageId: String(data.id), noteText };
 }
 
 function buildResponseList(body: ConfirmationBody, guest: GuestRow) {
@@ -265,7 +305,25 @@ export async function POST(request: Request, { params }: { params: Promise<Param
 
     const updatedGuest = await getGuestByToken(token);
     const eventRecord = getEventRecord(guest);
-    const confirmationUrl = buildPublicConfirmationUrl({ baseUrl: siteUrl(), event: eventRecord, token });
+    const baseUrl = siteUrl();
+    const confirmationUrl = buildPublicConfirmationUrl({ baseUrl, event: eventRecord, token });
+    const noteText = String(body.notes ?? "").trim();
+    const guestNote = await saveGuestNoteForApproval({ eventId: guest.event_id, guestId: guest.id, noteText });
+
+    const noteEmailResult = guestNote.created && guestNote.noteText
+      ? await sendPresencaGuestNoteApprovalEmail({
+          eventName: String(eventRecord.name ?? "").trim() || null,
+          eventSlug: String(eventRecord.slug ?? "").trim() || null,
+          hostName: String(eventRecord.host_name ?? "Daniela").trim() || "Daniela",
+          approverEmail: String(eventRecord.email ?? "").trim() || null,
+          principalGuestName: String(guest.full_name ?? "Convidado").trim() || "Convidado",
+          principalGuestWhatsapp: String(guest.whatsapp ?? "").trim() || null,
+          principalGuestEmail: String(guest.email ?? "").trim() || null,
+          noteText: guestNote.noteText,
+          confirmationUrl,
+          managementUrl: `${baseUrl}/solucoes/presenca-querida/cliente/mensagens`,
+        }).catch((error) => ({ sent: false, reason: error instanceof Error ? error.message : "Erro ao enviar e-mail de recado." }))
+      : { sent: false, reason: guestNote.noteText ? "Recado já registrado anteriormente." : "Nenhum recado informado." };
 
     const emailResult = await sendPresencaGuestResponseEmail({
       eventName: String(eventRecord.name ?? "").trim() || null,
@@ -292,6 +350,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
       guest: updatedGuest,
       responses,
       email: emailResult,
+      noteMessage: guestNote,
+      noteEmail: noteEmailResult,
       redirectUrl: `/solucoes/presenca-querida/evento/${encodeURIComponent(String(eventRecord.slug ?? "daniela-50-anos"))}/obrigado?convite=${encodeURIComponent(token)}`,
       statusLabel: responses.length === 1 ? PRESENCA_GUEST_STATUS_LABELS[responses[0].status] ?? responses[0].status : "Respostas registradas",
     });

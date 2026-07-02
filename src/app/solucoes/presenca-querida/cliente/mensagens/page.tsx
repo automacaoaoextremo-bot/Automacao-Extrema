@@ -51,8 +51,13 @@ const phaseLabels: Record<string, string> = {
   save_the_date: "Save the Date",
   convite_oficial: "Convite oficial",
   lembrete: "Lembrete carinhoso",
+  lembrete_confirmados: "Lembrete para confirmados",
+  lembrete_talvez: "Lembrete para talvez",
+  lembrete_pendentes: "Lembrete para pendentes",
+  prazo_final: "Prazo final",
   orientacao_final: "Orientação final",
   agradecimento: "Agradecimento pós-evento",
+  recado_convidado: "Recado do convidado",
 };
 
 function getGuest(message: MessageRow) {
@@ -120,13 +125,17 @@ export default function PresencaMensagensPage() {
   const totals = useMemo(() => {
     return messages.reduce(
       (acc, item) => {
-        if (item.guest_id) acc.personalized += 1;
+        const isGuestNote = item.message_phase === "recado_convidado";
+        if (item.guest_id && isGuestNote) acc.guestNotes += 1;
+        if (item.guest_id && !isGuestNote) acc.personalized += 1;
         if (item.approval_status === "aprovado") acc.approved += 1;
         if ((item.approval_status ?? "pendente") === "pendente") acc.pending += 1;
+        if (isGuestNote && item.approval_status === "aprovado" && item.is_active !== false) acc.guestNotesPublished += 1;
+        if (isGuestNote && (item.approval_status ?? "pendente") === "pendente") acc.guestNotesPending += 1;
         if (item.is_active === false) acc.inactive += 1;
         return acc;
       },
-      { personalized: 0, approved: 0, pending: 0, inactive: 0 },
+      { personalized: 0, approved: 0, pending: 0, inactive: 0, guestNotes: 0, guestNotesPublished: 0, guestNotesPending: 0 },
     );
   }, [messages]);
 
@@ -189,7 +198,7 @@ export default function PresencaMensagensPage() {
     }
   }
 
-  async function actionMessage(id: string, action: string, messageText?: string) {
+  async function actionMessage(id: string, action: string, messageText?: string, kindLabel = "Mensagem") {
     setSaving(true);
     setError("");
     setMessage("");
@@ -202,11 +211,8 @@ export default function PresencaMensagensPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar mensagem.");
-      const successMessage = action === "approve" ? "Convite aprovado com sucesso." : action === "reject" ? "Convite reprovado e voltou para revisão." : "Mensagem atualizada.";
+      const successMessage = action === "approve" ? `${kindLabel} aprovado com sucesso.` : action === "reject" ? `${kindLabel} reprovado e mantido fora da LP.` : "Mensagem atualizada.";
       setMessage(successMessage);
-      if (action === "approve") {
-        window.alert("Convite aprovado com sucesso.");
-      }
       await loadMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar mensagem.");
@@ -278,8 +284,9 @@ export default function PresencaMensagensPage() {
     }
   }
 
-  const personalizedMessages = messages.filter((item) => item.guest_id);
-  const templateMessages = messages.filter((item) => !item.guest_id);
+  const guestNotes = messages.filter((item) => item.guest_id && item.message_phase === "recado_convidado");
+  const personalizedMessages = messages.filter((item) => item.guest_id && item.message_phase !== "recado_convidado");
+  const templateMessages = messages.filter((item) => !item.guest_id && item.message_phase !== "recado_convidado");
 
   return (
     <PresencaClientShell>
@@ -289,8 +296,8 @@ export default function PresencaMensagensPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Mensagens</p>
-                <h1 className="mt-2 text-3xl font-black text-[#00334E]">Aprovação dos convites personalizados</h1>
-                <p className="mt-3 max-w-3xl leading-7 text-slate-600">Gere uma prévia individual para cada convidado, revise o texto e aprove antes de enviar pelo WhatsApp. Convites já aprovados são preservados; novos convidados e convites ainda pendentes são criados ou atualizados.</p>
+                <h1 className="mt-2 text-3xl font-black text-[#00334E]">Aprovação de convites e recados</h1>
+                <p className="mt-3 max-w-3xl leading-7 text-slate-600">Gere convites personalizados, revise os textos antes de enviar pelo WhatsApp e aprove os recados que podem aparecer na LP. Convites já aprovados são preservados; recados só aparecem publicamente depois de aprovados e ativos.</p>
               </div>
               <div className="flex flex-col gap-2 sm:items-end">
                 <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
@@ -308,11 +315,13 @@ export default function PresencaMensagensPage() {
               </div>
             )}
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-4">
-              <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Personalizados</p><p className="text-2xl font-black text-[#00334E]">{totals.personalized}</p></div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Convites</p><p className="text-2xl font-black text-[#00334E]">{totals.personalized}</p></div>
               <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Aprovados</p><p className="text-2xl font-black text-[#00334E]">{totals.approved}</p></div>
               <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Pendentes</p><p className="text-2xl font-black text-[#00334E]">{totals.pending}</p></div>
-              <div className="rounded-2xl bg-rose-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-rose-400">Inativas</p><p className="text-2xl font-black text-[#00334E]">{totals.inactive}</p></div>
+              <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Recados</p><p className="text-2xl font-black text-[#00334E]">{totals.guestNotes}</p></div>
+              <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Na LP</p><p className="text-2xl font-black text-[#00334E]">{totals.guestNotesPublished}</p></div>
+              <div className="rounded-2xl bg-slate-100 p-4"><p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Inativas</p><p className="text-2xl font-black text-[#00334E]">{totals.inactive}</p></div>
             </div>
             {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">{message}</p>}
             {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</p>}
@@ -327,6 +336,44 @@ export default function PresencaMensagensPage() {
             <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Texto</span><textarea value={form.message_text} onChange={(item) => update("message_text", item.target.value)} className="min-h-40 rounded-2xl border border-slate-200 p-3" /></label>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar modelo"}</button>{form.id && <button type="button" onClick={() => { setForm(emptyForm); setMessage(""); }} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
           </form>
+
+
+          <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
+            <h2 className="text-2xl font-black text-[#00334E]">Recados para aprovação na LP</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Aqui entram as mensagens enviadas no campo “Curiosidade ou recado para a Daniela”. Somente recados aprovados e ativos aparecem na seção pública “Recados para a Dani”.
+            </p>
+            <div className="mt-5 grid gap-4">
+              {loading && <p className="font-bold text-slate-500">Carregando...</p>}
+              {!loading && guestNotes.map((item) => {
+                const guest = getGuest(item);
+                const approved = item.approval_status === "aprovado";
+                const rejected = item.approval_status === "reprovado";
+                return (
+                  <article key={item.id} className="rounded-3xl bg-[#f4fbf7] p-5 ring-1 ring-emerald-100">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-lg font-black text-[#00334E]">{guest?.full_name || "Convidado"}</p>
+                        <p className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.14em] ${approved ? "bg-emerald-100 text-emerald-800" : rejected ? "bg-amber-100 text-amber-800" : "bg-white text-slate-500"}`}>
+                          {approved ? "Aprovado para LP" : rejected ? "Reprovado / oculto" : "Pendente de aprovação"}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-black ${item.is_active === false ? "bg-slate-200 text-slate-600" : "bg-white text-[#00334E]"}`}>{item.is_active === false ? "Inativo" : "Ativo"}</span>
+                    </div>
+                    <pre className="mt-4 whitespace-pre-wrap rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">{item.message_text}</pre>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => startEditingMessage(item)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar texto</button>
+                      <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve", undefined, "Recado")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Retirar da LP" : "Aprovar para LP"}</button>
+                      {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending", undefined, "Recado")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
+                      <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate", undefined, "Recado")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Ocultar sem reprovar"}</button>
+                      <button type="button" onClick={() => deleteMessage(item.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>
+                    </div>
+                  </article>
+                );
+              })}
+              {!loading && guestNotes.length === 0 && <p className="rounded-2xl bg-slate-50 p-5 text-sm font-bold text-slate-500">Nenhum recado de convidado recebido ainda.</p>}
+            </div>
+          </div>
 
           <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
             <h2 className="text-2xl font-black text-[#00334E]">Convites para aprovação</h2>
@@ -350,9 +397,9 @@ export default function PresencaMensagensPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button type="button" onClick={() => startEditingMessage(item)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar</button>
                       <button type="button" onClick={() => copyMessageText(item.message_text, guest?.full_name)} className="rounded-xl bg-[#00334E] px-3 py-2 text-sm font-black text-white">Copiar WhatsApp</button>
-                      <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Reprovar" : "Aprovar"}</button>
-                      {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
-                      <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>
+                      <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve", undefined, "Convite")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Reprovar" : "Aprovar"}</button>
+                      {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending", undefined, "Convite")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
+                      <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate", undefined, "Convite")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>
                       <button type="button" onClick={() => deleteMessage(item.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>
                     </div>
                   </article>
@@ -376,7 +423,7 @@ export default function PresencaMensagensPage() {
         </div>
 
         <PresencaContextualHelp title="Deep Dive no convite" href="/solucoes/presenca-querida/cliente/convidados" actionLabel="Revisar convidados">
-          <p>O convite aprovado deve deixar claro por que aquela pessoa importa, o que ela vai viver na festa e por que confirmar ajuda a família a preparar tudo com cuidado.</p>
+          <p>O convite e os recados aprovados devem reforçar vínculo, pertencimento e memória afetiva, sem publicar nada automaticamente e sem expor dados privados.</p>
         </PresencaContextualHelp>
       </section>
     </PresencaClientShell>

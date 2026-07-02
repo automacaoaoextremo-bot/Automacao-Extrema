@@ -163,7 +163,7 @@ export async function PATCH(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (data.guest_id && patch.approval_status) {
+  if (data.guest_id && patch.approval_status && data.message_phase === "convite_oficial") {
     await supabaseAdmin
       .from("pq_guests")
       .update({ approval_status: patch.approval_status, message_preview: data.message_text })

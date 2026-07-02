@@ -78,7 +78,7 @@ function initialSelectedStatus(status: PresencaGuestStatus | null | undefined): 
 export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: Props) {
   const [guest, setGuest] = useState(initialGuest);
   const [dietaryNotes, setDietaryNotes] = useState(initialGuest.dietary_notes ?? "");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initialGuest.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -204,11 +204,15 @@ export function PresencaPublicConfirmation({ token, eventSlug, initialGuest }: P
                 className="min-h-24 rounded-2xl border border-slate-200 p-3 text-sm"
                 placeholder="Deixe aqui uma curiosidade sua com a aniversariante ou um recado carinhoso."
               />
+              <span className="text-xs leading-5 text-slate-500">
+                O recado será enviado para aprovação da família antes de aparecer na seção “Recados para a Dani”.
+              </span>
             </label>
 
             <div className="rounded-3xl bg-rose-50 p-4 text-sm leading-6 text-[#00334E] ring-1 ring-rose-100">
               <p className="font-black">Importante</p>
               <p className="mt-1">Caso confirme e aconteça algum imprevisto que impeça sua presença, avise o quanto antes ou volte a este link para alterar sua resposta.</p>
+              <p className="mt-2">Se deixar um recado, ele não será publicado automaticamente: a família aprova antes de entrar na LP.</p>
             </div>
 
             {error && <p className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}

@@ -53,16 +53,16 @@ export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-19";
 
 export const DANIELA50_REMINDER_SCHEDULE = {
   confirmed: [
-    { date: "2026-12-12", label: "Lembrete com local, horário, mapa e clima da festa" },
+    { date: "2026-12-12", label: "Lembrete com local, horário, mapa, recados aprovados e clima da festa" },
     { date: "2026-12-18", label: "Lembrete final curto" },
   ],
   maybe: [
-    { date: "2026-11-05", label: "Lembrete gentil para quem marcou talvez" },
+    { date: "2026-11-05", label: "Lembrete gentil para talvez + novidade dos recados" },
     { date: "2026-11-12", label: "Último lembrete antes do fechamento" },
     { date: "2026-11-19", label: "Prazo final" },
   ],
   pending: [
-    { date: "2026-11-01", label: "Primeiro lembrete para pendentes" },
+    { date: "2026-11-01", label: "Primeiro lembrete para pendentes + recado para a Dani" },
     { date: "2026-11-10", label: "Segundo lembrete para pendentes" },
     { date: "2026-11-18", label: "Aviso de fechamento" },
     { date: "2026-11-19", label: "Prazo final" },
@@ -361,6 +361,8 @@ export function buildPersonalizedInvitationMessage(input: {
     `O prazo ideal para confirmar é até ${deadline}. No link abaixo estão os detalhes da festa. Depois de conhecer tudo, ao final da página estão os botões para responder:`,
     "",
     input.confirmationUrl,
+    "",
+    "Novidade: ao confirmar, você também pode deixar uma curiosidade ou um recado carinhoso para a Dani. Depois da aprovação da família, alguns recados poderão aparecer na seção ‘Recados para a Dani’ na página da festa.",
     "",
     buildDaniela50HostSignature(input.event),
   ].join("\n");

@@ -711,6 +711,82 @@ export async function sendPresencaGuestResponseEmail(input: PresencaGuestRespons
   return { sent: true, reason: "E-mail de resposta do convidado enviado para AE." };
 }
 
+
+export type PresencaGuestNoteApprovalEmailInput = {
+  eventName: string | null;
+  eventSlug: string | null;
+  hostName?: string | null;
+  approverEmail?: string | null;
+  principalGuestName: string;
+  principalGuestWhatsapp?: string | null;
+  principalGuestEmail?: string | null;
+  noteText: string;
+  confirmationUrl: string;
+  managementUrl: string;
+};
+
+export async function sendPresencaGuestNoteApprovalEmail(input: PresencaGuestNoteApprovalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const configuredApprover = process.env.PRESENCA_QUERIDA_RECADO_APPROVER_EMAIL;
+  const to = String(configuredApprover || input.approverEmail || config.copyTo || "").trim();
+  if (!to) {
+    return { sent: false, reason: "E-mail de aprovação não configurado." };
+  }
+
+  const copyTo = String(config.copyTo || "").trim();
+  const cc = copyTo && copyTo.toLowerCase() !== to.toLowerCase() ? copyTo : undefined;
+  const hostName = String(input.hostName || "Dani").trim() || "Dani";
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to,
+    cc,
+    subject: `Presença Querida - novo recado para aprovar: ${input.principalGuestName}`,
+    text: [
+      `Chegou um novo recado para ${hostName}.`,
+      "",
+      `Evento: ${input.eventName || input.eventSlug || "-"}`,
+      `Convidado: ${input.principalGuestName}`,
+      `WhatsApp: ${input.principalGuestWhatsapp || "-"}`,
+      `E-mail: ${input.principalGuestEmail || "-"}`,
+      "",
+      "Recado enviado:",
+      input.noteText,
+      "",
+      "Importante: este recado ainda não aparece na LP. Aprove, reprove ou mantenha oculto na área de mensagens.",
+      `Gestão de recados: ${input.managementUrl}`,
+      `Link do convite: ${input.confirmationUrl}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo recado para aprovar</h2>
+        <p>Chegou um novo recado para ${escapeHtml(hostName)}. Ele ainda <strong>não aparece na LP</strong>.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName || input.eventSlug || "-")}<br/>
+        <strong>Convidado:</strong> ${escapeHtml(input.principalGuestName)}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.principalGuestWhatsapp || "-")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.principalGuestEmail || "-")}</p>
+        <div style="background:#fff7f4;border:1px solid #ffe1e8;border-radius:16px;padding:16px;margin:16px 0">
+          <p style="margin:0 0 8px 0"><strong>Recado enviado:</strong></p>
+          <p style="white-space:pre-wrap;margin:0">${escapeHtml(input.noteText)}</p>
+        </div>
+        <p>Aprove, reprove ou mantenha oculto na área de mensagens. Somente recados aprovados e ativos aparecem na seção “Recados para a Dani”.</p>
+        <p><a href="${escapeHtml(input.managementUrl)}">Abrir gestão de recados</a></p>
+        <p><a href="${escapeHtml(input.confirmationUrl)}">Abrir convite do convidado</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de recado enviado para aprovação." };
+}
+
 export type PresencaReminderDigestEmailInput = {
   eventName: string;
   eventSlug: string;

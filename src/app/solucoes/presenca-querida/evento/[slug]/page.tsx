@@ -22,6 +22,30 @@ type GuestRow = PresencaPublicGuestPayload & {
   is_invite_recipient?: boolean | null;
 };
 
+type ApprovedGuestNoteRow = {
+  id: string;
+  message_text: string;
+  created_at: string | null;
+  guest?:
+    | {
+        full_name?: string | null;
+        relationship_label?: string | null;
+        group_name?: string | null;
+      }
+    | Array<{
+        full_name?: string | null;
+        relationship_label?: string | null;
+        group_name?: string | null;
+      }>
+    | null;
+};
+
+type ApprovedGuestNote = {
+  id: string;
+  messageText: string;
+  authorLabel: string;
+};
+
 const MENU_SECTION_COPY: Record<string, string> = {
   "Entradinhas e acompanhamentos": "Para receber bem desde o começo, com sabores leves, variados e aquele clima de mesa farta que acolhe cada convidado.",
   "Carnes e pratos quentes": "Um almoço pensado para celebrar com fartura, conforto e sabor, deixando a tarde ainda mais especial.",
@@ -59,6 +83,23 @@ const MENU_ITEM_COPY: Record<string, string> = {
 
 function firstValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function firstName(value: string | null | undefined) {
+  return String(value ?? "").trim().split(/\s+/)[0] || "";
+}
+
+function guestNoteAuthor(row: ApprovedGuestNoteRow) {
+  const guest = firstRelation(row.guest);
+  const name = firstName(guest?.full_name);
+  if (name) return name;
+  const relation = String(guest?.relationship_label ?? guest?.group_name ?? "").trim();
+  return relation || "Pessoa querida";
 }
 
 async function loadEvent(slug: string) {
@@ -107,9 +148,43 @@ async function loadGuestForEvent(token: string, eventId?: string | null) {
   } satisfies PresencaPublicGuestPayload;
 }
 
-function buildHeaderLinks(hasInviteToken: boolean, guestName?: string | null) {
+
+async function loadApprovedGuestNotes(eventId?: string | null): Promise<ApprovedGuestNote[]> {
+  if (!eventId) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("pq_guest_messages")
+    .select(
+      `
+      id,
+      message_text,
+      created_at,
+      guest:pq_guests(full_name, relationship_label, group_name)
+    `,
+    )
+    .eq("event_id", eventId)
+    .eq("message_phase", "recado_convidado")
+    .eq("approval_status", "aprovado")
+    .eq("is_active", true)
+    .order("approved_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (error) return [];
+
+  return ((data ?? []) as ApprovedGuestNoteRow[])
+    .map((item) => ({
+      id: item.id,
+      messageText: String(item.message_text ?? "").trim(),
+      authorLabel: guestNoteAuthor(item),
+    }))
+    .filter((item) => item.messageText.length > 0);
+}
+
+function buildHeaderLinks(hasInviteToken: boolean, guestName?: string | null, hasApprovedNotes = false) {
   const sectionLinks: SolutionSectionLink[] = [
     { label: "Convite afetivo", href: "#convite-afetivo" },
+    ...(hasApprovedNotes ? [{ label: "Recados para a Dani", href: "#recados-dani" }] : []),
     { label: "Quando e onde", href: "#quando-onde" },
     { label: "Programação", href: "#programacao" },
     { label: "Cardápio", href: "#cardapio" },
@@ -134,6 +209,7 @@ export default async function PresencaQueridaEventoPublicoPage({
   const inviteToken = String(firstValue(query.convite) ?? firstValue(query.token) ?? "").trim();
   const event = await loadEvent(slug);
   const guest = event?.id && inviteToken ? await loadGuestForEvent(inviteToken, event.id) : null;
+  const approvedGuestNotes = event?.id ? await loadApprovedGuestNotes(String(event.id)) : [];
 
   if (!event) {
     return (
@@ -151,7 +227,7 @@ export default async function PresencaQueridaEventoPublicoPage({
   const extras = getPresencaPublicEventExtras(event);
   const hostPhoto = extras.hostPhotoUrl;
   const inviteTitleName = guest?.full_name?.trim().split(/\s+/)[0] ?? null;
-  const { actions, sectionLinks } = buildHeaderLinks(Boolean(inviteToken), inviteTitleName);
+  const { actions, sectionLinks } = buildHeaderLinks(Boolean(inviteToken), inviteTitleName, approvedGuestNotes.length > 0);
   const headline = isDaniela ? DANIELA50_FALLBACK_EVENT.public_headline : event.public_headline || event.name;
   const introMessage = isDaniela ? DANIELA50_FALLBACK_EVENT.invitation_message : event.invitation_message || DANIELA50_FALLBACK_EVENT.invitation_message;
   const introParagraphs = String(introMessage ?? "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
@@ -188,6 +264,28 @@ export default async function PresencaQueridaEventoPublicoPage({
           </div>
         </div>
       </section>
+
+
+      {approvedGuestNotes.length > 0 && (
+        <section id="recados-dani" className="mx-auto max-w-6xl px-4 py-8">
+          <div className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow-xl sm:p-7">
+            <p className="text-sm font-black uppercase tracking-[0.3em] text-[#9bd8b0]">Recados para a Dani</p>
+            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Carinhos que já começaram a fazer parte da festa</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/85 sm:text-base sm:leading-7">
+              Alguns convidados deixaram mensagens, lembranças e curiosidades para a Dani. Cada recado publicado aqui foi aprovado pela família antes de aparecer na página.
+            </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {approvedGuestNotes.map((note) => (
+                <article key={note.id} className="rounded-[1.6rem] bg-white p-5 text-[#00334E] shadow-sm ring-1 ring-white/20">
+                  <p className="text-sm leading-6 text-slate-700">“{note.messageText}”</p>
+                  <p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-[#E85D75]">Por {note.authorLabel}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section id="quando-onde" className="mx-auto max-w-6xl px-4 py-2">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
