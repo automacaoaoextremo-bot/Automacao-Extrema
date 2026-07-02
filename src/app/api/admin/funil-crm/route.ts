@@ -55,6 +55,12 @@ type UpdateBody = {
   status?: string;
 };
 
+type DeleteBody = {
+  id?: string;
+  sourceTable?: CrmSourceTable;
+  hardDelete?: boolean;
+};
+
 const STAGE_STATUS_BY_TABLE: Record<CrmSourceTable, Partial<Record<CrmStage, string>>> = {
   ced_leads: {
     lead_recebido: "novo_whatsapp",
@@ -173,6 +179,39 @@ export async function PATCH(request: Request) {
 
   const lead = body.sourceTable === "ced_leads" ? mapCorrenteLead(data as RawRow) : mapOrganizacaoLead(data as RawRow);
   return NextResponse.json({ lead });
+}
+
+export async function DELETE(request: Request) {
+  const auth = await requireAdminUser(request);
+  if (auth.error) return auth.error;
+
+  const body = (await request.json().catch(() => ({}))) as DeleteBody;
+  if (!body.id || !body.sourceTable) {
+    return NextResponse.json({ error: "Informe id e sourceTable." }, { status: 400 });
+  }
+
+  if (body.sourceTable === "ae_leads") {
+    return NextResponse.json({ error: "Leads gerais da AE devem ser tratados pela tela de Diagnóstico/Leads." }, { status: 400 });
+  }
+
+  if (body.hardDelete) {
+    const { error } = await supabaseAdmin.from(body.sourceTable).delete().eq("id", body.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, deleted: true });
+  }
+
+  const archivedStatus = body.sourceTable === "ced_leads" ? "encerrado" : "nao_convertido";
+  const { data, error } = await supabaseAdmin
+    .from(body.sourceTable)
+    .update({ status: archivedStatus, updated_at: new Date().toISOString() })
+    .eq("id", body.id)
+    .select("*")
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const lead = body.sourceTable === "ced_leads" ? mapCorrenteLead(data as RawRow) : mapOrganizacaoLead(data as RawRow);
+  return NextResponse.json({ ok: true, archived: true, lead });
 }
 
 function isSupportedPatchTable(value: CrmSourceTable): value is "ced_leads" | "oh_leads" {

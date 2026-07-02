@@ -1,6 +1,8 @@
 
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -102,6 +104,7 @@ function addressFromCep(data: CepResponse) {
 }
 
 export default function OrganizacaoCadastroPage() {
+  const router = useRouter();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -117,7 +120,7 @@ export default function OrganizacaoCadastroPage() {
       const { data: sessionData } = await supabaseBrowser.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) {
-        window.location.href = "/solucoes/organizacao-em-harmonia/login";
+        router.replace("/solucoes/organizacao-em-harmonia/login");
         return;
       }
 
@@ -143,7 +146,7 @@ export default function OrganizacaoCadastroPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [router]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -203,7 +206,7 @@ export default function OrganizacaoCadastroPage() {
       const { data: sessionData } = await supabaseBrowser.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) {
-        window.location.href = "/solucoes/organizacao-em-harmonia/login";
+        router.replace("/solucoes/organizacao-em-harmonia/login");
         return;
       }
       const response = await fetch("/api/organizacao-em-harmonia/cliente/cadastro", {
@@ -242,6 +245,11 @@ export default function OrganizacaoCadastroPage() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Estes dados alimentam a Base Única, o Agenda Viva, o Atendimento em Harmonia e o Corrente em Dia. Campos não obrigatórios podem ser preenchidos depois.
           </p>
+          <div className="mt-4 rounded-3xl bg-emerald-50 p-4 text-sm leading-6 text-[#00334E] ring-1 ring-emerald-100">
+            <p className="font-black">Localidade principal aberta para preenchimento</p>
+            <p className="mt-1 text-slate-700">Preencha abaixo a sede/localidade principal. Organizações com mais de um espaço podem cadastrar outros locais, como salão de eventos, ponto de encontro ou atividade externa.</p>
+            <Link href="/solucoes/organizacao-em-harmonia/cliente/base-unica/localidades" className="mt-3 inline-flex rounded-full bg-white px-4 py-2 font-black text-[#00334E] ring-1 ring-emerald-100">+ Adicionar outra localidade</Link>
+          </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="grid gap-1 md:col-span-2">

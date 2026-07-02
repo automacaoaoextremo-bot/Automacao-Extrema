@@ -710,3 +710,114 @@ where not exists (
   where existing.organization_id = tucxa.id
     and existing.metadata->>'external_key' = events.external_key
 );
+
+-- =========================================================
+-- Base Única — localidades, entidades e vínculos em lote
+-- =========================================================
+
+create table if not exists public.oh_locations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.oh_organizations(id) on delete cascade,
+  name text not null,
+  location_type text not null default 'sede',
+  zip_code text,
+  address text,
+  number text,
+  complement text,
+  district text,
+  city text,
+  state text,
+  is_primary boolean not null default false,
+  active boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.oh_locations add column if not exists organization_id uuid references public.oh_organizations(id) on delete cascade;
+alter table public.oh_locations add column if not exists name text;
+alter table public.oh_locations add column if not exists location_type text not null default 'sede';
+alter table public.oh_locations add column if not exists zip_code text;
+alter table public.oh_locations add column if not exists address text;
+alter table public.oh_locations add column if not exists number text;
+alter table public.oh_locations add column if not exists complement text;
+alter table public.oh_locations add column if not exists district text;
+alter table public.oh_locations add column if not exists city text;
+alter table public.oh_locations add column if not exists state text;
+alter table public.oh_locations add column if not exists is_primary boolean not null default false;
+alter table public.oh_locations add column if not exists active boolean not null default true;
+alter table public.oh_locations add column if not exists notes text;
+alter table public.oh_locations add column if not exists created_at timestamptz not null default now();
+alter table public.oh_locations add column if not exists updated_at timestamptz not null default now();
+update public.oh_locations set name = 'Localidade' where name is null or btrim(name) = '';
+alter table public.oh_locations alter column name set not null;
+create index if not exists idx_oh_locations_organization on public.oh_locations(organization_id);
+create unique index if not exists idx_oh_locations_primary_unique on public.oh_locations(organization_id) where is_primary = true and active = true;
+
+create table if not exists public.oh_spiritual_entities (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.oh_organizations(id) on delete cascade,
+  name text not null,
+  slug text not null,
+  line text,
+  entity_type text,
+  usual_materials text,
+  usual_days text[] not null default '{}',
+  notes text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.oh_spiritual_entities add column if not exists organization_id uuid references public.oh_organizations(id) on delete cascade;
+alter table public.oh_spiritual_entities add column if not exists name text;
+alter table public.oh_spiritual_entities add column if not exists slug text;
+alter table public.oh_spiritual_entities add column if not exists line text;
+alter table public.oh_spiritual_entities add column if not exists entity_type text;
+alter table public.oh_spiritual_entities add column if not exists usual_materials text;
+alter table public.oh_spiritual_entities add column if not exists usual_days text[] not null default '{}';
+alter table public.oh_spiritual_entities add column if not exists notes text;
+alter table public.oh_spiritual_entities add column if not exists active boolean not null default true;
+alter table public.oh_spiritual_entities add column if not exists created_at timestamptz not null default now();
+alter table public.oh_spiritual_entities add column if not exists updated_at timestamptz not null default now();
+update public.oh_spiritual_entities set name = 'Entidade' where name is null or btrim(name) = '';
+update public.oh_spiritual_entities set slug = lower(regexp_replace(coalesce(nullif(btrim(slug), ''), name, id::text), '[^a-zA-Z0-9]+', '-', 'g')) where slug is null or btrim(slug) = '';
+alter table public.oh_spiritual_entities alter column name set not null;
+alter table public.oh_spiritual_entities alter column slug set not null;
+create index if not exists idx_oh_spiritual_entities_organization on public.oh_spiritual_entities(organization_id);
+create unique index if not exists idx_oh_spiritual_entities_org_slug on public.oh_spiritual_entities(organization_id, slug);
+
+-- Localidade principal padrão do Tucxa, sincronizada com o cadastro da organização.
+with tucxa as (
+  select id, name, zip_code, address, number, complement, city, state
+  from public.oh_organizations
+  where slug = 'tucxa'
+)
+insert into public.oh_locations (organization_id, name, location_type, zip_code, address, number, complement, city, state, is_primary, active, notes)
+select id, 'Sede principal', 'sede', zip_code, address, number, complement, coalesce(city, 'Campinas'), coalesce(state, 'SP'), true, true, 'Localidade principal criada para validação da Organização em Harmonia.'
+from tucxa
+where not exists (select 1 from public.oh_locations where organization_id = tucxa.id and is_primary = true);
+
+-- Entidades/linhas iniciais para facilitar vínculos de cavalinhos e cambonos.
+with tucxa as (
+  select id from public.oh_organizations where slug = 'tucxa'
+), entities as (
+  select * from (values
+    ('caboclo-sete-flexa', 'Caboclo Sete Flexa', 'Oxóssi', 'Caboclo', 'Entidade chefe/mentor espiritual da casa; exceções e diretrizes importantes podem depender de autorização espiritual e Diretoria.'),
+    ('preto-velho', 'Preto Velho', 'Preto Velho', 'Preto Velho', 'Linha associada à sabedoria, humildade e orientação espiritual.'),
+    ('linha-ogum', 'Linha de Ogum', 'Ogum', 'Linha de trabalho', 'Linha associada à luta contra males espirituais, demandas e desafios internos.'),
+    ('linha-xango', 'Linha de Xangô', 'Xangô', 'Linha de trabalho', 'Linha associada à justiça, sabedoria e força.'),
+    ('linha-oxossi', 'Linha de Oxóssi', 'Oxóssi', 'Linha de trabalho', 'Linha associada às matas, ervas, cura e forças da natureza.'),
+    ('linha-aguas', 'Linha das Águas', 'Iemanjá / Iansã / Oxum', 'Linha de trabalho', 'Linha associada à limpeza fluídica em rios, cachoeiras e mar.')
+  ) as e(slug, name, line, entity_type, notes)
+)
+insert into public.oh_spiritual_entities (organization_id, slug, name, line, entity_type, notes, active)
+select tucxa.id, entities.slug, entities.name, entities.line, entities.entity_type, entities.notes, true
+from tucxa cross join entities
+on conflict (organization_id, slug) do update set
+  name = excluded.name,
+  line = excluded.line,
+  entity_type = excluded.entity_type,
+  notes = excluded.notes,
+  active = true,
+  updated_at = now();

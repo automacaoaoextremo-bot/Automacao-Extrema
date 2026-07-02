@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -15,12 +14,18 @@ function asBool(value: unknown, fallback = true) {
 }
 
 function slugify(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "funcao";
+  return (
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "registro"
+  );
+}
+
+function normalizePhone(value: unknown) {
+  return asText(value).replace(/\D/g, "");
 }
 
 function normalizeModules(value: unknown) {
@@ -61,8 +66,15 @@ function agendaVivaProfileFromBody(body: Record<string, unknown>) {
   };
 }
 
+type AgendaProfile = ReturnType<typeof agendaVivaProfileFromBody> & Record<string, unknown>;
+
+function mergeProfile(current: unknown, patch: Record<string, unknown>) {
+  const base = current && typeof current === "object" && !Array.isArray(current) ? (current as AgendaProfile) : {};
+  return { ...base, ...patch };
+}
+
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult] = await Promise.all([
+  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, organization_type, email, whatsapp, enabled_modules, status")
@@ -87,6 +99,17 @@ async function listPayload(organizationId: string) {
       .select("id, module_slug, enabled, settings")
       .eq("organization_id", organizationId)
       .order("module_slug", { ascending: true }),
+    supabaseAdmin
+      .from("oh_locations")
+      .select("id, name, location_type, zip_code, address, number, complement, district, city, state, is_primary, active, notes")
+      .eq("organization_id", organizationId)
+      .order("is_primary", { ascending: false })
+      .order("name", { ascending: true }),
+    supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, name, slug, line, entity_type, usual_materials, usual_days, notes, active")
+      .eq("organization_id", organizationId)
+      .order("name", { ascending: true }),
   ]);
 
   for (const result of [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult]) {
@@ -99,6 +122,12 @@ async function listPayload(organizationId: string) {
     roles: rolesResult.data ?? [],
     memberships: membershipsResult.data ?? [],
     modules: moduleSettingsResult.data ?? [],
+    locations: locationsResult.status === 200 && !locationsResult.error ? locationsResult.data ?? [] : [],
+    entities: entitiesResult.status === 200 && !entitiesResult.error ? entitiesResult.data ?? [] : [],
+    warnings: [
+      locationsResult.error ? `Localidades: ${locationsResult.error.message}` : "",
+      entitiesResult.error ? `Entidades: ${entitiesResult.error.message}` : "",
+    ].filter(Boolean),
   };
 }
 
@@ -106,7 +135,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
   const personId = asText(body.personId ?? body.id);
   const fullName = asText(body.fullName ?? body.full_name);
   const email = asText(body.email).toLowerCase();
-  const whatsapp = asText(body.whatsapp).replace(/\D/g, "");
+  const whatsapp = normalizePhone(body.whatsapp);
   const notes = asText(body.notes ?? body.observacoes);
   const roleId = asText(body.roleId ?? body.role_id);
   const moduleSlugs = normalizeModules(body.moduleSlugs ?? body.module_slugs ?? body.modulos);
@@ -194,10 +223,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
     };
 
     if (existingMembership?.id) {
-      const { error } = await supabaseAdmin
-        .from("oh_memberships")
-        .update(membershipPayload)
-        .eq("id", existingMembership.id);
+      const { error } = await supabaseAdmin.from("oh_memberships").update(membershipPayload).eq("id", existingMembership.id);
       if (error) throw error;
     } else {
       const { error } = await supabaseAdmin.from("oh_memberships").insert(membershipPayload);
@@ -249,21 +275,175 @@ async function deleteRole(organizationId: string, body: Record<string, unknown>)
   const roleId = asText(body.roleId);
   if (!roleId) throw new Error("Função não informada.");
 
-  const { data: role, error: roleError } = await supabaseAdmin
-    .from("oh_roles")
-    .select("id, is_system")
-    .eq("id", roleId)
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-  if (roleError) throw roleError;
-  if (!role) throw new Error("Função não encontrada.");
-
   const { error } = await supabaseAdmin
     .from("oh_roles")
     .update({ active: false, updated_at: new Date().toISOString() })
     .eq("id", roleId)
     .eq("organization_id", organizationId);
   if (error) throw error;
+}
+
+async function upsertEntity(organizationId: string, body: Record<string, unknown>) {
+  const entityId = asText(body.entityId ?? body.id);
+  const name = asText(body.name);
+  if (!name) throw new Error("Informe o nome da entidade.");
+  const payload = {
+    organization_id: organizationId,
+    name,
+    slug: slugify(asText(body.slug) || name),
+    line: asText(body.line) || null,
+    entity_type: asText(body.entityType ?? body.entity_type) || null,
+    usual_materials: asText(body.usualMaterials ?? body.usual_materials) || null,
+    usual_days: normalizeModules(body.usualDays ?? body.usual_days),
+    notes: asText(body.notes) || null,
+    active: asBool(body.active, true),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (entityId) {
+    const { error } = await supabaseAdmin.from("oh_spiritual_entities").update(payload).eq("id", entityId).eq("organization_id", organizationId);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from("oh_spiritual_entities").insert(payload);
+  if (error) throw error;
+}
+
+async function toggleEntity(organizationId: string, body: Record<string, unknown>) {
+  const entityId = asText(body.entityId);
+  const active = asBool(body.active, true);
+  if (!entityId) throw new Error("Entidade não informada.");
+  const { error } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .update({ active, updated_at: new Date().toISOString() })
+    .eq("id", entityId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+async function deleteEntity(organizationId: string, body: Record<string, unknown>) {
+  const entityId = asText(body.entityId);
+  if (!entityId) throw new Error("Entidade não informada.");
+  const { error } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", entityId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+async function upsertLocation(organizationId: string, body: Record<string, unknown>) {
+  const locationId = asText(body.locationId ?? body.id);
+  const name = asText(body.name) || "Localidade";
+  const isPrimary = asBool(body.isPrimary ?? body.is_primary, false);
+  const payload = {
+    organization_id: organizationId,
+    name,
+    location_type: asText(body.locationType ?? body.location_type) || "sede",
+    zip_code: asText(body.zipCode ?? body.zip_code).replace(/\D/g, "") || null,
+    address: asText(body.address) || null,
+    number: asText(body.number) || null,
+    complement: asText(body.complement) || null,
+    district: asText(body.district) || null,
+    city: asText(body.city) || null,
+    state: asText(body.state).toUpperCase() || null,
+    is_primary: isPrimary,
+    active: asBool(body.active, true),
+    notes: asText(body.notes) || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (isPrimary) {
+    await supabaseAdmin.from("oh_locations").update({ is_primary: false }).eq("organization_id", organizationId);
+  }
+
+  if (locationId) {
+    const { error } = await supabaseAdmin.from("oh_locations").update(payload).eq("id", locationId).eq("organization_id", organizationId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabaseAdmin.from("oh_locations").insert(payload);
+    if (error) throw error;
+  }
+
+  if (isPrimary) {
+    const { error } = await supabaseAdmin
+      .from("oh_organizations")
+      .update({
+        zip_code: payload.zip_code,
+        address: payload.address,
+        number: payload.number,
+        complement: payload.complement,
+        city: payload.city,
+        state: payload.state,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", organizationId);
+    if (error) throw error;
+  }
+}
+
+async function deleteLocation(organizationId: string, body: Record<string, unknown>) {
+  const locationId = asText(body.locationId);
+  if (!locationId) throw new Error("Localidade não informada.");
+  const { error } = await supabaseAdmin
+    .from("oh_locations")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", locationId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+async function bulkUpdateProfiles(organizationId: string, body: Record<string, unknown>) {
+  const personIds = asTextList(body.personIds);
+  if (personIds.length === 0) throw new Error("Selecione pelo menos um envolvido.");
+
+  const patch: Record<string, unknown> = {};
+  const fields = [
+    "isCavalinho",
+    "isCambono",
+    "isReserveCambono",
+    "supportsReception",
+    "supportsOrganization",
+    "participatesMonday",
+    "participatesTuesday",
+    "participatesWednesday",
+    "participatesThursday",
+    "thursdayGroup",
+    "canApproveEvents",
+    "canEditCalendar",
+    "canViewReports",
+  ];
+
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) patch[field] = body[field];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "entityNames")) patch.entityNames = asTextList(body.entityNames);
+  if (Object.prototype.hasOwnProperty.call(body, "cambonoEntityNames")) patch.cambonoEntityNames = asTextList(body.cambonoEntityNames);
+  if (Object.prototype.hasOwnProperty.call(body, "spiritualLines")) patch.spiritualLines = asTextList(body.spiritualLines);
+  if (Object.prototype.hasOwnProperty.call(body, "attendanceNotes")) patch.attendanceNotes = asText(body.attendanceNotes);
+
+  const roleId = asText(body.roleId);
+  const moduleSlugs = normalizeModules(body.moduleSlugs);
+
+  const { data: memberships, error } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id, person_id, agenda_viva_profile")
+    .eq("organization_id", organizationId)
+    .in("person_id", personIds);
+  if (error) throw error;
+
+  for (const membership of memberships ?? []) {
+    const updatePayload: Record<string, unknown> = {
+      agenda_viva_profile: mergeProfile(membership.agenda_viva_profile, patch),
+      updated_at: new Date().toISOString(),
+    };
+    if (roleId) updatePayload.role_id = roleId;
+    if (moduleSlugs.length > 0) updatePayload.module_slugs = moduleSlugs;
+    const { error: updateError } = await supabaseAdmin.from("oh_memberships").update(updatePayload).eq("id", membership.id);
+    if (updateError) throw updateError;
+  }
 }
 
 export async function GET(request: Request) {
@@ -289,11 +469,7 @@ export async function POST(request: Request) {
     if (action === "deletePerson") {
       const personId = asText(body.personId);
       if (!personId) throw new Error("Pessoa não informada.");
-      const { error } = await supabaseAdmin
-        .from("oh_people")
-        .delete()
-        .eq("id", personId)
-        .eq("organization_id", auth.context.organizationId);
+      const { error } = await supabaseAdmin.from("oh_people").delete().eq("id", personId).eq("organization_id", auth.context.organizationId);
       if (error) throw error;
     } else if (action === "togglePerson") {
       const personId = asText(body.personId);
@@ -317,6 +493,18 @@ export async function POST(request: Request) {
       await toggleRole(auth.context.organizationId, body);
     } else if (action === "deleteRole") {
       await deleteRole(auth.context.organizationId, body);
+    } else if (action === "upsertEntity") {
+      await upsertEntity(auth.context.organizationId, body);
+    } else if (action === "toggleEntity") {
+      await toggleEntity(auth.context.organizationId, body);
+    } else if (action === "deleteEntity") {
+      await deleteEntity(auth.context.organizationId, body);
+    } else if (action === "upsertLocation") {
+      await upsertLocation(auth.context.organizationId, body);
+    } else if (action === "deleteLocation") {
+      await deleteLocation(auth.context.organizationId, body);
+    } else if (action === "bulkUpdateProfiles") {
+      await bulkUpdateProfiles(auth.context.organizationId, body);
     } else {
       await upsertPerson(auth.context.organizationId, body);
     }

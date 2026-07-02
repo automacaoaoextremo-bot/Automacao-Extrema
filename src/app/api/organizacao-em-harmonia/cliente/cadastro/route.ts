@@ -31,9 +31,18 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
+    const { data: locations, error: locationsError } = await supabaseAdmin
+      .from("oh_locations")
+      .select("id, name, location_type, zip_code, address, number, complement, district, city, state, is_primary, active, notes")
+      .eq("organization_id", auth.context.organizationId)
+      .order("is_primary", { ascending: false })
+      .order("name", { ascending: true });
+
     return NextResponse.json({
       ok: true,
       organization: data,
+      locations: locationsError ? [] : locations ?? [],
+      locationWarning: locationsError?.message ?? null,
       currentPerson: auth.context.person,
     });
   } catch (error) {
@@ -72,6 +81,39 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
+    const primaryLocation = {
+      organization_id: auth.context.organizationId,
+      name: "Sede principal",
+      location_type: "sede",
+      zip_code: updatePayload.zip_code,
+      address: updatePayload.address,
+      number: updatePayload.number,
+      complement: updatePayload.complement,
+      city: updatePayload.city,
+      state: updatePayload.state,
+      is_primary: true,
+      active: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: existingPrimary } = await supabaseAdmin
+      .from("oh_locations")
+      .select("id")
+      .eq("organization_id", auth.context.organizationId)
+      .eq("is_primary", true)
+      .maybeSingle();
+
+    if (existingPrimary?.id) {
+      const { error: locationUpdateError } = await supabaseAdmin
+        .from("oh_locations")
+        .update(primaryLocation)
+        .eq("id", existingPrimary.id);
+      if (locationUpdateError) throw locationUpdateError;
+    } else {
+      const { error: locationInsertError } = await supabaseAdmin.from("oh_locations").insert(primaryLocation);
+      if (locationInsertError) throw locationInsertError;
+    }
+
     const { data, error: reloadError } = await supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, organization_type, email, whatsapp, city, state, address, number, complement, zip_code, status, enabled_modules, settings, notes")
@@ -80,7 +122,14 @@ export async function POST(request: Request) {
 
     if (reloadError) throw reloadError;
 
-    return NextResponse.json({ ok: true, organization: data });
+    const { data: locations } = await supabaseAdmin
+      .from("oh_locations")
+      .select("id, name, location_type, zip_code, address, number, complement, district, city, state, is_primary, active, notes")
+      .eq("organization_id", auth.context.organizationId)
+      .order("is_primary", { ascending: false })
+      .order("name", { ascending: true });
+
+    return NextResponse.json({ ok: true, organization: data, locations: locations ?? [] });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao salvar cadastro da organização." }, { status: 500 });
   }

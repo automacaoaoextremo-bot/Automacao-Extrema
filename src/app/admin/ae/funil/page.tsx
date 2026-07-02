@@ -122,6 +122,7 @@ export default function FunilCrmPage() {
   const [stageFilter, setStageFilter] = useState<(typeof STAGE_OPTIONS)[number]["value"]>("todos");
   const [selectedLead, setSelectedLead] = useState<CrmLead | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -155,7 +156,9 @@ export default function FunilCrmPage() {
         setLoading(false);
       });
 
-    return () => {
+  
+
+  return () => {
       active = false;
     };
   }, []);
@@ -202,6 +205,30 @@ export default function FunilCrmPage() {
       setError(err instanceof Error ? err.message : "Erro ao atualizar lead.");
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+
+  async function removeLead(lead: CrmLead, hardDelete = false) {
+    const actionText = hardDelete ? "excluir definitivamente" : "arquivar/descartar";
+    if (!window.confirm(`Confirma ${actionText} o lead ${lead.contactName}?`)) return;
+    setDeletingId(lead.id);
+    setError("");
+    try {
+      await adminFetch<{ ok: boolean; lead?: CrmLead }>("/api/admin/funil-crm", {
+        method: "DELETE",
+        body: JSON.stringify({ id: lead.id, sourceTable: lead.sourceTable, hardDelete }),
+      });
+      setSelectedLead((current) => (current?.id === lead.id && current.sourceTable === lead.sourceTable ? null : current));
+      if (hardDelete) {
+        setLeads((current) => current.filter((item) => !(item.id === lead.id && item.sourceTable === lead.sourceTable)));
+      } else {
+        load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao remover lead.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -294,6 +321,8 @@ export default function FunilCrmPage() {
             updating={updatingId === lead.id}
             onSelect={() => setSelectedLead(lead)}
             onUpdate={(stage) => updateLead(lead, stage)}
+            onRemove={(hardDelete) => removeLead(lead, hardDelete)}
+            deleting={deletingId === lead.id}
           />
         ))}
       </section>
@@ -331,11 +360,15 @@ function LeadCard({
   updating,
   onSelect,
   onUpdate,
+  onRemove,
+  deleting,
 }: {
   lead: CrmLead;
   updating: boolean;
   onSelect: () => void;
   onUpdate: (stage: CrmStage) => void;
+  onRemove: (hardDelete: boolean) => void;
+  deleting: boolean;
 }) {
   const mornoMessage = buildFollowupMessage(lead, "followup_morno");
   const esfriandoMessage = buildFollowupMessage(lead, "lead_esfriando");
@@ -387,6 +420,12 @@ function LeadCard({
         <WhatsAppAction lead={lead} message={esfriandoMessage} label="Lead esfriando" />
         <button type="button" onClick={onSelect} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-black text-[#00334E]">
           Ver detalhes
+        </button>
+        <button type="button" onClick={() => onRemove(false)} disabled={deleting || lead.sourceTable === "ae_leads"} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 disabled:opacity-60">
+          Arquivar
+        </button>
+        <button type="button" onClick={() => onRemove(true)} disabled={deleting || lead.sourceTable === "ae_leads"} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 disabled:opacity-60">
+          Excluir
         </button>
       </div>
     </article>
