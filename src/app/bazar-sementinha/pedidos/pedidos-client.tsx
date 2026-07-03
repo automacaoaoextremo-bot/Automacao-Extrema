@@ -8,7 +8,7 @@ import { AE_SITE_URL } from "@/lib/ae-public-links";
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
 type MenuItem = { id: string; category: string; name: string; description?: string | null; unit_label: string; price: number; is_active: boolean };
-type Client = { id: string; name: string; whatsapp?: string | null; created_at?: string | null };
+type Client = { id: string; name: string; whatsapp?: string | null; public_token?: string | null; created_at?: string | null };
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
 type CreatedOrder = {
   id: string;
@@ -136,7 +136,8 @@ export function PedidosClient() {
   }, []);
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
-  const createdOrderPublicUrl = createdOrder?.public_token ? `${AE_SITE_URL}/bazar-sementinha/pedido/${createdOrder.public_token}` : "";
+  const createdOrderClientPublicToken = createdOrder?.client?.public_token || "";
+  const createdOrderClientPublicUrl = createdOrderClientPublicToken ? `${AE_SITE_URL}/bazar-sementinha/cliente/${createdOrderClientPublicToken}` : "";
 
   const visibleMenuItems = useMemo(() => {
     const term = normalize(search.trim());
@@ -427,18 +428,18 @@ export function PedidosClient() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] px-4 py-6 pb-36 text-[#214527] lg:pb-6">
-      <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_390px]">
-        <section className="space-y-5">
-          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Registro rápido</p>
-            <h1 className="mt-2 text-3xl font-black">Pedidos do Bazar e do Cardápio</h1>
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-36 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:text-base lg:pb-6">
+      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_390px]">
+        <section className="min-w-0 space-y-4 sm:space-y-5">
+          <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Registro rápido</p>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Pedidos do Bazar e do Cardápio</h1>
             <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido: itens do bazar ou alimentos e bebidas.</p>
-            <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2">
-              <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2 sm:mt-5">
+              <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
                 Bazar
               </button>
-              <button onClick={() => switchMode("menu")} className={`rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+              <button onClick={() => switchMode("menu")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
                 Cardápio
               </button>
             </div>
@@ -462,16 +463,16 @@ export function PedidosClient() {
               </div>
               <div className="mt-5 rounded-3xl bg-[#fffdf7] p-5 ring-1 ring-[#dfe8df]">
                 <span className="inline-flex rounded-full bg-[#e8fff0] px-4 py-2 text-sm font-black text-[#0f6b35]">Pedido criado</span>
-                <h2 className="mt-5 text-4xl font-black">Pedido {createdOrder.code}</h2>
-                <p className="mt-3 text-lg text-[#496451]">Cliente: <strong>{createdOrder.client?.name || clientName}</strong></p>
+                <h2 className="mt-5 text-2xl font-black leading-tight sm:text-4xl">Pedido {createdOrder.code}</h2>
+                <p className="mt-3 text-base text-[#496451] sm:text-lg">Cliente: <strong>{createdOrder.client?.name || clientName}</strong></p>
                 <p className="mt-1 text-sm text-[#7a8278]">{formatDateTime(createdOrder.created_at)}</p>
                 <button onClick={() => startEditOrder(createdOrder)} className="mt-5 rounded-full bg-[#f4e7b3] px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Editar pedido</button>
-                {createdOrder.public_token ? (
+                {createdOrderClientPublicToken ? (
                   <div className="mt-5 grid gap-4 rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df] sm:grid-cols-[180px_1fr] sm:items-center">
-                    {createdOrderPublicUrl && (
+                    {createdOrderClientPublicUrl && (
                       <Image
-                        src={`/api/bazar-sementinha/qrcode?text=${encodeURIComponent(createdOrderPublicUrl)}`}
-                        alt={`QRCode para acompanhar o pedido ${createdOrder.code}`}
+                        src={`/api/bazar-sementinha/qrcode?text=${encodeURIComponent(createdOrderClientPublicUrl)}`}
+                        alt={`QRCode para acompanhar os pedidos de ${createdOrder.client?.name || "cliente"}`}
                         width={180}
                         height={180}
                         unoptimized
@@ -479,14 +480,14 @@ export function PedidosClient() {
                       />
                     )}
                     <div>
-                      <h3 className="text-xl font-black">QRCode para acompanhar pelo celular</h3>
-                      <p className="mt-2 text-sm leading-6 text-[#496451]">O cliente pode apontar a câmera para este QRCode e conferir itens, total e status do pagamento.</p>
+                      <h3 className="text-lg font-black sm:text-xl">QRCode do cliente para acompanhar pelo celular</h3>
+                      <p className="mt-2 text-sm leading-6 text-[#496451]">O cliente pode apontar a câmera para este QRCode e conferir todos os pedidos em seu nome, com itens, totais e status de pagamento.</p>
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <Link href={`/bazar-sementinha/pedido/${createdOrder.public_token}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#2f7d45] px-4 py-2 text-sm font-black text-white shadow-sm">
-                          Abrir acompanhamento
+                        <Link href={`/bazar-sementinha/cliente/${createdOrderClientPublicToken}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#2f7d45] px-4 py-2 text-sm font-black text-white shadow-sm">
+                          Abrir acompanhamento do cliente
                         </Link>
-                        {createdOrderPublicUrl && (
-                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(createdOrderPublicUrl); setMessage("Link de acompanhamento copiado."); }} className="rounded-full border border-[#dfe8df] bg-white px-4 py-2 text-sm font-black text-[#214527] shadow-sm">
+                        {createdOrderClientPublicUrl && (
+                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(createdOrderClientPublicUrl); setMessage("Link de acompanhamento do cliente copiado."); }} className="rounded-full border border-[#dfe8df] bg-white px-4 py-2 text-sm font-black text-[#214527] shadow-sm">
                             Copiar link
                           </button>
                         )}
@@ -494,11 +495,11 @@ export function PedidosClient() {
                     </div>
                   </div>
                 ) : (
-                  <p className="mt-4 rounded-2xl bg-[#fff8dd] p-4 text-sm font-bold text-[#7a5a00]">Rode o SQL novo para liberar o token público e o QRCode de acompanhamento deste pedido.</p>
+                  <p className="mt-4 rounded-2xl bg-[#fff8dd] p-4 text-sm font-bold text-[#7a5a00]">Rode o SQL novo para liberar o token público do cliente e o QRCode de acompanhamento consolidado.</p>
                 )}
               </div>
               <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
-                <h3 className="text-2xl font-black">Itens</h3>
+                <h3 className="text-xl font-black sm:text-2xl">Itens</h3>
                 <div className="mt-4 space-y-3">
                   {(createdOrder.items || []).map((item) => (
                     <div key={item.id} className="flex items-start justify-between gap-4 rounded-2xl bg-[#fffdf7] p-4">
@@ -514,14 +515,14 @@ export function PedidosClient() {
               </div>
               <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
                 <span className="text-sm text-[#496451]">Total</span>
-                <strong className="block text-5xl text-[#0f3f23]">{brl(Number(createdOrder.total_amount || 0))}</strong>
+                <strong className="block text-3xl text-[#0f3f23] sm:text-5xl">{brl(Number(createdOrder.total_amount || 0))}</strong>
               </div>
             </div>
           )}
 
           {mode === "bazar" ? (
-            <div ref={catalogRef} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-              <h2 className="text-2xl font-black">Catálogo do Bazar</h2>
+            <div ref={catalogRef} className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="text-xl font-black sm:text-2xl">Catálogo do Bazar</h2>
               <p className="mt-2 text-sm leading-6 text-[#496451]">Caso orientado pela coordenação, selecione a categoria do item e ao clicar no valor, é adicionado ao resumo. Ao finalizar os itens a serem incluidos no pedido, clicar em Criar pedido.</p>
               <label className="mt-4 block max-w-md">
                 <span className="text-sm font-bold">Categoria, quando desejarem identificar</span>
@@ -539,39 +540,39 @@ export function PedidosClient() {
               </div>
             </div>
           ) : (
-            <div className="rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
-              <h2 className="text-2xl font-black">Cardápio</h2>
-              <div className="mt-4 rounded-3xl border border-[#dfe8df] bg-white p-3 shadow-sm">
+            <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-3 shadow-sm sm:p-5">
+              <h2 className="text-xl font-black sm:text-2xl">Cardápio</h2>
+              <div className="mt-3 max-w-full overflow-hidden rounded-3xl border border-[#dfe8df] bg-white p-2.5 shadow-sm sm:mt-4 sm:p-3">
                 <label className="block">
                   <span className="sr-only">Buscar item do cardápio</span>
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar refrigerante, bolo salgado, bolo doce" className="w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar refrigerante, bolo salgado, bolo doce" className="w-full min-w-0 rounded-2xl border border-[#dfe8df] px-3 py-3 text-sm outline-none focus:border-[#2f7d45] sm:px-4 sm:text-base" />
                 </label>
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                <div className="mt-3 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch]">
                   {menuCategoryOrder.map((category) => (
-                    <button key={category} onClick={() => setMenuCategory(category)} className={`shrink-0 rounded-full px-5 py-3 text-sm font-black ${menuCategory === category ? "bg-[#006b35] text-white" : "bg-[#fffdf0] text-[#214527]"}`}>
+                    <button key={category} onClick={() => setMenuCategory(category)} className={`shrink-0 rounded-full px-4 py-2.5 text-[13px] font-black sm:px-5 sm:py-3 sm:text-sm ${menuCategory === category ? "bg-[#006b35] text-white" : "bg-[#fffdf0] text-[#214527]"}`}>
                       {category}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="mt-5 space-y-6">
+              <div className="mt-5 min-w-0 space-y-5 sm:space-y-6">
                 {groupedMenuItems.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item encontrado.</p>}
                 {groupedMenuItems.map((group) => (
                   <section key={group.category}>
-                    <h3 className="mb-3 text-2xl font-black">{group.category}</h3>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <h3 className="mb-3 text-xl font-black sm:text-2xl">{group.category}</h3>
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 sm:gap-4">
                       {group.items.map((item) => {
                         const cartItem = cart.find((entry) => entry.key === `menu-${item.id}`);
                         return (
-                          <article key={item.id} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-                            <h4 className="text-xl font-black">{item.name}</h4>
+                          <article key={item.id} className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+                            <h4 className="text-lg font-black leading-tight sm:text-xl">{item.name}</h4>
                             <p className="mt-2 text-sm text-[#7a8278]">{item.description || `${item.name}.`}</p>
-                            <strong className="mt-4 block text-xl text-[#006b35]">{brl(Number(item.price))} / {item.unit_label}</strong>
+                            <strong className="mt-4 block text-lg text-[#006b35] sm:text-xl">{brl(Number(item.price))} / {item.unit_label}</strong>
                             <div className="mt-5 flex items-center justify-between gap-3">
-                              <button onClick={() => updateQty(`menu-${item.id}`, -1)} className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f4f4f1] text-2xl font-black text-[#006b35]">−</button>
-                              <span className="text-3xl font-black">{cartItem?.quantity || 0}</span>
-                              <button onClick={() => addMenuItem(item)} className="flex h-14 w-14 items-center justify-center rounded-full bg-[#006b35] text-2xl font-black text-white">+</button>
+                              <button onClick={() => updateQty(`menu-${item.id}`, -1)} className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f4f4f1] text-xl font-black text-[#006b35] sm:h-14 sm:w-14 sm:text-2xl">−</button>
+                              <span className="text-2xl font-black sm:text-3xl">{cartItem?.quantity || 0}</span>
+                              <button onClick={() => addMenuItem(item)} className="flex h-12 w-12 items-center justify-center rounded-full bg-[#006b35] text-xl font-black text-white sm:h-14 sm:w-14 sm:text-2xl">+</button>
                             </div>
                           </article>
                         );
@@ -582,8 +583,8 @@ export function PedidosClient() {
               </div>
             </div>
           )}
-          <div className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-black">Lista de clientes</h2>
+          <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+            <h2 className="text-xl font-black sm:text-2xl">Lista de clientes</h2>
             <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente.</p>
             <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
             <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
@@ -606,7 +607,7 @@ export function PedidosClient() {
 
         </section>
 
-        <aside className="fixed inset-x-4 bottom-4 z-40 h-fit rounded-3xl border border-[#dfe8df] bg-white/95 p-5 shadow-2xl backdrop-blur lg:sticky lg:inset-auto lg:top-48 lg:shadow-sm">
+        <aside className="fixed inset-x-3 bottom-3 z-40 h-fit rounded-3xl border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:shadow-sm">
           <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
           <div className="mt-2 space-y-2 lg:mt-4 lg:space-y-3">
             {cart.length === 0 && <p className="hidden rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451] lg:block">Nenhum item selecionado.</p>}
@@ -633,7 +634,7 @@ export function PedidosClient() {
               <strong className="block text-2xl lg:text-3xl">{brl(total)}</strong>
               {cart.length > 0 && <span className="mt-1 block text-xs font-bold text-[#2f7d45]">Toque para revisar/editar</span>}
             </button>
-            <button disabled={saving || cart.length === 0} onClick={createOrder} className="min-w-36 rounded-2xl bg-[#2f7d45] px-5 py-4 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:bg-[#83a847]">
+            <button disabled={saving || cart.length === 0} onClick={createOrder} className="min-w-32 rounded-2xl bg-[#2f7d45] px-4 py-3.5 text-sm font-black text-white shadow-lg disabled:cursor-not-allowed disabled:bg-[#83a847] sm:min-w-36 sm:px-5 sm:py-4 sm:text-base">
               {saving ? "Registrando..." : "Criar pedido"}
             </button>
           </div>
@@ -647,7 +648,7 @@ export function PedidosClient() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Pedido #{editingOrder.code}</p>
-                <h2 className="mt-1 text-2xl font-black">Editar pedido</h2>
+                <h2 className="mt-1 text-xl font-black sm:text-2xl">Editar pedido</h2>
                 <p className="mt-2 text-sm text-[#496451]">Use os cadastros ativos para ajustar item, categoria, valor e quantidade.</p>
               </div>
               <button onClick={() => setEditingOrder(null)} className="rounded-full bg-[#f9f7ef] px-4 py-2 font-black">Fechar</button>
@@ -767,7 +768,7 @@ export function PedidosClient() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Conferência</p>
-                <h2 className="mt-1 text-2xl font-black">Resumo dos itens</h2>
+                <h2 className="mt-1 text-xl font-black sm:text-2xl">Resumo dos itens</h2>
                 <p className="mt-2 text-sm text-[#496451]">Revise, ajuste a quantidade ou remova itens antes de criar o pedido.</p>
               </div>
               <button onClick={() => setCartReviewOpen(false)} className="rounded-full bg-[#f9f7ef] px-4 py-2 font-black">Fechar</button>
@@ -801,7 +802,7 @@ export function PedidosClient() {
 
             <div className="mt-5 rounded-2xl bg-[#f4e7b3] p-4">
               <span className="text-sm font-bold">Total revisado</span>
-              <strong className="block text-3xl">{brl(total)}</strong>
+              <strong className="block text-2xl sm:text-3xl">{brl(total)}</strong>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">

@@ -77,7 +77,7 @@ export function PrestacaoClient() {
   }
 
   if (!report) {
-    return <main className="min-h-screen bg-[#f9f7ef] px-4 py-10 text-[#214527]"><div className="mx-auto max-w-6xl rounded-3xl bg-white p-5">Carregando relatório... {message}</div></main>;
+    return <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-8 text-[15px] text-[#214527] sm:px-4 sm:py-10 sm:text-base"><div className="mx-auto w-full max-w-6xl rounded-3xl bg-white p-4 sm:p-5">Carregando relatório... {message}</div></main>;
   }
 
   const cards = [
@@ -90,13 +90,13 @@ export function PrestacaoClient() {
   ] as const;
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] px-4 py-6 text-[#214527] print:bg-white">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm print:shadow-none">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 text-[15px] text-[#214527] print:bg-white sm:px-4 sm:py-6 sm:text-base">
+      <div className="mx-auto w-full max-w-6xl min-w-0 space-y-4 sm:space-y-5">
+        <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:shadow-none sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Relatório final do evento</p>
-              <h1 className="mt-2 text-3xl font-black">{report.event.name}</h1>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Relatório final do evento</p>
+              <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">{report.event.name}</h1>
               <p className="mt-2 text-sm text-[#496451]">Use “Imprimir / salvar em PDF” para gerar o PDF completo.</p>
             </div>
             <div className="flex gap-2 print:hidden">
@@ -110,7 +110,7 @@ export function PrestacaoClient() {
           {cards.map(([label, value]) => (
             <div key={label} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
               <span className="text-sm font-bold text-[#496451]">{label}</span>
-              <strong className="mt-2 block text-3xl text-[#064b2c]">{brl(value)}</strong>
+              <strong className="mt-2 block text-2xl text-[#064b2c] sm:text-3xl">{brl(value)}</strong>
             </div>
           ))}
         </section>
@@ -120,8 +120,8 @@ export function PrestacaoClient() {
         <ReportTable title="3. Itens vendidos por item" rows={report.byItem} />
         <ReportTable title="4. Despesas por categoria" rows={report.byExpense} />
 
-        <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm print:break-inside-avoid">
-          <h2 className="text-2xl font-black">5. Incluir despesas</h2>
+        <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
+          <h2 className="text-xl font-black sm:text-2xl">5. Incluir despesas</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-4 print:hidden">
             <input value={expense.category} onChange={(e) => setExpense({ ...expense, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
             <input value={expense.description} onChange={(e) => setExpense({ ...expense, description: e.target.value })} placeholder="Descrição" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
@@ -143,8 +143,8 @@ export function PrestacaoClient() {
 
 function ReportTable({ title, rows }: { title: string; rows: Group[] }) {
   return (
-    <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm print:break-inside-avoid">
-      <h2 className="text-2xl font-black">{title}</h2>
+    <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
+      <h2 className="text-xl font-black sm:text-2xl">{title}</h2>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
           <thead><tr className="border-b"><th className="p-3">Descrição</th><th className="p-3">Quantidade</th><th className="p-3">Total</th></tr></thead>

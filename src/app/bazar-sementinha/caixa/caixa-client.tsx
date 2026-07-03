@@ -508,12 +508,12 @@ export function CaixaClient() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] px-4 py-6 text-[#214527]">
-      <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_380px]">
-        <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:text-base">
+      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Fechamento</p>
-            <h1 className="mt-2 text-3xl font-black">Caixa por cliente</h1>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Fechamento</p>
+            <h1 className="mt-2 text-2xl font-black sm:text-3xl">Caixa por cliente</h1>
             <p className="mt-2 text-sm leading-6 text-[#496451]">Selecione pedidos de um único cliente por vez para registrar o pagamento com segurança.</p>
           </div>
 
@@ -525,9 +525,9 @@ export function CaixaClient() {
               const groupSelectedCount = selectedOrders.filter((order) => orderClientKey(order) === group.clientKey).length;
 
               return (
-                <article key={group.clientKey} className={`rounded-3xl border p-4 ${selectedClientKey === group.clientKey ? "border-[#2f7d45] bg-[#fbfff9]" : "border-[#dfe8df] bg-white"}`}>
+                <article key={group.clientKey} className={`min-w-0 rounded-3xl border p-4 ${selectedClientKey === group.clientKey ? "border-[#2f7d45] bg-[#fbfff9]" : "border-[#dfe8df] bg-white"}`}>
                   <button type="button" onClick={() => toggleExpanded(group.clientKey)} className="w-full min-w-0 text-left">
-                    <h2 className="truncate text-xl font-black">{group.name}</h2>
+                    <h2 className="truncate text-lg font-black sm:text-xl">{group.name}</h2>
                     {group.whatsapp && <p className="text-xs font-bold text-[#7a8278]">{group.whatsapp}</p>}
                     <p className="mt-1 text-sm leading-6 text-[#496451]">
                       {group.orders.length} pedido(s) · total {brl(group.total)} · pagos {group.paidOrders.length} / {brl(group.paidTotal)} · pendentes {group.pendingOrders.length} / {brl(group.pendingTotal)}
@@ -599,14 +599,14 @@ export function CaixaClient() {
           </div>
         </section>
 
-        <aside id="pagamento-bazar" className="h-fit rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm lg:sticky lg:top-48">
-          <h2 className="text-2xl font-black">Pagamento</h2>
+        <aside id="pagamento-bazar" className="h-fit min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5 lg:sticky lg:top-48">
+          <h2 className="text-xl font-black sm:text-2xl">Pagamento</h2>
           <p className="mt-2 text-sm leading-6 text-[#496451]">O card aceita apenas pedidos de um único cliente por vez.</p>
           <div className="mt-4 rounded-2xl bg-[#f4e7b3] p-4">
             <span className="text-sm font-bold">Cliente selecionado</span>
             <strong className="block text-xl">{selectedClientName || "Nenhum cliente"}</strong>
             <span className="mt-3 block text-sm font-bold">Total selecionado</span>
-            <strong className="block text-3xl">{brl(selectedTotal)}</strong>
+            <strong className="block text-2xl sm:text-3xl">{brl(selectedTotal)}</strong>
           </div>
 
           <div className="mt-4 rounded-2xl border border-[#dfe8df] p-3">

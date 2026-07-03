@@ -20,22 +20,22 @@ export default function BazarSementinhaPage() {
   return (
     <>
       <BazarHeader active="home" />
-      <main className="min-h-screen bg-[#f9f7ef] text-[#214527]">
-        <section className="border-b border-[#dfe8df] px-4 py-10 sm:py-14">
-          <div className="mx-auto grid max-w-6xl gap-8 md:grid-cols-[1fr_0.9fr] md:items-center">
+      <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] text-[15px] text-[#214527] sm:text-base">
+        <section className="border-b border-[#dfe8df] px-3 py-8 sm:px-4 sm:py-14">
+          <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 md:grid-cols-[minmax(0,1fr)_0.9fr] md:items-center">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-[#83a847]">Bazar do Sementinha · 04/07/2026</p>
-              <h1 className="mt-4 text-4xl font-black leading-tight sm:text-6xl">O bazar ajuda mais quando o controle não fica para depois.</h1>
-              <p className="mt-5 max-w-2xl text-lg leading-8 text-[#31543a]">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Bazar do Sementinha · 04/07/2026</p>
+              <h1 className="mt-4 text-3xl font-black leading-tight sm:text-6xl">O bazar ajuda mais quando o controle não fica para depois.</h1>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-[#31543a] sm:mt-5 sm:text-lg sm:leading-8">
                 Registre pedidos com mínimo de fricção, cobre com segurança no caixa e entregue uma prestação de contas simples, confiável e comparável por evento.
               </p>
             </div>
-            <aside className="rounded-[2rem] border border-[#dfe8df] bg-white p-6 shadow-sm">
+            <aside className="min-w-0 rounded-[2rem] border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-6">
               <div className="flex items-center gap-4">
                 <Image src="/sementinha-logo.jpg" alt="Logo Bazar do Sementinha" width={96} height={96} className="h-24 w-24 rounded-full object-cover" />
                 <div>
                   <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Cliente fundador</p>
-                  <h2 className="text-2xl font-black">Sementinha do Tucxa</h2>
+                  <h2 className="text-xl font-black sm:text-2xl">Sementinha do Tucxa</h2>
                   <p className="mt-1 text-sm text-[#496451]">Primeiro evento cadastrado: Bazar de 04/07/2026.</p>
                 </div>
               </div>
@@ -45,11 +45,11 @@ export default function BazarSementinhaPage() {
             </aside>
           </div>
         </section>
-        <section className="px-4 py-10">
-          <div className="mx-auto grid max-w-6xl gap-4 md:grid-cols-3">
+        <section className="px-3 py-8 sm:px-4 sm:py-10">
+          <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 md:grid-cols-3">
             {cards.map((card) => (
               <article key={card.title} className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-                <h2 className="text-xl font-black">{card.title}</h2>
+                <h2 className="text-lg font-black sm:text-xl">{card.title}</h2>
                 <p className="mt-3 leading-7 text-[#496451]">{card.text}</p>
               </article>
             ))}

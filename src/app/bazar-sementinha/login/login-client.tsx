@@ -28,10 +28,10 @@ export function LoginClient() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] px-4 py-10 text-[#214527]">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-8 text-[15px] text-[#214527] sm:px-4 sm:py-10 sm:text-base">
       <section className="mx-auto max-w-md rounded-3xl border border-[#dfe8df] bg-white p-6 shadow-sm">
         <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Acesso cliente</p>
-        <h1 className="mt-2 text-3xl font-black">Gestão do Bazar</h1>
+        <h1 className="mt-2 text-2xl font-black sm:text-3xl">Gestão do Bazar</h1>
         <label className="mt-6 block">
           <span className="text-sm font-bold">E-mail</span>
           <input value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3" />
