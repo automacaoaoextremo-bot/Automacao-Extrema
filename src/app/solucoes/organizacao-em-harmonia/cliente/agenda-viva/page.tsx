@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { AGENDA_VIVA_TUCXA_INITIAL_RULES, TUCXA_WEEKDAY_SERVICE_RULES } from "@/lib/organizacao-em-harmonia";
@@ -65,6 +65,10 @@ type FormState = {
   groupSlug: string;
   responsiblePersonId: string;
   notes: string;
+  imageUrl: string;
+  imageAlt: string;
+  imageEmoji: string;
+  highlightVisual: boolean;
   requiresApproval: boolean;
 };
 
@@ -79,6 +83,10 @@ const emptyForm: FormState = {
   groupSlug: "",
   responsiblePersonId: "",
   notes: "",
+  imageUrl: "",
+  imageAlt: "",
+  imageEmoji: "",
+  highlightVisual: true,
   requiresApproval: true,
 };
 
@@ -156,6 +164,51 @@ function eventTypeFor(event: AgendaEvent, types: EventType[]) {
 function colorFor(event: AgendaEvent, types: EventType[]) {
   const type = eventTypeFor(event, types);
   return eventColorClasses[type?.slug ?? event.event_type] ?? "bg-white text-[#00334E] ring-slate-200";
+}
+
+function metadataText(event: AgendaEvent, key: string) {
+  const value = event.metadata?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function eventImageUrl(event: AgendaEvent) {
+  return metadataText(event, "image_url");
+}
+
+function eventImageAlt(event: AgendaEvent) {
+  return metadataText(event, "image_alt") || event.title;
+}
+
+function eventEmoji(event: AgendaEvent) {
+  const emoji = metadataText(event, "image_emoji");
+  if (emoji) return emoji;
+  const key = event.event_type || "";
+  if (key.includes("bazar")) return "🛍️";
+  if (key.includes("caminhada")) return "🚶";
+  if (key.includes("filme")) return "🎬";
+  if (key.includes("livro")) return "📚";
+  if (key.includes("cultural") || key.includes("mostra")) return "🎭";
+  if (key.includes("estudo")) return "💡";
+  return "📌";
+}
+
+function visualTime(value: string | null, allDay: boolean) {
+  if (allDay || !value) return "";
+  return new Date(value).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+}
+
+function eventTooltip(event: AgendaEvent) {
+  return [
+    event.title,
+    formatDate(event.starts_at),
+    event.location ? `Local: ${event.location}` : "Local a confirmar",
+    `Status: ${statusLabels[event.status] ?? event.status}`,
+    event.notes ? `Obs.: ${event.notes}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function canStoreDataImage(dataUrl: string) {
+  return dataUrl.length <= 900_000;
 }
 
 function publicStatusClass(status: string) {
@@ -260,6 +313,33 @@ export default function OrganizacaoAgendaVivaPage() {
     return result as Payload & { approvalWhatsappUrl?: string };
   }
 
+  async function onImageFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Selecione um arquivo de imagem.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) return;
+      if (!canStoreDataImage(dataUrl)) {
+        setError("Imagem muito grande para esta versão de teste. Use uma imagem menor ou informe uma URL da imagem.");
+        return;
+      }
+      setError("");
+      setForm((current) => ({
+        ...current,
+        imageUrl: dataUrl,
+        imageAlt: current.imageAlt || file.name.replace(/\.[^.]+$/, ""),
+      }));
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function saveEvent() {
     setSaving(true);
     setMessage("");
@@ -335,6 +415,10 @@ export default function OrganizacaoAgendaVivaPage() {
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
       notes: event.notes ?? "",
+      imageUrl: eventImageUrl(event),
+      imageAlt: eventImageAlt(event),
+      imageEmoji: eventEmoji(event),
+      highlightVisual: event.metadata?.highlight_visual !== false,
       requiresApproval: event.requires_approval,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -369,7 +453,10 @@ export default function OrganizacaoAgendaVivaPage() {
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Fim</span><input type="datetime-local" value={form.endsAt} onChange={(event) => update("endsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo / categoria</span><select value={form.groupSlug} onChange={(event) => update("groupSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="evento">Evento</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="segunda">Segunda</option><option value="terca">Terça</option><option value="quarta">Quarta</option><option value="ferias">Férias</option></select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Local</span><input value={form.location} onChange={(event) => update("location", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Presencial, online, salão, etc." /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Emoji/ícone curto</span><input value={form.imageEmoji} onChange={(event) => update("imageEmoji", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: 🎬, 📚, 🚶" maxLength={4} /></label>
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Imagem do evento</span><div className="grid gap-3 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100 md:grid-cols-[1fr_auto]"><input value={form.imageUrl.startsWith("data:") ? "Imagem anexada ao formulário" : form.imageUrl} onChange={(event) => update("imageUrl", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Cole uma URL pública da imagem ou selecione um arquivo abaixo" disabled={form.imageUrl.startsWith("data:")} /><input type="file" accept="image/*" onChange={onImageFile} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm" />{form.imageUrl && <div className="md:col-span-2 flex flex-col gap-3 rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:flex-row sm:items-center"><div className="h-20 w-20 overflow-hidden rounded-2xl bg-lime-50 ring-1 ring-lime-100">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={form.imageUrl} alt={form.imageAlt || form.title || "Imagem do evento"} className="h-full w-full object-cover" /></div><div className="flex-1"><input value={form.imageAlt} onChange={(event) => update("imageAlt", event.target.value)} className="w-full rounded-2xl border border-slate-200 p-3" placeholder="Texto alternativo / descrição da imagem" /><button type="button" onClick={() => update("imageUrl", "")} className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-[#00334E]">Remover imagem</button></div></div>}</div></label>
               <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-lime-50 p-4 ring-1 ring-lime-100"><input type="checkbox" checked={form.highlightVisual} onChange={(event) => update("highlightVisual", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Destacar no calendário visual</span></label>
               <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Precisa de aprovação</span></label>
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Descreva objetivo, público, responsáveis, materiais, comunicação e qualquer regra importante." /></label>
             </div>
@@ -384,32 +471,42 @@ export default function OrganizacaoAgendaVivaPage() {
             </div>
           </section>
 
-          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Julho Cultural TUCXA</p>
-                <h2 className="mt-2 text-3xl font-black text-[#00334E]">Calendário visual — Julho 2026</h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Uma visão mais bonita e familiar para divulgação e consulta no celular, com eventos dentro de cada dia e status de aprovação.</p>
+          <section className="overflow-hidden rounded-[2.5rem] bg-[#eef8b9] p-0 shadow ring-1 ring-lime-200">
+            <div className="relative overflow-hidden bg-gradient-to-br from-white via-lime-50 to-[#e6f59b] px-5 py-8 sm:px-8">
+              <div className="absolute right-4 top-3 hidden text-8xl opacity-20 md:block">🌿</div>
+              <div className="relative z-10 flex flex-col gap-2">
+                <p className="text-2xl font-black uppercase tracking-[0.24em] text-[#2F3F16] sm:text-3xl">Julho Cultural</p>
+                <p className="text-sm font-black uppercase tracking-[0.55em] text-[#2F3F16]">TUCXA</p>
+                <h2 className="mt-8 text-5xl font-black text-[#3B4E16] sm:text-6xl">Calendário</h2>
+                <p className="text-xl font-black text-[#3B4E16] sm:text-2xl">Julho 2026</p>
               </div>
-              <div className="rounded-3xl bg-lime-50 px-5 py-4 text-sm font-black text-lime-950 ring-1 ring-lime-100">Toque/edite eventos pendentes antes da aprovação.</div>
             </div>
-            <div className="mt-6 rounded-[2rem] bg-lime-100/70 p-3 ring-1 ring-lime-200 sm:p-5">
-              <div className="grid grid-cols-7 gap-2 text-center text-xs font-black uppercase tracking-[0.15em] text-lime-950/70">
+
+            <div className="relative bg-[#dff28f] p-3 sm:p-6">
+              <div className="pointer-events-none absolute bottom-0 left-1/2 hidden -translate-x-1/2 text-8xl opacity-20 md:block">🤲🏾</div>
+              <div className="relative z-10 grid grid-cols-7 gap-2 text-center text-[0.65rem] font-black uppercase tracking-[0.18em] text-[#3B4E16]/70 sm:text-xs">
                 {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => <span key={day}>{day}</span>)}
               </div>
-              <div className="mt-2 grid grid-cols-7 gap-2">
+              <div className="relative z-10 mt-2 grid grid-cols-7 gap-2 sm:gap-3">
                 {visualMonthCells.map((cell) => {
                   const events = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
                   return (
-                    <div key={cell.key} className={`min-h-24 rounded-3xl p-2 ring-1 ${cell.day ? "bg-white/80 ring-lime-200" : "bg-transparent ring-transparent"}`}>
-                      {cell.day && <p className="text-sm font-black text-lime-950">{String(cell.day).padStart(2, "0")}/07</p>}
-                      <div className="mt-2 space-y-1">
-                        {events.slice(0, 3).map((event) => (
-                          <button key={event.id} type="button" onClick={() => editEvent(event)} className={`w-full rounded-2xl px-2 py-1 text-left text-[0.68rem] font-black leading-4 ring-1 ${colorFor(event, payload.eventTypes)}`}>
-                            {event.title}
-                          </button>
-                        ))}
-                        {events.length > 3 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{events.length - 3}</span>}
+                    <div key={cell.key} className={`min-h-24 rounded-[1.7rem] p-1.5 ring-1 sm:min-h-32 sm:p-2.5 ${cell.day ? "bg-[#fbffe7]/95 ring-lime-200" : "bg-transparent ring-transparent"}`}>
+                      {cell.day && <p className="text-sm font-black text-[#314414] sm:text-base">{String(cell.day).padStart(2, "0")}/07</p>}
+                      <div className="mt-1 space-y-1 sm:mt-2">
+                        {events.slice(0, 2).map((event) => {
+                          const image = eventImageUrl(event);
+                          const time = visualTime(event.starts_at, event.all_day);
+                          return (
+                            <button key={event.id} type="button" title={eventTooltip(event)} onClick={() => editEvent(event)} className={`group relative w-full overflow-hidden rounded-2xl p-1 text-center text-[0.62rem] font-black leading-4 shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md sm:text-[0.72rem] ${colorFor(event, payload.eventTypes)}`}>
+                              {image ? <span className="mx-auto mb-1 block h-9 w-9 overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/70 sm:h-11 sm:w-11">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={image} alt={eventImageAlt(event)} className="h-full w-full object-cover" /></span> : <span className="mx-auto mb-1 block text-xl leading-none sm:text-2xl">{eventEmoji(event)}</span>}
+                              <span className="block break-words">{event.title}</span>
+                              {time && <span className="block text-[0.58rem] font-black opacity-80 sm:text-[0.68rem]">{time}</span>}
+                              <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-56 -translate-x-1/2 rounded-2xl bg-white p-3 text-left text-xs font-bold leading-5 text-slate-700 shadow-xl ring-1 ring-slate-100 group-hover:block">{eventTooltip(event)}</span>
+                            </button>
+                          );
+                        })}
+                        {events.length > 2 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{events.length - 2}</span>}
                       </div>
                     </div>
                   );

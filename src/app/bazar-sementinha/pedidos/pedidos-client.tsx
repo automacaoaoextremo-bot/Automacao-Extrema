@@ -1,6 +1,9 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AE_SITE_URL } from "@/lib/ae-public-links";
 
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
@@ -10,6 +13,7 @@ type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: n
 type CreatedOrder = {
   id: string;
   code: string;
+  public_token?: string | null;
   total_amount: number | string;
   created_at?: string | null;
   notes?: string | null;
@@ -43,7 +47,7 @@ type Bootstrap = {
   clients?: Client[];
 };
 
-const menuCategoryOrder = ["Todos", "Salgados", "Bebidas", "Doces"];
+const menuCategoryOrder = ["Todos", "Tortas", "Salgados", "Bauru de Forno", "Doces", "Bebidas"];
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -132,6 +136,7 @@ export function PedidosClient() {
   }, []);
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
+  const createdOrderPublicUrl = createdOrder?.public_token ? `${AE_SITE_URL}/bazar-sementinha/pedido/${createdOrder.public_token}` : "";
 
   const visibleMenuItems = useMemo(() => {
     const term = normalize(search.trim());
@@ -461,6 +466,36 @@ export function PedidosClient() {
                 <p className="mt-3 text-lg text-[#496451]">Cliente: <strong>{createdOrder.client?.name || clientName}</strong></p>
                 <p className="mt-1 text-sm text-[#7a8278]">{formatDateTime(createdOrder.created_at)}</p>
                 <button onClick={() => startEditOrder(createdOrder)} className="mt-5 rounded-full bg-[#f4e7b3] px-5 py-3 text-sm font-black text-[#214527] shadow-sm">Editar pedido</button>
+                {createdOrder.public_token ? (
+                  <div className="mt-5 grid gap-4 rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df] sm:grid-cols-[180px_1fr] sm:items-center">
+                    {createdOrderPublicUrl && (
+                      <Image
+                        src={`/api/bazar-sementinha/qrcode?text=${encodeURIComponent(createdOrderPublicUrl)}`}
+                        alt={`QRCode para acompanhar o pedido ${createdOrder.code}`}
+                        width={180}
+                        height={180}
+                        unoptimized
+                        className="rounded-2xl bg-white p-2 ring-1 ring-[#dfe8df]"
+                      />
+                    )}
+                    <div>
+                      <h3 className="text-xl font-black">QRCode para acompanhar pelo celular</h3>
+                      <p className="mt-2 text-sm leading-6 text-[#496451]">O cliente pode apontar a câmera para este QRCode e conferir itens, total e status do pagamento.</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Link href={`/bazar-sementinha/pedido/${createdOrder.public_token}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#2f7d45] px-4 py-2 text-sm font-black text-white shadow-sm">
+                          Abrir acompanhamento
+                        </Link>
+                        {createdOrderPublicUrl && (
+                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(createdOrderPublicUrl); setMessage("Link de acompanhamento copiado."); }} className="rounded-full border border-[#dfe8df] bg-white px-4 py-2 text-sm font-black text-[#214527] shadow-sm">
+                            Copiar link
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-2xl bg-[#fff8dd] p-4 text-sm font-bold text-[#7a5a00]">Rode o SQL novo para liberar o token público e o QRCode de acompanhamento deste pedido.</p>
+                )}
               </div>
               <div className="mt-5 rounded-3xl bg-white p-5 ring-1 ring-[#dfe8df]">
                 <h3 className="text-2xl font-black">Itens</h3>

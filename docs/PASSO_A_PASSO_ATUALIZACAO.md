@@ -1,138 +1,84 @@
-# Automação Extrema — passo a passo de atualização
+# Passo a passo — Presença Querida: recados da Daniela com aprovação e LP
 
-## 1. Backup
+## 1. Substituir/adicionar arquivos
 
-Antes de substituir arquivos, faça commit ou backup da versão atual.
+Na raiz do repositório `automacao-extrema`, copie os arquivos deste pacote mantendo exatamente a mesma estrutura de pastas.
 
-```powershell
-git status
-git add .
-git commit -m "backup antes da gestao ae auth funil relatorios"
+Arquivos atualizados:
+
+- `.env.example`
+- `src/components/presenca-public-confirmation.tsx`
+- `src/app/api/presenca-querida/confirmar/[token]/route.ts`
+- `src/app/api/presenca-querida/cliente/messages/route.ts`
+- `src/app/solucoes/presenca-querida/evento/[slug]/page.tsx`
+- `src/app/solucoes/presenca-querida/cliente/mensagens/page.tsx`
+- `src/lib/mail.ts`
+- `src/lib/presenca-daniela50.ts`
+
+Arquivo novo:
+
+- `supabase/sql/20260702_17_presenca_querida_recados_daniela_aprovacao_lp.sql`
+
+## 2. Configurar e-mail de aprovação dos recados
+
+No `.env.local` e na Vercel, adicione opcionalmente:
+
+```env
+PRESENCA_QUERIDA_RECADO_APPROVER_EMAIL=email-da-daniela-ou-cliente@dominio.com
 ```
 
-## 2. Substituir arquivos
+Se essa variável ficar vazia, o sistema tenta usar o e-mail do evento (`pq_events.email`). Se também estiver vazio, usa `EMAIL_COPY_TO`.
 
-Descompacte este zip na raiz do projeto `automacao-extrema`, substituindo os arquivos existentes.
+## 3. Rodar o SQL no Supabase
 
-## 3. Instalar dependências
+No Supabase SQL Editor, execute:
+
+```sql
+supabase/sql/20260702_17_presenca_querida_recados_daniela_aprovacao_lp.sql
+```
+
+Esse SQL faz três coisas:
+
+1. garante os campos de aprovação em `pq_guest_messages`;
+2. transforma recados já existentes em `pq_guests.notes` em mensagens pendentes de aprovação, incluindo casos como Mariana;
+3. atualiza os modelos de lembrete para citar a novidade dos recados na LP.
+
+Nenhum recado antigo é publicado automaticamente. Todos entram como `pendente`.
+
+## 4. Instalar, validar e testar localmente
 
 ```powershell
 npm install
-```
-
-Foi incluída a dependência `nodemailer` para envio do e-mail imediato do diagnóstico.
-
-## 4. Rodar SQL no Supabase
-
-No Supabase, acesse **SQL Editor > New query** e rode o arquivo:
-
-```text
-supabase/sql/20260527_ae_auth_funil_relatorios.sql
-```
-
-Este SQL adiciona:
-
-- campos de funil em `ae_leads`;
-- tabela `ae_lead_followups`;
-- índices;
-- policies para usuários autenticados;
-- views de relatório.
-
-## 5. Criar usuário de gestão no Supabase Auth
-
-No Supabase:
-
-1. Acesse **Authentication > Users**.
-2. Clique em **Add user**.
-3. Informe o e-mail do usuário gestor.
-4. Defina uma senha.
-5. Marque como confirmado, se a tela mostrar essa opção.
-
-Depois acesse:
-
-```text
-http://localhost:3000/login
-```
-
-## 6. Atualizar `.env.local`
-
-Garanta estas variáveis no `.env.local`:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=SUA_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=SUA_SERVICE_ROLE_KEY
-
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=automacao.ao.extremo@gmail.com
-SMTP_PASS=SENHA_DE_APP_DO_GMAIL
-
-EMAIL_FROM_NAME=Automação Extrema
-EMAIL_FROM=automacao.ao.extremo@gmail.com
-EMAIL_COPY_TO=automacao.ao.extremo@gmail.com
-EMAIL_NOTIFICATIONS_ENABLED=true
-```
-
-Observação: para Gmail, use senha de app, não a senha normal da conta.
-
-## 7. Testar localmente
-
-```powershell
 npm run lint
-npm run build
 npm run dev
 ```
 
-Páginas principais:
+Teste recomendado:
 
-```text
-http://localhost:3000/
-http://localhost:3000/diagnostico
-http://localhost:3000/login
-http://localhost:3000/admin/ae
-http://localhost:3000/admin/ae/solucoes
-http://localhost:3000/admin/ae/relatorios
-http://localhost:3000/admin/ae/funil
-```
+1. abrir um convite individual da Daniela;
+2. preencher ou alterar “Curiosidade ou recado para a Daniela”;
+3. registrar a resposta;
+4. conferir se o recado apareceu em `Cliente > Mensagens > Recados para aprovação na LP`;
+5. aprovar o recado;
+6. abrir a LP pública do evento e conferir a seção “Recados para a Dani”.
 
-## 8. Publicar no Vercel
+## 5. Publicar
 
-1. Faça commit:
+Depois dos testes:
 
 ```powershell
 git status
 git add .
-git commit -m "feat: gestao ae com auth funil relatorios e validacoes"
+git commit -m "Presenca Querida: aprovar recados da Daniela e publicar na LP"
 git push
 ```
 
-2. No Vercel, acesse o projeto.
-3. Vá em **Settings > Environment Variables**.
-4. Cadastre as mesmas variáveis do `.env.local`, exceto `NEXT_PUBLIC_SITE_URL`, que deve ser:
+A Vercel deve fazer o deploy automaticamente após o push.
 
-```env
-NEXT_PUBLIC_SITE_URL=https://SEU-DOMINIO.vercel.app
+## 6. Script para gerar novo zip
+
+Depois de aplicar os arquivos no repositório, se quiser gerar outro pacote só com estes arquivos:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\gerar-zip-presenca-recados-daniela.ps1
 ```
-
-5. Clique em **Deployments > Redeploy** ou aguarde o deploy automático do push.
-
-## 9. O que foi incluído
-
-- Login real com Supabase Auth.
-- Cabeçalho fixo contextual.
-- Em páginas públicas: Diagnóstico e Gestão.
-- Em páginas logadas: Gestão, Soluções, Relatórios, Funil e Sair.
-- Tela de edição de status das soluções.
-- Tela de detalhes do lead com respostas completas.
-- Relatórios automáticos de dores, áreas, soluções e leads quentes.
-- Funil com mensagens prontas de WhatsApp e marcação de envio.
-- E-mail imediato para lead + cópia para a Automação Extrema.
-- Validação visual no formulário.
-- Rolagem automática até a primeira pergunta pendente.
-- Validação duplicada na API.
-- Bloco explicativo sobre o diagnóstico não solicitar senha, cartão, dados bancários, pagamento, instalação ou download.
-- Paleta visual baseada nos logos anexos.

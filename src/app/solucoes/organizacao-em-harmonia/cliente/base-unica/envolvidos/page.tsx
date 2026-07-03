@@ -29,6 +29,28 @@ type Profile = {
 };
 type Membership = { id: string; person_id: string; role_id: string | null; module_slugs: string[] | null; active: boolean; agenda_viva_profile?: Profile | null };
 type Payload = { people: Person[]; roles: Role[]; memberships: Membership[]; modules: Array<{ module_slug: string; enabled: boolean }> };
+
+type Filters = {
+  search: string;
+  status: string;
+  roleId: string;
+  moduleSlug: string;
+  thursdayGroup: string;
+  day: string;
+  bond: string;
+  line: string;
+};
+
+const emptyFilters: Filters = {
+  search: "",
+  status: "ativos",
+  roleId: "",
+  moduleSlug: "",
+  thursdayGroup: "",
+  day: "",
+  bond: "",
+  line: "",
+};
 type Form = {
   id: string;
   fullName: string;
@@ -101,6 +123,37 @@ const weekdayLabels = [
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
 }
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function profileHasBond(profile: Profile | null | undefined, bond: string) {
+  if (!bond) return true;
+  if (bond === "cavalinho") return Boolean(profile?.isCavalinho);
+  if (bond === "cambono") return Boolean(profile?.isCambono);
+  if (bond === "cambono-reserva") return Boolean(profile?.isReserveCambono);
+  if (bond === "recepcao") return Boolean(profile?.supportsReception);
+  if (bond === "organizacao") return Boolean(profile?.supportsOrganization);
+  if (bond === "aprova-eventos") return Boolean(profile?.canApproveEvents);
+  if (bond === "altera-calendario") return Boolean(profile?.canEditCalendar);
+  if (bond === "relatorios") return Boolean(profile?.canViewReports);
+  return true;
+}
+
+function profileHasDay(profile: Profile | null | undefined, day: string) {
+  if (!day) return true;
+  if (day === "segunda") return Boolean(profile?.participatesMonday);
+  if (day === "terca") return Boolean(profile?.participatesTuesday);
+  if (day === "quarta") return Boolean(profile?.participatesWednesday);
+  if (day === "quinta") return Boolean(profile?.participatesThursday);
+  return true;
+}
 function membershipFor(personId: string, memberships: Membership[]) {
   return memberships.find((item) => item.person_id === personId) ?? null;
 }
@@ -129,6 +182,7 @@ export default function EnvolvidosPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [csvText, setCsvText] = useState("");
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -177,6 +231,40 @@ export default function EnvolvidosPage() {
 
   const roleById = useMemo(() => new Map((payload?.roles ?? []).map((role) => [role.id, role])), [payload?.roles]);
   const availableModules = payload?.modules?.length ? payload.modules.map((module) => module.module_slug) : ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
+  const filteredPeople = useMemo(() => {
+    const search = normalizeSearch(filters.search);
+    const line = normalizeSearch(filters.line);
+
+    return (payload?.people ?? []).filter((person) => {
+      const membership = membershipFor(person.id, payload?.memberships ?? []);
+      const profile = membership?.agenda_viva_profile;
+      const searchable = normalizeSearch([person.full_name, person.email, person.whatsapp, person.notes].filter(Boolean).join(" "));
+      const profileText = normalizeSearch([
+        profileSummary(profile),
+        profile?.entityNames?.join(" "),
+        profile?.cambonoEntityNames?.join(" "),
+        profile?.spiritualLines?.join(" "),
+        profile?.attendanceNotes,
+      ].filter(Boolean).join(" "));
+
+      if (search && !searchable.includes(search) && !profileText.includes(search)) return false;
+      if (filters.status === "ativos" && person.active === false) return false;
+      if (filters.status === "inativos" && person.active !== false) return false;
+      if (filters.roleId && membership?.role_id !== filters.roleId) return false;
+      if (filters.moduleSlug && !(membership?.module_slugs ?? []).includes(filters.moduleSlug)) return false;
+      if (filters.thursdayGroup && profile?.thursdayGroup !== filters.thursdayGroup) return false;
+      if (!profileHasDay(profile, filters.day)) return false;
+      if (!profileHasBond(profile, filters.bond)) return false;
+      if (line && !normalizeSearch([profile?.spiritualLines?.join(" "), profile?.entityNames?.join(" "), profile?.cambonoEntityNames?.join(" ")].filter(Boolean).join(" ")).includes(line)) return false;
+
+      return true;
+    });
+  }, [filters, payload?.memberships, payload?.people]);
+
+  function updateFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
 
   function update<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -383,8 +471,29 @@ export default function EnvolvidosPage() {
           </section>
 
           <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-            <h2 className="text-2xl font-black text-[#00334E]">Envolvidos cadastrados</h2>
-            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Status</th><th>Ações</th></tr></thead><tbody>{payload.people.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{person.email || "Sem e-mail"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs ?? []).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-[#00334E]">{person.active === false ? "Inativo" : "Ativo"}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button><button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{payload.people.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido cadastrado ainda.</td></tr>}</tbody></table></div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-[#00334E]">Envolvidos cadastrados</h2>
+                <p className="mt-2 text-sm font-semibold text-slate-500">{filteredPeople.length} de {payload.people.length} envolvido(s) visível(is) conforme os filtros.</p>
+              </div>
+              <button type="button" onClick={() => setFilters(emptyFilters)} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-[#00334E]">Limpar filtros</button>
+            </div>
+
+            <div className="mt-5 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Filtros rápidos</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <label className="grid gap-1 xl:col-span-2"><span className="text-sm font-black text-[#00334E]">Buscar por nome, e-mail, WhatsApp ou vínculo</span><input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Ex.: Márcio, 1999, cambono, Caboclo..." /></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Status</span><select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="ativos">Ativos</option><option value="inativos">Inativos</option><option value="todos">Todos</option></select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={filters.roleId} onChange={(event) => updateFilter("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todas</option>{payload.roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Módulo</span><select value={filters.moduleSlug} onChange={(event) => updateFilter("moduleSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option>{availableModules.map((module) => <option key={module} value={module}>{moduleLabels[module] ?? module}</option>)}</select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Vínculo</span><select value={filters.bond} onChange={(event) => updateFilter("bond", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option><option value="cavalinho">Cavalinho</option><option value="cambono">Cambono</option><option value="cambono-reserva">Cambono reserva</option><option value="recepcao">Apoia recepção</option><option value="organizacao">Apoia organização</option><option value="aprova-eventos">Pode aprovar eventos</option><option value="altera-calendario">Pode alterar calendário</option><option value="relatorios">Pode ver relatórios</option></select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo quinta</span><select value={filters.thursdayGroup} onChange={(event) => updateFilter("thursdayGroup", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="ambos">Grupo 1 e 2</option></select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Dia de atuação</span><select value={filters.day} onChange={(event) => updateFilter("day", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option><option value="segunda">Segunda</option><option value="terca">Terça</option><option value="quarta">Quarta</option><option value="quinta">Quinta</option></select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Entidade ou linha</span><input value={filters.line} onChange={(event) => updateFilter("line", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Ex.: Oxóssi, Preto Velho..." /></label>
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{person.email || "Sem e-mail"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs ?? []).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`rounded-full px-3 py-1 text-xs font-black ${person.active === false ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-[#00334E]"}`}>{person.active === false ? "Inativo" : "Ativo"}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button><button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
           </section>
         </>
       )}

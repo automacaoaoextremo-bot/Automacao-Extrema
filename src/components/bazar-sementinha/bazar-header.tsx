@@ -2,11 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { AeBrandStrip } from "@/components/ae-solution-header";
 
-type BazarHeaderActive = "home" | "pedidos" | "caixa" | "relatorio" | "gestao";
+type BazarHeaderActive = "home" | "cardapio" | "pedidos" | "caixa" | "relatorio" | "gestao";
 
 export function BazarHeader({ active = "home", logged = false }: { active?: BazarHeaderActive; logged?: boolean }) {
   const links = [
     { key: "home", label: "Início", href: "/bazar-sementinha" },
+    { key: "cardapio", label: "Cardápio", href: "/bazar-sementinha/cardapio" },
     { key: "pedidos", label: "Pedidos", href: "/bazar-sementinha/pedidos" },
     { key: "caixa", label: "Caixa", href: "/bazar-sementinha/caixa" },
     { key: "relatorio", label: "Prestação", href: "/bazar-sementinha/prestacao-contas" },
