@@ -463,8 +463,8 @@ export function PedidosClient() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-52 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:pb-56 sm:text-base lg:pb-6">
-      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_390px]">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-60 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:pb-64 sm:text-base lg:pb-52">
+      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:pr-[430px]">
         <section className="min-w-0 space-y-4 sm:space-y-5">
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Registro rápido</p>
@@ -664,7 +664,7 @@ export function PedidosClient() {
 
         </section>
 
-        <aside className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-3 z-[60] mx-auto h-fit max-w-2xl rounded-[1.75rem] border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:left-4 sm:right-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:self-start lg:rounded-3xl lg:shadow-sm">
+        <aside className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-3 z-[80] mx-auto h-fit max-h-[72vh] max-w-2xl overflow-hidden rounded-[1.75rem] border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:left-4 sm:right-4 sm:p-5 lg:left-auto lg:right-[max(2rem,calc((100vw-72rem)/2))] lg:bottom-8 lg:w-[390px] lg:max-w-[390px] lg:rounded-3xl">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">

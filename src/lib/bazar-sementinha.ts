@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const BAZAR_EVENT_SLUG = "bazar-sementinha-2026-07-04";
 export const BAZAR_CLIENT_EMAIL = "bazardosementinha@gmail.com";
-export const BAZAR_PIX_KEY = "58.392.598/0001-91";
+export const BAZAR_PIX_KEY = "58392598000191";
 export const BAZAR_PIX_RECEIVER = "SEMENTINHA DO TUCXA";
 export const BAZAR_PIX_CITY = "CAMPINAS";
 
@@ -109,7 +109,7 @@ export async function buildPixCopyPaste(amount: number, txid: string) {
 
   const tlv = (id: string, content: string) => `${id}${String(content.length).padStart(2, "0")}${content}`;
   const gui = tlv("00", "br.gov.bcb.pix");
-  const key = tlv("01", BAZAR_PIX_KEY);
+  const key = tlv("01", onlyDigits(BAZAR_PIX_KEY));
   const desc = tlv("02", "Bazar Sementinha");
   const merchantAccount = tlv("26", gui + key + desc);
   const additional = tlv("62", tlv("05", safeTxid));
