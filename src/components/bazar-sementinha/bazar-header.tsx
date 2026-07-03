@@ -20,14 +20,15 @@ export function BazarHeader({ active = "home", logged = false, publicView = fals
     { key: "relatorio", label: "Prestação", href: "/bazar-sementinha/prestacao-contas", public: false },
   ] as const;
 
-  function withPublicContext(href: string, isPublicLink: boolean) {
+  function withPublicContext(href: string, isPublicLink: boolean, key?: BazarHeaderActive) {
     if (!publicView || !isPublicLink || !publicContextToken) return href;
+    if (key === "pedidos") return `/bazar-sementinha/cliente/${encodeURIComponent(publicContextToken)}`;
     const separator = href.includes("?") ? "&" : "?";
     return `${href}${separator}cliente=${encodeURIComponent(publicContextToken)}`;
   }
 
   const visibleLinks = publicView ? links.filter((link) => link.public) : links;
-  const homeHref = withPublicContext("/bazar-sementinha", true);
+  const homeHref = withPublicContext("/bazar-sementinha", true, "home");
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-[#fffdf7]/95 shadow-sm backdrop-blur">
@@ -60,7 +61,7 @@ export function BazarHeader({ active = "home", logged = false, publicView = fals
           {visibleLinks.map((link) => (
             <Link
               key={link.key}
-              href={withPublicContext(link.href, link.public)}
+              href={withPublicContext(link.href, link.public, link.key)}
               className={`rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.06em] ring-1 transition sm:px-4 sm:text-xs sm:tracking-[0.08em] ${
                 active === link.key ? "bg-[#f4e7b3] text-[#214527] ring-[#f4e7b3]" : "bg-white/10 text-white ring-white/15 hover:bg-white hover:text-[#214527]"
               }`}

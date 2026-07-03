@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AE_SITE_URL } from "@/lib/ae-public-links";
 
 type OrderItem = {
   id: string;
@@ -22,7 +24,7 @@ type Order = {
   status: string;
   created_at?: string | null;
   notes?: string | null;
-  client?: { id: string; name: string; whatsapp?: string | null } | null;
+  client?: { id: string; name: string; whatsapp?: string | null; public_token?: string | null } | null;
   items?: OrderItem[];
 };
 
@@ -43,6 +45,7 @@ type ClientGroup = {
   clientId: string | null;
   name: string;
   whatsapp?: string | null;
+  publicToken?: string | null;
   orders: Order[];
   pendingOrders: Order[];
   paidOrders: Order[];
@@ -128,6 +131,7 @@ function parseMoneyInput(value: string) {
 export function CaixaClient() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [lastClientLink, setLastClientLink] = useState<{ name: string; token: string } | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("pix");
   const [pix, setPix] = useState<{ payload: string; dataUrl: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -206,6 +210,7 @@ export function CaixaClient() {
         clientId: order.client?.id || null,
         name: order.client?.name || "Sem cliente",
         whatsapp: order.client?.whatsapp || null,
+        publicToken: order.client?.public_token || null,
         orders: [],
         pendingOrders: [],
         paidOrders: [],
@@ -236,6 +241,10 @@ export function CaixaClient() {
   const selectedTotal = useMemo(() => selectedOrders.reduce((sum, order) => sum + orderValue(order), 0), [selectedOrders]);
   const selectedClientKey = selectedOrders[0] ? orderClientKey(selectedOrders[0]) : "";
   const selectedClientName = selectedOrders[0]?.client?.name || "";
+  const selectedClientPublicToken = selectedOrders[0]?.client?.public_token || "";
+  const activeClientLinkToken = selectedClientPublicToken || lastClientLink?.token || "";
+  const activeClientLinkName = selectedClientName || lastClientLink?.name || "cliente";
+  const activeClientPublicUrl = activeClientLinkToken ? `${AE_SITE_URL}/bazar-sementinha/cliente/${activeClientLinkToken}` : "";
 
   async function refreshPix(total: number) {
     const res = await fetch(`/api/bazar-sementinha/payments?amount=${encodeURIComponent(String(Math.max(total, 1)))}&txid=BAZARSEM`, { cache: "no-store" });
@@ -256,6 +265,7 @@ export function CaixaClient() {
   function setSelection(next: string[]) {
     const total = pendingOrders.filter((order) => next.includes(order.id)).reduce((sum, order) => sum + orderValue(order), 0);
     setSelected(next);
+    if (next.length > 0) setLastClientLink(null);
     refreshPix(total).catch(() => null);
   }
 
@@ -334,6 +344,9 @@ export function CaixaClient() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao registrar pagamento.");
+      if (selectedClientPublicToken) {
+        setLastClientLink({ name: selectedClientName || "cliente", token: selectedClientPublicToken });
+      }
       setMessage(`Pagamento registrado para ${selectedClientName || "cliente"}: ${brl(selectedTotal)}.`);
       setSelected([]);
       setExpandedGroups([]);
@@ -539,6 +552,24 @@ export function CaixaClient() {
 
                   {expanded && (
                     <div className="mt-4 space-y-3">
+                      {group.pendingOrders.length > 0 && (
+                        <div className="grid gap-2 rounded-2xl bg-[#f9f7ef] p-3 ring-1 ring-[#dfe8df] sm:grid-cols-2">
+                          <button
+                            onClick={() => toggleGroupSelection(group)}
+                            className="rounded-full bg-[#f4e7b3] px-4 py-3 text-sm font-black text-[#214527]"
+                          >
+                            {groupSelected ? "Deselecionar" : "Selecionar"}
+                          </button>
+                          <button
+                            onClick={() => goToPayment(group)}
+                            disabled={groupSelectedCount === 0}
+                            className="rounded-full bg-[#2f7d45] px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#83a847]"
+                          >
+                            Ir para pagamento
+                          </button>
+                        </div>
+                      )}
+
                       {group.orders.map((order) => {
                         const isPaid = order.payment_status === "pago";
                         const selectable = canSelectOrder(order);
@@ -573,24 +604,6 @@ export function CaixaClient() {
                           </div>
                         );
                       })}
-
-                      {group.pendingOrders.length > 0 && (
-                        <div className="grid gap-2 border-t border-[#dfe8df] pt-3 sm:grid-cols-2">
-                          <button
-                            onClick={() => toggleGroupSelection(group)}
-                            className="rounded-full bg-[#f4e7b3] px-4 py-3 text-sm font-black text-[#214527]"
-                          >
-                            {groupSelected ? "Deselecionar" : "Selecionar"}
-                          </button>
-                          <button
-                            onClick={() => goToPayment(group)}
-                            disabled={groupSelectedCount === 0}
-                            className="rounded-full bg-[#2f7d45] px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#83a847]"
-                          >
-                            Ir para pagamento
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
                 </article>
@@ -646,6 +659,28 @@ export function CaixaClient() {
             {saving ? "Registrando..." : "Registrar pagamento"}
           </button>
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold">{message}</p>}
+
+          {activeClientPublicUrl && (
+            <div className="mt-4 rounded-2xl border border-[#dfe8df] bg-[#fffdf7] p-3 text-center">
+              <strong className="block text-sm text-[#214527]">Acompanhamento de {activeClientLinkName}</strong>
+              <Image
+                src={`/api/bazar-sementinha/qrcode?text=${encodeURIComponent(activeClientPublicUrl)}`}
+                alt={`QRCode para acompanhamento de ${activeClientLinkName}`}
+                width={180}
+                height={180}
+                unoptimized
+                className="mx-auto mt-3 h-auto w-40 rounded-xl bg-white p-2 ring-1 ring-[#dfe8df]"
+              />
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                <Link href={`/bazar-sementinha/cliente/${activeClientLinkToken}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#2f7d45] px-4 py-2.5 text-xs font-black uppercase tracking-[0.08em] text-white">
+                  Abrir acompanhamento
+                </Link>
+                <button type="button" onClick={() => { void navigator.clipboard?.writeText(activeClientPublicUrl); setMessage("Link de acompanhamento do cliente copiado."); }} className="rounded-full border border-[#dfe8df] bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.08em] text-[#214527]">
+                  Copiar link
+                </button>
+              </div>
+            </div>
+          )}
         </aside>
       </div>
 

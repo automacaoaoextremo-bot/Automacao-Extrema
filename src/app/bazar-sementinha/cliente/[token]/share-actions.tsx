@@ -40,8 +40,8 @@ export function BazarClienteShareActions({ publicUrl, whatsappText, clientWhatsa
   return (
     <div className={`space-y-3 ${compact ? "mt-3" : "mt-5"}`}>
       {!registeredWhatsapp && (
-        <label className="block rounded-2xl bg-[#fff8dd] p-4 text-sm font-bold text-[#7a5a00] ring-1 ring-[#efe3af]">
-          Para enviar este link direto pelo WhatsApp, informe o número do cliente com DDD.
+        <label className="block rounded-2xl bg-[#fff8dd] p-4 text-sm font-bold leading-6 text-[#7a5a00] ring-1 ring-[#efe3af]">
+          WhatsApp não cadastrado. Para enviar este link ao cliente, informe DDD + número.
           <input
             value={typedWhatsapp}
             onChange={(event) => setTypedWhatsapp(event.target.value)}
@@ -73,9 +73,6 @@ export function BazarClienteShareActions({ publicUrl, whatsappText, clientWhatsa
         </button>
       </div>
 
-      {!registeredWhatsapp && !canSendDirectly && (
-        <p className="text-xs font-bold text-[#7a5a00]">Informe DDD + número para liberar o envio direto pelo WhatsApp.</p>
-      )}
     </div>
   );
 }

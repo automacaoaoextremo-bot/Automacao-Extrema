@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { BazarHeader } from "@/components/bazar-sementinha/bazar-header";
 import { PedidosClient } from "./pedidos-client";
 
@@ -10,6 +11,10 @@ type PedidosPageProps = {
 export default async function PedidosPage({ searchParams }: PedidosPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const publicContextToken = typeof resolvedSearchParams.cliente === "string" ? resolvedSearchParams.cliente : "";
+
+  if (publicContextToken) {
+    redirect(`/bazar-sementinha/cliente/${encodeURIComponent(publicContextToken)}`);
+  }
 
   return (
     <>

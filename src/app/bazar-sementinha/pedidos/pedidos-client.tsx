@@ -116,6 +116,7 @@ export function PedidosClient() {
   const [clientSearch, setClientSearch] = useState("");
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [cartReviewOpen, setCartReviewOpen] = useState(false);
+  const [cartCollapsed, setCartCollapsed] = useState(false);
   const [lastAttemptId, setLastAttemptId] = useState("");
   const [editingOrder, setEditingOrder] = useState<CreatedOrder | null>(null);
   const [editClientName, setEditClientName] = useState("");
@@ -212,6 +213,7 @@ export function PedidosClient() {
 
   function addBazarItem(price: Price) {
     setCreatedOrder(null);
+    setCartCollapsed(false);
     const key = `bazar-${price.id}-${categoryPath || "sem-categoria"}`;
     setCart((current) => {
       const found = current.find((item) => item.key === key);
@@ -228,6 +230,7 @@ export function PedidosClient() {
     }
 
     setCreatedOrder(null);
+    setCartCollapsed(false);
     const key = `bazar-manual-${amount.toFixed(2)}-${categoryPath || "sem-categoria"}`;
     setCart((current) => {
       const found = current.find((item) => item.key === key);
@@ -239,6 +242,7 @@ export function PedidosClient() {
 
   function addMenuItem(menu: MenuItem) {
     setCreatedOrder(null);
+    setCartCollapsed(false);
     const key = `menu-${menu.id}`;
     setCart((current) => {
       const found = current.find((item) => item.key === key);
@@ -255,6 +259,7 @@ export function PedidosClient() {
   function clearCart() {
     setCreatedOrder(null);
     setCart([]);
+    setCartCollapsed(false);
     setMessage("Carrinho limpo.");
   }
 
@@ -659,16 +664,21 @@ export function PedidosClient() {
 
         </section>
 
-        <aside className="fixed inset-x-0 bottom-0 z-[60] mx-auto h-fit max-w-2xl rounded-t-[2rem] border border-b-0 border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:rounded-3xl sm:border sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:self-start lg:shadow-sm">
+        <aside className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-3 z-[60] mx-auto h-fit max-w-2xl rounded-[1.75rem] border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:left-4 sm:right-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:self-start lg:rounded-3xl lg:shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
-            {cart.length > 0 && (
-              <button type="button" onClick={clearCart} className="rounded-full bg-[#fff0f0] px-3 py-1.5 text-xs font-black text-[#7d1b1b] ring-1 ring-[#ffd6d6]">
-                Limpar carrinho
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setCartCollapsed((current) => !current)} className="rounded-full bg-[#f4e7b3] px-3 py-1.5 text-xs font-black text-[#214527] ring-1 ring-[#e6d791] lg:hidden">
+                {cartCollapsed ? "Abrir carrinho" : "Minimizar"}
               </button>
-            )}
+              {cart.length > 0 && (
+                <button type="button" onClick={clearCart} className="rounded-full bg-[#fff0f0] px-3 py-1.5 text-xs font-black text-[#7d1b1b] ring-1 ring-[#ffd6d6]">
+                  Limpar carrinho
+                </button>
+              )}
+            </div>
           </div>
-          <div className="mt-4 hidden space-y-3 lg:block">
+          <div className={`mt-4 max-h-[40vh] space-y-3 overflow-y-auto pr-1 ${cartCollapsed ? "hidden lg:block" : "block"}`}>
             {cart.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item selecionado.</p>}
             {cart.map((item) => (
               <div key={item.key} className="rounded-2xl border border-[#dfe8df] p-3">
@@ -697,7 +707,7 @@ export function PedidosClient() {
               {saving ? "Registrando..." : "Criar pedido"}
             </button>
           </div>
-          {message && <p className="mt-3 max-h-20 overflow-y-auto rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
+          {message && !cartCollapsed && <p className="mt-3 max-h-20 overflow-y-auto rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>
 

@@ -220,15 +220,11 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
                 <span className="inline-flex rounded-full bg-[#e8fff0] px-4 py-2 text-sm font-black text-[#0f6b35]">Acompanhamento do cliente</span>
                 <h1 className="mt-5 text-2xl font-black leading-tight sm:text-4xl">{result.client.name}</h1>
                 <p className="mt-3 text-sm leading-6 text-[#496451] sm:text-base">
-                  Esta página reúne todos os pedidos registrados para este cliente no Bazar Sementinha.
+                  Acompanhe aqui todos os pedidos, totais e status de pagamento deste cliente no Bazar Sementinha.
                 </p>
-                {result.client.whatsapp ? (
+                {result.client.whatsapp && (
                   <p className="mt-3 rounded-2xl bg-[#e8fff0] px-4 py-3 text-sm font-bold text-[#0f6b35]">
                     WhatsApp cadastrado: <span className="font-black">{formatWhatsapp(result.client.whatsapp)}</span>
-                  </p>
-                ) : (
-                  <p className="mt-3 rounded-2xl bg-[#fff8dd] px-4 py-3 text-sm font-bold text-[#7a5a00]">
-                    WhatsApp ainda não cadastrado. Informe o número abaixo para enviar este acompanhamento diretamente ao cliente.
                   </p>
                 )}
                 <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} clientWhatsapp={result.client.whatsapp} />
