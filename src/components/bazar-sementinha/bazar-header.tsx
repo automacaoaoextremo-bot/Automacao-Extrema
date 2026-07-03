@@ -8,9 +8,10 @@ type BazarHeaderProps = {
   active?: BazarHeaderActive;
   logged?: boolean;
   publicView?: boolean;
+  publicContextToken?: string | null;
 };
 
-export function BazarHeader({ active = "home", logged = false, publicView = false }: BazarHeaderProps) {
+export function BazarHeader({ active = "home", logged = false, publicView = false, publicContextToken = null }: BazarHeaderProps) {
   const links = [
     { key: "home", label: "Início", href: "/bazar-sementinha", public: true },
     { key: "cardapio", label: "Cardápio", href: "/bazar-sementinha/cardapio", public: true },
@@ -19,12 +20,19 @@ export function BazarHeader({ active = "home", logged = false, publicView = fals
     { key: "relatorio", label: "Prestação", href: "/bazar-sementinha/prestacao-contas", public: false },
   ] as const;
 
+  function withPublicContext(href: string, isPublicLink: boolean) {
+    if (!publicView || !isPublicLink || !publicContextToken) return href;
+    const separator = href.includes("?") ? "&" : "?";
+    return `${href}${separator}cliente=${encodeURIComponent(publicContextToken)}`;
+  }
+
   const visibleLinks = publicView ? links.filter((link) => link.public) : links;
+  const homeHref = withPublicContext("/bazar-sementinha", true);
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-[#fffdf7]/95 shadow-sm backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl min-w-0 items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3">
-        <Link href="/bazar-sementinha" className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3" aria-label="Ir para Bazar no Controle">
+        <Link href={homeHref} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3" aria-label="Ir para Bazar no Controle">
           <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2f7d45] shadow sm:h-16 sm:w-16">
             <Image src="/bazar-no-controle-logo.svg" alt="Logo Bazar no Controle" width={72} height={72} className="h-full w-full object-cover" priority />
           </span>
@@ -52,7 +60,7 @@ export function BazarHeader({ active = "home", logged = false, publicView = fals
           {visibleLinks.map((link) => (
             <Link
               key={link.key}
-              href={link.href}
+              href={withPublicContext(link.href, link.public)}
               className={`rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.06em] ring-1 transition sm:px-4 sm:text-xs sm:tracking-[0.08em] ${
                 active === link.key ? "bg-[#f4e7b3] text-[#214527] ring-[#f4e7b3]" : "bg-white/10 text-white ring-white/15 hover:bg-white hover:text-[#214527]"
               }`}

@@ -110,7 +110,6 @@ export function PedidosClient() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [requiredAlert, setRequiredAlert] = useState("");
-  const [cartFloatingOpen, setCartFloatingOpen] = useState(true);
   const [mode, setMode] = useState<OrderMode>("bazar");
   const [menuCategory, setMenuCategory] = useState("Todos");
   const [search, setSearch] = useState("");
@@ -251,6 +250,12 @@ export function PedidosClient() {
   function updateQty(key: string, delta: number) {
     setCreatedOrder(null);
     setCart((current) => current.map((item) => (item.key === key ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item)).filter((item) => item.quantity > 0));
+  }
+
+  function clearCart() {
+    setCreatedOrder(null);
+    setCart([]);
+    setMessage("Carrinho limpo.");
   }
 
   function switchMode(nextMode: OrderMode) {
@@ -453,7 +458,7 @@ export function PedidosClient() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-44 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:pb-48 sm:text-base lg:pb-6">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-52 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:pb-56 sm:text-base lg:pb-6">
       <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_390px]">
         <section className="min-w-0 space-y-4 sm:space-y-5">
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
@@ -556,13 +561,6 @@ export function PedidosClient() {
                   {categories.map((category) => <option key={category.id} value={category.path}>{category.path}</option>)}
                 </select>
               </label>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {prices.map((price) => (
-                  <button key={price.id} onClick={() => addBazarItem(price)} className="rounded-2xl bg-[#2f7d45] px-4 py-5 text-lg font-black text-white shadow-sm hover:bg-[#246338]">
-                    {brl(Number(price.amount))}
-                  </button>
-                ))}
-              </div>
               <div className="mt-4 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df]">
                 <label className="block text-sm font-black text-[#214527]">
                   Digitar outro valor
@@ -577,6 +575,13 @@ export function PedidosClient() {
                 <button type="button" onClick={addManualBazarItem} className="mt-3 w-full rounded-2xl bg-[#214527] px-5 py-3 text-sm font-black uppercase tracking-[0.08em] text-white shadow-sm sm:w-auto">
                   Adicionar valor digitado
                 </button>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {prices.map((price) => (
+                  <button key={price.id} onClick={() => addBazarItem(price)} className="rounded-2xl bg-[#2f7d45] px-4 py-5 text-lg font-black text-white shadow-sm hover:bg-[#246338]">
+                    {brl(Number(price.amount))}
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
@@ -654,17 +659,19 @@ export function PedidosClient() {
 
         </section>
 
-        <aside className={`fixed inset-x-3 bottom-3 z-40 mx-auto h-fit max-w-xl rounded-3xl border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:shadow-sm ${cartFloatingOpen ? "" : "max-w-[360px]"}`}>
+        <aside className="fixed inset-x-0 bottom-0 z-[60] mx-auto h-fit max-w-2xl rounded-t-[2rem] border border-b-0 border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:rounded-3xl sm:border sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:self-start lg:shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
-            <button type="button" onClick={() => setCartFloatingOpen((current) => !current)} className="rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-black text-[#214527] lg:hidden">
-              {cartFloatingOpen ? "Minimizar" : "Abrir carrinho"}
-            </button>
+            {cart.length > 0 && (
+              <button type="button" onClick={clearCart} className="rounded-full bg-[#fff0f0] px-3 py-1.5 text-xs font-black text-[#7d1b1b] ring-1 ring-[#ffd6d6]">
+                Limpar carrinho
+              </button>
+            )}
           </div>
-          <div className={`${cartFloatingOpen ? "mt-2" : "hidden lg:mt-4"} space-y-2 lg:mt-4 lg:block lg:space-y-3`}>
-            {cart.length === 0 && <p className="hidden rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451] lg:block">Nenhum item selecionado.</p>}
+          <div className="mt-4 hidden space-y-3 lg:block">
+            {cart.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451]">Nenhum item selecionado.</p>}
             {cart.map((item) => (
-              <div key={item.key} className="hidden rounded-2xl border border-[#dfe8df] p-3 lg:block">
+              <div key={item.key} className="rounded-2xl border border-[#dfe8df] p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <strong>{item.name}</strong>
@@ -680,8 +687,8 @@ export function PedidosClient() {
               </div>
             ))}
           </div>
-          <div className={`${cartFloatingOpen ? "mt-2" : "mt-1"} flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4`}>
-            <button type="button" onClick={() => setCartReviewOpen(true)} disabled={cart.length === 0} className="text-left disabled:cursor-not-allowed disabled:opacity-60">
+          <div className="mt-2 flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4">
+            <button type="button" onClick={() => setCartReviewOpen(true)} disabled={cart.length === 0} className="min-w-0 text-left disabled:cursor-not-allowed disabled:opacity-60">
               <span className="text-lg font-black lg:text-sm lg:font-bold">{cart.length} item(ns)</span>
               <strong className="block text-2xl lg:text-3xl">{brl(total)}</strong>
               {cart.length > 0 && <span className="mt-1 block text-xs font-bold text-[#2f7d45]">Toque para revisar/editar</span>}
@@ -690,7 +697,7 @@ export function PedidosClient() {
               {saving ? "Registrando..." : "Criar pedido"}
             </button>
           </div>
-          {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
+          {message && <p className="mt-3 max-h-20 overflow-y-auto rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>
 

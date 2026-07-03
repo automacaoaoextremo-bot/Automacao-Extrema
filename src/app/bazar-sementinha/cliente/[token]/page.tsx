@@ -76,6 +76,19 @@ function formatDateTime(value?: string | null) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatWhatsapp(value?: string | null) {
+  const digits = onlyDigits(value || "");
+  const national = digits.startsWith("55") && digits.length > 11 ? digits.slice(2) : digits;
+
+  if (national.length === 11) return `(${national.slice(0, 2)}) ${national.slice(2, 7)}-${national.slice(7)}`;
+  if (national.length === 10) return `(${national.slice(0, 2)}) ${national.slice(2, 6)}-${national.slice(6)}`;
+  return value || "";
+}
+
 function methodLabel(method: string) {
   const labels: Record<string, string> = {
     pix: "Pix",
@@ -189,7 +202,7 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
 
   return (
     <>
-      <BazarHeader active="pedidos" publicView />
+      <BazarHeader active="pedidos" publicView publicContextToken={decodedToken} />
       <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-6 text-[15px] text-[#214527] sm:px-4 sm:py-8 sm:text-base">
         <div className="mx-auto w-full max-w-3xl min-w-0">
           {!result ? (
@@ -197,7 +210,7 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Acompanhamento</p>
               <h1 className="mt-3 text-2xl font-black sm:text-3xl">Cliente não encontrado</h1>
               <p className="mt-4 leading-7 text-[#496451]">Confira se o QRCode foi lido corretamente ou peça ajuda para a equipe do Bazar Sementinha.</p>
-              <Link href="/bazar-sementinha/cardapio" className="mt-6 inline-flex rounded-full bg-[#2f7d45] px-6 py-3 text-sm font-black uppercase tracking-[0.12em] text-white">
+              <Link href={`/bazar-sementinha/cardapio?cliente=${encodeURIComponent(decodedToken)}`} className="mt-6 inline-flex rounded-full bg-[#2f7d45] px-6 py-3 text-sm font-black uppercase tracking-[0.12em] text-white">
                 Ver cardápio
               </Link>
             </section>
@@ -209,7 +222,16 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
                 <p className="mt-3 text-sm leading-6 text-[#496451] sm:text-base">
                   Esta página reúne todos os pedidos registrados para este cliente no Bazar Sementinha.
                 </p>
-                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} />
+                {result.client.whatsapp ? (
+                  <p className="mt-3 rounded-2xl bg-[#e8fff0] px-4 py-3 text-sm font-bold text-[#0f6b35]">
+                    WhatsApp cadastrado: <span className="font-black">{formatWhatsapp(result.client.whatsapp)}</span>
+                  </p>
+                ) : (
+                  <p className="mt-3 rounded-2xl bg-[#fff8dd] px-4 py-3 text-sm font-bold text-[#7a5a00]">
+                    WhatsApp ainda não cadastrado. Informe o número abaixo para enviar este acompanhamento diretamente ao cliente.
+                  </p>
+                )}
+                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} clientWhatsapp={result.client.whatsapp} />
               </div>
 
               <div className="mt-5 grid gap-4 rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df] sm:grid-cols-[170px_minmax(0,1fr)] sm:items-center sm:p-5">
@@ -299,14 +321,14 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
               <div className="mt-5 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df] sm:p-5">
                 <h2 className="text-lg font-black sm:text-xl">Salvar este acompanhamento</h2>
                 <p className="mt-2 text-sm leading-6 text-[#496451]">Envie o link pelo WhatsApp ou copie para colar em uma mensagem.</p>
-                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} compact />
+                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} clientWhatsapp={result.client.whatsapp} compact />
               </div>
 
               <div className="mt-5 flex flex-wrap gap-3">
-                <Link href="/bazar-sementinha/cardapio" className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">
+                <Link href={`/bazar-sementinha/cardapio?cliente=${encodeURIComponent(decodedToken)}`} className="rounded-full border border-[#dfe8df] bg-white px-5 py-3 text-sm font-black text-[#214527] shadow-sm">
                   Ver cardápio
                 </Link>
-                <Link href="/bazar-sementinha" className="rounded-full bg-[#2f7d45] px-5 py-3 text-sm font-black text-white shadow-sm">
+                <Link href={`/bazar-sementinha?cliente=${encodeURIComponent(decodedToken)}`} className="rounded-full bg-[#2f7d45] px-5 py-3 text-sm font-black text-white shadow-sm">
                   Voltar ao início
                 </Link>
               </div>

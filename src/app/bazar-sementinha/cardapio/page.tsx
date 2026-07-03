@@ -121,7 +121,16 @@ async function getMenuItems(): Promise<MenuItemView[]> {
   }
 }
 
-export default async function CardapioBazarSementinhaPage() {
+type CardapioBazarSementinhaPageProps = {
+  searchParams?: Promise<{ cliente?: string }>;
+};
+
+export default async function CardapioBazarSementinhaPage({ searchParams }: CardapioBazarSementinhaPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const publicContextToken = typeof resolvedSearchParams.cliente === "string" ? resolvedSearchParams.cliente : "";
+  const publicContextSuffix = publicContextToken ? `?cliente=${encodeURIComponent(publicContextToken)}` : "";
+  const pedidoHref = `/bazar-sementinha/pedidos${publicContextSuffix}`;
+
   const menuItems = await getMenuItems();
   const categories = categoryOrder.filter((category) => menuItems.some((item) => item.category === category));
   const groupedItems = categories.map((category) => ({
@@ -133,7 +142,7 @@ export default async function CardapioBazarSementinhaPage() {
 
   return (
     <>
-      <BazarHeader active="cardapio" />
+      <BazarHeader active="cardapio" publicView={Boolean(publicContextToken)} publicContextToken={publicContextToken} />
       <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] text-[15px] text-[#214527] sm:text-base">
         <section className="border-b border-[#dfe8df] px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_0.86fr] lg:items-center">
@@ -144,7 +153,7 @@ export default async function CardapioBazarSementinhaPage() {
                 Veja fotos, vídeo e valores antes de chamar a equipe. No dia do bazar, o pedido é registrado no sistema, o pagamento passa pelo caixa e você pode acompanhar todos os seus pedidos pelo QRCode do cliente.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <Link href="/bazar-sementinha/pedidos" className="rounded-full bg-[#2f7d45] px-5 py-3 text-xs font-black uppercase tracking-[0.1em] text-white shadow-sm sm:px-6 sm:text-sm sm:tracking-[0.12em]">
+                <Link href={pedidoHref} className="rounded-full bg-[#2f7d45] px-5 py-3 text-xs font-black uppercase tracking-[0.1em] text-white shadow-sm sm:px-6 sm:text-sm sm:tracking-[0.12em]">
                   Chamar equipe para pedido
                 </Link>
                 <a href="#itens-cardapio" className="rounded-full border border-[#2f7d45]/20 bg-white px-5 py-3 text-xs font-black uppercase tracking-[0.1em] text-[#2f7d45] shadow-sm sm:px-6 sm:text-sm sm:tracking-[0.12em]">

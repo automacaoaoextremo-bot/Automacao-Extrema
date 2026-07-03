@@ -16,10 +16,17 @@ const cards = [
   },
 ];
 
-export default function BazarSementinhaPage() {
+type BazarSementinhaPageProps = {
+  searchParams?: Promise<{ cliente?: string }>;
+};
+
+export default async function BazarSementinhaPage({ searchParams }: BazarSementinhaPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const publicContextToken = typeof resolvedSearchParams.cliente === "string" ? resolvedSearchParams.cliente : "";
+
   return (
     <>
-      <BazarHeader active="home" />
+      <BazarHeader active="home" publicView={Boolean(publicContextToken)} publicContextToken={publicContextToken} />
       <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] text-[15px] text-[#214527] sm:text-base">
         <section className="border-b border-[#dfe8df] px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 md:grid-cols-[minmax(0,1fr)_0.9fr] md:items-center">
