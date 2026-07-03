@@ -1,6 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
 import { BazarHeader } from "@/components/bazar-sementinha/bazar-header";
+import { AE_SITE_URL } from "@/lib/ae-public-links";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { BazarClienteShareActions } from "./share-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -173,17 +176,20 @@ async function getClientOrders(token: string): Promise<ClientOrdersResult | null
 
 export default async function BazarClientePublicoPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const decodedToken = decodeURIComponent(token);
+  const publicUrl = `${AE_SITE_URL}/bazar-sementinha/cliente/${encodeURIComponent(decodedToken)}`;
+  const whatsappText = `Olá! Acompanhe seus pedidos do Bazar Sementinha por este link: ${publicUrl}`;
   let result: ClientOrdersResult | null = null;
 
   try {
-    result = await getClientOrders(decodeURIComponent(token));
+    result = await getClientOrders(decodedToken);
   } catch {
     result = null;
   }
 
   return (
     <>
-      <BazarHeader active="pedidos" />
+      <BazarHeader active="pedidos" publicView />
       <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-6 text-[15px] text-[#214527] sm:px-4 sm:py-8 sm:text-base">
         <div className="mx-auto w-full max-w-3xl min-w-0">
           {!result ? (
@@ -203,6 +209,23 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
                 <p className="mt-3 text-sm leading-6 text-[#496451] sm:text-base">
                   Esta página reúne todos os pedidos registrados para este cliente no Bazar Sementinha.
                 </p>
+                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} />
+              </div>
+
+              <div className="mt-5 grid gap-4 rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df] sm:grid-cols-[170px_minmax(0,1fr)] sm:items-center sm:p-5">
+                <Image
+                  src={`/api/bazar-sementinha/qrcode?text=${encodeURIComponent(publicUrl)}`}
+                  alt={`QRCode para acompanhar pedidos de ${result.client.name}`}
+                  width={170}
+                  height={170}
+                  unoptimized
+                  className="mx-auto rounded-2xl bg-white p-2 ring-1 ring-[#dfe8df] sm:mx-0"
+                />
+                <div className="min-w-0">
+                  <h2 className="text-xl font-black sm:text-2xl">Link de acompanhamento</h2>
+                  <p className="mt-2 break-words rounded-2xl bg-[#f9f7ef] p-3 text-xs font-bold text-[#496451] sm:text-sm">{publicUrl}</p>
+                  <p className="mt-3 text-sm leading-6 text-[#496451]">Use o botão de WhatsApp para salvar ou enviar este link ao cliente.</p>
+                </div>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -271,6 +294,12 @@ export default async function BazarClientePublicoPage({ params }: { params: Prom
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="mt-5 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df] sm:p-5">
+                <h2 className="text-lg font-black sm:text-xl">Salvar este acompanhamento</h2>
+                <p className="mt-2 text-sm leading-6 text-[#496451]">Envie o link pelo WhatsApp ou copie para colar em uma mensagem.</p>
+                <BazarClienteShareActions publicUrl={publicUrl} whatsappText={whatsappText} compact />
               </div>
 
               <div className="mt-5 flex flex-wrap gap-3">

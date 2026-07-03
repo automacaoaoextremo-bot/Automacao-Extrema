@@ -105,9 +105,12 @@ export function PedidosClient() {
   const [clientName, setClientName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [categoryPath, setCategoryPath] = useState("");
+  const [manualBazarValue, setManualBazarValue] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [requiredAlert, setRequiredAlert] = useState("");
+  const [cartFloatingOpen, setCartFloatingOpen] = useState(true);
   const [mode, setMode] = useState<OrderMode>("bazar");
   const [menuCategory, setMenuCategory] = useState("Todos");
   const [search, setSearch] = useState("");
@@ -176,6 +179,11 @@ export function PedidosClient() {
       .slice(0, 12);
   }, [clientSearch, clients]);
 
+  function showRequiredAlert(text: string) {
+    setRequiredAlert(text);
+    window.setTimeout(() => setRequiredAlert(""), 6500);
+  }
+
   function selectClient(client: Client) {
     setClientName(client.name);
     setWhatsapp(client.whatsapp || "");
@@ -211,6 +219,23 @@ export function PedidosClient() {
       if (found) return current.map((item) => (item.key === key ? { ...item, quantity: item.quantity + 1 } : item));
       return [...current, { key, kind: "bazar", name: `Item Bazar ${brl(Number(price.amount))}`, quantity: 1, unitPrice: Number(price.amount), categoryPath: categoryPath || null, sourceId: price.id }];
     });
+  }
+
+  function addManualBazarItem() {
+    const amount = parseMoneyInput(manualBazarValue);
+    if (amount <= 0) {
+      showRequiredAlert("Digite um valor maior que zero para incluir no pedido.");
+      return;
+    }
+
+    setCreatedOrder(null);
+    const key = `bazar-manual-${amount.toFixed(2)}-${categoryPath || "sem-categoria"}`;
+    setCart((current) => {
+      const found = current.find((item) => item.key === key);
+      if (found) return current.map((item) => (item.key === key ? { ...item, quantity: item.quantity + 1 } : item));
+      return [...current, { key, kind: "bazar", name: `Item Bazar ${brl(amount)}`, quantity: 1, unitPrice: amount, categoryPath: categoryPath || null, sourceId: null }];
+    });
+    setManualBazarValue("");
   }
 
   function addMenuItem(menu: MenuItem) {
@@ -385,11 +410,11 @@ export function PedidosClient() {
     if (saving) return;
     setMessage("");
     if (!clientName.trim()) {
-      setMessage("Informe o cliente. Nome precisa ser único: se já existe Márcio, outro cliente deve ser Márcio Alex, por exemplo.");
+      showRequiredAlert("Informe o cliente antes de criar o pedido. O nome precisa ser único: se já existe Márcio, use Márcio Alex, por exemplo.");
       return;
     }
     if (cart.length === 0) {
-      setMessage("Inclua pelo menos um item.");
+      showRequiredAlert("Inclua pelo menos um item antes de criar o pedido.");
       return;
     }
     setSaving(true);
@@ -428,7 +453,7 @@ export function PedidosClient() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-36 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:text-base lg:pb-6">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] px-3 py-4 pb-44 text-[15px] text-[#214527] sm:px-4 sm:py-6 sm:pb-48 sm:text-base lg:pb-6">
       <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_390px]">
         <section className="min-w-0 space-y-4 sm:space-y-5">
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
@@ -538,6 +563,21 @@ export function PedidosClient() {
                   </button>
                 ))}
               </div>
+              <div className="mt-4 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df]">
+                <label className="block text-sm font-black text-[#214527]">
+                  Digitar outro valor
+                  <input
+                    value={manualBazarValue}
+                    onChange={(event) => setManualBazarValue(event.target.value)}
+                    inputMode="decimal"
+                    placeholder="Ex.: 18,50"
+                    className="mt-2 w-full rounded-2xl border border-[#dfe8df] bg-white px-4 py-3 text-base font-normal outline-none focus:border-[#2f7d45]"
+                  />
+                </label>
+                <button type="button" onClick={addManualBazarItem} className="mt-3 w-full rounded-2xl bg-[#214527] px-5 py-3 text-sm font-black uppercase tracking-[0.08em] text-white shadow-sm sm:w-auto">
+                  Adicionar valor digitado
+                </button>
+              </div>
             </div>
           ) : (
             <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-3 shadow-sm sm:p-5">
@@ -547,9 +587,9 @@ export function PedidosClient() {
                   <span className="sr-only">Buscar item do cardápio</span>
                   <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar refrigerante, bolo salgado, bolo doce" className="w-full min-w-0 rounded-2xl border border-[#dfe8df] px-3 py-3 text-sm outline-none focus:border-[#2f7d45] sm:px-4 sm:text-base" />
                 </label>
-                <div className="mt-3 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch]">
+                <div className="mt-3 flex max-w-full flex-wrap gap-2 pb-1">
                   {menuCategoryOrder.map((category) => (
-                    <button key={category} onClick={() => setMenuCategory(category)} className={`shrink-0 rounded-full px-4 py-2.5 text-[13px] font-black sm:px-5 sm:py-3 sm:text-sm ${menuCategory === category ? "bg-[#006b35] text-white" : "bg-[#fffdf0] text-[#214527]"}`}>
+                    <button key={category} onClick={() => setMenuCategory(category)} className={`rounded-full px-4 py-2.5 text-[13px] font-black sm:px-5 sm:py-3 sm:text-sm ${menuCategory === category ? "bg-[#006b35] text-white" : "bg-[#fffdf0] text-[#214527]"}`}>
                       {category}
                     </button>
                   ))}
@@ -592,10 +632,17 @@ export function PedidosClient() {
               <div className="space-y-3">
                 {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
                 {filteredClients.map((client) => (
-                  <div key={client.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3 shadow-sm">
+                  <div key={client.id} className="grid gap-3 rounded-2xl bg-white p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <div className="min-w-0">
-                      <strong className="block truncate">{client.name}</strong>
-                      {client.whatsapp && <span className="text-xs text-[#7a8278]">{client.whatsapp}</span>}
+                      <strong className="block break-words">{client.name}</strong>
+                      {client.whatsapp && <span className="block text-xs text-[#7a8278]">{client.whatsapp}</span>}
+                      {client.public_token ? (
+                        <Link href={`/bazar-sementinha/cliente/${client.public_token}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-full bg-[#fff8dd] px-3 py-1.5 text-xs font-black text-[#7a5a00] ring-1 ring-[#efe3af]">
+                          Abrir acompanhamento / QRCode
+                        </Link>
+                      ) : (
+                        <span className="mt-2 inline-flex rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-bold text-[#7a8278]">QRCode liberado após novo SQL</span>
+                      )}
                     </div>
                     <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
                   </div>
@@ -607,9 +654,14 @@ export function PedidosClient() {
 
         </section>
 
-        <aside className="fixed inset-x-3 bottom-3 z-40 h-fit rounded-3xl border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:shadow-sm">
-          <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
-          <div className="mt-2 space-y-2 lg:mt-4 lg:space-y-3">
+        <aside className={`fixed inset-x-3 bottom-3 z-40 mx-auto h-fit max-w-xl rounded-3xl border border-[#dfe8df] bg-white/95 p-4 shadow-2xl backdrop-blur sm:inset-x-4 sm:bottom-4 sm:p-5 lg:sticky lg:inset-auto lg:top-48 lg:max-w-none lg:shadow-sm ${cartFloatingOpen ? "" : "max-w-[360px]"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-[#7a8278] lg:text-2xl lg:font-black lg:text-[#214527]">Resumo</h2>
+            <button type="button" onClick={() => setCartFloatingOpen((current) => !current)} className="rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-black text-[#214527] lg:hidden">
+              {cartFloatingOpen ? "Minimizar" : "Abrir carrinho"}
+            </button>
+          </div>
+          <div className={`${cartFloatingOpen ? "mt-2" : "hidden lg:mt-4"} space-y-2 lg:mt-4 lg:block lg:space-y-3`}>
             {cart.length === 0 && <p className="hidden rounded-2xl bg-[#f9f7ef] p-4 text-sm text-[#496451] lg:block">Nenhum item selecionado.</p>}
             {cart.map((item) => (
               <div key={item.key} className="hidden rounded-2xl border border-[#dfe8df] p-3 lg:block">
@@ -628,7 +680,7 @@ export function PedidosClient() {
               </div>
             ))}
           </div>
-          <div className="mt-2 flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4">
+          <div className={`${cartFloatingOpen ? "mt-2" : "mt-1"} flex items-end justify-between gap-4 lg:mt-5 lg:block lg:rounded-2xl lg:bg-[#f4e7b3] lg:p-4`}>
             <button type="button" onClick={() => setCartReviewOpen(true)} disabled={cart.length === 0} className="text-left disabled:cursor-not-allowed disabled:opacity-60">
               <span className="text-lg font-black lg:text-sm lg:font-bold">{cart.length} item(ns)</span>
               <strong className="block text-2xl lg:text-3xl">{brl(total)}</strong>
@@ -641,6 +693,19 @@ export function PedidosClient() {
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#214527]">{message}</p>}
         </aside>
       </div>
+
+      {requiredAlert && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" role="alertdialog" aria-modal="true" aria-label="Campo obrigatório">
+          <div className="w-full max-w-md rounded-[2rem] border-4 border-[#c1121f] bg-white p-6 text-center text-[#7d1b1b] shadow-2xl">
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#c1121f]">Campo obrigatório</p>
+            <h2 className="mt-3 text-2xl font-black leading-tight sm:text-3xl">Atenção</h2>
+            <p className="mt-4 text-base font-bold leading-7">{requiredAlert}</p>
+            <button type="button" onClick={() => setRequiredAlert("")} className="mt-6 rounded-full bg-[#c1121f] px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-white shadow-lg">
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
 
       {editingOrder && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Editar pedido">

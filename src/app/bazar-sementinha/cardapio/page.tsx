@@ -181,7 +181,7 @@ export default async function CardapioBazarSementinhaPage() {
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Vídeo simples para TV e divulgação</p>
               <h2 className="mt-3 text-2xl font-black sm:text-4xl">Cardápio em vídeo para rodar no evento</h2>
               <p className="mt-4 leading-7 text-[#496451] sm:leading-8">
-                O MP4 fica disponível nesta página para assistir, baixar e rodar em loop no notebook, pendrive ou TV do bazar, seguindo a mesma ideia usada no cardápio da Festa Junina.
+                O MP4 fica disponível nesta página para assistir, baixar e rodar em loop no notebook, pendrive ou TV do bazar. Ele mostra as categorias separadamente, com todos os itens e valores, seguindo a mesma ideia usada no cardápio da Festa Junina.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <a href={VIDEO_SRC} download className="rounded-full bg-[#f4e7b3] px-6 py-3 text-sm font-black uppercase tracking-[0.12em] text-[#214527] shadow-sm">
@@ -201,10 +201,10 @@ export default async function CardapioBazarSementinhaPage() {
 
         <section id="itens-cardapio" className="px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto w-full max-w-6xl min-w-0">
-            <div className="flex max-w-full gap-2 overflow-x-auto pb-2 sm:flex-wrap">
-              <a href="#todos" className="shrink-0 rounded-full bg-[#006b35] px-4 py-2.5 text-[13px] font-black text-white sm:px-5 sm:py-3 sm:text-sm">Todos</a>
+            <div className="flex max-w-full flex-wrap gap-2 pb-2">
+              <a href="#todos" className="rounded-full bg-[#006b35] px-4 py-2.5 text-[13px] font-black text-white sm:px-5 sm:py-3 sm:text-sm">Todos</a>
               {categories.map((category) => (
-                <a key={category} href={`#${slugify(category)}`} className="shrink-0 rounded-full bg-white px-4 py-2.5 text-[13px] font-black text-[#214527] shadow-sm ring-1 ring-[#dfe8df] sm:px-5 sm:py-3 sm:text-sm">
+                <a key={category} href={`#${slugify(category)}`} className="rounded-full bg-white px-4 py-2.5 text-[13px] font-black text-[#214527] shadow-sm ring-1 ring-[#dfe8df] sm:px-5 sm:py-3 sm:text-sm">
                   {category}
                 </a>
               ))}
