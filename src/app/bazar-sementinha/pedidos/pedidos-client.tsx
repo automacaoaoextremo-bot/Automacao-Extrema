@@ -175,8 +175,7 @@ export function PedidosClient() {
     const term = normalize(clientSearch.trim());
     return clients
       .filter((client) => !term || normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 12);
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [clientSearch, clients]);
 
   function showRequiredAlert(text: string) {
@@ -635,8 +634,9 @@ export function PedidosClient() {
           )}
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
             <h2 className="text-xl font-black sm:text-2xl">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente.</p>
+            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente. A lista agora mostra todos os clientes carregados do evento.</p>
             <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+            <p className="mt-2 text-xs font-bold text-[#7a8278]">{filteredClients.length} cliente(s) encontrado(s).</p>
             <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
               <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
               <div className="space-y-3">

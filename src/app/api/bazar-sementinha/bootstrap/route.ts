@@ -37,14 +37,14 @@ export async function GET() {
       supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", eventId).order("amount"),
       supabaseAdmin.from("bazar_category_nodes").select("*").eq("event_id", eventId).order("sort_order"),
       supabaseAdmin.from("bazar_menu_items").select("*").eq("event_id", eventId).order("category").order("name"),
-      supabaseAdmin.from("bazar_clients").select("*").eq("event_id", eventId).order("name", { ascending: true }).limit(500),
+      supabaseAdmin.from("bazar_clients").select("*").eq("event_id", eventId).order("name", { ascending: true }).limit(5000),
       supabaseAdmin
         .from("bazar_orders")
         .select("*")
         .eq("event_id", eventId)
         .neq("status", "excluido")
         .order("created_at", { ascending: false })
-        .limit(500),
+        .limit(5000),
     ]);
 
     if (prices.error) throw prices.error;
@@ -77,15 +77,7 @@ export async function GET() {
       items: itemsByOrder.get(order.id) || [],
     }));
 
-    const activeClientsById = new Map<string, ClientRow>();
-
-    for (const order of enrichedOrders) {
-      if (order.client?.id) {
-        activeClientsById.set(order.client.id, order.client);
-      }
-    }
-
-    const activeClients = [...activeClientsById.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const allClients = ((clients.data || []) as ClientRow[]).sort((a, b) => a.name.localeCompare(b.name));
 
     const unpaidTotal = enrichedOrders
       .filter((order) => order.status !== "cancelado" && order.status !== "excluido" && order.payment_status !== "pago")
@@ -98,7 +90,7 @@ export async function GET() {
       prices: prices.data || [],
       categories: categories.data || [],
       menuItems: menu.data || [],
-      clients: activeClients,
+      clients: allClients,
       orders: enrichedOrders,
       pix,
     });
