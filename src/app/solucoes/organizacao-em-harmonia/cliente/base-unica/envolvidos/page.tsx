@@ -7,7 +7,7 @@ import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Role = { id: string; name: string; active: boolean };
-type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean; notes: string | null };
+type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean; notes: string | null; auth_user_id?: string | null };
 type Profile = {
   isCavalinho?: boolean;
   entityNames?: string[];
@@ -27,7 +27,7 @@ type Profile = {
   canViewReports?: boolean;
   attendanceNotes?: string;
 };
-type Membership = { id: string; person_id: string; role_id: string | null; module_slugs: string[] | null; active: boolean; agenda_viva_profile?: Profile | null };
+type Membership = { id: string; person_id: string; role_id: string | null; module_slugs: string[] | null; active: boolean; status?: string | null; agenda_viva_profile?: Profile | null };
 type Payload = { people: Person[]; roles: Role[]; memberships: Membership[]; modules: Array<{ module_slug: string; enabled: boolean }> };
 
 type Filters = {
@@ -43,7 +43,7 @@ type Filters = {
 
 const emptyFilters: Filters = {
   search: "",
-  status: "ativos",
+  status: "todos",
   roleId: "",
   moduleSlug: "",
   thursdayGroup: "",
@@ -112,6 +112,34 @@ const moduleLabels: Record<string, string> = {
   "atendimento-em-harmonia": "Atendimento em Harmonia",
   "corrente-em-dia": "Corrente em Dia",
 };
+
+
+const accessStatusLabels: Record<string, string> = {
+  ativo: "Acesso liberado",
+  pendente_validacao: "Aguardando validação",
+  ajuste_solicitado: "Ajuste solicitado",
+  inativo: "Inativo",
+};
+
+function accessStatus(person: Person, membership: Membership | null) {
+  if (membership?.status) return membership.status;
+  if (membership?.active === false || person.active === false) return "pendente_validacao";
+  return "ativo";
+}
+
+function accessStatusClass(status: string) {
+  if (status === "ativo") return "bg-emerald-50 text-[#00334E]";
+  if (status === "pendente_validacao") return "bg-amber-50 text-amber-800";
+  if (status === "ajuste_solicitado") return "bg-blue-50 text-blue-800";
+  return "bg-slate-100 text-slate-600";
+}
+
+function whatsappUrl(phone: string | null | undefined, message: string) {
+  const digits = normalizePhone(phone ?? "");
+  if (!digits) return "";
+  const normalized = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
 
 const weekdayLabels = [
   { key: "participatesMonday", label: "Segunda — filhos de fora" },
@@ -248,8 +276,11 @@ export default function EnvolvidosPage() {
       ].filter(Boolean).join(" "));
 
       if (search && !searchable.includes(search) && !profileText.includes(search)) return false;
-      if (filters.status === "ativos" && person.active === false) return false;
-      if (filters.status === "inativos" && person.active !== false) return false;
+      const currentAccessStatus = accessStatus(person, membership);
+      if (filters.status === "ativos" && currentAccessStatus !== "ativo") return false;
+      if (filters.status === "pendentes" && currentAccessStatus !== "pendente_validacao") return false;
+      if (filters.status === "ajustes" && currentAccessStatus !== "ajuste_solicitado") return false;
+      if (filters.status === "inativos" && person.active !== false && membership?.active !== false) return false;
       if (filters.roleId && membership?.role_id !== filters.roleId) return false;
       if (filters.moduleSlug && !(membership?.module_slugs ?? []).includes(filters.moduleSlug)) return false;
       if (filters.thursdayGroup && profile?.thursdayGroup !== filters.thursdayGroup) return false;
@@ -317,6 +348,46 @@ export default function EnvolvidosPage() {
       setMessage("Envolvido salvo na Base Única.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar envolvido.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function approveAccess(person: Person) {
+    const reviewNotes = window.prompt(`Mensagem opcional para ${person.full_name} ao liberar o acesso:`, "Seu acesso foi liberado. Use seu WhatsApp ou e-mail e a senha cadastrada no primeiro acesso.") ?? "";
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await request("/api/organizacao-em-harmonia/cliente/base-unica", {
+        method: "POST",
+        body: JSON.stringify({ action: "approveAccess", personId: person.id, reviewNotes }),
+      });
+      if (result) setPayload(result);
+      const wa = whatsappUrl(person.whatsapp, `Olá, ${person.full_name.split(/\s+/)[0] || "tudo bem"}. Seu acesso à Organização em Harmonia do Tucxa foi liberado. Acesse: ${window.location.origin}/solucoes/organizacao-em-harmonia/login`);
+      setMessage(`Acesso liberado para ${person.full_name}.${wa ? " Use o botão WhatsApp na linha da pessoa para enviar a orientação." : ""}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao liberar acesso.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function requestAccessAdjustment(person: Person) {
+    const reviewNotes = window.prompt(`O que ${person.full_name} precisa ajustar antes da liberação?`, "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.");
+    if (reviewNotes === null) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await request("/api/organizacao-em-harmonia/cliente/base-unica", {
+        method: "POST",
+        body: JSON.stringify({ action: "requestAccessAdjustment", personId: person.id, reviewNotes }),
+      });
+      if (result) setPayload(result);
+      setMessage(`Solicitação de ajuste registrada para ${person.full_name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao solicitar ajuste.");
     } finally {
       setSaving(false);
     }
@@ -483,7 +554,7 @@ export default function EnvolvidosPage() {
               <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Filtros rápidos</p>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="grid gap-1 xl:col-span-2"><span className="text-sm font-black text-[#00334E]">Buscar por nome, e-mail, WhatsApp ou vínculo</span><input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Ex.: Márcio, 1999, cambono, Caboclo..." /></label>
-                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Status</span><select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="ativos">Ativos</option><option value="inativos">Inativos</option><option value="todos">Todos</option></select></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Status</span><select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos</option><option value="ativos">Acesso liberado</option><option value="pendentes">Aguardando validação</option><option value="ajustes">Ajuste solicitado</option><option value="inativos">Inativos</option></select></label>
                 <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={filters.roleId} onChange={(event) => updateFilter("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todas</option>{payload.roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
                 <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Módulo</span><select value={filters.moduleSlug} onChange={(event) => updateFilter("moduleSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option>{availableModules.map((module) => <option key={module} value={module}>{moduleLabels[module] ?? module}</option>)}</select></label>
                 <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Vínculo</span><select value={filters.bond} onChange={(event) => updateFilter("bond", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Todos</option><option value="cavalinho">Cavalinho</option><option value="cambono">Cambono</option><option value="cambono-reserva">Cambono reserva</option><option value="recepcao">Apoia recepção</option><option value="organizacao">Apoia organização</option><option value="aprova-eventos">Pode aprovar eventos</option><option value="altera-calendario">Pode alterar calendário</option><option value="relatorios">Pode ver relatórios</option></select></label>
@@ -493,7 +564,7 @@ export default function EnvolvidosPage() {
               </div>
             </div>
 
-            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{person.email || "Sem e-mail"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs ?? []).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`rounded-full px-3 py-1 text-xs font-black ${person.active === false ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-[#00334E]"}`}>{person.active === false ? "Inativo" : "Ativo"}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button><button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
+            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1160px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Acesso</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; const currentAccessStatus = accessStatus(person, membership); const orientationWa = whatsappUrl(person.whatsapp, `Olá, ${person.full_name.split(/\s+/)[0] || "tudo bem"}. Sobre seu cadastro na Organização em Harmonia do Tucxa: acesse ${window.location.origin}/solucoes/organizacao-em-harmonia/login e use seu WhatsApp ou e-mail com a senha cadastrada.`); return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{person.email?.includes("@organizacao-em-harmonia.local") ? "Sem e-mail público" : person.email || "Sem e-mail"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs ?? []).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${accessStatusClass(currentAccessStatus)}`}>{accessStatusLabels[currentAccessStatus] ?? currentAccessStatus}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button>{currentAccessStatus !== "ativo" && <button type="button" onClick={() => approveAccess(person)} className="rounded-xl bg-emerald-50 px-3 py-2 font-black text-[#00334E]">Aprovar acesso</button>}<button type="button" onClick={() => requestAccessAdjustment(person)} className="rounded-xl bg-blue-50 px-3 py-2 font-black text-blue-800">Solicitar ajuste</button>{orientationWa && <a href={orientationWa} target="_blank" rel="noreferrer" className="rounded-xl bg-green-50 px-3 py-2 font-black text-green-800">WhatsApp</a>}<button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
           </section>
         </>
       )}
