@@ -15,6 +15,8 @@ type AccessBody = {
   email?: string;
   password?: string;
   notes?: string;
+  functionSlugs?: string[];
+  agendaSlugs?: string[];
 };
 
 type PersonRow = {
@@ -34,6 +36,7 @@ type MembershipRow = {
   module_slugs: string[] | null;
   active: boolean | null;
   status: string | null;
+  agenda_viva_profile?: Record<string, unknown> | null;
 };
 
 function asText(value: unknown) {
@@ -42,6 +45,51 @@ function asText(value: unknown) {
 
 function onlyDigits(value: unknown) {
   return asText(value).replace(/\D/g, "");
+}
+
+function asTextList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  return asText(value)
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function mergeProfile(current: unknown, patch: Record<string, unknown>) {
+  const base = current && typeof current === "object" && !Array.isArray(current) ? (current as Record<string, unknown>) : {};
+  return { ...base, ...patch };
+}
+
+function buildTucxaProfile(functionSlugs: string[], agendaSlugs: string[], notes: string) {
+  const hasFunction = (slug: string) => functionSlugs.includes(slug);
+  const hasAgenda = (slug: string) => agendaSlugs.includes(slug);
+  const isLeadership = ["administrador-sistema", "coordenacao", "diretoria", "presidente"].some(hasFunction);
+
+  return {
+    involvementFunctions: functionSlugs,
+    involvementAgenda: agendaSlugs,
+    functionSlugs,
+    agendaSlugs,
+    isCavalinho: hasFunction("cavalinho"),
+    isCambono: hasFunction("cambono") || hasFunction("cambono-volante-reserva"),
+    isReserveCambono: hasFunction("cambono-volante-reserva"),
+    supportsReception: hasFunction("recepcao") || hasFunction("apoia-recepcao"),
+    supportsOrganization: hasFunction("organizacao") || hasFunction("apoia-organizacao") || hasAgenda("organizacao-eventos"),
+    participatesMonday: hasAgenda("atendimento-segunda"),
+    participatesTuesday: hasAgenda("atendimento-terca"),
+    participatesWednesday: hasAgenda("atendimento-quarta"),
+    participatesThursday: hasAgenda("quinta-grupo-1") || hasAgenda("quinta-grupo-2") || hasAgenda("quinta-grupo-1-e-2"),
+    thursdayGroup: hasAgenda("quinta-grupo-1-e-2") ? "ambos" : hasAgenda("quinta-grupo-1") ? "grupo-1" : hasAgenda("quinta-grupo-2") ? "grupo-2" : "",
+    canApproveEvents: isLeadership,
+    canEditCalendar: isLeadership || hasFunction("organizacao") || hasAgenda("organizacao-eventos"),
+    canViewReports: isLeadership || hasFunction("tesouraria-financeiro"),
+    attendanceNotes: notes,
+  };
+}
+
+function profileArray(profile: Record<string, unknown> | null | undefined, key: string) {
+  const value = profile?.[key];
+  return Array.isArray(value) ? value.map((item) => asText(item)).filter(Boolean) : [];
 }
 
 function normalizeEmail(value: unknown) {
@@ -195,7 +243,7 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
 async function membershipFor(organizationId: string, personId: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_memberships")
-    .select("id, person_id, role_id, module_slugs, active, status")
+    .select("id, person_id, role_id, module_slugs, active, status, agenda_viva_profile")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .order("updated_at", { ascending: false })
@@ -280,7 +328,7 @@ async function sendInternalReviewEmail(input: {
   loginIdentifier: string;
   notes: string;
 }) {
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/login`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
   const subject = `[Organização em Harmonia] Novo cadastro para validar - ${input.fullName}`;
   const text = [
     "Novo cadastro/validação de Filho da Corrente aguardando conferência.",
@@ -302,6 +350,7 @@ async function sendInternalReviewEmail(input: {
 
 function publicPerson(person: PersonRow | null, membership: MembershipRow | null) {
   if (!person) return null;
+  const profile = membership?.agenda_viva_profile ?? null;
   return {
     id: person.id,
     fullName: person.full_name ?? "",
@@ -310,6 +359,10 @@ function publicPerson(person: PersonRow | null, membership: MembershipRow | null
     notes: person.notes ?? "",
     accessStatus: membership?.status ?? (person.active === false ? "pendente_validacao" : "ativo"),
     modules: membership?.module_slugs ?? DEFAULT_MODULES,
+    profile: {
+      functionSlugs: profileArray(profile, "functionSlugs").length ? profileArray(profile, "functionSlugs") : profileArray(profile, "involvementFunctions"),
+      agendaSlugs: profileArray(profile, "agendaSlugs").length ? profileArray(profile, "agendaSlugs") : profileArray(profile, "involvementAgenda"),
+    },
   };
 }
 
@@ -362,11 +415,16 @@ export async function POST(request: Request) {
     const email = normalizeEmail(body.email);
     const password = asText(body.password);
     const notes = asText(body.notes);
+    const functionSlugs = asTextList(body.functionSlugs);
+    const agendaSlugs = asTextList(body.agendaSlugs);
 
     if (!fullName) return NextResponse.json({ error: "Informe seu nome completo." }, { status: 400 });
     if (whatsapp.length < 10) return NextResponse.json({ error: "Informe o WhatsApp com DDD." }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "Crie uma senha com pelo menos 8 caracteres." }, { status: 400 });
     if (email && !email.includes("@")) return NextResponse.json({ error: "Confira o e-mail informado ou deixe o campo em branco." }, { status: 400 });
+    if (functionSlugs.length + agendaSlugs.length === 0) {
+      return NextResponse.json({ error: "Marque pelo menos uma função ou agenda em que você esteja envolvido no Tucxa." }, { status: 400 });
+    }
 
     const existingByPhone = await findPersonByIdentifier(organization.id, whatsapp);
     const existingByEmail = email ? await findPersonByIdentifier(organization.id, email) : null;
@@ -426,6 +484,7 @@ export async function POST(request: Request) {
 
     const roleId = await defaultRoleId(organization.id);
     const membership = await membershipFor(organization.id, personId);
+    const submittedProfile = buildTucxaProfile(functionSlugs, agendaSlugs, notes);
     const membershipPayload = {
       organization_id: organization.id,
       person_id: personId,
@@ -435,6 +494,7 @@ export async function POST(request: Request) {
       status: "pendente_validacao",
       is_main_contact: false,
       can_receive_notifications: Boolean(email || whatsapp),
+      agenda_viva_profile: mergeProfile(membership?.agenda_viva_profile, submittedProfile),
       updated_at: new Date().toISOString(),
     };
 
@@ -453,7 +513,11 @@ export async function POST(request: Request) {
       email,
       status: "pendente_validacao",
       loginIdentifier: email || whatsapp,
-      notes,
+      notes: [
+        notes,
+        functionSlugs.length ? `Funções selecionadas: ${functionSlugs.join(", ")}` : "Funções selecionadas: não informado",
+        agendaSlugs.length ? `Agenda selecionada: ${agendaSlugs.join(", ")}` : "Agenda selecionada: não informado",
+      ].filter(Boolean).join("\n"),
     });
 
     const waMessage = [
@@ -470,7 +534,15 @@ export async function POST(request: Request) {
       message: "Cadastro recebido. O responsável do Tucxa irá conferir seus dados e liberar o acesso.",
       loginIdentifier: email || whatsapp,
       whatsappUrl: whatsappUrl(whatsapp, waMessage),
-      person: publicPerson({ ...currentPerson, email: emailForAuth, auth_user_id: authUserId }, { ...(membership ?? { id: "", person_id: personId, role_id: roleId, module_slugs: DEFAULT_MODULES }), active: false, status: "pendente_validacao" }),
+      person: publicPerson(
+        { ...currentPerson, email: emailForAuth, auth_user_id: authUserId },
+        {
+          ...(membership ?? { id: "", person_id: personId, role_id: roleId, module_slugs: DEFAULT_MODULES }),
+          active: false,
+          status: "pendente_validacao",
+          agenda_viva_profile: submittedProfile,
+        },
+      ),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao validar cadastro." }, { status: 500 });

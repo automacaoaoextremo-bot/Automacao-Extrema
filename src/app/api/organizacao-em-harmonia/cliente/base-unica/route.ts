@@ -574,7 +574,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     if (authError) throw authError;
   }
 
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/login`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
   const email = displayEmail(person.email);
 
   if (approved && email) {
