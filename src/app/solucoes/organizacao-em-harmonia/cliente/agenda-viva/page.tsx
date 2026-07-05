@@ -1,6 +1,11 @@
 "use client";
 
+<<<<<<< HEAD
 import { useEffect, useMemo, useState } from "react";
+=======
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+>>>>>>> 709a036 (cadastro-login-celular-aprovacao)
 import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { AGENDA_VIVA_TUCXA_INITIAL_RULES, TUCXA_WEEKDAY_SERVICE_RULES } from "@/lib/organizacao-em-harmonia";
@@ -369,6 +374,11 @@ export default function OrganizacaoAgendaVivaPage() {
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Fim</span><input type="datetime-local" value={form.endsAt} onChange={(event) => update("endsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo / categoria</span><select value={form.groupSlug} onChange={(event) => update("groupSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="evento">Evento</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="segunda">Segunda</option><option value="terca">Terça</option><option value="quarta">Quarta</option><option value="ferias">Férias</option></select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Local</span><input value={form.location} onChange={(event) => update("location", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Presencial, online, salão, etc." /></label>
+<<<<<<< HEAD
+=======
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Emoji/ícone curto</span><input value={form.imageEmoji} onChange={(event) => update("imageEmoji", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: 🎬, 📚, 🚶" maxLength={4} /></label>
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Imagem do evento</span><div className="grid gap-3 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100 md:grid-cols-[1fr_auto]"><input value={form.imageUrl.startsWith("data:") ? "Imagem anexada ao formulário" : form.imageUrl} onChange={(event) => update("imageUrl", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Cole uma URL pública da imagem ou selecione um arquivo abaixo" disabled={form.imageUrl.startsWith("data:")} /><input type="file" accept="image/*" onChange={onImageFile} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm" />{form.imageUrl && <div className="md:col-span-2 flex flex-col gap-3 rounded-2xl bg-white p-3 ring-1 ring-slate-100 sm:flex-row sm:items-center"><div className="h-20 w-20 overflow-hidden rounded-2xl bg-lime-50 ring-1 ring-lime-100"><Image src={form.imageUrl} alt={form.imageAlt || form.title || "Imagem do evento"} width={80} height={80} unoptimized className="h-full w-full object-cover" /></div><div className="flex-1"><input value={form.imageAlt} onChange={(event) => update("imageAlt", event.target.value)} className="w-full rounded-2xl border border-slate-200 p-3" placeholder="Texto alternativo / descrição da imagem" /><button type="button" onClick={() => update("imageUrl", "")} className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-[#00334E]">Remover imagem</button></div></div>}</div></label>
+>>>>>>> 709a036 (cadastro-login-celular-aprovacao)
               <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
               <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Precisa de aprovação</span></label>
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Descreva objetivo, público, responsáveis, materiais, comunicação e qualquer regra importante." /></label>
@@ -401,6 +411,7 @@ export default function OrganizacaoAgendaVivaPage() {
                 {visualMonthCells.map((cell) => {
                   const events = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
                   return (
+<<<<<<< HEAD
                     <div key={cell.key} className={`min-h-24 rounded-3xl p-2 ring-1 ${cell.day ? "bg-white/80 ring-lime-200" : "bg-transparent ring-transparent"}`}>
                       {cell.day && <p className="text-sm font-black text-lime-950">{String(cell.day).padStart(2, "0")}/07</p>}
                       <div className="mt-2 space-y-1">
@@ -410,6 +421,24 @@ export default function OrganizacaoAgendaVivaPage() {
                           </button>
                         ))}
                         {events.length > 3 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{events.length - 3}</span>}
+=======
+                    <div key={cell.key} className={`min-h-24 rounded-[1.7rem] p-1.5 ring-1 sm:min-h-32 sm:p-2.5 ${cell.day ? "bg-[#fbffe7]/95 ring-lime-200" : "bg-transparent ring-transparent"}`}>
+                      {cell.day && <p className="text-sm font-black text-[#314414] sm:text-base">{String(cell.day).padStart(2, "0")}/07</p>}
+                      <div className="mt-1 space-y-1 sm:mt-2">
+                        {events.slice(0, 2).map((event) => {
+                          const image = eventImageUrl(event);
+                          const time = visualTime(event.starts_at, event.all_day);
+                          return (
+                            <button key={event.id} type="button" title={eventTooltip(event)} onClick={() => editEvent(event)} className={`group relative w-full overflow-hidden rounded-2xl p-1 text-center text-[0.62rem] font-black leading-4 shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md sm:text-[0.72rem] ${colorFor(event, payload.eventTypes)}`}>
+                              {image ? <span className="mx-auto mb-1 block h-9 w-9 overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/70 sm:h-11 sm:w-11"><Image src={image} alt={eventImageAlt(event)} width={44} height={44} unoptimized className="h-full w-full object-cover" /></span> : <span className="mx-auto mb-1 block text-xl leading-none sm:text-2xl">{eventEmoji(event)}</span>}
+                              <span className="block break-words">{event.title}</span>
+                              {time && <span className="block text-[0.58rem] font-black opacity-80 sm:text-[0.68rem]">{time}</span>}
+                              <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-56 -translate-x-1/2 rounded-2xl bg-white p-3 text-left text-xs font-bold leading-5 text-slate-700 shadow-xl ring-1 ring-slate-100 group-hover:block">{eventTooltip(event)}</span>
+                            </button>
+                          );
+                        })}
+                        {events.length > 2 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{events.length - 2}</span>}
+>>>>>>> 709a036 (cadastro-login-celular-aprovacao)
                       </div>
                     </div>
                   );

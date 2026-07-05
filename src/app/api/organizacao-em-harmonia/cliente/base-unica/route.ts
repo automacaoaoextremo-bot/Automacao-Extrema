@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -13,6 +14,78 @@ function asBool(value: unknown, fallback = true) {
   return ["sim", "s", "yes", "true", "1", "ativo"].includes(text);
 }
 
+<<<<<<< HEAD
+=======
+
+function internalReviewEmail() {
+  return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || "automacao.ao.extremo@gmail.com";
+}
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
+}
+
+function firstName(value: string | null | undefined) {
+  return String(value ?? "").trim().split(/\s+/)[0] || "irmão(ã)";
+}
+
+function displayEmail(email: string | null | undefined) {
+  if (!email) return "";
+  return email.endsWith("@organizacao-em-harmonia.local") ? "" : email;
+}
+
+function whatsappUrl(phone: string | null | undefined, message: string) {
+  const digits = normalizePhone(phone ?? "");
+  if (!digits) return "";
+  const normalized = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
+function hasSmtpConfig() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+}
+
+async function sendAccessEmail(input: { to: string; cc?: string; subject: string; text: string; html?: string }) {
+  if (process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return;
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  await transporter.sendMail({
+    from: `"${process.env.EMAIL_FROM_NAME || "Automação Extrema"}" <${process.env.EMAIL_FROM}>`,
+    to: input.to,
+    cc: input.cc || internalReviewEmail(),
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  });
+}
+
+function errorToMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const candidate = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [candidate.message, candidate.details, candidate.hint, candidate.code]
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join(" | ");
+  }
+  return fallback;
+}
+
+function nullableText(value: unknown) {
+  const text = asText(value);
+  return text ? text : null;
+}
+
+>>>>>>> 709a036 (cadastro-login-celular-aprovacao)
 function slugify(value: string) {
   return (
     value
@@ -82,7 +155,7 @@ async function listPayload(organizationId: string) {
       .maybeSingle(),
     supabaseAdmin
       .from("oh_people")
-      .select("id, full_name, email, whatsapp, active, notes, created_at, updated_at")
+      .select("id, full_name, email, whatsapp, active, notes, auth_user_id, created_at, updated_at")
       .eq("organization_id", organizationId)
       .order("full_name", { ascending: true }),
     supabaseAdmin
@@ -446,6 +519,92 @@ async function bulkUpdateProfiles(organizationId: string, body: Record<string, u
   }
 }
 
+async function updateAccessStatus(organizationId: string, body: Record<string, unknown>, approved: boolean) {
+  const personId = asText(body.personId);
+  const reviewNotes = asText(body.reviewNotes ?? body.notes);
+  if (!personId) throw new Error("Pessoa não informada para validação de acesso.");
+
+  const { data: person, error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, email, whatsapp, auth_user_id")
+    .eq("id", personId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (personError) throw personError;
+  if (!person?.id) throw new Error("Envolvido não localizado na Base Única.");
+
+  const nextStatus = approved ? "ativo" : "ajuste_solicitado";
+  const { error: personUpdateError } = await supabaseAdmin
+    .from("oh_people")
+    .update({
+      active: approved,
+      notes: reviewNotes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", personId)
+    .eq("organization_id", organizationId);
+  if (personUpdateError) throw personUpdateError;
+
+  const { error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .update({ active: approved, status: nextStatus, updated_at: new Date().toISOString() })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (membershipError) throw membershipError;
+
+  if (person.auth_user_id) {
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
+      user_metadata: {
+        full_name: person.full_name,
+        whatsapp: person.whatsapp,
+        organization_id: organizationId,
+        oh_access_status: nextStatus,
+      },
+    });
+    if (authError) throw authError;
+  }
+
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/login`;
+  const email = displayEmail(person.email);
+
+  if (approved && email) {
+    const text = [
+      `Olá, ${firstName(person.full_name)}.`,
+      "",
+      "Seu acesso à Organização em Harmonia do Tucxa foi liberado.",
+      "",
+      "Acesse pelo link abaixo usando seu e-mail ou WhatsApp e a senha cadastrada no primeiro acesso:",
+      loginUrl,
+      "",
+      "Com a Base Única atualizada, o Tucxa consegue organizar Agenda Viva, Atendimento em Harmonia e Corrente em Dia com menos retrabalho e mais clareza para todos.",
+      "",
+      reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, responda esta mensagem ou fale com o responsável do Tucxa.",
+    ].join("\n");
+    await sendAccessEmail({ to: email, subject: "Acesso liberado - Organização em Harmonia Tucxa", text });
+  }
+
+  const waMessage = approved
+    ? [
+        `Olá, ${firstName(person.full_name)}. Seu acesso à Organização em Harmonia do Tucxa foi liberado.`,
+        "",
+        "Use seu WhatsApp ou e-mail e a senha cadastrada no primeiro acesso:",
+        loginUrl,
+        "",
+        reviewNotes ? `Orientação: ${reviewNotes}` : "Qualquer dúvida, fale com o responsável do Tucxa.",
+      ].join("\n")
+    : [
+        `Olá, ${firstName(person.full_name)}. Conferimos seu cadastro na Organização em Harmonia do Tucxa e precisamos ajustar algumas informações antes de liberar o acesso.`,
+        "",
+        reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
+        "",
+        "Você pode atualizar seus dados pelo primeiro acesso:",
+        loginUrl,
+      ].join("\n");
+
+  return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(approved && email) };
+}
+
 export async function GET(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
@@ -487,6 +646,10 @@ export async function POST(request: Request) {
         .eq("organization_id", auth.context.organizationId)
         .eq("person_id", personId);
       if (membershipError) throw membershipError;
+    } else if (action === "approveAccess") {
+      await updateAccessStatus(auth.context.organizationId, body, true);
+    } else if (action === "requestAccessAdjustment") {
+      await updateAccessStatus(auth.context.organizationId, body, false);
     } else if (action === "upsertRole") {
       await upsertRole(auth.context.organizationId, body);
     } else if (action === "toggleRole") {
