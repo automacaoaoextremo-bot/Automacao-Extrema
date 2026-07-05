@@ -14,8 +14,6 @@ function asBool(value: unknown, fallback = true) {
   return ["sim", "s", "yes", "true", "1", "ativo"].includes(text);
 }
 
-<<<<<<< HEAD
-=======
 
 function internalReviewEmail() {
   return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || "automacao.ao.extremo@gmail.com";
@@ -85,7 +83,6 @@ function nullableText(value: unknown) {
   return text ? text : null;
 }
 
->>>>>>> 709a036 (cadastro-login-celular-aprovacao)
 function slugify(value: string) {
   return (
     value
@@ -408,50 +405,62 @@ async function deleteEntity(organizationId: string, body: Record<string, unknown
 
 async function upsertLocation(organizationId: string, body: Record<string, unknown>) {
   const locationId = asText(body.locationId ?? body.id);
-  const name = asText(body.name) || "Localidade";
+  const name = asText(body.name) || "Nova localidade";
   const isPrimary = asBool(body.isPrimary ?? body.is_primary, false);
-  const payload = {
+  const active = asBool(body.active, true);
+  const zipCode = asText(body.zipCode ?? body.zip_code).replace(/\D/g, "");
+
+  const locationPayload = {
     organization_id: organizationId,
     name,
     location_type: asText(body.locationType ?? body.location_type) || "sede",
-    zip_code: asText(body.zipCode ?? body.zip_code).replace(/\D/g, "") || null,
-    address: asText(body.address) || null,
-    number: asText(body.number) || null,
-    complement: asText(body.complement) || null,
-    district: asText(body.district) || null,
-    city: asText(body.city) || null,
-    state: asText(body.state).toUpperCase() || null,
+    zip_code: zipCode || null,
+    address: nullableText(body.address),
+    number: nullableText(body.number),
+    complement: nullableText(body.complement),
+    district: nullableText(body.district),
+    city: nullableText(body.city),
+    state: nullableText(asText(body.state).toUpperCase()),
     is_primary: isPrimary,
-    active: asBool(body.active, true),
-    notes: asText(body.notes) || null,
+    active,
+    notes: nullableText(body.notes),
     updated_at: new Date().toISOString(),
   };
 
   if (isPrimary) {
-    await supabaseAdmin.from("oh_locations").update({ is_primary: false }).eq("organization_id", organizationId);
+    const { error: clearPrimaryError } = await supabaseAdmin
+      .from("oh_locations")
+      .update({ is_primary: false, updated_at: new Date().toISOString() })
+      .eq("organization_id", organizationId)
+      .neq("id", locationId || "00000000-0000-0000-0000-000000000000");
+    if (clearPrimaryError) throw clearPrimaryError;
   }
 
   if (locationId) {
-    const { error } = await supabaseAdmin.from("oh_locations").update(payload).eq("id", locationId).eq("organization_id", organizationId);
+    const { error } = await supabaseAdmin
+      .from("oh_locations")
+      .update(locationPayload)
+      .eq("id", locationId)
+      .eq("organization_id", organizationId);
     if (error) throw error;
   } else {
-    const { error } = await supabaseAdmin.from("oh_locations").insert(payload);
+    const { error } = await supabaseAdmin.from("oh_locations").insert(locationPayload);
     if (error) throw error;
   }
 
   if (isPrimary) {
-    const { error } = await supabaseAdmin
-      .from("oh_organizations")
-      .update({
-        zip_code: payload.zip_code,
-        address: payload.address,
-        number: payload.number,
-        complement: payload.complement,
-        city: payload.city,
-        state: payload.state,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", organizationId);
+    const organizationPayload: Record<string, unknown> = {
+      city: locationPayload.city,
+      state: locationPayload.state,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (locationPayload.zip_code !== null) organizationPayload.zip_code = locationPayload.zip_code;
+    if (locationPayload.address !== null) organizationPayload.address = locationPayload.address;
+    if (locationPayload.number !== null) organizationPayload.number = locationPayload.number;
+    if (locationPayload.complement !== null) organizationPayload.complement = locationPayload.complement;
+
+    const { error } = await supabaseAdmin.from("oh_organizations").update(organizationPayload).eq("id", organizationId);
     if (error) throw error;
   }
 }
@@ -613,7 +622,7 @@ export async function GET(request: Request) {
     const payload = await listPayload(auth.context.organizationId);
     return NextResponse.json({ ...payload, currentPerson: auth.context.person });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar Base Única." }, { status: 500 });
+    return NextResponse.json({ error: errorToMessage(error, "Erro ao carregar Base Única.") }, { status: 500 });
   }
 }
 
@@ -675,6 +684,6 @@ export async function POST(request: Request) {
     const payload = await listPayload(auth.context.organizationId);
     return NextResponse.json({ ok: true, ...payload });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao salvar Base Única." }, { status: 500 });
+    return NextResponse.json({ error: errorToMessage(error, "Erro ao salvar Base Única.") }, { status: 500 });
   }
 }
