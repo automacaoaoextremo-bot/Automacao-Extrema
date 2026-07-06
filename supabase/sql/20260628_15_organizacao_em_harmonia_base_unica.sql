@@ -633,6 +633,26 @@ where not exists (
     and existing.metadata->>'external_key' = events.external_key
 );
 
+
+-- Atualiza metadados visuais dos eventos de referência já existentes, sem duplicar registros.
+with visual_updates as (
+  select * from (values
+    ('agenda-viva-julho-cultural-bazar-2026-07-04', '🛍️'),
+    ('agenda-viva-julho-cultural-caminhada-2026-07-11', '🚶'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-12', '💡'),
+    ('agenda-viva-julho-cultural-filme-2026-07-16', '🎬'),
+    ('agenda-viva-julho-cultural-mostra-2026-07-21', '🎭'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-26', '💡'),
+    ('agenda-viva-julho-cultural-livro-extra-2026-07-31', '📚')
+  ) as v(external_key, image_emoji)
+)
+update public.agv_events event
+set metadata = coalesce(event.metadata, '{}'::jsonb)
+  || jsonb_build_object('visual_calendar', true, 'highlight_visual', true, 'image_emoji', visual_updates.image_emoji, 'image_alt', event.title),
+  updated_at = now()
+from visual_updates
+where event.metadata->>'external_key' = visual_updates.external_key;
+
 create index if not exists idx_oh_people_email on public.oh_people(lower(email)) where email is not null;
 create index if not exists idx_oh_people_auth_user_id on public.oh_people(auth_user_id) where auth_user_id is not null;
 create index if not exists idx_oh_organizations_email on public.oh_organizations(lower(email)) where email is not null;
@@ -679,14 +699,14 @@ with tucxa as (
   select organization_id, slug, id from public.agv_event_types where organization_id = (select id from tucxa)
 ), events as (
   select * from (values
-    ('agenda-viva-julho-cultural-bazar-2026-07-04', 'Bazar Sementinha', 'bazar', 'evento', '2026-07-04 09:00:00-03'::timestamptz, null::timestamptz, 'Evento beneficente do Sementinha no calendário cultural de julho.'),
-    ('agenda-viva-julho-cultural-caminhada-2026-07-11', 'Caminhada TUCXA', 'caminhada', 'evento', '2026-07-11 08:00:00-03'::timestamptz, null::timestamptz, 'Atividade de convivência e integração.'),
-    ('agenda-viva-julho-cultural-estudos-2026-07-12', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-12 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.'),
-    ('agenda-viva-julho-cultural-filme-2026-07-16', 'Dia do Filme', 'dia-filme', 'evento', '2026-07-16 19:00:00-03'::timestamptz, null::timestamptz, 'Dia do Filme às 19h.'),
-    ('agenda-viva-julho-cultural-mostra-2026-07-21', 'Mostra Cultural e Clube do Livro', 'mostra-cultural', 'evento', '2026-07-21 19:00:00-03'::timestamptz, null::timestamptz, 'Mostra Cultural e Clube do Livro às 19h.'),
-    ('agenda-viva-julho-cultural-estudos-2026-07-26', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-26 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.'),
-    ('agenda-viva-julho-cultural-livro-extra-2026-07-31', 'Clube do Livro Extra', 'clube-livro-extra', 'evento', '2026-07-31 19:00:00-03'::timestamptz, null::timestamptz, 'Clube do Livro Extra online às 19h.')
-  ) as e(external_key, title, event_type_slug, group_slug, starts_at, ends_at, notes)
+    ('agenda-viva-julho-cultural-bazar-2026-07-04', 'Bazar Sementinha', 'bazar', 'evento', '2026-07-04 09:00:00-03'::timestamptz, null::timestamptz, 'Evento beneficente do Sementinha no calendário cultural de julho.', '🛍️'),
+    ('agenda-viva-julho-cultural-caminhada-2026-07-11', 'Caminhada TUCXA', 'caminhada', 'evento', '2026-07-11 08:00:00-03'::timestamptz, null::timestamptz, 'Atividade de convivência e integração.', '🚶'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-12', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-12 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.', '💡'),
+    ('agenda-viva-julho-cultural-filme-2026-07-16', 'Dia do Filme', 'dia-filme', 'evento', '2026-07-16 19:00:00-03'::timestamptz, null::timestamptz, 'Dia do Filme às 19h.', '🎬'),
+    ('agenda-viva-julho-cultural-mostra-2026-07-21', 'Mostra Cultural e Clube do Livro', 'mostra-cultural', 'evento', '2026-07-21 19:00:00-03'::timestamptz, null::timestamptz, 'Mostra Cultural e Clube do Livro às 19h.', '🎭'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-26', 'Grupo de Estudos', 'grupo-estudos', 'evento', '2026-07-26 15:00:00-03'::timestamptz, null::timestamptz, 'Grupo de Estudos presencial às 15h.', '💡'),
+    ('agenda-viva-julho-cultural-livro-extra-2026-07-31', 'Clube do Livro Extra', 'clube-livro-extra', 'evento', '2026-07-31 19:00:00-03'::timestamptz, null::timestamptz, 'Clube do Livro Extra online às 19h.', '📚')
+  ) as e(external_key, title, event_type_slug, group_slug, starts_at, ends_at, notes, image_emoji)
 )
 insert into public.agv_events (organization_id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, group_slug, requires_approval, notes, metadata)
 select
@@ -701,7 +721,7 @@ select
   events.group_slug,
   true,
   events.notes,
-  jsonb_build_object('source', 'Julho Cultural Tucxa 2026', 'external_key', events.external_key, 'visual_calendar', true)
+  jsonb_build_object('source', 'Julho Cultural Tucxa 2026', 'external_key', events.external_key, 'visual_calendar', true, 'highlight_visual', true, 'image_emoji', events.image_emoji, 'image_alt', events.title)
 from tucxa
 join events on true
 left join event_types on event_types.slug = events.event_type_slug
@@ -710,6 +730,26 @@ where not exists (
   where existing.organization_id = tucxa.id
     and existing.metadata->>'external_key' = events.external_key
 );
+
+
+-- Atualiza metadados visuais dos eventos de referência já existentes, sem duplicar registros.
+with visual_updates as (
+  select * from (values
+    ('agenda-viva-julho-cultural-bazar-2026-07-04', '🛍️'),
+    ('agenda-viva-julho-cultural-caminhada-2026-07-11', '🚶'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-12', '💡'),
+    ('agenda-viva-julho-cultural-filme-2026-07-16', '🎬'),
+    ('agenda-viva-julho-cultural-mostra-2026-07-21', '🎭'),
+    ('agenda-viva-julho-cultural-estudos-2026-07-26', '💡'),
+    ('agenda-viva-julho-cultural-livro-extra-2026-07-31', '📚')
+  ) as v(external_key, image_emoji)
+)
+update public.agv_events event
+set metadata = coalesce(event.metadata, '{}'::jsonb)
+  || jsonb_build_object('visual_calendar', true, 'highlight_visual', true, 'image_emoji', visual_updates.image_emoji, 'image_alt', event.title),
+  updated_at = now()
+from visual_updates
+where event.metadata->>'external_key' = visual_updates.external_key;
 
 -- =========================================================
 -- Base Única — localidades, entidades e vínculos em lote

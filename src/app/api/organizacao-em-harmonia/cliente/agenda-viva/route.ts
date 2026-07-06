@@ -14,6 +14,18 @@ function asBool(value: unknown, fallback = false) {
   return ["sim", "s", "yes", "true", "1"].includes(text);
 }
 
+function errorToMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const candidate = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [candidate.message, candidate.details, candidate.hint, candidate.code]
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join(" | ");
+  }
+  return fallback;
+}
+
 function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
 }
@@ -166,6 +178,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const groupSlug = asText(body.groupSlug ?? body.group_slug);
   const responsiblePersonId = asText(body.responsiblePersonId ?? body.responsible_person_id);
   const notes = asText(body.notes);
+  const imageUrl = asText(body.imageUrl ?? body.image_url);
+  const imageAlt = asText(body.imageAlt ?? body.image_alt) || title;
+  const imageEmoji = asText(body.imageEmoji ?? body.image_emoji);
+  const highlightVisual = body.highlightVisual === undefined ? true : asBool(body.highlightVisual, true);
   const requiresApproval = body.requiresApproval === undefined ? true : asBool(body.requiresApproval, true);
   const status = requiresApproval ? "pendente_aprovacao" : "aprovado";
 
@@ -190,6 +206,11 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       source: "agenda_viva_cliente",
       requested_by: personId,
       approval_requested_at: new Date().toISOString(),
+      visual_calendar: true,
+      highlight_visual: highlightVisual,
+      image_url: imageUrl || null,
+      image_alt: imageAlt || null,
+      image_emoji: imageEmoji || null,
     },
     updated_at: new Date().toISOString(),
   };
@@ -304,7 +325,7 @@ export async function GET(request: Request) {
     const payload = await listPayload(auth.context.organizationId);
     return NextResponse.json({ ...payload, currentPerson: auth.context.person });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar Agenda Viva." }, { status: 500 });
+    return NextResponse.json({ error: errorToMessage(error, "Erro ao carregar Agenda Viva.") }, { status: 500 });
   }
 }
 
@@ -340,6 +361,6 @@ export async function POST(request: Request) {
     const payload = await listPayload(auth.context.organizationId);
     return NextResponse.json({ ok: true, approvalWhatsappUrl, ...payload });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao salvar Agenda Viva." }, { status: 500 });
+    return NextResponse.json({ error: errorToMessage(error, "Erro ao salvar Agenda Viva.") }, { status: 500 });
   }
 }
