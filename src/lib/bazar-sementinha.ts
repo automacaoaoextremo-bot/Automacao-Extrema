@@ -151,6 +151,27 @@ export async function getSessionToken() {
   return jar.get("bazar_sementinha_session")?.value || null;
 }
 
+export function getRequestSessionToken(request?: Request) {
+  if (!request) return null;
+
+  const authorization = request.headers.get("authorization") || "";
+  if (authorization.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice(7).trim();
+  }
+
+  const headerToken = request.headers.get("x-bazar-session");
+  if (headerToken) return headerToken.trim();
+
+  const cookieHeader = request.headers.get("cookie") || "";
+  const cookie = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("bazar_sementinha_session="));
+
+  if (!cookie) return null;
+  return decodeURIComponent(cookie.split("=").slice(1).join("="));
+}
+
 export function signSession(email: string) {
   const secret = process.env.BAZAR_SEMENTINHA_AUTH_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "bazar-sementinha-dev";
   const exp = Date.now() + 1000 * 60 * 60 * 12;
@@ -173,9 +194,28 @@ export function verifySession(token: string | null) {
   }
 }
 
-export async function requireBazarSession() {
-  const token = await getSessionToken();
-  if (!verifySession(token)) {
-    throw new Error("Acesso não autorizado.");
+export class BazarUnauthorizedError extends Error {
+  constructor() {
+    super("Acesso não autorizado.");
+    this.name = "BazarUnauthorizedError";
   }
+}
+
+export async function isBazarSessionValid(request?: Request) {
+  const requestToken = getRequestSessionToken(request);
+  if (verifySession(requestToken)) return true;
+
+  const cookieToken = await getSessionToken();
+  return verifySession(cookieToken);
+}
+
+export async function requireBazarSession(request?: Request) {
+  const valid = await isBazarSessionValid(request);
+  if (!valid) {
+    throw new BazarUnauthorizedError();
+  }
+}
+
+export function sessionErrorStatus(error: unknown) {
+  return error instanceof BazarUnauthorizedError ? 401 : 500;
 }

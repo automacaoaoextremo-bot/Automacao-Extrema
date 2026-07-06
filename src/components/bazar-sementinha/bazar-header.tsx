@@ -2,12 +2,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { AeBrandStrip } from "@/components/ae-solution-header";
 
-export function BazarHeader({ active = "home", logged = false }: { active?: "home" | "pedidos" | "caixa" | "relatorio" | "gestao"; logged?: boolean }) {
+type BazarHeaderActive = "home" | "pedidos" | "caixa" | "relatorio" | "gestao";
+
+export function BazarHeader({ active = "home", logged = false }: { active?: BazarHeaderActive; logged?: boolean }) {
   const links = [
+    { key: "home", label: "Início", href: "/bazar-sementinha" },
     { key: "pedidos", label: "Pedidos", href: "/bazar-sementinha/pedidos" },
     { key: "caixa", label: "Caixa", href: "/bazar-sementinha/caixa" },
     { key: "relatorio", label: "Prestação", href: "/bazar-sementinha/prestacao-contas" },
-  ];
+  ] as const;
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-[#fffdf7]/95 shadow-sm backdrop-blur">
@@ -34,12 +37,12 @@ export function BazarHeader({ active = "home", logged = false }: { active?: "hom
       </div>
       <AeBrandStrip compact />
       <nav className="border-t border-[#dfe8df] bg-[#2f7d45] px-3 py-2" aria-label="Menu do Bazar no Controle">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-2 sm:justify-start">
+        <div className="mx-auto flex max-w-6xl flex-nowrap items-center gap-2 overflow-x-auto sm:justify-start">
           {links.map((link) => (
             <Link
               key={link.key}
               href={link.href}
-              className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.08em] ring-1 transition ${
+              className={`shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.08em] ring-1 transition ${
                 active === link.key ? "bg-[#f4e7b3] text-[#214527] ring-[#f4e7b3]" : "bg-white/10 text-white ring-white/15 hover:bg-white hover:text-[#214527]"
               }`}
             >
@@ -47,7 +50,7 @@ export function BazarHeader({ active = "home", logged = false }: { active?: "hom
             </Link>
           ))}
           {logged && (
-            <Link href="/bazar-sementinha/gestao" className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.08em] ring-1 ${active === "gestao" ? "bg-[#f4e7b3] text-[#214527] ring-[#f4e7b3]" : "bg-white/10 text-white ring-white/15"}`}>
+            <Link href="/bazar-sementinha/gestao" className={`shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.08em] ring-1 ${active === "gestao" ? "bg-[#f4e7b3] text-[#214527] ring-[#f4e7b3]" : "bg-white/10 text-white ring-white/15"}`}>
               Cadastros
             </Link>
           )}

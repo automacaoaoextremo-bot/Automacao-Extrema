@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { buildFollowupMessage, FOLLOWUP_LABELS, FollowupKind } from "@/lib/followups";
+import type { PresencaGuestStatus } from "@/lib/presenca-querida";
 
 export type LeadEmailInput = {
   leadName: string | null;
@@ -433,4 +434,711 @@ export async function sendCorrenteLeadPendingAlertEmail(input: CorrenteLeadPendi
   });
 
   return { sent: true, reason: "Alerta interno enviado." };
+}
+
+export type PresencaLeadAccessEmailInput = {
+  responsibleName: string;
+  email: string;
+  eventName: string;
+  eventType: string;
+  city: string;
+  state: string;
+  loginUrl: string;
+  temporaryPassword: string | null;
+  trialDays: number;
+  isMinimalLead: boolean;
+};
+
+export type PresencaLeadInternalEmailInput = {
+  leadId: string;
+  responsibleName: string;
+  email: string;
+  whatsapp: string;
+  eventName: string;
+  eventType: string;
+  city: string;
+  state: string;
+  guestsEstimate: number | null;
+  eventDate: string | null;
+  eventContext: string;
+  observations: string;
+  loginUrl: string;
+  temporaryPassword: string | null;
+  trialDays: number;
+  accessDueAt: string;
+  funilUrl: string;
+  source: string;
+};
+
+export type PresencaLeadPendingAlertEmailInput = {
+  leadId: string;
+  responsibleName: string;
+  eventName: string;
+  email: string | null;
+  whatsapp: string | null;
+  status: string;
+  accessDueAt: string | null;
+  funilUrl: string;
+};
+
+export async function sendPresencaLeadAccessEmail(input: PresencaLeadAccessEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const baseUrl = siteUrl();
+  const logoUrl = `${baseUrl}/presenca-querida-logo.svg`;
+  const greeting = firstName(input.responsibleName);
+  const location = [input.city, input.state].filter(Boolean).join("/");
+  const eventLine = input.isMinimalLead
+    ? "Os dados completos do evento serão confirmados no primeiro acesso."
+    : `Evento: ${input.eventName}\nTipo: ${input.eventType}${location ? `\nCidade/UF: ${location}` : ""}`;
+  const passwordBlock = input.temporaryPassword
+    ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
+    : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: input.email,
+    subject: "Acesso liberado — Presença Querida Cliente Fundador",
+    text: `${greeting},\n\nRecebemos seu interesse no Presença Querida como Cliente Fundador.\n\nA partir de agora, você já pode acessar o painel inicial para começar a configuração do evento e avaliar a solução por ${input.trialDays} dias.\n\nO Presença Querida foi criado para ajudar famílias e pequenos organizadores a convidar, lembrar e confirmar presenças importantes sem transformar o WhatsApp em bagunça ou a confirmação em cobrança constrangedora.\n\n${eventLine}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nComo Cliente Fundador, seu evento participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença na organização dos convidados.\n\nAutomação Extrema\nPresença Querida`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
+        <div style="padding:18px 0;text-align:left">
+          <img src="${escapeHtml(logoUrl)}" alt="Presença Querida" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
+          <h2 style="margin:0;color:#00334E;font-size:24px">Acesso liberado ao Presença Querida</h2>
+        </div>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse no <strong>Presença Querida</strong> como Cliente Fundador.</p>
+        <p>A partir de agora, você já pode acessar o painel inicial para começar a configuração do evento e avaliar a solução por <strong>${escapeHtml(input.trialDays)} dias</strong>.</p>
+        <p>O Presença Querida foi criado para ajudar famílias e pequenos organizadores a convidar, lembrar e confirmar presenças importantes sem transformar o WhatsApp em bagunça ou a confirmação em cobrança constrangedora.</p>
+        <div style="background:#fff1f2;border-radius:16px;padding:16px;margin:16px 0">
+          ${input.isMinimalLead ? `<p><strong>Primeiro passo:</strong> os dados completos do evento serão confirmados no primeiro acesso.</p>` : `<p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/><strong>Tipo:</strong> ${escapeHtml(input.eventType)}${location ? `<br/><strong>Cidade/UF:</strong> ${escapeHtml(location)}` : ""}</p>`}
+          <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
+          <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
+        </div>
+        <p><strong>Cliente Fundador:</strong> seu evento participa da fase inicial com condições especiais, acompanhamento mais próximo e prioridade nas melhorias que realmente fazem diferença na organização dos convidados.</p>
+        <p style="font-size:13px;color:#475569">Ao acessar o painel, confirme os dados do evento, as autorizações de LGPD e a condição de Cliente Fundador para iniciar a avaliação.</p>
+        <p>Automação Extrema<br/>Presença Querida</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de acesso enviado." };
+}
+
+export async function sendPresencaLeadInternalEmail(input: PresencaLeadInternalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const internalMessage = `Novo lead Presença Querida - Cliente Fundador\n\nTipo: ${input.eventType}\nEvento: ${input.eventName}\nResponsável: ${input.responsibleName}\nCidade/UF: ${[input.city, input.state].filter(Boolean).join("/") || "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nE-mail: ${input.email}\nConvidados estimados: ${input.guestsEstimate ?? "não informado"}\nData do evento: ${input.eventDate ?? "não informada"}\n\nContexto:\n${input.eventContext || "não informado"}\n\nObservações:\n${input.observations || "não informado"}\n\nAcesso: ${input.loginUrl}\nPrazo de acompanhamento: confirmar primeiro acesso e configuração inicial.\nFunil: ${input.funilUrl}`;
+  const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Novo lead Presença Querida — ${input.eventName}`,
+    text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo lead Presença Querida</h2>
+        <p><strong>Tipo:</strong> ${escapeHtml(input.eventType)}<br/>
+        <strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>Cidade/UF:</strong> ${escapeHtml([input.city, input.state].filter(Boolean).join("/") || "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
+        <strong>Convidados estimados:</strong> ${escapeHtml(input.guestsEstimate ?? "não informado")}<br/>
+        <strong>Data do evento:</strong> ${escapeHtml(input.eventDate ?? "não informada")}</p>
+        <p><strong>Contexto:</strong><br/>${escapeHtml(input.eventContext || "não informado")}</p>
+        <p><strong>Observações:</strong><br/>${escapeHtml(input.observations || "não informado")}</p>
+        <p><strong>Status:</strong> acesso inicial preparado e e-mail de acesso tentado automaticamente.</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Presença Querida</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp interno</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail interno enviado." };
+}
+
+export async function sendPresencaLeadPendingAlertEmail(input: PresencaLeadPendingAlertEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Alerta Presença Querida — verificar acesso de ${input.eventName}`,
+    text: `Verificar lead Presença Querida.\n\nEvento: ${input.eventName}\nResponsável: ${input.responsibleName}\nE-mail: ${input.email ?? "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nStatus: ${input.status}\nPrazo de acesso: ${input.accessDueAt ? formatDate(input.accessDueAt) : "não informado"}\nFunil: ${input.funilUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Alerta Presença Querida</h2>
+        <p>Verifique se o acesso e o primeiro contato foram concluídos.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Responsável:</strong> ${escapeHtml(input.responsibleName)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email ?? "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>Status:</strong> ${escapeHtml(input.status)}<br/>
+        <strong>Prazo de acesso:</strong> ${escapeHtml(input.accessDueAt ? formatDate(input.accessDueAt) : "não informado")}</p>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir funil Presença Querida</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Alerta interno enviado." };
+}
+
+const PRESENCA_RESPONSE_STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  reservou_data: "Reservou a data",
+  talvez: "Talvez",
+  confirmado: "Confirmado",
+  confirmado_com_acompanhantes: "Confirmado com convidados vinculados",
+  nao_podera_ir: "Não poderá ir",
+  remover: "Remover da lista",
+};
+
+function presencaResponseStatusLabel(status: string | null | undefined) {
+  return PRESENCA_RESPONSE_STATUS_LABELS[String(status ?? "")] ?? String(status ?? "-");
+}
+
+export type PresencaGuestResponseEmailInput = {
+  eventName: string | null;
+  eventSlug: string | null;
+  principalGuestName: string;
+  principalGuestWhatsapp?: string | null;
+  principalGuestEmail?: string | null;
+  responses: Array<{
+    id: string;
+    name: string;
+    previousStatus?: PresencaGuestStatus | string | null;
+    newStatus: PresencaGuestStatus | string;
+  }>;
+  dietaryNotes?: string | null;
+  notes?: string | null;
+  confirmationUrl: string;
+};
+
+export async function sendPresencaGuestResponseEmail(input: PresencaGuestResponseEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const responseLines = input.responses.map((item) => {
+    const previous = item.previousStatus ? ` antes: ${presencaResponseStatusLabel(item.previousStatus)} |` : "";
+    return `- ${item.name}:${previous} agora: ${presencaResponseStatusLabel(item.newStatus)}`;
+  });
+
+  const htmlRows = input.responses
+    .map(
+      (item) => `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.name)}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(item.previousStatus ? presencaResponseStatusLabel(item.previousStatus) : "-")}</td>
+          <td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(presencaResponseStatusLabel(item.newStatus))}</strong></td>
+        </tr>`
+    )
+    .join("");
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Presença Querida - resposta registrada: ${input.principalGuestName}`,
+    text: [
+      "Uma resposta de convite foi registrada/alterada no Presença Querida.",
+      "",
+      `Evento: ${input.eventName || input.eventSlug || "-"}`,
+      `Convidado principal: ${input.principalGuestName}`,
+      `WhatsApp: ${input.principalGuestWhatsapp || "-"}`,
+      `E-mail: ${input.principalGuestEmail || "-"}`,
+      "",
+      "Respostas:",
+      ...responseLines,
+      "",
+      `Observação alimentar/cuidados: ${input.dietaryNotes || "-"}`,
+      `Curiosidade ou recado: ${input.notes || "-"}`,
+      "",
+      `Link do convite: ${input.confirmationUrl}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Resposta registrada no Presença Querida</h2>
+        <p>Uma resposta de convite foi registrada ou alterada.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName || input.eventSlug || "-")}<br/>
+        <strong>Convidado principal:</strong> ${escapeHtml(input.principalGuestName)}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.principalGuestWhatsapp || "-")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.principalGuestEmail || "-")}</p>
+        <h3>Respostas</h3>
+        <table style="border-collapse:collapse;width:100%;font-size:14px">
+          <thead>
+            <tr>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Convidado</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Antes</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Agora</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <p><strong>Observação alimentar/cuidados:</strong><br/>${escapeHtml(input.dietaryNotes || "-")}</p>
+        <p><strong>Curiosidade ou recado:</strong><br/>${escapeHtml(input.notes || "-")}</p>
+        <p><a href="${escapeHtml(input.confirmationUrl)}">Abrir convite</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de resposta do convidado enviado para AE." };
+}
+
+
+export type PresencaGuestNoteApprovalEmailInput = {
+  eventName: string | null;
+  eventSlug: string | null;
+  hostName?: string | null;
+  approverEmail?: string | null;
+  principalGuestName: string;
+  principalGuestWhatsapp?: string | null;
+  principalGuestEmail?: string | null;
+  noteText: string;
+  confirmationUrl: string;
+  managementUrl: string;
+};
+
+export async function sendPresencaGuestNoteApprovalEmail(input: PresencaGuestNoteApprovalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const configuredApprover = process.env.PRESENCA_QUERIDA_RECADO_APPROVER_EMAIL;
+  const to = String(configuredApprover || input.approverEmail || config.copyTo || "").trim();
+  if (!to) {
+    return { sent: false, reason: "E-mail de aprovação não configurado." };
+  }
+
+  const copyTo = String(config.copyTo || "").trim();
+  const cc = copyTo && copyTo.toLowerCase() !== to.toLowerCase() ? copyTo : undefined;
+  const hostName = String(input.hostName || "Dani").trim() || "Dani";
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to,
+    cc,
+    subject: `Presença Querida - novo recado para aprovar: ${input.principalGuestName}`,
+    text: [
+      `Chegou um novo recado para ${hostName}.`,
+      "",
+      `Evento: ${input.eventName || input.eventSlug || "-"}`,
+      `Convidado: ${input.principalGuestName}`,
+      `WhatsApp: ${input.principalGuestWhatsapp || "-"}`,
+      `E-mail: ${input.principalGuestEmail || "-"}`,
+      "",
+      "Recado enviado:",
+      input.noteText,
+      "",
+      "Importante: este recado ainda não aparece na LP. Aprove, reprove ou mantenha oculto na área de mensagens.",
+      `Gestão de recados: ${input.managementUrl}`,
+      `Link do convite: ${input.confirmationUrl}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo recado para aprovar</h2>
+        <p>Chegou um novo recado para ${escapeHtml(hostName)}. Ele ainda <strong>não aparece na LP</strong>.</p>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName || input.eventSlug || "-")}<br/>
+        <strong>Convidado:</strong> ${escapeHtml(input.principalGuestName)}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.principalGuestWhatsapp || "-")}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.principalGuestEmail || "-")}</p>
+        <div style="background:#fff7f4;border:1px solid #ffe1e8;border-radius:16px;padding:16px;margin:16px 0">
+          <p style="margin:0 0 8px 0"><strong>Recado enviado:</strong></p>
+          <p style="white-space:pre-wrap;margin:0">${escapeHtml(input.noteText)}</p>
+        </div>
+        <p>Aprove, reprove ou mantenha oculto na área de mensagens. Somente recados aprovados e ativos aparecem na seção “Recados para a Dani”.</p>
+        <p><a href="${escapeHtml(input.managementUrl)}">Abrir gestão de recados</a></p>
+        <p><a href="${escapeHtml(input.confirmationUrl)}">Abrir convite do convidado</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de recado enviado para aprovação." };
+}
+
+export type PresencaReminderDigestEmailInput = {
+  eventName: string;
+  eventSlug: string;
+  reminderDate: string;
+  reminderLabel: string;
+  targetStatus: string;
+  guests: Array<{
+    name: string;
+    whatsapp?: string | null;
+    email?: string | null;
+    relationship?: string | null;
+    status?: string | null;
+    inviteUrl?: string | null;
+  }>;
+};
+
+export async function sendPresencaReminderDigestEmail(input: PresencaReminderDigestEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const guestLines = input.guests.length
+    ? input.guests.map(
+        (guest, index) =>
+          `${index + 1}. ${guest.name} | ${guest.whatsapp || "sem WhatsApp"} | ${guest.email || "sem e-mail"} | ${guest.relationship || "-"} | ${presencaResponseStatusLabel(guest.status)}${guest.inviteUrl ? ` | ${guest.inviteUrl}` : ""}`
+      )
+    : ["Nenhum convidado localizado para este lembrete."];
+
+  const htmlRows = input.guests.length
+    ? input.guests
+        .map(
+          (guest, index) => `
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${index + 1}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(guest.name)}</strong></td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.whatsapp || "sem WhatsApp")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.email || "sem e-mail")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(guest.relationship || "-")}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(presencaResponseStatusLabel(guest.status))}</td>
+            <td style="padding:8px;border-bottom:1px solid #e5e7eb">${guest.inviteUrl ? `<a href="${escapeHtml(guest.inviteUrl)}">Abrir convite</a>` : "-"}</td>
+          </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="7" style="padding:8px">Nenhum convidado localizado para este lembrete.</td></tr>`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Presença Querida - lembrete em 2 dias: ${input.reminderLabel}`,
+    text: [
+      "Faltam 2 dias para um lembrete programado do Presença Querida.",
+      "",
+      `Evento: ${input.eventName}`,
+      `Slug: ${input.eventSlug}`,
+      `Data do lembrete: ${input.reminderDate}`,
+      `Lembrete: ${input.reminderLabel}`,
+      `Status-alvo: ${presencaResponseStatusLabel(input.targetStatus)}`,
+      "",
+      "Convidados para avaliar/acionar:",
+      ...guestLines,
+      "",
+      "Sugestão: avaliar lista de transmissão no WhatsApp quando fizer sentido e evitar enviar dados sensíveis.",
+    ].join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Lembrete Presença Querida em 2 dias</h2>
+        <p><strong>Evento:</strong> ${escapeHtml(input.eventName)}<br/>
+        <strong>Slug:</strong> ${escapeHtml(input.eventSlug)}<br/>
+        <strong>Data do lembrete:</strong> ${escapeHtml(input.reminderDate)}<br/>
+        <strong>Lembrete:</strong> ${escapeHtml(input.reminderLabel)}<br/>
+        <strong>Status-alvo:</strong> ${escapeHtml(presencaResponseStatusLabel(input.targetStatus))}</p>
+        <h3>Convidados para avaliar/acionar</h3>
+        <table style="border-collapse:collapse;width:100%;font-size:13px">
+          <thead>
+            <tr>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">#</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Nome</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">WhatsApp</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">E-mail</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Relação</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Status</th>
+              <th align="left" style="padding:8px;border-bottom:2px solid #00334E">Convite</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <p style="font-size:13px;color:#475569">Sugestão: avaliar lista de transmissão no WhatsApp quando fizer sentido e evitar enviar dados sensíveis.</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de lembrete Presença Querida enviado para AE." };
+}
+
+
+export type OrganizacaoHarmoniaLeadAccessEmailInput = {
+  contactName: string;
+  email: string;
+  whatsapp: string;
+  moduleName: string;
+  priorityModuleName?: string;
+  organizationName: string | null;
+  loginUrl: string;
+  temporaryPassword?: string | null;
+  trialDays: number;
+  implantationDueAt?: string | null;
+  reminderHoursBeforeDue?: number | null;
+};
+
+export type OrganizacaoHarmoniaLeadInternalEmailInput = OrganizacaoHarmoniaLeadAccessEmailInput & {
+  leadId: string;
+  source: string;
+  funilUrl: string;
+  nextReminderAt?: string | null;
+};
+
+function formatOptionalDate(value: string | null | undefined) {
+  if (!value) return "não informado";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+export async function sendOrganizacaoHarmoniaLeadAccessEmail(input: OrganizacaoHarmoniaLeadAccessEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const baseUrl = siteUrl();
+  const logoUrl = `${baseUrl}/organizacao-em-harmonia-logo.svg`;
+  const greeting = firstName(input.contactName);
+  const organizationLine = input.organizationName
+    ? `Organização informada: ${input.organizationName}`
+    : "Os dados completos da organização serão confirmados no primeiro acesso.";
+  const priorityModule = input.priorityModuleName || input.moduleName;
+  const implantationDue = formatOptionalDate(input.implantationDueAt);
+  const passwordBlock = input.temporaryPassword
+    ? `\nE-mail: ${input.email}\nSenha temporária: ${input.temporaryPassword}\n\nPor segurança, recomendamos trocar a senha no primeiro acesso.`
+    : `\nE-mail: ${input.email}\n\nCaso você já tenha senha, use sua senha atual. Se não lembrar, clique em "Esqueci minha senha" na tela de login.`;
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: input.email,
+    subject: `Acesso liberado — Organização em Harmonia Cliente Fundador`,
+    text: `${greeting},\n\nRecebemos seu interesse na Organização em Harmonia.\n\nA partir de agora, você já pode acessar a área inicial para começar a configuração da organização, confirmar módulos, pessoas, funções, permissões e iniciar a validação pelo Agenda Viva.\n\nA proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.\n\nPrimeiro passo: ${organizationLine}\nAcesso: ${input.loginUrl}${passwordBlock}\n\nPrimeiro módulo recomendado: ${priorityModule}\n\nComo Cliente Fundador, a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de ${input.trialDays} dias começa depois que a configuração e o treinamento inicial estiverem concluídos.\nPrazo sugerido para concluir configuração/treinamento: ${implantationDue}.\n\nSe esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.\n\nAutomação Extrema\nOrganização em Harmonia`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#00334E;max-width:720px;margin:0 auto">
+        <div style="padding:18px 0;text-align:left">
+          <img src="${escapeHtml(logoUrl)}" alt="Organização em Harmonia" width="84" height="84" style="border-radius:22px;display:block;margin-bottom:12px" />
+          <h2 style="margin:0;color:#00334E;font-size:24px">Acesso liberado — Organização em Harmonia</h2>
+        </div>
+        <p>${escapeHtml(greeting)}, recebemos seu interesse na <strong>Organização em Harmonia</strong>.</p>
+        <p>A partir de agora, você já pode acessar a área inicial para começar a configuração da organização, confirmar módulos, pessoas, funções, permissões e iniciar a validação pelo <strong>Agenda Viva</strong>.</p>
+        <p>A proposta é começar pelas dores reais da rotina: agenda, atendimentos, contribuições, pessoas, funções, permissões e aprovações em uma base única, sem obrigar a organização a mudar sua essência.</p>
+        <div style="background:#ecfdf5;border-radius:16px;padding:16px;margin:16px 0">
+          <p><strong>Primeiro passo:</strong> ${escapeHtml(organizationLine)}</p>
+          <p><strong>Acesso:</strong> <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a></p>
+          <p><strong>E-mail:</strong> ${escapeHtml(input.email)}${input.temporaryPassword ? `<br/><strong>Senha temporária:</strong> ${escapeHtml(input.temporaryPassword)}` : ""}</p>
+          <p style="font-size:13px;color:#335">${input.temporaryPassword ? "Por segurança, recomendamos trocar a senha no primeiro acesso." : "Caso você já tenha senha, use sua senha atual. Se não lembrar, clique em Esqueci minha senha na tela de login."}</p>
+          <p><strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}</p>
+          <p><strong>Cliente Fundador:</strong> a implantação assistida pode seguir por até 30 dias para configuração e treinamento mínimos. A avaliação de <strong>${escapeHtml(input.trialDays)} dias</strong> começa depois que a configuração e o treinamento inicial estiverem concluídos.</p>
+          <p><strong>Prazo sugerido de configuração/treinamento:</strong> ${escapeHtml(implantationDue)}</p>
+          <p style="font-size:13px;color:#335">Se esta mensagem não aparecer na caixa principal, confira spam/lixo eletrônico.</p>
+        </div>
+        <p>Automação Extrema<br/>Organização em Harmonia</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail de acesso enviado." };
+}
+
+export async function sendOrganizacaoHarmoniaLeadInternalEmail(input: OrganizacaoHarmoniaLeadInternalEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const priorityModule = input.priorityModuleName || input.moduleName;
+  const internalMessage = `Novo lead Organização em Harmonia\n\nMódulo informado: ${input.moduleName}\nPrimeiro módulo recomendado: ${priorityModule}\nContato: ${input.contactName}\nOrganização: ${input.organizationName || "não informada"}\nWhatsApp: ${input.whatsapp}\nE-mail: ${input.email}\nOrigem: ${input.source}\nLead: ${input.leadId}\n\nPrazo sugerido para concluir configuração/treinamento: ${formatOptionalDate(input.implantationDueAt)}\nLembrete configurado: ${input.reminderHoursBeforeDue ?? "não informado"}h antes\nPróximo lembrete previsto: ${formatOptionalDate(input.nextReminderAt)}\nAvaliação Cliente Fundador: ${input.trialDays} dias após configuração e treinamento mínimos\n\nFunil/gestão: ${input.funilUrl}`;
+  const waUrl = whatsappUrl(process.env.AE_INTERNAL_WHATSAPP || "19992360856", internalMessage);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: config.copyTo,
+    subject: `Novo lead Organização em Harmonia — ${priorityModule}`,
+    text: `${internalMessage}\n\nWhatsApp interno: ${waUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Novo lead Organização em Harmonia</h2>
+        <p><strong>Módulo informado:</strong> ${escapeHtml(input.moduleName)}<br/>
+        <strong>Primeiro módulo recomendado:</strong> ${escapeHtml(priorityModule)}<br/>
+        <strong>Contato:</strong> ${escapeHtml(input.contactName)}<br/>
+        <strong>Organização:</strong> ${escapeHtml(input.organizationName || "não informada")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email)}<br/>
+        <strong>Origem:</strong> ${escapeHtml(input.source)}<br/>
+        <strong>Lead:</strong> ${escapeHtml(input.leadId)}</p>
+        <div style="background:#f8fafc;border-radius:14px;padding:14px;margin:14px 0">
+          <p><strong>Prazo sugerido para concluir configuração/treinamento:</strong> ${escapeHtml(formatOptionalDate(input.implantationDueAt))}<br/>
+          <strong>Lembrete configurado:</strong> ${escapeHtml(input.reminderHoursBeforeDue ?? "não informado")}h antes<br/>
+          <strong>Próximo lembrete previsto:</strong> ${escapeHtml(formatOptionalDate(input.nextReminderAt))}<br/>
+          <strong>Avaliação Cliente Fundador:</strong> ${escapeHtml(input.trialDays)} dias após configuração e treinamento mínimos.</p>
+        </div>
+        <p><a href="${escapeHtml(input.funilUrl)}">Abrir gestão AE</a>${waUrl ? ` · <a href="${escapeHtml(waUrl)}">Avisar no WhatsApp do Márcio</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "E-mail interno enviado para AE." };
+}
+
+export type OrganizacaoHarmoniaImplantationReminderEmailInput = {
+  leadId: string;
+  contactName: string;
+  email: string | null;
+  whatsapp: string | null;
+  moduleName: string | null;
+  priorityModuleName: string | null;
+  implantationDueAt: string | null;
+  funilUrl: string;
+  loginUrl: string;
+};
+
+export async function sendOrganizacaoHarmoniaImplantationReminderEmail(
+  input: OrganizacaoHarmoniaImplantationReminderEmailInput,
+) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const recipients = Array.from(new Set([config.copyTo, input.email].filter(Boolean))) as string[];
+  const priorityModule = input.priorityModuleName || input.moduleName || "Agenda Viva";
+  const dueDate = formatOptionalDate(input.implantationDueAt);
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: recipients.join(","),
+    subject: `Lembrete Organização em Harmonia — configuração e treinamento`,
+    text: `Lembrete Organização em Harmonia\n\nLead: ${input.contactName}\nE-mail: ${input.email ?? "não informado"}\nWhatsApp: ${input.whatsapp ?? "não informado"}\nMódulo prioritário: ${priorityModule}\nPrazo sugerido para concluir configuração/treinamento: ${dueDate}\n\nA avaliação de Cliente Fundador deve começar somente após configuração e treinamento mínimos.\n\nÁrea do cliente: ${input.loginUrl}\nGestão AE: ${input.funilUrl}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Lembrete Organização em Harmonia</h2>
+        <p>Verificar configuração e treinamento antes de iniciar a avaliação de Cliente Fundador.</p>
+        <p><strong>Lead:</strong> ${escapeHtml(input.contactName)}<br/>
+        <strong>E-mail:</strong> ${escapeHtml(input.email ?? "não informado")}<br/>
+        <strong>WhatsApp:</strong> ${escapeHtml(input.whatsapp ?? "não informado")}<br/>
+        <strong>Módulo prioritário:</strong> ${escapeHtml(priorityModule)}<br/>
+        <strong>Prazo sugerido:</strong> ${escapeHtml(dueDate)}</p>
+        <p><strong>Regra:</strong> a avaliação de Cliente Fundador começa somente após configuração e treinamento mínimos.</p>
+        <p><a href="${escapeHtml(input.loginUrl)}">Área do cliente</a> · <a href="${escapeHtml(input.funilUrl)}">Gestão AE</a></p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Lembrete Organização em Harmonia enviado." };
+}
+
+export type AgendaVivaApprovalRequestEmailInput = {
+  organizationName: string;
+  eventTitle: string;
+  eventTypeName: string;
+  requestedByName: string;
+  requestedByEmail?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  approvalUrl: string;
+  whatsappApprovalUrl?: string | null;
+  approverEmail?: string | null;
+};
+
+export async function sendAgendaVivaApprovalRequestEmail(input: AgendaVivaApprovalRequestEmailInput) {
+  if (!isEnabled()) {
+    return { sent: false, reason: "EMAIL_NOTIFICATIONS_ENABLED=false" };
+  }
+
+  const config = getMailConfig();
+  if (!config.ok) {
+    return { sent: false, reason: config.reason };
+  }
+
+  const recipients = Array.from(new Set([input.approverEmail, config.copyTo].filter(Boolean))) as string[];
+  const startsAt = input.startsAt ? formatDate(input.startsAt) : "data ainda não informada";
+  const endsAt = input.endsAt ? formatDate(input.endsAt) : "não informado";
+
+  await config.transporter.sendMail({
+    from: config.from,
+    to: recipients.join(","),
+    subject: `Agenda Viva — atividade aguardando aprovação: ${input.eventTitle}`,
+    text: [
+      "Nova solicitação de atividade/evento no Agenda Viva.",
+      "",
+      `Organização: ${input.organizationName}`,
+      `Atividade: ${input.eventTitle}`,
+      `Tipo: ${input.eventTypeName}`,
+      `Solicitante: ${input.requestedByName}`,
+      `E-mail do solicitante: ${input.requestedByEmail || "não informado"}`,
+      `Início: ${startsAt}`,
+      `Fim: ${endsAt}`,
+      `Local: ${input.location || "não informado"}`,
+      "",
+      `Observações: ${input.notes || "não informado"}`,
+      "",
+      `Abrir aprovação: ${input.approvalUrl}`,
+      input.whatsappApprovalUrl ? `Avisar/aprovar pelo WhatsApp: ${input.whatsappApprovalUrl}` : "",
+    ].filter(Boolean).join("\n"),
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#00334E">
+        <h2>Agenda Viva — atividade aguardando aprovação</h2>
+        <p>Uma pessoa ativa cadastrou uma atividade/evento e ela precisa ser validada antes de aparecer como aprovada no calendário.</p>
+        <div style="background:#f0fdf4;border-radius:16px;padding:16px;margin:16px 0">
+          <p><strong>Organização:</strong> ${escapeHtml(input.organizationName)}<br/>
+          <strong>Atividade:</strong> ${escapeHtml(input.eventTitle)}<br/>
+          <strong>Tipo:</strong> ${escapeHtml(input.eventTypeName)}<br/>
+          <strong>Solicitante:</strong> ${escapeHtml(input.requestedByName)}<br/>
+          <strong>E-mail do solicitante:</strong> ${escapeHtml(input.requestedByEmail || "não informado")}<br/>
+          <strong>Início:</strong> ${escapeHtml(startsAt)}<br/>
+          <strong>Fim:</strong> ${escapeHtml(endsAt)}<br/>
+          <strong>Local:</strong> ${escapeHtml(input.location || "não informado")}</p>
+          <p><strong>Observações:</strong><br/>${escapeHtml(input.notes || "não informado")}</p>
+        </div>
+        <p><a href="${escapeHtml(input.approvalUrl)}">Abrir aprovação no Agenda Viva</a>${input.whatsappApprovalUrl ? ` · <a href="${escapeHtml(input.whatsappApprovalUrl)}">Abrir WhatsApp do aprovador</a>` : ""}</p>
+      </div>
+    `,
+  });
+
+  return { sent: true, reason: "Solicitação de aprovação Agenda Viva enviada." };
 }

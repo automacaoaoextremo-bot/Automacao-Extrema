@@ -72,6 +72,14 @@ const examples = [
       "Solução disponível para campanhas com reserva, Pix, comprovantes, acompanhamento público e prestação de contas.",
     transformation: "Transforma campanha solidária em uma jornada mais simples, transparente e confiável.",
   },
+  {
+    name: "Presença Querida",
+    url: "/solucoes/presenca-querida",
+    label: "Gestão afetiva de presença",
+    description:
+      "Solução em validação para eventos afetivos: convite, confirmação individual, grupos, lembretes, painel de presença e pós-evento.",
+    transformation: "Transforma confirmações espalhadas no WhatsApp em uma jornada organizada, carinhosa e previsível.",
+  },
 ];
 
 const valueCards = [

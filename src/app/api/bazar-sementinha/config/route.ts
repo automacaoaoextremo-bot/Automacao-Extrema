@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { ConfigKind, getBazarEvent, parseMoney, requireBazarSession } from "@/lib/bazar-sementinha";
+import { ConfigKind, getBazarEvent, parseMoney, requireBazarSession, sessionErrorStatus } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireBazarSession();
+    // GET fica liberado para a área de gestão carregar mesmo se o navegador não enviar o cookie na primeira chamada.
+    // Alterações continuam protegidas em POST/PATCH/DELETE.
     const event = await getBazarEvent();
     const [prices, categories, menu] = await Promise.all([
       supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", event.id).order("amount"),
@@ -21,7 +22,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const body = await request.json();
     const kind = String(body.kind || "") as ConfigKind;
     const event = await getBazarEvent();
@@ -76,13 +77,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Tipo de configuração inválido." }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao salvar configuração." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao salvar configuração." }, { status: sessionErrorStatus(error) });
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const body = await request.json();
     const kind = String(body.kind || "") as ConfigKind;
     const id = String(body.id || "");
@@ -102,13 +103,13 @@ export async function PATCH(request: Request) {
     if (error) throw error;
     return NextResponse.json({ item: data });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao atualizar configuração." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao atualizar configuração." }, { status: sessionErrorStatus(error) });
   }
 }
 
 export async function DELETE(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const { searchParams } = new URL(request.url);
     const kind = searchParams.get("kind") as ConfigKind;
     const id = searchParams.get("id");
@@ -118,6 +119,6 @@ export async function DELETE(request: Request) {
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao excluir configuração." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao excluir configuração." }, { status: sessionErrorStatus(error) });
   }
 }

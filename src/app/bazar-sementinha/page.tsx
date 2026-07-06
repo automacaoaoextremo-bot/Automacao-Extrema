@@ -1,4 +1,3 @@
-import Link from "next/link";
 import Image from "next/image";
 import { BazarHeader } from "@/components/bazar-sementinha/bazar-header";
 
@@ -28,17 +27,8 @@ export default function BazarSementinhaPage() {
               <p className="text-sm font-black uppercase tracking-[0.2em] text-[#83a847]">Bazar do Sementinha · 04/07/2026</p>
               <h1 className="mt-4 text-4xl font-black leading-tight sm:text-6xl">O bazar ajuda mais quando o controle não fica para depois.</h1>
               <p className="mt-5 max-w-2xl text-lg leading-8 text-[#31543a]">
-                A primeira versão do Bazar no Controle foi pensada para o Sementinha do Tucxa: registrar pedidos com mínimo de fricção,
-                cobrar com segurança no caixa e entregar uma prestação de contas simples, confiável e comparável por evento.
+                Registre pedidos com mínimo de fricção, cobre com segurança no caixa e entregue uma prestação de contas simples, confiável e comparável por evento.
               </p>
-              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                <Link href="/bazar-sementinha/pedidos" className="rounded-2xl bg-[#2f7d45] px-6 py-4 text-center font-black text-white shadow-lg hover:bg-[#246338]">
-                  Abrir Pedidos
-                </Link>
-                <Link href="/bazar-sementinha/caixa" className="rounded-2xl border border-[#2f7d45]/30 bg-white px-6 py-4 text-center font-black text-[#2f7d45] shadow-sm hover:bg-[#fffdf7]">
-                  Abrir Caixa
-                </Link>
-              </div>
             </div>
             <aside className="rounded-[2rem] border border-[#dfe8df] bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
