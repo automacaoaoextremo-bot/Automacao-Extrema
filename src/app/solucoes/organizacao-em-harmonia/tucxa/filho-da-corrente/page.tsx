@@ -1,10 +1,9 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { filhoDaCorrenteAgenda, filhoDaCorrenteFunctions, tucxaTheme } from "../tucxa-content";
+import { filhoDaCorrenteAgenda, filhoDaCorrenteFunctions } from "../tucxa-content";
 
 type AccessPerson = {
   fullName: string;
@@ -58,7 +57,6 @@ export default function FilhoDaCorrenteTucxaPage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
 
-  const [lookup, setLookup] = useState("");
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
@@ -67,7 +65,6 @@ export default function FilhoDaCorrenteTucxaPage() {
   const [notes, setNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>(["filho-da-corrente"]);
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
-  const [lookupLoading, setLookupLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -118,49 +115,6 @@ export default function FilhoDaCorrenteTucxaPage() {
       setLoginError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
     } finally {
       setLoginLoading(false);
-    }
-  }
-
-  async function lookupPerson() {
-    setError("");
-    setMessage("");
-    setFoundPerson(null);
-    const value = lookup.trim() || whatsapp.trim() || email.trim();
-    if (!value) {
-      setError("Informe seu WhatsApp ou e-mail para localizar os dados que já estejam na Base Única.");
-      return;
-    }
-
-    setLookupLoading(true);
-    try {
-      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/acesso", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "lookup", identifier: value }),
-      });
-      const result = (await response.json()) as AccessResponse;
-      if (!response.ok) throw new Error(result.error || "Não foi possível consultar a Base Única.");
-
-      if (result.person) {
-        setFoundPerson(result.person);
-        setFullName(result.person.fullName || fullName);
-        setWhatsapp(result.person.whatsapp || whatsapp || onlyDigits(value));
-        setEmail(result.person.email || email);
-        setNotes(result.person.notes || notes);
-        const foundFunctions = result.person.profile?.functionSlugs ?? [];
-        const foundAgenda = result.person.profile?.agendaSlugs ?? [];
-        setFunctionSlugs(foundFunctions.length ? foundFunctions : functionSlugs);
-        setAgendaSlugs(foundAgenda.length ? foundAgenda : agendaSlugs);
-        setMessage(`Localizamos alguns dados, ${firstName(result.person.fullName)}. Confira, marque todos os vínculos e crie sua senha para solicitar a liberação.`);
-      } else {
-        if (isEmail(value)) setEmail(value.toLowerCase());
-        else setWhatsapp(onlyDigits(value));
-        setMessage("Ainda não localizamos seus dados automaticamente. Preencha as informações abaixo para o responsável do Tucxa conferir com segurança.");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao localizar cadastro.");
-    } finally {
-      setLookupLoading(false);
     }
   }
 
@@ -220,27 +174,20 @@ export default function FilhoDaCorrenteTucxaPage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <header className="border-b border-[#123D2C]/10 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="flex items-center gap-3">
-            <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white p-1 ring-1 ring-[#123D2C]/10">
-              <Image src={tucxaTheme.logoSrc} alt="Logo do Tucxa" width={52} height={52} className="h-full w-full object-contain" priority />
-            </span>
-            <span>
-              <span className="block text-lg font-black text-[#123D2C]">Filho da Corrente</span>
-              <span className="block text-xs font-bold uppercase tracking-[0.16em] text-[#2F6B43]">Tucxa • Organização em Harmonia</span>
-            </span>
-          </Link>
-          <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="rounded-full bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-            ← Voltar ao site do Tucxa
-          </Link>
-        </div>
-      </header>
+      <TucxaPublicHeader
+        actions={[
+          { label: "Entrar", href: "#acesso", variant: "primary" },
+          { label: "Primeiro acesso", href: "#primeiro-acesso", variant: "secondary" },
+          { label: "Esqueci senha", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha", variant: "secondary" },
+          { label: "Voltar ao site", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
+        ]}
+        navLabel="Menu dos Filhos da Corrente do Tucxa"
+      />
 
-      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-10">
-        <div className="order-1 rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7 lg:col-start-1 lg:row-start-1">
+      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8">
+        <div id="acesso" className="order-1 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-1 lg:row-start-1">
             <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acesso liberado</p>
-            <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Entrar com WhatsApp ou e-mail</h1>
+            <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entrar com WhatsApp ou e-mail</h1>
             <p className="mt-3 leading-7 text-slate-700">
               Use este acesso depois que o responsável do Tucxa validar seus dados. A senha é a mesma cadastrada no primeiro acesso.
             </p>
@@ -261,12 +208,15 @@ export default function FilhoDaCorrenteTucxaPage() {
               </label>
               {loginError && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{loginError}</p>}
               <button disabled={loginLoading} className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:opacity-60">
-                {loginLoading ? "Entrando..." : "Entrar no painel"}
+                {loginLoading ? "Entrando..." : "Entrar"}
               </button>
+              <a href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha" className="text-center text-sm font-black text-[#123D2C] underline underline-offset-4">
+                Esqueci minha senha
+              </a>
             </form>
           </div>
 
-        <div id="primeiro-acesso" className="order-2 rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div id="primeiro-acesso" className="order-2 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Primeiro acesso</p>
             <h2 className="mt-2 text-2xl font-black text-[#123D2C]">Confirme seus dados para validação</h2>
@@ -275,14 +225,12 @@ export default function FilhoDaCorrenteTucxaPage() {
             </p>
           </div>
 
-          <div className="mt-5 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">Localizar dados existentes</span>
-              <input value={lookup} onChange={(event) => setLookup(event.target.value)} className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]" placeholder="Digite seu WhatsApp ou e-mail" />
-            </label>
-            <button type="button" onClick={lookupPerson} disabled={lookupLoading} className="mt-3 w-full rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] disabled:opacity-60">
-              {lookupLoading ? "Consultando..." : "Buscar meus dados"}
-            </button>
+          <div className="mt-4 rounded-3xl bg-[#123D2C] p-4 text-white shadow-lg shadow-green-900/10">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Importante</p>
+            <h2 className="mt-2 text-xl font-black">Marque tudo em que você participa.</h2>
+            <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
+              Isso ajuda a casa a orientar melhor cada filho, organizar os grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
+            </p>
           </div>
 
           {foundPerson && (
@@ -367,14 +315,6 @@ export default function FilhoDaCorrenteTucxaPage() {
               {submitLoading ? "Enviando..." : "Enviar para validação do Tucxa"}
             </button>
           </form>
-        </div>
-
-        <div className="order-3 rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7 lg:col-start-1 lg:row-start-2">
-          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Importante</p>
-          <h2 className="mt-2 text-2xl font-black">Marque tudo em que você participa.</h2>
-          <p className="mt-3 leading-7 text-[#EEF7EA]">
-            Isso ajuda a casa a orientar melhor cada filho, organizar os grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
-          </p>
         </div>
       </section>
     </main>

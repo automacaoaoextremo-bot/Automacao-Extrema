@@ -117,7 +117,7 @@ export async function POST(request: Request) {
     if (body.requestType !== "contribuicao-anonima" && !body.name) {
       return NextResponse.json({ error: "Informe seu nome ou escolha contribuição anônima." }, { status: 400 });
     }
-    if (!body.whatsapp && !body.email) {
+    if (body.requestType !== "contribuicao-anonima" && !body.whatsapp && !body.email) {
       return NextResponse.json({ error: "Informe WhatsApp ou e-mail para retorno, se necessário." }, { status: 400 });
     }
     if (body.email && !body.email.includes("@")) {

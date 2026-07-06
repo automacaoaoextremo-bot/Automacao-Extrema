@@ -32,11 +32,14 @@ export const filhoDaCorrenteAgenda = [
   { slug: "quinta-grupo-1", label: "Quinta - Grupo 1" },
   { slug: "quinta-grupo-2", label: "Quinta - Grupo 2" },
   { slug: "quinta-grupo-1-e-2", label: "Quinta - Grupo 1 e 2" },
-  { slug: "coordenacao-grupo-estudos", label: "Coordenação Grupo de Estudos" },
-  { slug: "coordenacao-clube-livro", label: "Coordenação Clube do Livro" },
+  { slug: "coordenacao-grupo-estudos", label: "Coordenação no Grupo de Estudos" },
+  { slug: "participacao-grupo-estudos", label: "Participação no Grupo de Estudos" },
+  { slug: "coordenacao-clube-livro", label: "Coordenação no Clube do Livro" },
+  { slug: "participacao-clube-livro", label: "Participação no Clube do Livro" },
   { slug: "coordenacao-sementinha", label: "Coordenação Sementinha" },
   { slug: "voluntario-sementinha", label: "Voluntário Sementinha" },
   { slug: "organizacao-eventos", label: "Organização de Eventos" },
+  { slug: "voluntario-eventos", label: "Voluntário Eventos" },
 ] as const;
 
 export const consulenteServices = [
@@ -60,7 +63,5 @@ export const consulenteServices = [
 export const tucxaNavigation = [
   { href: "#visao", label: "Visão" },
   { href: "#modulos", label: "Módulos" },
-  { href: "#corrente", label: "Filhos da Corrente" },
-  { href: "#consulentes", label: "Consulentes" },
   { href: "#como-funciona", label: "Como funciona" },
 ];

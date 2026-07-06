@@ -1,6 +1,6 @@
-import Image from "next/image";
 import Link from "next/link";
-import { consulenteServices, tucxaNavigation, tucxaTheme } from "./tucxa-content";
+import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { consulenteServices, tucxaNavigation } from "./tucxa-content";
 
 const modules = [
   {
@@ -24,77 +24,56 @@ const benefits = [
   "Uso simples no celular, pensando também nos filhos com pouca familiaridade tecnológica.",
 ];
 
+const headerActions = [
+  {
+    label: "Filho da Corrente",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente",
+    variant: "primary" as const,
+  },
+  {
+    label: "Consulente",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente",
+    variant: "secondary" as const,
+  },
+];
+
 export default function TucxaSitePage() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <header className="sticky top-0 z-30 border-b border-[#123D2C]/10 bg-[#F7FAF2]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="flex items-center gap-3">
-            <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-[#123D2C]/10">
-              <Image src={tucxaTheme.logoSrc} alt="Logo do Tucxa" width={52} height={52} className="h-full w-full object-contain" priority />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xl font-black tracking-tight text-[#123D2C]">{tucxaTheme.organizationName}</span>
-              <span className="block text-xs font-bold uppercase tracking-[0.18em] text-[#2F6B43] sm:text-sm">{tucxaTheme.fullName}</span>
-            </span>
-          </Link>
+      <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
 
-          <a href="https://www.automacaoextrema.com" target="_blank" rel="noreferrer" className="flex w-full items-center justify-between gap-3 rounded-full bg-white px-4 py-2 text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-md">
-            <span className="text-sm font-black sm:text-base">Desenvolvido por</span>
-            <span className="relative h-10 w-32 shrink-0 overflow-hidden rounded-2xl bg-[#00334E] sm:w-44">
-              <Image src="/clientes/tucxa/automacao-extrema-logo.svg" alt="Automação Extrema" fill sizes="176px" className="object-contain" unoptimized />
-            </span>
-            <span className="hidden text-sm font-bold text-slate-500 sm:inline">Clique no logo e nos conheça</span>
-          </a>
-
-          <nav className="flex flex-wrap justify-center gap-2 text-sm font-black text-[#123D2C] sm:justify-start">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-full bg-[#123D2C] px-4 py-3 text-center text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
-              Filho da Corrente
-            </Link>
-            <Link href="#consulentes" className="rounded-full border border-[#123D2C]/20 bg-white px-4 py-3 text-center text-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#E9F2E7]">
-              Consulente
-            </Link>
-            {tucxaNavigation.map((item) => (
-              <a key={item.href} href={item.href} className="rounded-full bg-white px-4 py-3 ring-1 ring-[#123D2C]/10 transition hover:bg-[#E9F2E7]">
-                {item.label}
-              </a>
-            ))}
-          </nav>
-        </div>
-      </header>
-
-      <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-16">
-        <div className="space-y-6">
-          <p className="inline-flex rounded-full bg-[#E9F2E7] px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10">
+      <section className="mx-auto grid max-w-6xl gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-8">
+        <div className="space-y-4">
+          <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
             Organização em Harmonia no Tucxa
           </p>
-          <h1 className="text-4xl font-black leading-tight tracking-tight text-[#123D2C] sm:text-5xl lg:text-6xl">
+          <h1 className="text-3xl font-black leading-tight tracking-tight text-[#123D2C] sm:text-4xl lg:text-5xl">
             Um ponto simples para orientar, organizar e cuidar melhor da nossa corrente.
           </h1>
-          <p className="max-w-2xl text-lg leading-8 text-slate-700">
+          <p className="max-w-2xl text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-3xl bg-[#123D2C] px-6 py-5 text-center text-base font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
               Sou Filho da Corrente
             </Link>
-            <Link href="#consulentes" className="rounded-3xl bg-white px-6 py-5 text-center text-base font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7]">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
               Sou Consulente / Filho de Fora
             </Link>
           </div>
         </div>
 
-        <div className="rounded-[2rem] bg-white p-5 shadow-2xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-7">
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que atualizar os dados?</p>
-            <h2 className="mt-2 text-2xl font-black text-[#123D2C]">Para receber a orientação certa, no canal certo, sem retrabalho.</h2>
-            <p className="mt-3 leading-7 text-slate-700">
+        <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que atualizar os dados?</p>
+            <h2 className="mt-2 text-xl font-black text-[#123D2C] sm:text-2xl">Para receber a orientação certa, no canal certo, sem retrabalho.</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
               Nome completo e WhatsApp ajudam a casa a reconhecer cada filho. O e-mail é opcional, mas recomendado para reforçar comunicados importantes e evitar que uma orientação se perca no volume de mensagens.
             </p>
           </div>
-          <div className="mt-5 grid gap-3">
+          <div className="mt-4 grid gap-2.5">
             {benefits.map((benefit) => (
-              <div key={benefit} className="rounded-2xl border border-[#123D2C]/10 bg-[#F7FAF2] p-4 font-bold text-[#123D2C]">
+              <div key={benefit} className="rounded-2xl border border-[#123D2C]/10 bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] sm:p-4 sm:text-base">
                 {benefit}
               </div>
             ))}
@@ -102,74 +81,74 @@ export default function TucxaSitePage() {
         </div>
       </section>
 
-      <section id="visao" className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] bg-[#123D2C] p-6 text-white shadow-xl shadow-green-900/10 sm:p-8">
-          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Visão</p>
-          <h2 className="mt-2 text-3xl font-black">Tecnologia para servir à organização, não para complicar a rotina.</h2>
-          <p className="mt-4 max-w-4xl text-lg leading-8 text-[#EEF7EA]">
+      <section id="visao" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="rounded-[1.75rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7] sm:text-sm">Visão</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">Tecnologia para servir à organização, não para complicar a rotina.</h2>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA] sm:text-lg sm:leading-8">
             A proposta é preservar o jeito do Tucxa trabalhar, oferecendo uma base mais clara para cadastros, agenda, orientações, estudos, eventos e contribuições. Tudo deve ser simples, acessível pelo celular e validado por responsáveis da casa.
           </p>
         </div>
       </section>
 
-      <section id="modulos" className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-5">
-          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Módulos do Tucxa</p>
-          <h2 className="mt-2 text-3xl font-black text-[#123D2C]">Três frentes conectadas pela mesma Base de Harmonia.</h2>
+      <section id="modulos" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mb-4">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Módulos do Tucxa</p>
+          <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Três frentes conectadas pela mesma Base de Harmonia.</h2>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {modules.map((module) => (
-            <article key={module.title} className="rounded-[2rem] bg-white p-6 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10">
-              <h3 className="text-xl font-black text-[#123D2C]">{module.title}</h3>
-              <p className="mt-3 leading-7 text-slate-700">{module.text}</p>
+            <article key={module.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+              <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">{module.title}</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{module.text}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section id="corrente" className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <section id="corrente" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[2rem] bg-white p-6 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Filhos da Corrente</p>
-            <h2 className="mt-2 text-3xl font-black text-[#123D2C]">Atualize todos os vínculos que você possui com a casa.</h2>
-            <p className="mt-4 leading-8 text-slate-700">
+          <div className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Filhos da Corrente</p>
+            <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Atualize todos os vínculos que você possui com a casa.</h2>
+            <p className="mt-3 text-base leading-7 text-slate-700 sm:leading-8">
               Quem atua em mais de uma frente deve marcar todas elas: cambono, cavalinho, coordenação, recepção, Sementinha, estudos, clube do livro, organização de eventos e grupos de quinta. Assim o Tucxa consegue orientar cada pessoa com mais cuidado.
             </p>
           </div>
-          <div className="rounded-[2rem] bg-[#E9F2E7] p-6 ring-1 ring-[#123D2C]/10">
-            <h3 className="text-2xl font-black text-[#123D2C]">Primeiro acesso</h3>
-            <p className="mt-3 leading-7 text-slate-700">
+          <div className="rounded-[1.75rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-6">
+            <h3 className="text-xl font-black text-[#123D2C] sm:text-2xl">Primeiro acesso</h3>
+            <p className="mt-3 text-base leading-7 text-slate-700">
               Ao preencher os dados, o cadastro fica aguardando validação. Depois da conferência, o responsável libera o acesso e envia as orientações por e-mail, quando informado, e por WhatsApp.
             </p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="mt-5 inline-flex rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white transition hover:-translate-y-0.5">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
               Ir para Filho da Corrente
             </Link>
           </div>
         </div>
       </section>
 
-      <section id="consulentes" className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] bg-white p-6 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-8">
+      <section id="consulentes" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Consulentes / Filhos de Fora</p>
-              <h2 className="mt-2 text-3xl font-black text-[#123D2C]">Acolhimento para quem busca auxílio e crescimento espiritual.</h2>
-              <p className="mt-4 max-w-3xl leading-8 text-slate-700">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Consulentes / Filhos de Fora</p>
+              <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Acolhimento para quem busca auxílio e crescimento espiritual.</h2>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-700 sm:leading-8">
                 O Tucxa é aberto a pessoas que buscam auxílio espiritual. Aqui o consulente encontra uma explicação simples do atendimento e pode deixar seus dados para orientação, agendamento e contribuição.
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-80 lg:grid-cols-1">
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white transition hover:-translate-y-0.5">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-[#123D2C] px-5 py-3.5 text-center text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
                 Entender os atendimentos
               </Link>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
                 Cadastro / contribuição
               </Link>
             </div>
           </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
             {consulenteServices.map((service) => (
-              <article key={service.title} className="rounded-3xl bg-[#F7FAF2] p-5 ring-1 ring-[#123D2C]/10">
+              <article key={service.title} className="rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 sm:p-5">
                 <h3 className="font-black text-[#123D2C]">{service.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-700">{service.description}</p>
               </article>
@@ -178,17 +157,17 @@ export default function TucxaSitePage() {
         </div>
       </section>
 
-      <section id="como-funciona" className="mx-auto max-w-7xl px-4 py-8 pb-14 sm:px-6 lg:px-8">
+      <section id="como-funciona" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 pb-12 sm:px-6 lg:px-8">
         <div className="grid gap-4 md:grid-cols-3">
           {[
-            ["1", "A pessoa informa WhatsApp ou e-mail", "Se já houver cadastro, os dados aparecem para conferência. Se não houver, a pessoa preenche de forma guiada."],
+            ["1", "A pessoa informa WhatsApp ou e-mail", "Se já houver cadastro, os dados podem ser conferidos pela organização. Se não houver, a pessoa preenche de forma guiada."],
             ["2", "O responsável valida", "A Base Única não libera automaticamente. O Tucxa confere as informações antes de conceder acesso."],
             ["3", "A orientação chega pelo canal certo", "Após liberar ou solicitar ajuste, o responsável pode responder por WhatsApp e por e-mail com cópia interna."],
           ].map(([step, title, text]) => (
-            <article key={step} className="rounded-[2rem] bg-white p-6 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10">
+            <article key={step} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[#123D2C] text-lg font-black text-white">{step}</span>
-              <h3 className="mt-4 text-xl font-black text-[#123D2C]">{title}</h3>
-              <p className="mt-3 leading-7 text-slate-700">{text}</p>
+              <h3 className="mt-4 text-lg font-black text-[#123D2C] sm:text-xl">{title}</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{text}</p>
             </article>
           ))}
         </div>
