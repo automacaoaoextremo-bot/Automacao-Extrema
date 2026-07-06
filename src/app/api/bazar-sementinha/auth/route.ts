@@ -11,8 +11,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "E-mail ou senha inválidos." }, { status: 401 });
   }
 
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set("bazar_sementinha_session", signSession(email), {
+  const sessionToken = signSession(email);
+  const response = NextResponse.json({ ok: true, sessionToken });
+  response.cookies.set("bazar_sementinha_session", sessionToken, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
