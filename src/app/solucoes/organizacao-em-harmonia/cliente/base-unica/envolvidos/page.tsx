@@ -79,13 +79,16 @@ type Form = {
   attendanceNotes: string;
 };
 
+const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
+const INTERNAL_COPY_EMAIL = "automacao.ao.extremo@gmail.com";
+
 const emptyForm: Form = {
   id: "",
   fullName: "",
   email: "",
   whatsapp: "",
   roleId: "",
-  moduleSlugs: ["agenda-viva"],
+  moduleSlugs: DEFAULT_MODULE_SLUGS,
   active: true,
   notes: "",
   isCavalinho: false,
@@ -139,6 +142,53 @@ function whatsappUrl(phone: string | null | undefined, message: string) {
   if (!digits) return "";
   const normalized = digits.startsWith("55") ? digits : `55${digits}`;
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
+function publicEmail(email: string | null | undefined) {
+  if (!email || email.includes("@organizacao-em-harmonia.local")) return "";
+  return email;
+}
+
+function accessReplyText(person: Person, status: string, origin: string) {
+  const loginUrl = `${origin}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
+  const name = person.full_name.split(/\s+/)[0] || "tudo bem";
+  if (status === "ativo") {
+    return {
+      subject: "Acesso liberado - Organização em Harmonia Tucxa",
+      body: [
+        `Olá, ${name}.`,
+        "",
+        "Seu acesso à Organização em Harmonia do Tucxa foi liberado.",
+        "",
+        "Use seu WhatsApp ou e-mail e a senha cadastrada no primeiro acesso:",
+        loginUrl,
+        "",
+        "Qualquer dúvida, fale com o responsável do Tucxa.",
+      ].join("\n"),
+    };
+  }
+
+  return {
+    subject: "Ajuste de cadastro - Organização em Harmonia Tucxa",
+    body: [
+      `Olá, ${name}.`,
+      "",
+      "Conferimos seu cadastro na Organização em Harmonia do Tucxa e precisamos confirmar algumas informações antes de liberar o acesso.",
+      "",
+      "Por favor, revise nome completo, WhatsApp e todos os vínculos em que você participa:",
+      loginUrl,
+      "",
+      "Se preferir, responda esta mensagem com as informações corretas.",
+    ].join("\n"),
+  };
+}
+
+function emailUrl(person: Person, status: string, origin: string) {
+  const email = publicEmail(person.email);
+  if (!email) return "";
+  const content = accessReplyText(person, status, origin);
+  const params = new URLSearchParams({ cc: INTERNAL_COPY_EMAIL, subject: content.subject, body: content.body });
+  return `mailto:${email}?${params.toString()}`;
 }
 
 const weekdayLabels = [
@@ -258,7 +308,7 @@ export default function EnvolvidosPage() {
   }, [load]);
 
   const roleById = useMemo(() => new Map((payload?.roles ?? []).map((role) => [role.id, role])), [payload?.roles]);
-  const availableModules = payload?.modules?.length ? payload.modules.map((module) => module.module_slug) : ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
+  const availableModules = payload?.modules?.length ? payload.modules.filter((module) => module.enabled !== false).map((module) => module.module_slug) : DEFAULT_MODULE_SLUGS;
   const filteredPeople = useMemo(() => {
     const search = normalizeSearch(filters.search);
     const line = normalizeSearch(filters.line);
@@ -321,7 +371,7 @@ export default function EnvolvidosPage() {
           email: form.email,
           whatsapp: normalizePhone(form.whatsapp),
           roleId: form.roleId,
-          moduleSlugs: form.moduleSlugs,
+          moduleSlugs: form.moduleSlugs.length ? form.moduleSlugs : availableModules,
           active: form.active,
           notes: form.notes,
           isCavalinho: form.isCavalinho,
@@ -436,7 +486,7 @@ export default function EnvolvidosPage() {
       email: person.email ?? "",
       whatsapp: person.whatsapp ?? "",
       roleId: membership?.role_id ?? "",
-      moduleSlugs: membership?.module_slugs?.length ? membership.module_slugs : ["agenda-viva"],
+      moduleSlugs: membership?.module_slugs?.length ? membership.module_slugs : availableModules,
       active: person.active !== false,
       notes: person.notes ?? "",
       isCavalinho: Boolean(profile.isCavalinho),
@@ -564,7 +614,7 @@ export default function EnvolvidosPage() {
               </div>
             </div>
 
-            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1160px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Acesso</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; const currentAccessStatus = accessStatus(person, membership); const orientationWa = whatsappUrl(person.whatsapp, `Olá, ${person.full_name.split(/\s+/)[0] || "tudo bem"}. Sobre seu cadastro na Organização em Harmonia do Tucxa: acesse ${window.location.origin}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente e use seu WhatsApp ou e-mail com a senha cadastrada.`); return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{person.email?.includes("@organizacao-em-harmonia.local") ? "Sem e-mail público" : person.email || "Sem e-mail"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs ?? []).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${accessStatusClass(currentAccessStatus)}`}>{accessStatusLabels[currentAccessStatus] ?? currentAccessStatus}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button>{currentAccessStatus !== "ativo" && <button type="button" onClick={() => approveAccess(person)} className="rounded-xl bg-emerald-50 px-3 py-2 font-black text-[#00334E]">Aprovar acesso</button>}<button type="button" onClick={() => requestAccessAdjustment(person)} className="rounded-xl bg-blue-50 px-3 py-2 font-black text-blue-800">Solicitar ajuste</button>{orientationWa && <a href={orientationWa} target="_blank" rel="noreferrer" className="rounded-xl bg-green-50 px-3 py-2 font-black text-green-800">WhatsApp</a>}<button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
+            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1160px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Acesso</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; const currentAccessStatus = accessStatus(person, membership); const reply = accessReplyText(person, currentAccessStatus, window.location.origin); const orientationWa = whatsappUrl(person.whatsapp, reply.body); const orientationEmail = emailUrl(person, currentAccessStatus, window.location.origin); return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{publicEmail(person.email) || "Sem e-mail público"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs?.length ? membership.module_slugs : availableModules).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${accessStatusClass(currentAccessStatus)}`}>{accessStatusLabels[currentAccessStatus] ?? currentAccessStatus}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button>{currentAccessStatus !== "ativo" && <button type="button" onClick={() => approveAccess(person)} className="rounded-xl bg-emerald-50 px-3 py-2 font-black text-[#00334E]">Aprovar acesso</button>}<button type="button" onClick={() => requestAccessAdjustment(person)} className="rounded-xl bg-blue-50 px-3 py-2 font-black text-blue-800">Solicitar ajuste</button>{orientationEmail && <a href={orientationEmail} className="rounded-xl bg-amber-50 px-3 py-2 font-black text-amber-800">E-mail</a>}{orientationWa && <a href={orientationWa} target="_blank" rel="noreferrer" className="rounded-xl bg-green-50 px-3 py-2 font-black text-green-800">WhatsApp</a>}<button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
           </section>
         </>
       )}

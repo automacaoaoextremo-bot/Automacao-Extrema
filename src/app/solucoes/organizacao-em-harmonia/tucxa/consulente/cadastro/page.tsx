@@ -429,8 +429,7 @@ export default function OrganizacaoAgendaVivaPage() {
 
   return (
     <OrganizacaoClientShell
-      eyebrow="Agenda Viva"
-      title="Calendário vivo, aprovado e fácil de acompanhar"
+      title="Agenda Viva - Calendário vivo, aprovado e fácil de acompanhar"
       description="Cadastre atividades, eventos e recorrências com aprovação da Presidência/Diretoria. No celular, a pessoa vê o calendário, suas responsabilidades e o que precisa fazer em cada atividade."
     >
       {loading && <p className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">Carregando Agenda Viva...</p>}

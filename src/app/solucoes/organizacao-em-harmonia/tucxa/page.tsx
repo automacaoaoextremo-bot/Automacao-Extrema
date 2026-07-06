@@ -29,30 +29,33 @@ export default function TucxaSitePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <header className="sticky top-0 z-30 border-b border-[#123D2C]/10 bg-[#F7FAF2]/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="flex items-center gap-3">
-              <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-[#123D2C]/10">
-                <Image src={tucxaTheme.logoSrc} alt="Logo do Tucxa" width={52} height={52} className="h-full w-full object-contain" priority />
-              </span>
-              <span>
-                <span className="block text-xl font-black tracking-tight text-[#123D2C]">{tucxaTheme.organizationName}</span>
-                <span className="block text-xs font-bold uppercase tracking-[0.18em] text-[#2F6B43]">{tucxaTheme.fullName}</span>
-              </span>
+          <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="flex items-center gap-3">
+            <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-[#123D2C]/10">
+              <Image src={tucxaTheme.logoSrc} alt="Logo do Tucxa" width={52} height={52} className="h-full w-full object-contain" priority />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xl font-black tracking-tight text-[#123D2C]">{tucxaTheme.organizationName}</span>
+              <span className="block text-xs font-bold uppercase tracking-[0.18em] text-[#2F6B43] sm:text-sm">{tucxaTheme.fullName}</span>
+            </span>
+          </Link>
+
+          <a href="https://www.automacaoextrema.com" target="_blank" rel="noreferrer" className="flex w-full items-center justify-between gap-3 rounded-full bg-white px-4 py-2 text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-md">
+            <span className="text-sm font-black sm:text-base">Desenvolvido por</span>
+            <span className="relative h-10 w-32 shrink-0 overflow-hidden rounded-2xl bg-[#00334E] sm:w-44">
+              <Image src="/clientes/tucxa/automacao-extrema-logo.svg" alt="Automação Extrema" fill sizes="176px" className="object-contain" unoptimized />
+            </span>
+            <span className="hidden text-sm font-bold text-slate-500 sm:inline">Clique no logo e nos conheça</span>
+          </a>
+
+          <nav className="flex flex-wrap justify-center gap-2 text-sm font-black text-[#123D2C] sm:justify-start">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-full bg-[#123D2C] px-4 py-3 text-center text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
+              Filho da Corrente
             </Link>
-
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-full bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
-                Filho da Corrente
-              </Link>
-              <Link href="#consulentes" className="rounded-full border border-[#123D2C]/20 bg-white px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#E9F2E7]">
-                Consulente
-              </Link>
-            </div>
-          </div>
-
-          <nav className="flex gap-2 overflow-x-auto pb-1 text-sm font-black text-[#123D2C]">
+            <Link href="#consulentes" className="rounded-full border border-[#123D2C]/20 bg-white px-4 py-3 text-center text-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#E9F2E7]">
+              Consulente
+            </Link>
             {tucxaNavigation.map((item) => (
-              <a key={item.href} href={item.href} className="shrink-0 rounded-full bg-white px-4 py-2 ring-1 ring-[#123D2C]/10 transition hover:bg-[#E9F2E7]">
+              <a key={item.href} href={item.href} className="rounded-full bg-white px-4 py-3 ring-1 ring-[#123D2C]/10 transition hover:bg-[#E9F2E7]">
                 {item.label}
               </a>
             ))}

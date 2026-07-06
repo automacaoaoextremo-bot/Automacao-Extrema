@@ -489,7 +489,7 @@ export async function POST(request: Request) {
       organization_id: organization.id,
       person_id: personId,
       role_id: membership?.role_id ?? roleId,
-      module_slugs: membership?.module_slugs?.length ? membership.module_slugs : DEFAULT_MODULES,
+      module_slugs: DEFAULT_MODULES,
       active: false,
       status: "pendente_validacao",
       is_main_contact: false,

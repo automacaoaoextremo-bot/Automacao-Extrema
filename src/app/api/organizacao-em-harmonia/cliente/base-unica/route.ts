@@ -15,6 +15,8 @@ function asBool(value: unknown, fallback = true) {
 }
 
 
+const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
+
 function internalReviewEmail() {
   return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || "automacao.ao.extremo@gmail.com";
 }
@@ -285,7 +287,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
       organization_id: organizationId,
       person_id: selectedPersonId,
       role_id: roleId || null,
-      module_slugs: moduleSlugs.length > 0 ? moduleSlugs : ["agenda-viva"],
+      module_slugs: moduleSlugs.length > 0 ? moduleSlugs : DEFAULT_MODULE_SLUGS,
       active,
       status: active ? "ativo" : "inativo",
       agenda_viva_profile: agendaVivaProfile,
@@ -557,7 +559,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
   const { error: membershipError } = await supabaseAdmin
     .from("oh_memberships")
-    .update({ active: approved, status: nextStatus, updated_at: new Date().toISOString() })
+    .update({ active: approved, status: nextStatus, module_slugs: DEFAULT_MODULE_SLUGS, updated_at: new Date().toISOString() })
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
@@ -577,20 +579,37 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
   const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
   const email = displayEmail(person.email);
 
-  if (approved && email) {
-    const text = [
-      `Olá, ${firstName(person.full_name)}.`,
-      "",
-      "Seu acesso à Organização em Harmonia do Tucxa foi liberado.",
-      "",
-      "Acesse pelo link abaixo usando seu e-mail ou WhatsApp e a senha cadastrada no primeiro acesso:",
-      loginUrl,
-      "",
-      "Com a Base Única atualizada, o Tucxa consegue organizar Agenda Viva, Atendimento em Harmonia e Corrente em Dia com menos retrabalho e mais clareza para todos.",
-      "",
-      reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, responda esta mensagem ou fale com o responsável do Tucxa.",
-    ].join("\n");
-    await sendAccessEmail({ to: email, subject: "Acesso liberado - Organização em Harmonia Tucxa", text });
+  const emailMessage = approved
+    ? [
+        `Olá, ${firstName(person.full_name)}.`,
+        "",
+        "Seu acesso à Organização em Harmonia do Tucxa foi liberado.",
+        "",
+        "Acesse pelo link abaixo usando seu e-mail ou WhatsApp e a senha cadastrada no primeiro acesso:",
+        loginUrl,
+        "",
+        "Com a Base Única atualizada, o Tucxa consegue organizar Agenda Viva, Atendimento em Harmonia e Corrente em Dia com menos retrabalho e mais clareza para todos.",
+        "",
+        reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, responda esta mensagem ou fale com o responsável do Tucxa.",
+      ].join("\n")
+    : [
+        `Olá, ${firstName(person.full_name)}.`,
+        "",
+        "Conferimos seu cadastro na Organização em Harmonia do Tucxa e precisamos ajustar algumas informações antes de liberar o acesso.",
+        "",
+        reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
+        "",
+        "Você pode atualizar seus dados pelo primeiro acesso:",
+        loginUrl,
+      ].join("\n");
+
+  if (email) {
+    await sendAccessEmail({
+      to: email,
+      cc: internalReviewEmail(),
+      subject: approved ? "Acesso liberado - Organização em Harmonia Tucxa" : "Ajuste de cadastro - Organização em Harmonia Tucxa",
+      text: emailMessage,
+    });
   }
 
   const waMessage = approved
@@ -611,7 +630,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         loginUrl,
       ].join("\n");
 
-  return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(approved && email) };
+  return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(email), emailTo: email };
 }
 
 export async function GET(request: Request) {
@@ -633,6 +652,8 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action) || "upsertPerson";
+
+    let actionResult: Record<string, unknown> = {};
 
     if (action === "deletePerson") {
       const personId = asText(body.personId);
@@ -656,9 +677,9 @@ export async function POST(request: Request) {
         .eq("person_id", personId);
       if (membershipError) throw membershipError;
     } else if (action === "approveAccess") {
-      await updateAccessStatus(auth.context.organizationId, body, true);
+      actionResult = await updateAccessStatus(auth.context.organizationId, body, true);
     } else if (action === "requestAccessAdjustment") {
-      await updateAccessStatus(auth.context.organizationId, body, false);
+      actionResult = await updateAccessStatus(auth.context.organizationId, body, false);
     } else if (action === "upsertRole") {
       await upsertRole(auth.context.organizationId, body);
     } else if (action === "toggleRole") {
@@ -682,7 +703,7 @@ export async function POST(request: Request) {
     }
 
     const payload = await listPayload(auth.context.organizationId);
-    return NextResponse.json({ ok: true, ...payload });
+    return NextResponse.json({ ok: true, ...actionResult, ...payload });
   } catch (error) {
     return NextResponse.json({ error: errorToMessage(error, "Erro ao salvar Base Única.") }, { status: 500 });
   }

@@ -238,8 +238,7 @@ export default function FilhoDaCorrenteTucxaPage() {
       </header>
 
       <section className="mx-auto grid max-w-6xl gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-10">
-        <div className="space-y-5">
-          <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
+        <div className="order-1 rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7 lg:col-start-1 lg:row-start-1">
             <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acesso liberado</p>
             <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Entrar com WhatsApp ou e-mail</h1>
             <p className="mt-3 leading-7 text-slate-700">
@@ -267,16 +266,7 @@ export default function FilhoDaCorrenteTucxaPage() {
             </form>
           </div>
 
-          <div className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Importante</p>
-            <h2 className="mt-2 text-2xl font-black">Marque tudo em que você participa.</h2>
-            <p className="mt-3 leading-7 text-[#EEF7EA]">
-              Isso ajuda a casa a orientar melhor cada filho, organizar os grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
-            </p>
-          </div>
-        </div>
-
-        <div id="primeiro-acesso" className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
+        <div id="primeiro-acesso" className="order-2 rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Primeiro acesso</p>
             <h2 className="mt-2 text-2xl font-black text-[#123D2C]">Confirme seus dados para validação</h2>
@@ -367,7 +357,7 @@ export default function FilhoDaCorrenteTucxaPage() {
 
             <div className="rounded-3xl bg-amber-50 p-4 text-sm leading-6 text-amber-900 ring-1 ring-amber-100">
               <p className="font-black">Depois de enviar</p>
-              <p>O responsável do Tucxa irá confirmar seus dados e liberar o acesso com as orientações detalhadas de uso. Todos os avisos de validação também ficam copiados para a Automação Extrema.</p>
+              <p>O responsável do Tucxa irá confirmar seus dados e liberar o acesso com as orientações detalhadas de uso.</p>
             </div>
 
             {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
@@ -377,6 +367,14 @@ export default function FilhoDaCorrenteTucxaPage() {
               {submitLoading ? "Enviando..." : "Enviar para validação do Tucxa"}
             </button>
           </form>
+        </div>
+
+        <div className="order-3 rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7 lg:col-start-1 lg:row-start-2">
+          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Importante</p>
+          <h2 className="mt-2 text-2xl font-black">Marque tudo em que você participa.</h2>
+          <p className="mt-3 leading-7 text-[#EEF7EA]">
+            Isso ajuda a casa a orientar melhor cada filho, organizar os grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
+          </p>
         </div>
       </section>
     </main>
