@@ -26,7 +26,7 @@ const benefits = [
 
 const headerActions = [
   {
-    label: "Filho da Corrente",
+    label: "Filho da corrente",
     href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente",
     variant: "primary" as const,
   },
@@ -42,15 +42,15 @@ export default function TucxaSitePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
 
-      <section className="mx-auto grid max-w-6xl gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-8">
+      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
           <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
             Organização em Harmonia no Tucxa
           </p>
-          <h1 className="text-3xl font-black leading-tight tracking-tight text-[#123D2C] sm:text-4xl lg:text-5xl">
+          <h1 className="text-3xl font-black leading-tight tracking-tight text-[#123D2C] sm:text-4xl lg:text-[2.8rem]">
             Um ponto simples para orientar, organizar e cuidar melhor da nossa corrente.
           </h1>
-          <p className="max-w-2xl text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
+          <p className="max-w-2xl text-base leading-7 text-slate-700 sm:text-[1.05rem] sm:leading-8">
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -112,7 +112,7 @@ export default function TucxaSitePage() {
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Filhos da Corrente</p>
             <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Atualize todos os vínculos que você possui com a casa.</h2>
             <p className="mt-3 text-base leading-7 text-slate-700 sm:leading-8">
-              Quem atua em mais de uma frente deve marcar todas elas: cambono, cavalinho, coordenação, recepção, Sementinha, estudos, clube do livro, organização de eventos e grupos de quinta. Assim o Tucxa consegue orientar cada pessoa com mais cuidado.
+              Quem atua em mais de uma frente deve marcar todas elas: cambono, cavalinho, coordenação, recepção, atendimento de segunda, terça e/ou quarta, Sementinha, estudos, clube do livro, organização de eventos e grupos de quinta. Assim o Tucxa consegue orientar cada pessoa com mais cuidado.
             </p>
           </div>
           <div className="rounded-[1.75rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-6">

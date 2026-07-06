@@ -51,12 +51,35 @@ export const consulenteServices = [
   {
     title: "Transformação e encaminhamentos",
     description:
-      "Quando há orientação espiritual, alguns casos podem ser encaminhados para trabalhos específicos, com preparo e agendamento orientado pela coordenação.",
+      "Quando há orientação espiritual, alguns casos podem ser encaminhados para trabalhos específicos às quartas, com preparo e agendamento orientado pela coordenação.",
   },
   {
     title: "Biblioteca e estudo",
     description:
       "A casa também estimula estudo, responsabilidade e crescimento, mantendo uma biblioteca aberta aos Filhos de Fora e Filhos da Corrente.",
+  },
+];
+
+export const consulenteGuidelines = [
+  {
+    title: "A casa é aberta a quem busca auxílio",
+    description:
+      "O Tucxa é uma sociedade civil religiosa sem fins lucrativos, voltada à prática da fé, do amor e da ajuda ao próximo. O atendimento existe para acolher quem busca orientação e crescimento espiritual.",
+  },
+  {
+    title: "Atendimentos de segunda, terça e/ou quarta",
+    description:
+      "Os atendimentos aos Filhos de Fora acontecem conforme calendário da casa. Segunda e terça são voltadas ao atendimento dos consulentes. A quarta é reservada aos trabalhos de Transformação, quando houver encaminhamento e agendamento pela coordenação.",
+  },
+  {
+    title: "Senha, ficha e orientação individual",
+    description:
+      "Ao chegar, cada consulente segue a orientação da recepção. A organização pode usar senhas e fichas individuais para preservar a ordem, a segurança e o cuidado no atendimento.",
+  },
+  {
+    title: "Respeito, silêncio e cuidado com o ambiente",
+    description:
+      "O silêncio e a disciplina ajudam a manter a harmonia dos trabalhos. A tecnologia deve apenas facilitar a orientação, sem substituir o acolhimento humano da casa.",
   },
 ];
 

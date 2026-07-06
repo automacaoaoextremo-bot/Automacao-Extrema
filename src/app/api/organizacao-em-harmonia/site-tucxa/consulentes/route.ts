@@ -5,15 +5,29 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_INTERNAL_EMAIL = "automacao.ao.extremo@gmail.com";
+const CONSULENTE_MODULES = ["agenda-viva", "corrente-em-dia"];
 
 type ConsulenteBody = {
+  action?: string;
   requestType?: string;
+  identifier?: string;
   name?: string;
   whatsapp?: string;
   email?: string;
+  password?: string;
   contributionMode?: string;
   preferredDay?: string;
   notes?: string;
+};
+
+type PersonRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  whatsapp: string | null;
+  active: boolean | null;
+  notes: string | null;
+  auth_user_id?: string | null;
 };
 
 function asText(value: unknown) {
@@ -24,12 +38,20 @@ function onlyDigits(value: unknown) {
   return asText(value).replace(/\D/g, "");
 }
 
+function normalizeEmail(value: unknown) {
+  return asText(value).toLowerCase();
+}
+
 function internalEmail() {
   return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.OH_CONSULENTE_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || DEFAULT_INTERNAL_EMAIL;
 }
 
 function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
+}
+
+function syntheticEmailFromPhone(phone: string) {
+  return `tucxa-consulente-${phone}@organizacao-em-harmonia.local`;
 }
 
 function hasSmtpConfig() {
@@ -41,6 +63,14 @@ function whatsappUrl(phone: string, message: string) {
   if (!digits) return "";
   const normalized = digits.startsWith("55") ? digits : `55${digits}`;
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
+function phoneCandidates(rawPhone: string) {
+  const digits = onlyDigits(rawPhone);
+  if (!digits) return [];
+  const withoutCountry = digits.startsWith("55") && digits.length > 11 ? digits.slice(2) : digits;
+  const last11 = digits.length > 11 ? digits.slice(-11) : digits;
+  return Array.from(new Set([digits, withoutCountry, last11, `55${withoutCountry}`, `55${last11}`].filter(Boolean)));
 }
 
 async function sendEmail(input: { to: string; subject: string; text: string; cc?: string }) {
@@ -77,7 +107,120 @@ async function findTucxaOrganizationId() {
   return null;
 }
 
-async function saveRequest(body: Required<ConsulenteBody>) {
+async function findPersonByIdentifier(organizationId: string, identifier: string) {
+  const value = asText(identifier);
+  if (!value) return null;
+
+  if (value.includes("@")) {
+    const { data, error } = await supabaseAdmin
+      .from("oh_people")
+      .select("id, full_name, email, whatsapp, active, notes, auth_user_id")
+      .eq("organization_id", organizationId)
+      .ilike("email", value.toLowerCase())
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as PersonRow | null) ?? null;
+  }
+
+  const phones = phoneCandidates(value);
+  if (!phones.length) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, email, whatsapp, active, notes, auth_user_id")
+    .eq("organization_id", organizationId)
+    .in("whatsapp", phones)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as PersonRow | null) ?? null;
+}
+
+async function defaultConsulenteRoleId(organizationId: string) {
+  const { data } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("slug", ["consulente", "filho-de-fora", "visitante", "membro"])
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: string; password: string; fullName: string; whatsapp: string; organizationId: string }) {
+  if (input.person?.auth_user_id) {
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(input.person.auth_user_id, {
+      password: input.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: input.fullName,
+        whatsapp: input.whatsapp,
+        organization_id: input.organizationId,
+        oh_profile: "consulente",
+        oh_access_status: "pending_review",
+      },
+    });
+    if (error) throw error;
+    return input.person.auth_user_id;
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email: input.emailForAuth,
+    password: input.password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: input.fullName,
+      whatsapp: input.whatsapp,
+      organization_id: input.organizationId,
+      oh_profile: "consulente",
+      oh_access_status: "pending_review",
+    },
+  });
+
+  if (error) {
+    if (error.message.toLowerCase().includes("already")) {
+      const { data: found } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const user = found.users.find((item: { email?: string | null; id: string; user_metadata?: Record<string, unknown> }) => item.email?.toLowerCase() === input.emailForAuth.toLowerCase());
+      if (user?.id) {
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+          password: input.password,
+          email_confirm: true,
+          user_metadata: {
+            ...(user.user_metadata ?? {}),
+            full_name: input.fullName,
+            whatsapp: input.whatsapp,
+            organization_id: input.organizationId,
+            oh_profile: "consulente",
+            oh_access_status: "pending_review",
+          },
+        });
+        if (updateError) throw updateError;
+        return user.id;
+      }
+    }
+    throw error;
+  }
+
+  return data.user.id;
+}
+
+async function membershipFor(organizationId: string, personId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data as { id: string } | null;
+}
+
+async function savePublicRequest(body: Required<ConsulenteBody>) {
   const organizationId = await findTucxaOrganizationId();
   if (!organizationId) return;
 
@@ -97,6 +240,83 @@ async function saveRequest(body: Required<ConsulenteBody>) {
   await supabaseAdmin.from("oh_public_site_requests").insert(payload);
 }
 
+async function submitCadastro(body: Required<ConsulenteBody>) {
+  const organizationId = await findTucxaOrganizationId();
+  if (!organizationId) throw new Error("Organização Tucxa não localizada na Base Única.");
+
+  const whatsapp = onlyDigits(body.whatsapp);
+  const email = normalizeEmail(body.email);
+  const emailForAuth = email || syntheticEmailFromPhone(whatsapp);
+  const existingByPhone = await findPersonByIdentifier(organizationId, whatsapp);
+  const existingByEmail = email ? await findPersonByIdentifier(organizationId, email) : null;
+  const existing = existingByPhone ?? existingByEmail;
+
+  let personId = existing?.id ?? "";
+  if (existing?.id) {
+    const { error } = await supabaseAdmin
+      .from("oh_people")
+      .update({
+        full_name: body.name,
+        email: emailForAuth,
+        whatsapp,
+        active: false,
+        notes: "Cadastro de consulente/filho de fora atualizado pelo site do Tucxa. Aguardando validação.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from("oh_people")
+      .insert({
+        organization_id: organizationId,
+        full_name: body.name,
+        email: emailForAuth,
+        whatsapp,
+        active: false,
+        notes: "Cadastro de consulente/filho de fora criado pelo site do Tucxa. Aguardando validação.",
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    personId = data.id as string;
+  }
+
+  const authUserId = await ensureAuthUser({ person: existing, emailForAuth, password: body.password, fullName: body.name, whatsapp, organizationId });
+  const { error: personAuthError } = await supabaseAdmin.from("oh_people").update({ auth_user_id: authUserId, updated_at: new Date().toISOString() }).eq("id", personId);
+  if (personAuthError) throw personAuthError;
+
+  const roleId = await defaultConsulenteRoleId(organizationId);
+  const membership = await membershipFor(organizationId, personId);
+  const payload = {
+    organization_id: organizationId,
+    person_id: personId,
+    role_id: roleId,
+    module_slugs: CONSULENTE_MODULES,
+    active: false,
+    status: "pendente_validacao",
+    is_main_contact: false,
+    can_receive_notifications: Boolean(email || whatsapp),
+    agenda_viva_profile: {
+      publico: "consulente-filho-de-fora",
+      canScheduleAttendance: true,
+      canContributeIdentified: true,
+      preferredContact: email ? "email-whatsapp" : "whatsapp",
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  if (membership?.id) {
+    const { error } = await supabaseAdmin.from("oh_memberships").update(payload).eq("id", membership.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabaseAdmin.from("oh_memberships").insert(payload);
+    if (error) throw error;
+  }
+
+  return { organizationId, emailForAuth };
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, service: "organizacao-em-harmonia-site-tucxa-consulentes" });
 }
@@ -105,14 +325,63 @@ export async function POST(request: Request) {
   try {
     const raw = (await request.json().catch(() => ({}))) as ConsulenteBody;
     const body: Required<ConsulenteBody> = {
+      action: asText(raw.action) || "request",
       requestType: asText(raw.requestType) || "atendimento",
+      identifier: asText(raw.identifier),
       name: asText(raw.name),
       whatsapp: asText(raw.whatsapp),
-      email: asText(raw.email).toLowerCase(),
+      email: normalizeEmail(raw.email),
+      password: asText(raw.password),
       contributionMode: asText(raw.contributionMode),
       preferredDay: asText(raw.preferredDay),
       notes: asText(raw.notes),
     };
+
+    if (body.action === "resolve-login") {
+      const organizationId = await findTucxaOrganizationId();
+      if (!organizationId) return NextResponse.json({ error: "Organização Tucxa não localizada." }, { status: 404 });
+      const person = await findPersonByIdentifier(organizationId, body.identifier);
+      if (!person?.email) return NextResponse.json({ error: "Cadastro não localizado. Faça o primeiro cadastro ou aguarde validação." }, { status: 404 });
+      return NextResponse.json({ ok: true, authEmail: person.email });
+    }
+
+    if (body.action === "submit-cadastro") {
+      const whatsapp = onlyDigits(body.whatsapp);
+      if (!body.name) return NextResponse.json({ error: "Informe seu nome completo." }, { status: 400 });
+      if (whatsapp.length < 10) return NextResponse.json({ error: "Informe o celular com WhatsApp e DDD." }, { status: 400 });
+      if (body.email && !body.email.includes("@")) return NextResponse.json({ error: "Confira o e-mail informado ou deixe em branco." }, { status: 400 });
+      if (body.password.length < 8) return NextResponse.json({ error: "Crie uma senha com pelo menos 8 caracteres." }, { status: 400 });
+
+      await submitCadastro(body);
+      await savePublicRequest({ ...body, whatsapp }).catch(() => undefined);
+
+      const subject = `[Tucxa] Novo cadastro de consulente - ${body.name}`;
+      const text = [
+        "Novo cadastro de Consulente / Filho de Fora recebido pelo site do Tucxa.",
+        "",
+        `Nome: ${body.name}`,
+        `WhatsApp: ${whatsapp}`,
+        `E-mail: ${body.email || "não informado"}`,
+        "Senha: cadastrada no Supabase Auth e não enviada por e-mail.",
+        "Status: aguardando validação da organização do Tucxa.",
+        "",
+        `Origem: ${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro`,
+      ].join("\n");
+
+      await sendEmail({ to: internalEmail(), subject, text, cc: internalEmail() });
+
+      const waMessage = [
+        "Olá. Fiz meu cadastro como Consulente / Filho de Fora pelo site do Tucxa.",
+        `Nome: ${body.name}`,
+        "Aguardo a validação e as orientações para acessar meus agendamentos ou contribuições.",
+      ].join("\n");
+
+      return NextResponse.json({
+        ok: true,
+        message: "Cadastro recebido. A organização do Tucxa irá validar seus dados e retornar pelo WhatsApp informado e e-mail, caso tenha sido preenchido.",
+        whatsappUrl: whatsappUrl(process.env.TUCXA_PUBLIC_WHATSAPP || whatsapp, waMessage),
+      });
+    }
 
     if (body.requestType !== "contribuicao-anonima" && !body.name) {
       return NextResponse.json({ error: "Informe seu nome ou escolha contribuição anônima." }, { status: 400 });
@@ -124,7 +393,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Confira o e-mail informado." }, { status: 400 });
     }
 
-    await saveRequest(body).catch(() => undefined);
+    await savePublicRequest(body).catch(() => undefined);
 
     const subject = `[Tucxa] Novo contato de consulente - ${body.name || "contribuição anônima"}`;
     const text = [
