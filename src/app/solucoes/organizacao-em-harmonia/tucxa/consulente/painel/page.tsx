@@ -9,7 +9,7 @@ type Appointment = { id: number; date: string; period: string; type: string; sta
 
 const headerActions = [
   { label: "Agendamentos", href: "#agendamentos", variant: "primary" as const },
-  { label: "Contribuição", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=identificada", variant: "secondary" as const },
+  { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=identificada", variant: "secondary" as const },
   { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
 ];
 

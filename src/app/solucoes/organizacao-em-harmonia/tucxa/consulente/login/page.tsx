@@ -80,7 +80,7 @@ export default function LoginConsulenteTucxaPage() {
       <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
         <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
           <p className="text-xs font-black tracking-[0.22em] text-[#2F6B43] sm:text-sm">Acesso do consulente</p>
-          <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entre para agendar, alterar atendimento ou contribuir.</h1>
+          <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entre no Atendimento em Harmonia ou no Corrente em Dia.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
             Use este acesso depois que a organização do Tucxa validar seu cadastro. A senha é a mesma criada no primeiro cadastro.
           </p>
@@ -88,10 +88,10 @@ export default function LoginConsulenteTucxaPage() {
           <form onSubmit={submit} className="mt-5 grid gap-4">
             <div className="grid gap-2 sm:grid-cols-2">
               <button type="button" onClick={() => setDestination("agenda")} className={`rounded-2xl p-4 text-left font-black ring-1 transition ${destination === "agenda" ? "bg-[#E9F2E7] text-[#123D2C] ring-[#123D2C]/20" : "bg-white text-slate-600 ring-[#123D2C]/10"}`}>
-                Agendar/alterar atendimento
+                Atendimento em Harmonia
               </button>
               <button type="button" onClick={() => setDestination("contribuicao")} className={`rounded-2xl p-4 text-left font-black ring-1 transition ${destination === "contribuicao" ? "bg-[#E9F2E7] text-[#123D2C] ring-[#123D2C]/20" : "bg-white text-slate-600 ring-[#123D2C]/10"}`}>
-                Contribuição identificada
+                Corrente em Dia
               </button>
             </div>
 

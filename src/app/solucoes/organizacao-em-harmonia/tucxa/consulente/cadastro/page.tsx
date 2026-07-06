@@ -8,7 +8,7 @@ type ConsulenteResponse = { ok?: boolean; message?: string; error?: string; what
 
 const headerActions = [
   { label: "É novo por aqui", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "primary" as const },
-  { label: "Agendar/alterar atendimento", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
+  { label: "Atendimento em Harmonia", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
   { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
 ];
 

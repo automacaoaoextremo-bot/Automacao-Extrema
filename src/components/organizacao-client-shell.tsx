@@ -72,6 +72,7 @@ const sidebarGroups: NavGroup[] = [
     description: "Site público, regras, aprovações, LGPD, permissões e preferências.",
     items: [
       { label: "Site público do cliente", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes/site", description: "Logo, cores, chamadas e menu do Tucxa." },
+      { label: "Regulamento e horários", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes/regulamento", description: "Textos públicos, horários e orientações para consulentes." },
       { label: "Regras e permissões", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes", description: "Aprovações, LGPD e preferências." },
     ],
   },

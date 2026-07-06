@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { consulenteServices } from "../tucxa-content";
+import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
+
+export const dynamic = "force-dynamic";
 
 const guidance = [
   "Chegue com antecedência e siga as orientações da recepção e organização.",
@@ -9,35 +11,31 @@ const guidance = [
   "A contribuição ajuda na manutenção da casa e pode ser feita de forma identificada ou anônima.",
 ];
 
-const headerActions = [
-  {
-    label: "É novo por aqui",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo",
-    variant: "primary" as const,
-  },
-  {
-    label: "Agendar/alterar atendimento",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Contribuição identificada",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=contribuicao",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Contribuição anônima",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=anonima",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Site do Tucxa",
-    href: "/solucoes/organizacao-em-harmonia/tucxa",
-    variant: "secondary" as const,
-  },
-];
+export default async function ConsulenteTucxaPage() {
+  const content = await getTucxaPublicContent();
+  const headerActions = [
+    {
+      label: "É novo por aqui",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo",
+      variant: "primary" as const,
+    },
+    {
+      label: content.atendimentoEmHarmonia.shortLabel,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda",
+      variant: "secondary" as const,
+    },
+    {
+      label: content.correnteEmDia.shortLabel,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao",
+      variant: "secondary" as const,
+    },
+    {
+      label: "Site do Tucxa",
+      href: "/solucoes/organizacao-em-harmonia/tucxa",
+      variant: "secondary" as const,
+    },
+  ];
 
-export default function ConsulenteTucxaPage() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} navLabel="Menu de consulentes do Tucxa" />
@@ -51,24 +49,38 @@ export default function ConsulenteTucxaPage() {
           <p className="mt-4 max-w-4xl text-base leading-7 text-[#EEF7EA] sm:text-[1.05rem] sm:leading-8">
             O Tucxa recebe pessoas que procuram orientação, fortalecimento e crescimento espiritual. A organização do atendimento existe para que cada consulente seja recebido com respeito, clareza e segurança.
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/novo" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               É novo por aqui
             </Link>
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
-              Agendar/alterar atendimento
+              {content.atendimentoEmHarmonia.shortLabel}
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=contribuicao" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
-              Contribuição identificada
-            </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=anonima" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
-              Contribuição anônima
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+              {content.correnteEmDia.shortLabel}
             </Link>
           </div>
         </div>
 
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <article className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+            <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{content.atendimentoEmHarmonia.title}</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{content.atendimentoEmHarmonia.description}</p>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
+              {content.atendimentoEmHarmonia.callToAction}
+            </Link>
+          </article>
+          <article className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+            <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{content.correnteEmDia.title}</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{content.correnteEmDia.description}</p>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
+              {content.correnteEmDia.callToAction}
+            </Link>
+          </article>
+        </div>
+
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          {consulenteServices.map((service) => (
+          {content.consulenteServices.map((service) => (
             <article key={service.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{service.title}</h2>
               <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{service.description}</p>
