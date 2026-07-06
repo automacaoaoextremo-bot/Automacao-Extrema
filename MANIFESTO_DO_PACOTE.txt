@@ -1,0 +1,18 @@
+Pacote: ae-presenca-querida-recados-daniela-aprovacao-lp
+Objetivo: implementar fluxo completo para recados enviados no campo "Curiosidade ou recado para a Daniela".
+
+Implementado:
+1. Recados enviados pelo convidado agora são gravados em pq_guest_messages com message_phase = recado_convidado.
+2. Recados novos ficam pendentes de aprovação e não aparecem automaticamente na LP.
+3. Novo e-mail de aprovação para a cliente/aniversariante, usando PRESENCA_QUERIDA_RECADO_APPROVER_EMAIL, pq_events.email ou EMAIL_COPY_TO.
+4. Área logada Cliente > Mensagens ganhou seção "Recados para aprovação na LP".
+5. Ações disponíveis para recados: editar texto, aprovar para LP, retirar da LP/reprovar, voltar para pendente, ocultar sem reprovar e excluir.
+6. LP pública do evento ganhou seção "Recados para a Dani", exibindo apenas recados aprovados e ativos.
+7. Recados antigos em pq_guests.notes são migrados para aprovação, tratando casos como Mariana sem publicar automaticamente.
+8. Mensagens/lembretes foram ajustados para citar a novidade dos recados na LP.
+9. Formulário público avisa que o recado será aprovado antes de aparecer na página.
+10. Ajuste de segurança: aprovar/reprovar recado não altera approval_status do convite oficial do convidado.
+
+Validação feita neste pacote:
+- npm run lint: OK.
+- npm run build: não concluído porque o zip recebido não contém alguns arquivos de base já importados pelo projeto, como presenca-client-header, presenca-contextual-help, presenca-onboarding-checklist, supabase-browser e followups. O erro não foi causado por este ajuste; o pacote recebido está parcial.

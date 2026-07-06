@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const BAZAR_EVENT_SLUG = "bazar-sementinha-2026-07-04";
 export const BAZAR_CLIENT_EMAIL = "bazardosementinha@gmail.com";
-export const BAZAR_PIX_KEY = "58.392.598/0001-91";
+export const BAZAR_PIX_KEY = "58392598000191";
 export const BAZAR_PIX_RECEIVER = "SEMENTINHA DO TUCXA";
 export const BAZAR_PIX_CITY = "CAMPINAS";
 
@@ -109,7 +109,7 @@ export async function buildPixCopyPaste(amount: number, txid: string) {
 
   const tlv = (id: string, content: string) => `${id}${String(content.length).padStart(2, "0")}${content}`;
   const gui = tlv("00", "br.gov.bcb.pix");
-  const key = tlv("01", BAZAR_PIX_KEY);
+  const key = tlv("01", onlyDigits(BAZAR_PIX_KEY));
   const desc = tlv("02", "Bazar Sementinha");
   const merchantAccount = tlv("26", gui + key + desc);
   const additional = tlv("62", tlv("05", safeTxid));
@@ -151,6 +151,27 @@ export async function getSessionToken() {
   return jar.get("bazar_sementinha_session")?.value || null;
 }
 
+export function getRequestSessionToken(request?: Request) {
+  if (!request) return null;
+
+  const authorization = request.headers.get("authorization") || "";
+  if (authorization.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice(7).trim();
+  }
+
+  const headerToken = request.headers.get("x-bazar-session");
+  if (headerToken) return headerToken.trim();
+
+  const cookieHeader = request.headers.get("cookie") || "";
+  const cookie = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("bazar_sementinha_session="));
+
+  if (!cookie) return null;
+  return decodeURIComponent(cookie.split("=").slice(1).join("="));
+}
+
 export function signSession(email: string) {
   const secret = process.env.BAZAR_SEMENTINHA_AUTH_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "bazar-sementinha-dev";
   const exp = Date.now() + 1000 * 60 * 60 * 12;
@@ -173,9 +194,28 @@ export function verifySession(token: string | null) {
   }
 }
 
-export async function requireBazarSession() {
-  const token = await getSessionToken();
-  if (!verifySession(token)) {
-    throw new Error("Acesso não autorizado.");
+export class BazarUnauthorizedError extends Error {
+  constructor() {
+    super("Acesso não autorizado.");
+    this.name = "BazarUnauthorizedError";
   }
+}
+
+export async function isBazarSessionValid(request?: Request) {
+  const requestToken = getRequestSessionToken(request);
+  if (verifySession(requestToken)) return true;
+
+  const cookieToken = await getSessionToken();
+  return verifySession(cookieToken);
+}
+
+export async function requireBazarSession(request?: Request) {
+  const valid = await isBazarSessionValid(request);
+  if (!valid) {
+    throw new BazarUnauthorizedError();
+  }
+}
+
+export function sessionErrorStatus(error: unknown) {
+  return error instanceof BazarUnauthorizedError ? 401 : 500;
 }

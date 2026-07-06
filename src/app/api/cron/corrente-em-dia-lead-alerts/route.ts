@@ -36,7 +36,7 @@ async function handleAlert(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const funilUrl = `${siteUrl()}/admin/ae/corrente-em-dia/funil`;
+  const funilUrl = `${siteUrl()}/admin/ae/funil?solution=corrente-em-dia`;
 
   const { data, error } = await supabaseAdmin
     .from("ced_leads")

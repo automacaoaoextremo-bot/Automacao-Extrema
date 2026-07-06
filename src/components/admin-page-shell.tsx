@@ -17,7 +17,7 @@ const navItems: NavItem[] = [
   { href: "/admin/ae/catalogo", label: "Públicos, dores e funcionalidades", group: "Produtos" },
   { href: "/admin/ae/sites-clientes", label: "Sites / páginas de clientes", group: "Clientes" },
   { href: "/admin/ae/corrente-em-dia", label: "Corrente em Dia", group: "Clientes" },
-  { href: "/admin/ae/corrente-em-dia/funil", label: "Funil Corrente em Dia", group: "Comercial" },
+  { href: "/admin/ae/organizacao-em-harmonia", label: "Organização em Harmonia", group: "Clientes" },
   { href: "/admin/ae/parceiros", label: "Parceiros", group: "Comercial" },
   { href: "/admin/ae/relatorios", label: "Relatórios", group: "Indicadores" },
 ];
@@ -37,6 +37,11 @@ export function AdminPageShell({
   const [open, setOpen] = useState(false);
   const groups = Array.from(new Set(navItems.map((item) => item.group)));
 
+  function isActive(href: string) {
+    if (href === "/admin/ae") return pathname === href;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 p-4 sm:p-6">
       <section className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[280px_1fr]">
@@ -48,7 +53,7 @@ export function AdminPageShell({
                 <p className="px-3 text-[11px] font-bold uppercase tracking-[0.2em] text-white/50">{group}</p>
                 <div className="mt-2 space-y-1">
                   {navItems.filter((item) => item.group === group).map((item) => {
-                    const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                    const active = isActive(item.href);
                     return (
                       <Link
                         key={item.href}
@@ -87,7 +92,7 @@ export function AdminPageShell({
             {open && (
               <nav className="mt-4 grid gap-2 rounded-2xl bg-slate-50 p-3 sm:grid-cols-2 lg:hidden">
                 {navItems.map((item) => {
-                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const active = isActive(item.href);
                   return (
                     <Link
                       key={item.href}

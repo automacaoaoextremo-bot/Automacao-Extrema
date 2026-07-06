@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireBazarSession();
+    await requireBazarSession(request);
     const body = await request.json();
     const event = await getBazarEvent();
     const { data, error } = await supabaseAdmin

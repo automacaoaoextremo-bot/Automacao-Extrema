@@ -1,0 +1,35 @@
+Arquivos alterados:
+.env.example
+src/app/page.tsx
+src/components/ae-solution-header.tsx
+src/lib/ae-scoring.ts
+src/lib/mail.ts
+
+Arquivos novos:
+public/presenca-querida-logo.svg
+src/lib/presenca-querida.ts
+src/lib/presenca-auth.ts
+src/components/presenca-client-header.tsx
+src/components/presenca-contextual-help.tsx
+src/components/presenca-onboarding-checklist.tsx
+src/app/solucoes/presenca-querida/page.tsx
+src/app/solucoes/presenca-querida/quero-conhecer/page.tsx
+src/app/solucoes/presenca-querida/obrigado/page.tsx
+src/app/solucoes/presenca-querida/login/page.tsx
+src/app/solucoes/presenca-querida/cliente/page.tsx
+src/app/solucoes/presenca-querida/cliente/primeiros-passos/page.tsx
+src/app/solucoes/presenca-querida/cliente/cadastro/page.tsx
+src/app/solucoes/presenca-querida/cliente/convidados/page.tsx
+src/app/solucoes/presenca-querida/cliente/mensagens/page.tsx
+src/app/solucoes/presenca-querida/cliente/confirmacoes/page.tsx
+src/app/solucoes/presenca-querida/cliente/relatorios/page.tsx
+src/app/solucoes/presenca-querida/confirmar/[token]/page.tsx
+src/app/api/presenca-querida/leads/route.ts
+src/app/api/presenca-querida/leads/lookup/route.ts
+src/app/api/presenca-querida/cliente/dashboard/route.ts
+src/app/api/presenca-querida/cliente/onboarding/route.ts
+src/app/api/presenca-querida/confirmar/[token]/route.ts
+supabase/sql/20260620_07_presenca_querida_cliente_fundador.sql
+docs/PRESENCA_QUERIDA_IMPLEMENTACAO.md
+PASSO_A_PASSO_ATUALIZACAO_PRESENCA_QUERIDA.md
+ARQUIVOS_INCLUIDOS_PRESENCA_QUERIDA.txt

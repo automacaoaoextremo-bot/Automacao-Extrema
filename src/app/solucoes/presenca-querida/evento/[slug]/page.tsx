@@ -1,0 +1,418 @@
+import { AeSolutionHeader, type SolutionHeaderAction, type SolutionSectionLink } from "@/components/ae-solution-header";
+import { PresencaPublicConfirmation, type PresencaPublicGuestPayload } from "@/components/presenca-public-confirmation";
+import {
+  DANIELA50_FALLBACK_EVENT,
+  formatDaniela50Deadline,
+  getPresencaPublicEventExtras,
+  isDaniela50Event,
+} from "@/lib/presenca-daniela50";
+import { formatDateBR, type PresencaEvent } from "@/lib/presenca-querida";
+import { supabaseAdmin } from "@/lib/supabase-admin";
+
+export const dynamic = "force-dynamic";
+
+type Params = { slug: string };
+type SearchParams = { convite?: string | string[]; token?: string | string[] };
+
+type EventWithExtras = PresencaEvent & Record<string, unknown>;
+
+type GuestRow = PresencaPublicGuestPayload & {
+  event_id?: string;
+  primary_guest_id?: string | null;
+  is_invite_recipient?: boolean | null;
+};
+
+type ApprovedGuestNoteRow = {
+  id: string;
+  message_text: string;
+  created_at: string | null;
+  guest?:
+    | {
+        full_name?: string | null;
+        relationship_label?: string | null;
+        group_name?: string | null;
+      }
+    | Array<{
+        full_name?: string | null;
+        relationship_label?: string | null;
+        group_name?: string | null;
+      }>
+    | null;
+};
+
+type ApprovedGuestNote = {
+  id: string;
+  messageText: string;
+  authorLabel: string;
+};
+
+const MENU_SECTION_COPY: Record<string, string> = {
+  "Entradinhas e acompanhamentos": "Para receber bem desde o começo, com sabores leves, variados e aquele clima de mesa farta que acolhe cada convidado.",
+  "Carnes e pratos quentes": "Um almoço pensado para celebrar com fartura, conforto e sabor, deixando a tarde ainda mais especial.",
+  "Bebidas para refrescar a tarde": "Para refrescar, brindar e acompanhar as conversas com leveza durante toda a tarde — incluindo café para quem gosta de fechar o almoço com aconchego.",
+  "Bolo e doces finos": "Um fechamento doce para marcar os 50 anos com sabor, carinho e memória afetiva.",
+};
+
+const MENU_ITEM_COPY: Record<string, string> = {
+  "Churipam com chimichurri": "Um começo cheio de sabor para abrir o apetite com carinho.",
+  "Guacamole com doritos caseiro": "Toque leve e descontraído para circular entre conversas e sorrisos.",
+  "Pão de alho": "Clássico querido que combina com encontro, chácara e celebração.",
+  "Mandioca frita": "Aquele acompanhamento que convida a ficar mais um pouco à mesa.",
+  "Batata frita": "Crocante e democrática, para agradar diferentes gostos ao longo da tarde.",
+  "Salada Caesar": "Frescor para equilibrar a mesa e deixar o almoço mais leve.",
+  "Maionese de legumes": "Conforto e memória afetiva em uma combinação sempre querida.",
+  "Salada marroquina": "Um toque especial para trazer variedade e cor ao cardápio.",
+  Vinagrete: "Companhia perfeita para deixar as escolhas da mesa ainda mais gostosas.",
+  Farofa: "Detalhe simples que faz diferença e completa a experiência do almoço.",
+  "Contra filé": "Carne escolhida para um almoço caprichado e acolhedor.",
+  Maminha: "Sabor e maciez para um momento de celebração à altura da ocasião.",
+  Linguiça: "Presença certeira para um clima leve, familiar e descontraído.",
+  "Tulipa de frango": "Opção saborosa para agradar quem gosta de variedade à mesa.",
+  "Arroz branco": "Base clássica que acompanha bem toda a composição do almoço.",
+  "Arroz primavera": "Cor e leveza para compor uma mesa ainda mais bonita.",
+  "Feijão gordo": "Sustância e aconchego em um prato cheio de personalidade.",
+  "Coca-Cola": "Refrigerante clássico para acompanhar o almoço e o bate-papo.",
+  Guaraná: "Opção refrescante para brindar o encontro em família.",
+  "Água aromatizada": "Leveza e frescor para uma tarde de celebração diurna.",
+  "Chopp Kremer": "Brinde artesanal para quem gosta de celebrar com sabor e boa companhia.",
+  Café: "Aquele fechamento acolhedor para acompanhar boas conversas depois do almoço.",
+  Bolo: "Doçura especial para marcar os 50 anos com carinho.",
+  "Doces finos": "Pequenos detalhes elegantes para deixar a memória da festa ainda mais gostosa.",
+  "Petit fours": "Delicadezas para acompanhar o café e prolongar o sabor do encontro.",
+};
+
+function firstValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function firstName(value: string | null | undefined) {
+  return String(value ?? "").trim().split(/\s+/)[0] || "";
+}
+
+function guestNoteAuthor(row: ApprovedGuestNoteRow) {
+  const guest = firstRelation(row.guest);
+  const name = firstName(guest?.full_name);
+  if (name) return name;
+  const relation = String(guest?.relationship_label ?? guest?.group_name ?? "").trim();
+  return relation || "Pessoa querida";
+}
+
+async function loadEvent(slug: string) {
+  const { data, error } = await supabaseAdmin.from("pq_events").select("*").eq("slug", slug).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return data as EventWithExtras;
+  if (isDaniela50Event({ slug, name: slug })) return DANIELA50_FALLBACK_EVENT as EventWithExtras;
+  return null;
+}
+
+async function loadGuestForEvent(token: string, eventId?: string | null) {
+  if (!token || !eventId) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+    .eq("individual_token", token)
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  let recipient = data as GuestRow;
+  if (recipient.primary_guest_id) {
+    const { data: primary } = await supabaseAdmin
+      .from("pq_guests")
+      .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+      .eq("id", recipient.primary_guest_id)
+      .eq("event_id", eventId)
+      .maybeSingle();
+
+    if (primary) recipient = primary as GuestRow;
+  }
+
+  const { data: linked } = await supabaseAdmin
+    .from("pq_guests")
+    .select("id,event_id,full_name,group_name,relationship_label,relationship_context,invite_context,message_preview,guest_status,adults_count,children_count,primary_guest_id,household_label,is_invite_recipient,dietary_notes,notes")
+    .eq("event_id", eventId)
+    .eq("primary_guest_id", recipient.id)
+    .eq("is_active", true)
+    .order("full_name", { ascending: true });
+
+  return {
+    ...recipient,
+    linked_guests: (linked ?? []) as PresencaPublicGuestPayload[],
+  } satisfies PresencaPublicGuestPayload;
+}
+
+
+async function loadApprovedGuestNotes(eventId?: string | null): Promise<ApprovedGuestNote[]> {
+  if (!eventId) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("pq_guest_messages")
+    .select(
+      `
+      id,
+      message_text,
+      created_at,
+      guest:pq_guests(full_name, relationship_label, group_name)
+    `,
+    )
+    .eq("event_id", eventId)
+    .eq("message_phase", "recado_convidado")
+    .eq("approval_status", "aprovado")
+    .eq("is_active", true)
+    .order("approved_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (error) return [];
+
+  return ((data ?? []) as ApprovedGuestNoteRow[])
+    .map((item) => ({
+      id: item.id,
+      messageText: String(item.message_text ?? "").trim(),
+      authorLabel: guestNoteAuthor(item),
+    }))
+    .filter((item) => item.messageText.length > 0);
+}
+
+function buildHeaderLinks(hasInviteToken: boolean, guestName?: string | null, hasApprovedNotes = false) {
+  const sectionLinks: SolutionSectionLink[] = [
+    { label: "Convite afetivo", href: "#convite-afetivo" },
+    ...(hasApprovedNotes ? [{ label: "Recados para a Dani", href: "#recados-dani" }] : []),
+    { label: "Quando e onde", href: "#quando-onde" },
+    { label: "Programação", href: "#programacao" },
+    { label: "Cardápio", href: "#cardapio" },
+  ];
+
+  const actions: SolutionHeaderAction[] = hasInviteToken
+    ? [{ label: guestName ? `Convite: ${guestName}` : "Convite", href: "#confirmacao", variant: "primary" }]
+    : [];
+
+  return { sectionLinks, actions };
+}
+
+export default async function PresencaQueridaEventoPublicoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams?: Promise<SearchParams>;
+}) {
+  const { slug } = await params;
+  const query = searchParams ? await searchParams : {};
+  const inviteToken = String(firstValue(query.convite) ?? firstValue(query.token) ?? "").trim();
+  const event = await loadEvent(slug);
+  const guest = event?.id && inviteToken ? await loadGuestForEvent(inviteToken, event.id) : null;
+  const approvedGuestNotes = event?.id ? await loadApprovedGuestNotes(String(event.id)) : [];
+
+  if (!event) {
+    return (
+      <main className="min-h-screen bg-[#fffaf8] text-slate-800">
+        <AeSolutionHeader solutionName="Presença Querida" logoSrc="/presenca-querida-logo.svg" logoAlt="Logo Presença Querida" homeHref="/solucoes/presenca-querida" navLabel="Menu" actions={[]} sectionLinks={[]} />
+        <section className="mx-auto max-w-3xl px-4 py-12">
+          <h1 className="text-2xl font-black text-[#00334E] sm:text-3xl">Evento não localizado</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">Confira se o link está correto ou fale com quem enviou o convite.</p>
+        </section>
+      </main>
+    );
+  }
+
+  const isDaniela = isDaniela50Event(event);
+  const extras = getPresencaPublicEventExtras(event);
+  const hostPhoto = extras.hostPhotoUrl;
+  const inviteTitleName = guest?.full_name?.trim().split(/\s+/)[0] ?? null;
+  const { actions, sectionLinks } = buildHeaderLinks(Boolean(inviteToken), inviteTitleName, approvedGuestNotes.length > 0);
+  const headline = isDaniela ? DANIELA50_FALLBACK_EVENT.public_headline : event.public_headline || event.name;
+  const introMessage = isDaniela ? DANIELA50_FALLBACK_EVENT.invitation_message : event.invitation_message || DANIELA50_FALLBACK_EVENT.invitation_message;
+  const introParagraphs = String(introMessage ?? "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+  const displayAddress = isDaniela ? DANIELA50_FALLBACK_EVENT.address : event.address || `${event.city}${event.state ? `/${event.state}` : ""}`;
+
+  return (
+    <main className="min-h-screen bg-[#fffaf8] text-slate-800">
+      <AeSolutionHeader
+        solutionName="Presença Querida"
+        logoSrc="/presenca-querida-logo.svg"
+        logoAlt="Logo Presença Querida"
+        homeHref="/solucoes/presenca-querida"
+        navLabel="Menu"
+        actions={actions}
+        sectionLinks={sectionLinks}
+      />
+
+      <section id="convite-afetivo" className="mx-auto max-w-5xl px-4 py-8">
+        <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
+          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Convite afetivo</p>
+          <h1 className="mt-3 text-3xl font-black leading-tight text-[#00334E] sm:text-5xl">{headline}</h1>
+
+          {hostPhoto && (
+            <div className="mt-6 overflow-hidden rounded-[1.8rem] bg-[#fff7f4] ring-1 ring-rose-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={hostPhoto} alt={`Foto de ${event.host_name || event.name}`} className="h-[19rem] w-full object-cover object-center sm:h-[28rem]" />
+            </div>
+          )}
+
+          <div className="mt-6 space-y-4 text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
+            {introParagraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+      </section>
+
+
+      {approvedGuestNotes.length > 0 && (
+        <section id="recados-dani" className="mx-auto max-w-6xl px-4 py-8">
+          <div className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow-xl sm:p-7">
+            <p className="text-sm font-black uppercase tracking-[0.3em] text-[#9bd8b0]">Recados para a Dani</p>
+            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Carinhos que já começaram a fazer parte da festa</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-white/85 sm:text-base sm:leading-7">
+              Alguns convidados deixaram mensagens, lembranças e curiosidades para a Dani. Cada recado publicado aqui foi aprovado pela família antes de aparecer na página.
+            </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {approvedGuestNotes.map((note) => (
+                <article key={note.id} className="rounded-[1.6rem] bg-white p-5 text-[#00334E] shadow-sm ring-1 ring-white/20">
+                  <p className="text-sm leading-6 text-slate-700">“{note.messageText}”</p>
+                  <p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-[#E85D75]">Por {note.authorLabel}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section id="quando-onde" className="mx-auto max-w-6xl px-4 py-2">
+        <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
+          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Quando e onde</p>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Tudo o que você precisa para se programar com calma</h2>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
+            <div className="rounded-[1.7rem] bg-[#fff7f4] p-5 ring-1 ring-rose-100">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Quando</p>
+                  <p className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{formatDateBR(event.event_date)}</p>
+                  <p className="mt-1 text-base font-semibold text-slate-700">{event.event_time}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Onde</p>
+                  <p className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{event.venue_name}</p>
+                  <p className="mt-1 text-base text-slate-700">{displayAddress}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {extras.venueGallery.slice(0, 2).map((src, index) => (
+                  <div key={src} className="overflow-hidden rounded-[1.5rem] bg-white ring-1 ring-rose-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Foto da Chácara Piloto ${index + 1}`} className="h-52 w-full object-cover sm:h-60" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[1.7rem] bg-[#00334E] p-6 text-white shadow-lg">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#9bd8b0]">Organização com carinho</p>
+              <h3 className="mt-2 text-2xl font-black">Confirme até {formatDaniela50Deadline()}</h3>
+              <p className="mt-4 text-sm leading-6 text-white/90 sm:text-base sm:leading-7">
+                Confirmar até essa data ajuda a família a cuidar do buffet, das bebidas, das mesas e da recepção com mais organização e carinho.
+              </p>
+
+              <div className="mt-6 flex flex-col gap-3">
+                <a href={extras.mapUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#E85D75] px-5 py-3 text-center font-black text-white shadow-lg shadow-rose-900/15 transition hover:-translate-y-0.5">
+                  Abrir no Google Maps
+                </a>
+                {extras.venueInstagramUrl && (
+                  <a href={extras.venueInstagramUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#31C16B] px-5 py-3 text-center font-black text-[#00334E] shadow-lg shadow-emerald-950/10 transition hover:-translate-y-0.5">
+                    Conheça mais do espaço
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="programacao" className="bg-white/70 py-10">
+        <div className="mx-auto max-w-6xl px-4">
+          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Programação</p>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Música, recepção e clima de celebração</h2>
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            {extras.attractions.map((item) => (
+              <article key={item.title} className="overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-rose-100">
+                {item.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.imageUrl} alt={item.title} className="h-60 w-full object-cover sm:h-72" />
+                )}
+                <div className="p-6">
+                  {item.time && <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">{item.time}</p>}
+                  <h3 className="mt-2 text-xl font-black text-[#00334E] sm:text-2xl">{item.title}</h3>
+                  {item.subtitle && <p className="mt-1 font-bold text-[#E85D75]">{item.subtitle}</p>}
+                  <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">{item.description}</p>
+                  {item.instagramUrl && (
+                    <a href={item.instagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
+                      Ver Instagram
+                    </a>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="cardapio" className="mx-auto max-w-6xl px-4 py-10">
+        <p className="text-sm font-black uppercase tracking-[0.3em] text-[#E85D75]">Cardápio</p>
+        <h2 className="mt-2 text-2xl font-black text-[#00334E] sm:text-3xl">Tudo preparado para receber bem</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">Um cardápio pensado para acolher, refrescar e prolongar os bons encontros — com variedade, sabor e detalhes que ajudam a transformar a tarde em memória afetiva.</p>
+
+        <div className="mt-6 grid gap-4">
+          {extras.menuSections.map((section) => (
+            <article key={section.title} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-rose-100">
+              <p className="inline-flex rounded-full bg-[#eef8f0] px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{section.title}</p>
+              <p className="mt-4 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">{MENU_SECTION_COPY[section.title] ?? "Itens escolhidos com cuidado para acolher quem faz parte dessa celebração."}</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {section.items.map((item) => (
+                  <div key={item} className="rounded-3xl border border-[#efe7d2] bg-[#fffdf7] p-4 shadow-sm">
+                    <p className="font-black text-[#173323]">{item}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{MENU_ITEM_COPY[item] ?? "Presença escolhida para deixar a experiência ainda mais completa e gostosa."}</p>
+                    {item === "Chopp Kremer" && extras.drinksPhotoUrl && (
+                      <div className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#efe7d2]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={extras.drinksPhotoUrl} alt={extras.drinksProviderName || "Chopp Kremer"} className="h-48 w-full object-cover sm:h-56" />
+                      </div>
+                    )}
+                    {item === "Chopp Kremer" && extras.drinksProviderInstagramUrl && (
+                      <a href={extras.drinksProviderInstagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
+                        Conhecer o Chopp Kremer
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} eventSlug={event.slug ?? slug} initialGuest={guest} />}
+      {inviteToken && !guest && (
+        <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
+          <div className="rounded-[2rem] bg-red-50 p-6 font-bold text-red-700 ring-1 ring-red-100">Não localizamos este convite individual. Confira o link recebido no WhatsApp ou fale com a família.</div>
+        </section>
+      )}
+
+      <section className="bg-[#00334E] py-8 text-white sm:py-10">
+        <div className="mx-auto max-w-4xl px-4 text-center">
+          <h2 className="text-2xl font-black sm:text-3xl">Uma celebração com presença, carinho e memória</h2>
+        </div>
+      </section>
+    </main>
+  );
+}
