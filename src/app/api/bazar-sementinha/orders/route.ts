@@ -49,6 +49,7 @@ type BazarClientRow = {
   id: string;
   name: string;
   whatsapp?: string | null;
+  public_token?: string | null;
   [key: string]: unknown;
 };
 

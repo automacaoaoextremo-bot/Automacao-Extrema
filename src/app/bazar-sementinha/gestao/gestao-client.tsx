@@ -16,7 +16,8 @@ type Order = {
   client?: { id: string; name: string; whatsapp?: string | null } | null;
   items?: Array<{ id: string; name: string; quantity: number; total_price: number }>;
 };
-type Section = "valores" | "categorias" | "cardapio" | "pedidos";
+type Expense = { id: string; category: string; description: string; amount: number; status: string; notes?: string | null; created_at?: string | null };
+type Section = "valores" | "categorias" | "cardapio" | "pedidos" | "despesas";
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -49,11 +50,13 @@ export function GestaoClient() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [section, setSection] = useState<Section>("valores");
   const [message, setMessage] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [menu, setMenu] = useState({ category: "Salgados", name: "", unit_label: "unidade", price: "" });
+  const [newExpense, setNewExpense] = useState({ category: "Geral", description: "", amount: "", notes: "" });
 
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "excluido"), [orders]);
 
@@ -73,9 +76,16 @@ export function GestaoClient() {
     setOrders(data.orders || []);
   }, []);
 
+  const loadExpenses = useCallback(async () => {
+    const res = await fetch("/api/bazar-sementinha/expenses", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao carregar despesas.");
+    setExpenses(data.expenses || []);
+  }, []);
+
   const loadAll = useCallback(async () => {
-    await Promise.all([loadConfig(), loadOrders()]);
-  }, [loadConfig, loadOrders]);
+    await Promise.all([loadConfig(), loadOrders(), loadExpenses()]);
+  }, [loadConfig, loadExpenses, loadOrders]);
 
   useEffect(() => {
     let ignore = false;
@@ -122,6 +132,19 @@ export function GestaoClient() {
     await loadOrders();
   }
 
+  async function addExpense() {
+    const res = await fetch("/api/bazar-sementinha/expenses", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(newExpense),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao salvar despesa.");
+    setNewExpense({ category: "Geral", description: "", amount: "", notes: "" });
+    await loadExpenses();
+  }
+
   async function deleteOrder(id: string) {
     if (!confirm("Excluir este pedido da visualização da gestão? Esta ação não remove fisicamente do banco, mas marca como excluído.")) return;
     const res = await fetch(`/api/bazar-sementinha/orders?id=${id}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
@@ -153,11 +176,12 @@ export function GestaoClient() {
     { id: "categorias", label: "Categorias" },
     { id: "cardapio", label: "Cardápio" },
     { id: "pedidos", label: "Pedidos" },
+    { id: "despesas", label: "Despesas" },
   ];
 
   return (
-    <main className="min-h-screen bg-[#f9f7ef] text-[#214527]">
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[260px_1fr]">
+    <main className="min-h-screen overflow-x-hidden bg-[#f9f7ef] text-[15px] text-[#214527] sm:text-base">
+      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-3 py-4 sm:gap-5 sm:px-4 sm:py-6 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="h-fit rounded-3xl bg-[#073f20] p-3 text-white shadow-sm lg:sticky lg:top-48">
           <div className="rounded-2xl bg-[#0f552d] p-4">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#f4e7b3]">Sementinha</p>
@@ -175,20 +199,20 @@ export function GestaoClient() {
           </button>
         </aside>
 
-        <div className="space-y-5">
-          <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Cadastros do evento</p>
-            <h1 className="mt-2 text-3xl font-black">Bazar do Sementinha · 04/07/2026</h1>
+        <div className="min-w-0 space-y-4 sm:space-y-5">
+          <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Cadastros do evento</p>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Bazar do Sementinha · 04/07/2026</h1>
             <p className="mt-2 text-sm text-[#496451]">Ative, inative, copie, edite ou exclua valores, categorias e cardápio. Use o menu lateral para navegar.</p>
             {message && <p className="mt-4 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold">{message}</p>}
           </section>
 
           {section === "valores" && (
-            <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-              <h2 className="text-2xl font-black">Valores do Bazar</h2>
-              <div className="mt-4 flex gap-2">
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="text-xl font-black sm:text-2xl">Valores do Bazar</h2>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <input value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="Ex.: 55" className="min-w-0 flex-1 rounded-2xl border border-[#dfe8df] px-4 py-3" />
-                <button onClick={() => handle(async () => { await save({ kind: "price", amount: newPrice }); setNewPrice(""); }, "Valor incluído.")} className="rounded-2xl bg-[#2f7d45] px-4 font-black text-white">Incluir</button>
+                <button onClick={() => handle(async () => { await save({ kind: "price", amount: newPrice }); setNewPrice(""); }, "Valor incluído.")} className="rounded-2xl bg-[#2f7d45] px-4 py-3 font-black text-white">Incluir</button>
               </div>
               <div className="mt-4 grid gap-2 md:grid-cols-2">
                 {prices.map((price) => (
@@ -207,11 +231,11 @@ export function GestaoClient() {
           )}
 
           {section === "categorias" && (
-            <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-              <h2 className="text-2xl font-black">Categorias</h2>
-              <div className="mt-4 flex gap-2">
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="text-xl font-black sm:text-2xl">Categorias</h2>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Roupas > Adulto > Masculino" className="min-w-0 flex-1 rounded-2xl border border-[#dfe8df] px-4 py-3" />
-                <button onClick={() => handle(async () => { const parts = newCategory.split(">").map((p) => p.trim()); await save({ kind: "category", path: newCategory, level_1: parts[0], level_2: parts[1], level_3: parts[2] }); setNewCategory(""); }, "Categoria incluída.")} className="rounded-2xl bg-[#2f7d45] px-4 font-black text-white">Incluir</button>
+                <button onClick={() => handle(async () => { const parts = newCategory.split(">").map((p) => p.trim()); await save({ kind: "category", path: newCategory, level_1: parts[0], level_2: parts[1], level_3: parts[2] }); setNewCategory(""); }, "Categoria incluída.")} className="rounded-2xl bg-[#2f7d45] px-4 py-3 font-black text-white">Incluir</button>
               </div>
               <div className="mt-4 grid gap-2 md:grid-cols-2">
                 {categories.map((category) => (
@@ -231,9 +255,9 @@ export function GestaoClient() {
           )}
 
           {section === "cardapio" && (
-            <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
-              <h2 className="text-2xl font-black">Cardápio</h2>
-              <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1.4fr_1fr_1fr_auto]">
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <h2 className="text-xl font-black sm:text-2xl">Cardápio</h2>
+              <div className="mt-4 grid min-w-0 gap-2 md:grid-cols-[1fr_1.4fr_1fr_1fr_auto]">
                 <input value={menu.category} onChange={(e) => setMenu({ ...menu, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
                 <input value={menu.name} onChange={(e) => setMenu({ ...menu, name: e.target.value })} placeholder="Item" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
                 <input value={menu.unit_label} onChange={(e) => setMenu({ ...menu, unit_label: e.target.value })} placeholder="Unidade" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
@@ -258,10 +282,10 @@ export function GestaoClient() {
           )}
 
           {section === "pedidos" && (
-            <section className="rounded-3xl border border-[#dfe8df] bg-white p-5 shadow-sm">
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h2 className="text-2xl font-black">Pedidos</h2>
+                  <h2 className="text-xl font-black sm:text-2xl">Pedidos</h2>
                   <p className="mt-1 text-sm text-[#496451]">Edite, cancele ou exclua pedidos do evento.</p>
                 </div>
                 <button onClick={() => handle(loadOrders, "Pedidos atualizados.")} className="rounded-full bg-[#f4e7b3] px-4 py-2 text-sm font-black">Atualizar</button>
@@ -269,7 +293,7 @@ export function GestaoClient() {
               <div className="mt-4 space-y-3">
                 {activeOrders.length === 0 && <p className="rounded-2xl bg-[#f9f7ef] p-4 text-sm">Nenhum pedido encontrado.</p>}
                 {activeOrders.map((order) => (
-                  <article key={order.id} className="rounded-3xl border border-[#dfe8df] bg-[#fffdf7] p-4">
+                  <article key={order.id} className="min-w-0 rounded-3xl border border-[#dfe8df] bg-[#fffdf7] p-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <h3 className="text-lg font-black">#{order.code} · {order.client?.name || "Sem cliente"}</h3>
@@ -284,6 +308,52 @@ export function GestaoClient() {
                     </div>
                   </article>
                 ))}
+              </div>
+            </section>
+          )}
+
+
+          {section === "despesas" && (
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-black sm:text-2xl">Despesas</h2>
+                  <p className="mt-1 text-sm text-[#496451]">Inclua despesas somente pela área de Gestão. A página de prestação fica apenas para consulta e impressão.</p>
+                </div>
+                <button onClick={() => handle(loadExpenses, "Despesas atualizadas.")} className="rounded-full bg-[#f4e7b3] px-4 py-2 text-sm font-black">Atualizar</button>
+              </div>
+
+              <div className="mt-4 grid gap-3 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df] sm:grid-cols-4">
+                <input value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                <input value={newExpense.description} onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })} placeholder="Descrição" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                <input value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} placeholder="Valor" inputMode="decimal" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                <button onClick={() => handle(addExpense, "Despesa incluída.")} className="rounded-2xl bg-[#2f7d45] px-4 py-3 font-black text-white">Incluir despesa</button>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="p-3">Categoria</th>
+                      <th className="p-3">Descrição</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Valor</th>
+                      <th className="p-3">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={5}>Nenhuma despesa registrada.</td></tr>}
+                    {expenses.map((expenseItem) => (
+                      <tr key={expenseItem.id} className="border-b">
+                        <td className="p-3">{expenseItem.category}</td>
+                        <td className="p-3">{expenseItem.description}</td>
+                        <td className="p-3">{expenseItem.status}</td>
+                        <td className="p-3 font-bold">{brl(Number(expenseItem.amount))}</td>
+                        <td className="p-3 text-[#496451]">{shortDate(expenseItem.created_at || undefined)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
