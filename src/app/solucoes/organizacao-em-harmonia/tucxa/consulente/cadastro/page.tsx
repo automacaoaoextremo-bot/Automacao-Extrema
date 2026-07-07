@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
-type ConsulenteResponse = { ok?: boolean; message?: string; error?: string; whatsappUrl?: string };
+type ConsulenteResponse = { ok?: boolean; message?: string; error?: string; whatsappUrl?: string; redirectUrl?: string; statusUrl?: string };
 
 const headerActions = [
   { label: "É novo por aqui", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "primary" as const },
@@ -59,8 +59,12 @@ export default function CadastroConsulenteTucxaPage() {
       });
       const result = (await response.json()) as ConsulenteResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar suas informações.");
+      if (result.redirectUrl) {
+        window.location.href = result.redirectUrl;
+        return;
+      }
       setMessage(result.message || "Cadastro recebido. A organização do Tucxa fará a validação e retornará pelo WhatsApp informado e e-mail, se preenchido.");
-      setWhatsappUrl(result.whatsappUrl || "");
+      setWhatsappUrl(result.whatsappUrl || result.statusUrl || "");
       setPassword("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar as informações.");

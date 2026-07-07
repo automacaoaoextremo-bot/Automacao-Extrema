@@ -29,6 +29,7 @@ const topNav: NavItem[] = [
   { label: "Cadastro", href: "/solucoes/organizacao-em-harmonia/cliente/cadastro" },
   { label: "Base Única", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica" },
   { label: "Agenda Viva", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva" },
+  { label: "Atendimento", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia" },
   { label: "Módulos", href: "/solucoes/organizacao-em-harmonia/cliente/modulos" },
   { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes" },
   { label: "Relatórios", href: "/solucoes/organizacao-em-harmonia/cliente/relatorios" },
@@ -63,6 +64,11 @@ const sidebarGroups: NavGroup[] = [
     items: [{ label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva", description: "Atividades, eventos e recorrências." }],
   },
   {
+    label: "Atendimento em Harmonia",
+    description: "Acolhimentos, entidades e encaminhamentos.",
+    items: [{ label: "Atendimentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." }],
+  },
+  {
     label: "Módulos",
     description: "Soluções habilitadas para o cliente.",
     items: [{ label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Agenda Viva, Atendimento e Corrente em Dia." }],
@@ -73,6 +79,7 @@ const sidebarGroups: NavGroup[] = [
     items: [
       { label: "Site público do cliente", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes/site", description: "Logo, cores, chamadas e menu do Tucxa." },
       { label: "Regulamento e horários", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes/regulamento", description: "Textos públicos, horários e orientações para consulentes." },
+      { label: "Responsáveis por aprovação", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes/aprovacoes", description: "Quem valida cadastros, eventos, atendimentos e contribuições." },
       { label: "Regras e permissões", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes", description: "Aprovações, LGPD e preferências." },
     ],
   },

@@ -26,6 +26,19 @@ export default function OrganizacaoConfiguracoesPage() {
           </Link>
         </div>
 
+
+
+        <div className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Aprovações por fluxo</p>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E]">Definir responsáveis por validação</h2>
+          <p className="mt-2 leading-7 text-slate-600">
+            Direcione cadastros de Consulentes, Filhos da Corrente, eventos, atendimentos e contribuições para responsáveis diferentes, mantendo a Automação Extrema em cópia.
+          </p>
+          <Link href="/solucoes/organizacao-em-harmonia/cliente/configuracoes/aprovacoes" className="mt-5 inline-flex rounded-2xl bg-[#FFF2A8] px-5 py-4 text-center font-black text-[#00334E] shadow-lg shadow-yellow-100 transition hover:-translate-y-0.5">
+            Configurar aprovações
+          </Link>
+        </div>
+
         <div className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
           <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Regulamento e horários</p>
           <h2 className="mt-2 text-2xl font-black text-[#00334E]">Editar orientações públicas</h2>
