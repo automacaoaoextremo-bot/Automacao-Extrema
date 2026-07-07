@@ -11,7 +11,7 @@ function initialAnonymous() {
 }
 
 const headerActions = [
-  { label: "Agendar/alterar atendimento", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
+  { label: "Atendimento em Harmonia", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
   { label: "É novo por aqui", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "secondary" as const },
   { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "primary" as const },
 ];

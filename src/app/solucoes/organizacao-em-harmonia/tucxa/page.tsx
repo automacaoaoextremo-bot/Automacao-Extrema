@@ -1,21 +1,9 @@
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { consulenteServices, tucxaNavigation } from "./tucxa-content";
+import { tucxaNavigation } from "./tucxa-content";
+import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
-const modules = [
-  {
-    title: "Agenda Viva",
-    text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
-  },
-  {
-    title: "Atendimento em Harmonia",
-    text: "Ajuda a estruturar acolhimentos, orientações e encaminhamentos sem perder o cuidado humano de cada atendimento.",
-  },
-  {
-    title: "Corrente em Dia",
-    text: "Facilita contribuições e conferências, com mais clareza para a casa e menos retrabalho para a tesouraria.",
-  },
-];
+export const dynamic = "force-dynamic";
 
 const benefits = [
   "Menos mensagens perdidas nos grupos de WhatsApp.",
@@ -37,7 +25,23 @@ const headerActions = [
   },
 ];
 
-export default function TucxaSitePage() {
+export default async function TucxaSitePage() {
+  const content = await getTucxaPublicContent();
+  const modules = [
+    {
+      title: "Agenda Viva",
+      text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
+    },
+    {
+      title: content.atendimentoEmHarmonia.title,
+      text: content.atendimentoEmHarmonia.description,
+    },
+    {
+      title: content.correnteEmDia.title,
+      text: content.correnteEmDia.description,
+    },
+  ];
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
@@ -147,7 +151,7 @@ export default function TucxaSitePage() {
             </div>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-3">
-            {consulenteServices.map((service) => (
+            {content.consulenteServices.map((service) => (
               <article key={service.title} className="rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 sm:p-5">
                 <h3 className="font-black text-[#123D2C]">{service.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-700">{service.description}</p>

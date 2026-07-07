@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { consulenteGuidelines } from "../../tucxa-content";
+import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
-const headerActions = [
-  { label: "Cadastrar meus dados", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro", variant: "primary" as const },
-  { label: "Agendar/alterar atendimento", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
-  { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
-];
+export const dynamic = "force-dynamic";
 
-export default function NovoConsulenteTucxaPage() {
+export default async function NovoConsulenteTucxaPage() {
+  const content = await getTucxaPublicContent();
+  const headerActions = [
+    { label: "Cadastrar meus dados", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro", variant: "primary" as const },
+    { label: content.atendimentoEmHarmonia.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
+    { label: content.correnteEmDia.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao", variant: "secondary" as const },
+    { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
+  ];
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} navLabel="Orientações para quem é novo no Tucxa" />
@@ -20,12 +24,12 @@ export default function NovoConsulenteTucxaPage() {
             Entenda como o Tucxa acolhe, orienta e organiza os atendimentos.
           </h1>
           <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700 sm:text-[1.05rem] sm:leading-8">
-            Este espaço resume as orientações mais importantes para quem ainda não conhece a casa. A ideia é evitar desencontros e ajudar você a chegar com mais tranquilidade, sabendo qual caminho seguir.
+            {content.newHereIntro}
           </p>
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
-          {consulenteGuidelines.map((item) => (
+          {content.consulenteGuidelines.map((item) => (
             <article key={item.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <h2 className="text-xl font-black text-[#123D2C]">{item.title}</h2>
               <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{item.description}</p>
@@ -39,9 +43,12 @@ export default function NovoConsulenteTucxaPage() {
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             Primeiro, faça um cadastro simples com nome completo, WhatsApp, e-mail opcional e senha. A organização do Tucxa valida as informações e retorna pelo WhatsApp informado e também por e-mail, quando preenchido.
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               Fazer cadastro de consulente
+            </Link>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+              {content.atendimentoEmHarmonia.shortLabel}
             </Link>
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=anonima" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               Contribuir anonimamente

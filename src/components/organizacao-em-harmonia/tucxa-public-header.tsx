@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { tucxaTheme } from "@/app/solucoes/organizacao-em-harmonia/tucxa/tucxa-content";
@@ -16,12 +17,30 @@ type TucxaPublicHeaderProps = {
   navLabel?: string;
 };
 
+function scrollToHash(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  if (!href.startsWith("#")) return;
+
+  const target = document.getElementById(href.slice(1));
+  if (!target) return;
+
+  event.preventDefault();
+
+  const header = document.querySelector<HTMLElement>("[data-tucxa-public-header]");
+  const headerHeight = header?.getBoundingClientRect().height ?? 0;
+  const spacing = 16;
+  const top = target.getBoundingClientRect().top + window.scrollY - headerHeight - spacing;
+
+  window.history.pushState(null, "", href);
+  window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+}
+
 function HeaderAction({ link }: { link: TucxaHeaderLink }) {
   const isPrimary = link.variant === "primary";
 
   return (
     <Link
       href={link.href}
+      onClick={(event) => scrollToHash(event, link.href)}
       className={`inline-flex min-h-7 items-center justify-center rounded-full border px-2.5 py-1 text-center text-[0.72rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
         isPrimary
           ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
@@ -37,6 +56,7 @@ function SectionLink({ link }: { link: TucxaHeaderLink }) {
   return (
     <Link
       href={link.href}
+      onClick={(event) => scrollToHash(event, link.href)}
       className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
     >
       {link.label}
@@ -46,7 +66,7 @@ function SectionLink({ link }: { link: TucxaHeaderLink }) {
 
 export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = "Menu do site do Tucxa" }: TucxaPublicHeaderProps) {
   return (
-    <header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
+    <header data-tucxa-public-header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
         <Link
           href="/solucoes/organizacao-em-harmonia/tucxa"

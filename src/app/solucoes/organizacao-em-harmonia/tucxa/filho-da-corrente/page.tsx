@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { filhoDaCorrenteAgenda, filhoDaCorrenteFunctions } from "../tucxa-content";
+import { filhoDaCorrenteAgenda as fallbackFilhoDaCorrenteAgenda, filhoDaCorrenteFunctions } from "../tucxa-content";
 
 type AccessPerson = {
   fullName: string;
@@ -61,10 +61,30 @@ export default function FilhoDaCorrenteTucxaPage() {
   const [notes, setNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>(["filho-da-corrente"]);
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
+  const [agendaOptions, setAgendaOptions] = useState<Array<{ slug: string; label: string }>>([...fallbackFilhoDaCorrenteAgenda]);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [foundPerson, setFoundPerson] = useState<AccessPerson | null>(null);
+
+
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/organizacao-em-harmonia/site-tucxa/agenda-options")
+      .then(async (response) => {
+        const result = (await response.json()) as { options?: Array<{ slug?: string; label?: string }> };
+        if (!response.ok) return;
+        const options = (result.options ?? [])
+          .map((item) => ({ slug: String(item.slug || "").trim(), label: String(item.label || "").trim() }))
+          .filter((item) => item.slug && item.label);
+        if (active && options.length) setAgendaOptions(options);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -76,9 +96,9 @@ export default function FilhoDaCorrenteTucxaPage() {
 
   const selectedSummary = useMemo(() => {
     const functionLabels = filhoDaCorrenteFunctions.filter((item) => functionSlugs.includes(item.slug)).map((item) => item.label);
-    const agendaLabels = filhoDaCorrenteAgenda.filter((item) => agendaSlugs.includes(item.slug)).map((item) => item.label);
+    const agendaLabels = agendaOptions.filter((item) => agendaSlugs.includes(item.slug)).map((item) => item.label);
     return [...functionLabels, ...agendaLabels];
-  }, [agendaSlugs, functionSlugs]);
+  }, [agendaOptions, agendaSlugs, functionSlugs]);
 
   async function resolveLoginEmail() {
     const value = identifier.trim();
@@ -181,7 +201,10 @@ export default function FilhoDaCorrenteTucxaPage() {
       />
 
       <section className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8">
-        <div id="acesso" className="order-1 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-1 lg:row-start-1">
+        <div
+          id="acesso"
+          className="order-1 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-1 lg:row-start-1"
+        >
             <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acesso liberado</p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entrar com WhatsApp ou e-mail</h1>
             <p className="mt-3 leading-7 text-slate-700">
@@ -212,7 +235,10 @@ export default function FilhoDaCorrenteTucxaPage() {
             </form>
           </div>
 
-        <div id="primeiro-acesso" className="order-2 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div
+          id="primeiro-acesso"
+          className="order-2 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+        >
           <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Primeiro acesso</p>
             <h2 className="mt-2 text-2xl font-black text-[#123D2C]">Confirme seus dados para validação</h2>
@@ -268,7 +294,7 @@ export default function FilhoDaCorrenteTucxaPage() {
               <p className="text-sm font-black text-[#123D2C]">Agenda</p>
               <p className="mt-1 text-xs font-semibold text-slate-600">Informe também os atendimentos, grupos, estudos e ações em que você está envolvido.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {filhoDaCorrenteAgenda.map((item) => (
+                {agendaOptions.map((item) => (
                   <label key={item.slug} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                     <input type="checkbox" checked={agendaSlugs.includes(item.slug)} onChange={() => setAgendaSlugs((current) => toggleValue(current, item.slug))} className="mt-1 h-5 w-5" />
                     <span className="text-sm font-bold text-[#123D2C]">{item.label}</span>
