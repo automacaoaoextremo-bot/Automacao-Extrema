@@ -181,7 +181,10 @@ export default function FilhoDaCorrenteTucxaPage() {
       />
 
       <section className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8">
-        <div id="acesso" className="order-1 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-1 lg:row-start-1">
+        <div
+          id="acesso"
+          className="order-1 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-1 lg:row-start-1"
+        >
             <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acesso liberado</p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entrar com WhatsApp ou e-mail</h1>
             <p className="mt-3 leading-7 text-slate-700">
@@ -212,7 +215,10 @@ export default function FilhoDaCorrenteTucxaPage() {
             </form>
           </div>
 
-        <div id="primeiro-acesso" className="order-2 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div
+          id="primeiro-acesso"
+          className="order-2 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+        >
           <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Primeiro acesso</p>
             <h2 className="mt-2 text-2xl font-black text-[#123D2C]">Confirme seus dados para validação</h2>
