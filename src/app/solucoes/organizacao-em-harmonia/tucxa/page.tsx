@@ -14,13 +14,18 @@ const benefits = [
 
 const headerActions = [
   {
-    label: "Filho da corrente",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente",
+    label: "Início",
+    href: "#inicio",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Filho da Corrente",
+    href: "#corrente",
     variant: "primary" as const,
   },
   {
     label: "Consulente",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente",
+    href: "#consulentes",
     variant: "secondary" as const,
   },
 ];
@@ -43,10 +48,10 @@ export default async function TucxaSitePage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
 
-      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
+      <section className="scroll-mt-48 mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
           <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
             Organização em Harmonia no Tucxa
@@ -110,7 +115,7 @@ export default async function TucxaSitePage() {
         </div>
       </section>
 
-      <section id="corrente" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section id="corrente" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Filhos da Corrente</p>
@@ -125,13 +130,13 @@ export default async function TucxaSitePage() {
               Ao preencher os dados, o cadastro fica aguardando validação. Depois da conferência, o responsável libera o acesso e envia as orientações por e-mail, quando informado, e por WhatsApp.
             </p>
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
-              Ir para Filho da Corrente
+              Acessar página do Filho da Corrente
             </Link>
           </div>
         </div>
       </section>
 
-      <section id="consulentes" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section id="consulentes" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -143,10 +148,10 @@ export default async function TucxaSitePage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-80 lg:grid-cols-1">
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-[#123D2C] px-5 py-3.5 text-center text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
-                Entender os atendimentos
+                Acessar página do Consulente
               </Link>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
-                Cadastro / contribuição
+                Fazer cadastro / contribuição
               </Link>
             </div>
           </div>
