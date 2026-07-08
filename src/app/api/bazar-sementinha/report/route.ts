@@ -6,11 +6,12 @@ export const dynamic = "force-dynamic";
 
 type OrderRow = {
   id: string;
+  code?: string | null;
   total_amount: number | string;
   payment_status: string;
   status: string;
   created_at: string;
-  client?: { name?: string } | null;
+  client?: { name?: string | null; whatsapp?: string | null } | null;
   items?: Array<{
     kind: string;
     name: string;
@@ -37,6 +38,24 @@ type ExpenseRow = {
   status?: string | null;
 };
 
+type SummaryRow = {
+  label: string;
+  quantity: number;
+  revenue: number;
+  expenses: number;
+  result: number;
+  resultPercent: number | null;
+};
+
+type PendingPaymentRow = {
+  id: string;
+  clientName: string;
+  code: string;
+  createdAt: string;
+  items: string;
+  total: number;
+};
+
 const EXCLUDED_ORDER_STATUS = "excluido";
 const CANCELED_ORDER_STATUS = "cancelado";
 
@@ -46,7 +65,7 @@ export async function GET() {
     const [ordersRes, paymentsRes, expensesRes] = await Promise.all([
       supabaseAdmin
         .from("bazar_orders")
-        .select("*, client:bazar_clients(name), items:bazar_order_items(*)")
+        .select("*, client:bazar_clients(name, whatsapp), items:bazar_order_items(*)")
         .eq("event_id", event.id)
         .order("created_at"),
       supabaseAdmin.from("bazar_payments").select("*").eq("event_id", event.id).order("created_at"),
@@ -99,23 +118,40 @@ export async function GET() {
     );
 
     const itemRows = activeOrders.flatMap((order) => order.items || []);
+    const menuItemRows = itemRows.filter((item) => item.kind === "menu");
+
     const byKind = groupSum(
       itemRows,
       (item) => (item.kind === "bazar" ? "Bazar" : "Alimentos e bebidas"),
       (item) => toNumber(item.total_price),
       (item) => toNumber(item.quantity),
     );
+
+    const byCategorySummary = buildCategorySummary(byKind, confirmedExpenses);
+
     const byItem = groupSum(
-      itemRows,
-      (item) => (item.kind === "bazar" ? `${item.name} · ${item.category_path || "Sem categoria"}` : item.name),
+      menuItemRows,
+      (item) => item.name,
       (item) => toNumber(item.total_price),
       (item) => toNumber(item.quantity),
     );
+
     const byExpense = groupSum(
       confirmedExpenses,
       (expense) => expense.category || "Geral",
       (expense) => toNumber(expense.amount),
     );
+
+    const pendingPayments: PendingPaymentRow[] = activePendingOrders
+      .map((order) => ({
+        id: order.id,
+        clientName: order.client?.name?.trim() || "Sem cliente",
+        code: order.code || order.id.slice(0, 8),
+        createdAt: order.created_at,
+        items: describeOrderItems(order.items || []),
+        total: toNumber(order.total_amount),
+      }))
+      .sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR") || a.createdAt.localeCompare(b.createdAt));
 
     return NextResponse.json({
       event,
@@ -125,8 +161,10 @@ export async function GET() {
       totals: { ...totals, result },
       byPayment,
       byKind,
+      byCategorySummary,
       byItem,
       byExpense,
+      pendingPayments,
     });
   } catch (error) {
     console.error("[bazar-sementinha/report][GET]", error);
@@ -149,4 +187,82 @@ function groupSum<T>(rows: T[], labelFn: (row: T) => string, amountFn: (row: T) 
     map.set(label, previous);
   }
   return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function buildCategorySummary(salesRows: Array<{ label: string; quantity: number; total: number }>, expenses: ExpenseRow[]): SummaryRow[] {
+  const map = new Map<string, SummaryRow>();
+
+  for (const row of salesRows) {
+    map.set(row.label, {
+      label: row.label,
+      quantity: row.quantity,
+      revenue: row.total,
+      expenses: 0,
+      result: row.total,
+      resultPercent: row.total > 0 ? 100 : null,
+    });
+  }
+
+  for (const expense of expenses) {
+    const label = summaryLabelForExpense(expense.category || expense.description || "");
+    const previous = map.get(label) || {
+      label,
+      quantity: 0,
+      revenue: 0,
+      expenses: 0,
+      result: 0,
+      resultPercent: null,
+    };
+
+    previous.expenses += toNumber(expense.amount);
+    previous.result = previous.revenue - previous.expenses;
+    previous.resultPercent = previous.revenue > 0 ? (previous.result / previous.revenue) * 100 : null;
+    map.set(label, previous);
+  }
+
+  const rows = [...map.values()].map((row) => ({
+    ...row,
+    result: row.revenue - row.expenses,
+    resultPercent: row.revenue > 0 ? ((row.revenue - row.expenses) / row.revenue) * 100 : null,
+  }));
+
+  const totalRevenue = rows.reduce((sum, row) => sum + row.revenue, 0);
+  const totalExpenses = rows.reduce((sum, row) => sum + row.expenses, 0);
+  const totalResult = totalRevenue - totalExpenses;
+
+  return [
+    ...rows.sort((a, b) => b.revenue - a.revenue || b.expenses - a.expenses),
+    {
+      label: "Total do evento",
+      quantity: rows.reduce((sum, row) => sum + row.quantity, 0),
+      revenue: totalRevenue,
+      expenses: totalExpenses,
+      result: totalResult,
+      resultPercent: totalRevenue > 0 ? (totalResult / totalRevenue) * 100 : null,
+    },
+  ];
+}
+
+function summaryLabelForExpense(value: string) {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (["alimenta", "bebida", "cozinha", "salgado", "bolo", "torta", "doce"].some((term) => normalized.includes(term))) {
+    return "Alimentos e bebidas";
+  }
+
+  if (["bazar", "roupa", "sapato", "brinquedo", "bolsa", "acessorio", "bijuteria", "casa"].some((term) => normalized.includes(term))) {
+    return "Bazar";
+  }
+
+  return "Despesas gerais";
+}
+
+function describeOrderItems(items: NonNullable<OrderRow["items"]>) {
+  if (items.length === 0) return "Sem itens detalhados";
+  return items
+    .map((item) => `${toNumber(item.quantity)}x ${item.name}`)
+    .join(", ");
 }

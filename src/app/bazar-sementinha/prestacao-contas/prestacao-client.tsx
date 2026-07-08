@@ -3,11 +3,35 @@
 import { useEffect, useState } from "react";
 
 type Group = { label: string; quantity: number; total: number };
+type CategorySummary = { label: string; quantity: number; revenue: number; expenses: number; result: number; resultPercent: number | null };
+type PendingPayment = { id: string; clientName: string; code: string; createdAt: string; items: string; total: number };
 type Expense = { id: string; category: string; description: string; amount: number; status: string; notes?: string | null };
-type Report = { event: { name: string }; totals: { sold: number; paid: number; pending: number; canceled: number; expenses: number; result: number }; byPayment: Group[]; byKind: Group[]; byItem: Group[]; byExpense: Group[]; expenses: Expense[] };
+type Report = {
+  event: { name: string };
+  totals: { sold: number; paid: number; pending: number; canceled: number; expenses: number; result: number };
+  byPayment: Group[];
+  byKind: Group[];
+  byCategorySummary: CategorySummary[];
+  byItem: Group[];
+  byExpense: Group[];
+  pendingPayments: PendingPayment[];
+  expenses: Expense[];
+};
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function percent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "—";
+  return `${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function dateTime(value: string) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
 export function PrestacaoClient() {
@@ -42,8 +66,21 @@ export function PrestacaoClient() {
       ["Despesas", report.totals.expenses],
       ["Resultado", report.totals.result],
       [],
+      ["Totais por categoria/resumo"],
+      ["Descrição", "Quantidade", "Receita", "Despesas", "Resultado", "% resultado"],
+      ...report.byCategorySummary.map((item) => [item.label, item.quantity, item.revenue, item.expenses, item.result, percent(item.resultPercent)]),
+      [],
+      ["Itens vendidos do cardápio de alimentação"],
       ["Item", "Quantidade", "Total"],
       ...report.byItem.map((item) => [item.label, item.quantity, item.total]),
+      [],
+      ["Pagamentos pendentes"],
+      ["Cliente", "Pedido", "Itens", "Data", "Valor pendente"],
+      ...report.pendingPayments.map((item) => [item.clientName, item.code, item.items, dateTime(item.createdAt), item.total]),
+      [],
+      ["Despesas registradas"],
+      ["Categoria", "Descrição", "Status", "Valor"],
+      ...report.expenses.map((item) => [item.category, item.description, item.status, item.amount]),
     ];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -95,12 +132,13 @@ export function PrestacaoClient() {
         </section>
 
         <ReportTable title="1. Totais por forma de pagamento" rows={report.byPayment} />
-        <ReportTable title="2. Totais por categoria/resumo" rows={report.byKind} />
-        <ReportTable title="3. Itens vendidos por item" rows={report.byItem} />
-        <ReportTable title="4. Despesas por categoria" rows={report.byExpense} />
+        <CategorySummaryTable rows={report.byCategorySummary} />
+        <ReportTable title="3. Itens vendidos do cardápio de alimentação" rows={report.byItem} emptyText="Nenhum item de alimentação registrado." />
+        <PendingPaymentsTable rows={report.pendingPayments} />
+        <ReportTable title="5. Despesas por categoria" rows={report.byExpense} />
 
         <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
-          <h2 className="text-xl font-black sm:text-2xl">5. Despesas registradas</h2>
+          <h2 className="text-xl font-black sm:text-2xl">6. Despesas registradas</h2>
           <p className="mt-2 text-sm leading-6 text-[#496451] print:hidden">A inclusão e manutenção de despesas ficam somente na área de Gestão, evitando alteração indevida na prestação pública.</p>
           {message && <p className="mt-3 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold print:hidden">{message}</p>}
           <div className="mt-4 overflow-x-auto">
@@ -118,14 +156,89 @@ export function PrestacaoClient() {
   );
 }
 
-function ReportTable({ title, rows }: { title: string; rows: Group[] }) {
+function ReportTable({ title, rows, emptyText = "Nenhum registro encontrado." }: { title: string; rows: Group[]; emptyText?: string }) {
   return (
     <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
       <h2 className="text-xl font-black sm:text-2xl">{title}</h2>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full border-collapse text-left text-sm">
           <thead><tr className="border-b"><th className="p-3">Descrição</th><th className="p-3">Quantidade</th><th className="p-3">Total</th></tr></thead>
-          <tbody>{rows.map((row) => <tr key={row.label} className="border-b"><td className="p-3">{row.label}</td><td className="p-3">{row.quantity}</td><td className="p-3 font-bold">{brl(row.total)}</td></tr>)}</tbody>
+          <tbody>
+            {rows.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={3}>{emptyText}</td></tr>}
+            {rows.map((row) => <tr key={row.label} className="border-b"><td className="p-3">{row.label}</td><td className="p-3">{row.quantity}</td><td className="p-3 font-bold">{brl(row.total)}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CategorySummaryTable({ rows }: { rows: CategorySummary[] }) {
+  return (
+    <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
+      <h2 className="text-xl font-black sm:text-2xl">2. Totais por categoria/resumo</h2>
+      <p className="mt-2 text-sm leading-6 text-[#496451]">
+        Resultado por categoria = receita registrada menos despesas vinculadas. Despesas gerais ficam separadas quando não pertencem diretamente ao bazar ou ao cardápio.
+      </p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="p-3">Descrição</th>
+              <th className="p-3">Qtd.</th>
+              <th className="p-3">Receita</th>
+              <th className="p-3">Despesas</th>
+              <th className="p-3">Resultado</th>
+              <th className="p-3">% resultado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={6}>Nenhum resumo encontrado.</td></tr>}
+            {rows.map((row) => (
+              <tr key={row.label} className={`border-b ${row.label === "Total do evento" ? "bg-[#f9f7ef] font-black" : ""}`}>
+                <td className="p-3">{row.label}</td>
+                <td className="p-3">{row.quantity}</td>
+                <td className="p-3 font-bold">{brl(row.revenue)}</td>
+                <td className="p-3 font-bold">{brl(row.expenses)}</td>
+                <td className="p-3 font-bold">{brl(row.result)}</td>
+                <td className="p-3 font-bold">{percent(row.resultPercent)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PendingPaymentsTable({ rows }: { rows: PendingPayment[] }) {
+  return (
+    <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm print:break-inside-avoid sm:p-5">
+      <h2 className="text-xl font-black sm:text-2xl">4. Pagamentos pendentes</h2>
+      <p className="mt-2 text-sm leading-6 text-[#496451]">Pedidos ainda sem pagamento confirmado no caixa.</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="p-3">Cliente</th>
+              <th className="p-3">Pedido</th>
+              <th className="p-3">Itens</th>
+              <th className="p-3">Data</th>
+              <th className="p-3">Valor pendente</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={5}>Não há pagamentos pendentes.</td></tr>}
+            {rows.map((row) => (
+              <tr key={row.id} className="border-b">
+                <td className="p-3 font-bold">{row.clientName}</td>
+                <td className="p-3">#{row.code}</td>
+                <td className="max-w-[420px] p-3">{row.items}</td>
+                <td className="p-3">{dateTime(row.createdAt)}</td>
+                <td className="p-3 font-bold">{brl(row.total)}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
     </section>

@@ -56,7 +56,8 @@ export function GestaoClient() {
   const [newPrice, setNewPrice] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [menu, setMenu] = useState({ category: "Salgados", name: "", unit_label: "unidade", price: "" });
-  const [newExpense, setNewExpense] = useState({ category: "Geral", description: "", amount: "", notes: "" });
+  const [newExpense, setNewExpense] = useState({ category: "Geral", description: "", amount: "", status: "confirmada", notes: "" });
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
 
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "excluido"), [orders]);
 
@@ -132,16 +133,34 @@ export function GestaoClient() {
     await loadOrders();
   }
 
-  async function addExpense() {
+  function resetExpenseForm() {
+    setEditingExpenseId(null);
+    setNewExpense({ category: "Geral", description: "", amount: "", status: "confirmada", notes: "" });
+  }
+
+  function startEditExpense(expense: Expense) {
+    setEditingExpenseId(expense.id);
+    setNewExpense({
+      category: expense.category || "Geral",
+      description: expense.description || "",
+      amount: String(Number(expense.amount || 0)).replace(".", ","),
+      status: expense.status || "confirmada",
+      notes: expense.notes || "",
+    });
+  }
+
+  async function saveExpense() {
+    const method = editingExpenseId ? "PATCH" : "POST";
+    const body = editingExpenseId ? { id: editingExpenseId, ...newExpense } : newExpense;
     const res = await fetch("/api/bazar-sementinha/expenses", {
-      method: "POST",
+      method,
       credentials: "same-origin",
       headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(newExpense),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Erro ao salvar despesa.");
-    setNewExpense({ category: "Geral", description: "", amount: "", notes: "" });
+    if (!res.ok) throw new Error(data.error || (editingExpenseId ? "Erro ao editar despesa." : "Erro ao salvar despesa."));
+    resetExpenseForm();
     await loadExpenses();
   }
 
@@ -323,11 +342,34 @@ export function GestaoClient() {
                 <button onClick={() => handle(loadExpenses, "Despesas atualizadas.")} className="rounded-full bg-[#f4e7b3] px-4 py-2 text-sm font-black">Atualizar</button>
               </div>
 
-              <div className="mt-4 grid gap-3 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df] sm:grid-cols-4">
-                <input value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
-                <input value={newExpense.description} onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })} placeholder="Descrição" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
-                <input value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} placeholder="Valor" inputMode="decimal" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
-                <button onClick={() => handle(addExpense, "Despesa incluída.")} className="rounded-2xl bg-[#2f7d45] px-4 py-3 font-black text-white">Incluir despesa</button>
+              <div className="mt-4 rounded-3xl bg-[#fffdf7] p-4 ring-1 ring-[#dfe8df]">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-black">{editingExpenseId ? "Editar despesa" : "Incluir despesa"}</h3>
+                    <p className="text-sm text-[#496451]">Altere categoria, descrição, valor, status e observações sem precisar acessar a prestação pública.</p>
+                  </div>
+                  {editingExpenseId && (
+                    <button onClick={resetExpenseForm} className="w-fit rounded-full bg-white px-4 py-2 text-sm font-black text-[#214527] ring-1 ring-[#dfe8df]">
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1.4fr_0.8fr_0.9fr]">
+                  <input value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })} placeholder="Categoria" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                  <input value={newExpense.description} onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })} placeholder="Descrição" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                  <input value={newExpense.amount} onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })} placeholder="Valor" inputMode="decimal" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                  <select value={newExpense.status} onChange={(e) => setNewExpense({ ...newExpense, status: e.target.value })} className="rounded-2xl border border-[#dfe8df] bg-white px-4 py-3">
+                    <option value="confirmada">confirmada</option>
+                    <option value="pendente">pendente</option>
+                    <option value="cancelada">cancelada</option>
+                  </select>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                  <input value={newExpense.notes} onChange={(e) => setNewExpense({ ...newExpense, notes: e.target.value })} placeholder="Observações opcionais" className="rounded-2xl border border-[#dfe8df] px-4 py-3" />
+                  <button onClick={() => handle(saveExpense, editingExpenseId ? "Despesa editada." : "Despesa incluída.")} className="rounded-2xl bg-[#2f7d45] px-5 py-3 font-black text-white">
+                    {editingExpenseId ? "Salvar alterações" : "Incluir despesa"}
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 overflow-x-auto">
@@ -339,10 +381,11 @@ export function GestaoClient() {
                       <th className="p-3">Status</th>
                       <th className="p-3">Valor</th>
                       <th className="p-3">Data</th>
+                      <th className="p-3">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {expenses.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={5}>Nenhuma despesa registrada.</td></tr>}
+                    {expenses.length === 0 && <tr><td className="p-3 text-[#496451]" colSpan={6}>Nenhuma despesa registrada.</td></tr>}
                     {expenses.map((expenseItem) => (
                       <tr key={expenseItem.id} className="border-b">
                         <td className="p-3">{expenseItem.category}</td>
@@ -350,6 +393,11 @@ export function GestaoClient() {
                         <td className="p-3">{expenseItem.status}</td>
                         <td className="p-3 font-bold">{brl(Number(expenseItem.amount))}</td>
                         <td className="p-3 text-[#496451]">{shortDate(expenseItem.created_at || undefined)}</td>
+                        <td className="p-3">
+                          <button onClick={() => startEditExpense(expenseItem)} className="rounded-full bg-[#f4e7b3] px-3 py-2 text-xs font-black text-[#214527]">
+                            Editar
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
