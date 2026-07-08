@@ -6,9 +6,15 @@ export const dynamic = "force-dynamic";
 type AgendaOption = {
   slug: string;
   label: string;
+  title: string;
+  dateLabel: string;
+  timeLabel: string;
+  recurrenceLabel: string;
+  description: string;
 };
 
 type AgendaEventRecord = {
+  id?: string | null;
   title?: string | null;
   name?: string | null;
   event_type?: string | null;
@@ -19,29 +25,90 @@ type AgendaEventRecord = {
   ends_at?: string | null;
   end_at?: string | null;
   end_date?: string | null;
+  all_day?: boolean | null;
+  recurrence_rule?: string | null;
   status?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
 const fallbackOptions: AgendaOption[] = [
-  { slug: "atendimento-segunda", label: "Atendimento de Segunda" },
-  { slug: "atendimento-terca", label: "Atendimento de Terça" },
-  { slug: "atendimento-quarta", label: "Atendimento de Quarta" },
-  { slug: "quinta-grupo-1", label: "Quinta - Grupo 1" },
-  { slug: "quinta-grupo-2", label: "Quinta - Grupo 2" },
-  { slug: "quinta-grupo-1-e-2", label: "Quinta - Grupo 1 e 2" },
-  { slug: "coordenacao-grupo-estudos", label: "Coordenação no Grupo de Estudos" },
-  { slug: "participacao-grupo-estudos", label: "Participação no Grupo de Estudos" },
-  { slug: "coordenacao-clube-livro", label: "Coordenação no Clube do Livro" },
-  { slug: "participacao-clube-livro", label: "Participação no Clube do Livro" },
-  { slug: "coordenacao-sementinha", label: "Coordenação Sementinha" },
-  { slug: "voluntario-sementinha", label: "Voluntário Sementinha" },
-  { slug: "organizacao-eventos", label: "Organização de Eventos" },
-  { slug: "voluntario-eventos", label: "Voluntário Eventos" },
+  {
+    slug: "atendimento-segunda",
+    title: "Atendimento aos filhos de fora — Segunda-feira",
+    label: "Atendimento aos filhos de fora — Segunda-feira",
+    recurrenceLabel: "Recorrência semanal",
+    dateLabel: "Segunda-feira",
+    timeLabel: "18h às 22h",
+    description: "Recorrência semanal • Segunda-feira • 18h às 22h",
+  },
+  {
+    slug: "atendimento-terca",
+    title: "Atendimento aos filhos de fora — Terça-feira",
+    label: "Atendimento aos filhos de fora — Terça-feira",
+    recurrenceLabel: "Recorrência semanal",
+    dateLabel: "Terça-feira",
+    timeLabel: "18h às 22h",
+    description: "Recorrência semanal • Terça-feira • 18h às 22h",
+  },
+  {
+    slug: "tratamento-transformacao-quarta",
+    title: "Tratamento espiritual / Transformação — Quarta-feira",
+    label: "Tratamento espiritual / Transformação — Quarta-feira",
+    recurrenceLabel: "Conforme encaminhamento",
+    dateLabel: "Quarta-feira",
+    timeLabel: "18h30 às 22h",
+    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h",
+  },
+  {
+    slug: "quinta-grupo-1",
+    title: "Quinta - Grupo 1",
+    label: "Quinta - Grupo 1",
+    recurrenceLabel: "1ª e 3ª quinta-feira do mês",
+    dateLabel: "Quinta-feira",
+    timeLabel: "18h às 22h",
+    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h",
+  },
+  {
+    slug: "quinta-grupo-2",
+    title: "Quinta - Grupo 2",
+    label: "Quinta - Grupo 2",
+    recurrenceLabel: "2ª e 4ª quinta-feira do mês",
+    dateLabel: "Quinta-feira",
+    timeLabel: "18h às 22h",
+    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h",
+  },
+  {
+    slug: "grupo-estudos",
+    title: "Grupo de Estudos",
+    label: "Grupo de Estudos",
+    recurrenceLabel: "Conforme calendário",
+    dateLabel: "Data a definir",
+    timeLabel: "Horário a definir",
+    description: "Conforme calendário • Data a definir • Horário a definir",
+  },
+  {
+    slug: "clube-livro",
+    title: "Clube do Livro",
+    label: "Clube do Livro",
+    recurrenceLabel: "Conforme calendário",
+    dateLabel: "Data a definir",
+    timeLabel: "Horário a definir",
+    description: "Conforme calendário • Data a definir • Horário a definir",
+  },
+  {
+    slug: "voluntario-sementinha",
+    title: "Voluntário Sementinha",
+    label: "Voluntário Sementinha",
+    recurrenceLabel: "Conforme calendário",
+    dateLabel: "Data a definir",
+    timeLabel: "Horário a definir",
+    description: "Conforme calendário • Data a definir • Horário a definir",
+  },
 ];
 
 const dayOrder: Record<string, number> = {
   domingo: 0,
+  sunday: 0,
   segunda: 1,
   "segunda-feira": 1,
   monday: 1,
@@ -63,6 +130,8 @@ const dayOrder: Record<string, number> = {
   sábado: 6,
   saturday: 6,
 };
+
+const weekdayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
 
 function slugify(value: string) {
   return value
@@ -87,21 +156,7 @@ function parseDate(value: unknown) {
 }
 
 function asBoolean(value: unknown) {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-
-function isRecurringEvent(event: AgendaEventRecord) {
-  const metadata = event.metadata ?? null;
-  const status = normalize(event.status ?? "");
-  return (
-    status.includes("recorrente") ||
-    status.includes("recurring") ||
-    asBoolean(metadata?.recurring) ||
-    asBoolean(metadata?.recorrente) ||
-    typeof metadata?.recurrenceRule === "string" ||
-    typeof metadata?.rrule === "string"
-  );
+  return value === true || value === "true" || value === 1 || value === "1" || value === "sim";
 }
 
 function metadataText(metadata: Record<string, unknown> | null | undefined) {
@@ -116,23 +171,40 @@ function labelForEvent(event: AgendaEventRecord) {
   return event.title || event.name || event.event_type || event.group_slug || "Atividade";
 }
 
-function eventSlug(event: AgendaEventRecord, label: string) {
-  return event.group_slug || event.event_type || slugify(label);
+function startsAt(event: AgendaEventRecord) {
+  const metadata = event.metadata ?? null;
+  return parseDate(event.starts_at) ?? parseDate(event.start_at) ?? parseDate(event.start_date) ?? parseDate(metadata?.startsAt) ?? parseDate(metadata?.startAt) ?? parseDate(metadata?.startDate) ?? parseDate(metadata?.dataInicio);
+}
+
+function endsAt(event: AgendaEventRecord) {
+  const metadata = event.metadata ?? null;
+  return parseDate(event.ends_at) ?? parseDate(event.end_at) ?? parseDate(event.end_date) ?? parseDate(metadata?.endsAt) ?? parseDate(metadata?.endAt) ?? parseDate(metadata?.endDate) ?? parseDate(metadata?.fim) ?? parseDate(metadata?.dataFim);
+}
+
+function recurrenceFrequency(event: AgendaEventRecord) {
+  const metadata = event.metadata ?? null;
+  const raw = metadata?.recurrenceFrequency ?? metadata?.periodicity ?? metadata?.periodicidade ?? metadata?.frequencia;
+  return typeof raw === "string" ? normalize(raw) : "";
+}
+
+function isRecurringEvent(event: AgendaEventRecord) {
+  const metadata = event.metadata ?? null;
+  const status = normalize(event.status ?? "");
+  return (
+    status.includes("recorrente") ||
+    status.includes("recurring") ||
+    asBoolean(metadata?.recurring) ||
+    asBoolean(metadata?.recorrente) ||
+    Boolean(event.recurrence_rule) ||
+    typeof metadata?.recurrenceRule === "string" ||
+    typeof metadata?.rrule === "string" ||
+    Boolean(recurrenceFrequency(event))
+  );
 }
 
 function hasEnded(event: AgendaEventRecord, today: Date) {
-  const metadata = event.metadata ?? null;
-  const endDate =
-    parseDate(event.ends_at) ??
-    parseDate(event.end_at) ??
-    parseDate(event.end_date) ??
-    parseDate(metadata?.endsAt) ??
-    parseDate(metadata?.endAt) ??
-    parseDate(metadata?.endDate) ??
-    parseDate(metadata?.fim) ??
-    parseDate(metadata?.dataFim);
-
-  const startDate = parseDate(event.starts_at) ?? parseDate(event.start_at) ?? parseDate(event.start_date) ?? parseDate(metadata?.startsAt) ?? parseDate(metadata?.startDate);
+  const endDate = endsAt(event);
+  const startDate = startsAt(event);
   if (!endDate && isRecurringEvent(event)) return false;
 
   const comparisonDate = endDate ?? startDate;
@@ -177,7 +249,7 @@ function isMandatoryForAllFilhos(event: AgendaEventRecord) {
   const label = labelForEvent(event);
   const text = normalize(`${label} ${event.group_slug ?? ""} ${event.event_type ?? ""} ${metadataText(metadata)}`);
 
-  const explicitAllChildrenText =
+  return (
     text.includes("todos os filhos") ||
     text.includes("todos filhos") ||
     text.includes("todos os filhos da corrente") ||
@@ -186,15 +258,15 @@ function isMandatoryForAllFilhos(event: AgendaEventRecord) {
     text.includes("reuniao geral") ||
     text.includes("encontro geral") ||
     text.includes("retorno das ferias") ||
-    text.includes("volta das ferias");
-
-  return explicitAllChildrenText;
+    text.includes("volta das ferias") ||
+    text.includes("cavalinhos e cambonos")
+  );
 }
 
 function weekdayFromText(value: string) {
   const normalized = normalize(value);
-  const orderedDays = ["domingo", "segunda", "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado"];
-  const match = orderedDays.find((day) => normalized.includes(normalize(day)));
+  const orderedDays = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+  const match = orderedDays.find((day) => normalized.includes(day));
   return match ? dayOrder[match] : 99;
 }
 
@@ -212,17 +284,119 @@ function weekdayFromMetadata(metadata: Record<string, unknown> | null | undefine
   return 99;
 }
 
+function weekdayFromRule(rule: string | null | undefined) {
+  if (!rule) return 99;
+  const normalized = rule.toUpperCase();
+  const match = normalized.match(/BYDAY=([^;]+)/);
+  const value = match?.[1]?.split(",")[0] ?? "";
+  const days: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  return days[value] ?? 99;
+}
+
+function weekdayForEvent(event: AgendaEventRecord) {
+  const start = startsAt(event);
+  const fromStart = start ? start.getDay() : 99;
+  return Math.min(
+    weekdayFromMetadata(event.metadata),
+    weekdayFromRule(event.recurrence_rule),
+    weekdayFromText(`${labelForEvent(event)} ${event.group_slug ?? ""} ${event.event_type ?? ""} ${metadataText(event.metadata)}`),
+    fromStart,
+  );
+}
+
 function sortDateValue(event: AgendaEventRecord) {
-  const metadata = event.metadata ?? null;
-  const startDate = parseDate(event.starts_at) ?? parseDate(event.start_at) ?? parseDate(event.start_date) ?? parseDate(metadata?.startsAt) ?? parseDate(metadata?.startDate);
+  const startDate = startsAt(event);
   return startDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
 }
 
 function sortWeight(event: AgendaEventRecord) {
   const label = labelForEvent(event);
-  const dateValue = sortDateValue(event);
-  const weekday = Math.min(weekdayFromMetadata(event.metadata), weekdayFromText(`${label} ${event.group_slug ?? ""} ${event.event_type ?? ""}`));
-  return { dateValue, weekday, label: label.toLocaleLowerCase("pt-BR") };
+  return { dateValue: sortDateValue(event), weekday: weekdayForEvent(event), label: label.toLocaleLowerCase("pt-BR") };
+}
+
+function formatDateLabel(event: AgendaEventRecord) {
+  const startDate = startsAt(event);
+  if (startDate) {
+    return startDate.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  const weekday = weekdayForEvent(event);
+  if (weekday >= 0 && weekday <= 6) return weekdayNames[weekday];
+
+  return "Data a definir";
+}
+
+function formatHour(value: Date | null) {
+  if (!value) return "";
+  return value.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+}
+
+function formatTimeLabel(event: AgendaEventRecord) {
+  if (event.all_day) return "Dia inteiro";
+  const start = startsAt(event);
+  const end = endsAt(event);
+  const startHour = formatHour(start);
+  const endHour = formatHour(end);
+
+  if (startHour && endHour) return `${startHour} às ${endHour}`;
+  if (startHour) return `A partir de ${startHour}`;
+  return "Horário a definir";
+}
+
+function recurrenceLabel(event: AgendaEventRecord) {
+  if (!isRecurringEvent(event)) return "Evento pontual";
+
+  const metadata = event.metadata ?? null;
+  const explicit = metadata?.recurrenceLabel ?? metadata?.recorrenciaLabel ?? metadata?.periodicityLabel ?? metadata?.periodicidadeLabel;
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+
+  const frequency = recurrenceFrequency(event);
+  if (frequency.includes("quinzen")) return "Recorrência quinzenal";
+  if (frequency.includes("mensal") || frequency.includes("month")) return "Recorrência mensal";
+  if (frequency.includes("semanal") || frequency.includes("weekly") || event.recurrence_rule?.toUpperCase().includes("FREQ=WEEKLY")) return "Recorrência semanal";
+
+  return "Recorrente";
+}
+
+function eventSlug(event: AgendaEventRecord, label: string) {
+  return event.group_slug || event.event_type || event.id || slugify(label);
+}
+
+function optionForEvent(event: AgendaEventRecord): AgendaOption {
+  const title = labelForEvent(event);
+  const slug = eventSlug(event, title);
+  const dateLabel = formatDateLabel(event);
+  const timeLabel = formatTimeLabel(event);
+  const recurrence = recurrenceLabel(event);
+  const description = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
+
+  return {
+    slug,
+    title,
+    label: title,
+    dateLabel,
+    timeLabel,
+    recurrenceLabel: recurrence,
+    description,
+  };
+}
+
+function duplicateKey(option: AgendaOption) {
+  return slugify(option.title || option.label || option.slug);
+}
+
+function dedupeOptions(options: AgendaOption[]) {
+  const seen = new Set<string>();
+  const result: AgendaOption[] = [];
+
+  for (const option of options) {
+    const key = duplicateKey(option);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(option);
+  }
+
+  return result;
 }
 
 async function findTucxaOrganizationId() {
@@ -251,25 +425,23 @@ export async function GET() {
 
     if (error) throw error;
 
-    const generated = (data ?? [])
-      .map((event) => event as AgendaEventRecord)
-      .filter((event) => !hasEnded(event, today))
-      .filter((event) => !isVacationOrRecess(event))
-      .filter((event) => !isMandatoryForAllFilhos(event))
-      .sort((a, b) => {
-        const left = sortWeight(a);
-        const right = sortWeight(b);
+    const generated = dedupeOptions(
+      (data ?? [])
+        .map((event) => event as AgendaEventRecord)
+        .filter((event) => !hasEnded(event, today))
+        .filter((event) => !isVacationOrRecess(event))
+        .filter((event) => !isMandatoryForAllFilhos(event))
+        .sort((a, b) => {
+          const left = sortWeight(a);
+          const right = sortWeight(b);
 
-        if (left.dateValue !== right.dateValue) return left.dateValue - right.dateValue;
-        if (left.weekday !== right.weekday) return left.weekday - right.weekday;
-        return left.label.localeCompare(right.label, "pt-BR");
-      })
-      .map((event) => {
-        const label = labelForEvent(event);
-        const slug = eventSlug(event, label);
-        return { slug, label };
-      })
-      .filter((item, index, array) => item.slug && array.findIndex((candidate) => candidate.slug === item.slug) === index);
+          if (left.dateValue !== right.dateValue) return left.dateValue - right.dateValue;
+          if (left.weekday !== right.weekday) return left.weekday - right.weekday;
+          return left.label.localeCompare(right.label, "pt-BR");
+        })
+        .map(optionForEvent)
+        .filter((item) => item.slug && item.label),
+    );
 
     return NextResponse.json({ options: generated.length ? generated : fallbackOptions, source: generated.length ? "agenda-viva" : "fallback" });
   } catch {

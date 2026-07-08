@@ -49,6 +49,51 @@ function eventDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function weekdayCode(value: string) {
+  const normalized = normalizeText(value);
+  if (normalized.includes("domingo") || normalized === "0" || normalized === "su") return "SU";
+  if (normalized.includes("segunda") || normalized === "1" || normalized === "mo") return "MO";
+  if (normalized.includes("terca") || normalized === "2" || normalized === "tu") return "TU";
+  if (normalized.includes("quarta") || normalized === "3" || normalized === "we") return "WE";
+  if (normalized.includes("quinta") || normalized === "4" || normalized === "th") return "TH";
+  if (normalized.includes("sexta") || normalized === "5" || normalized === "fr") return "FR";
+  if (normalized.includes("sabado") || normalized === "6" || normalized === "sa") return "SA";
+  return "";
+}
+
+function weekdayFromDate(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][date.getDay()] ?? "";
+}
+
+function buildRecurrenceRule(input: { isRecurring: boolean; frequency: string; weekday: string; startsAt: string | null }) {
+  if (!input.isRecurring) return null;
+
+  const frequency = normalizeText(input.frequency || "semanal");
+  const day = weekdayCode(input.weekday) || weekdayFromDate(input.startsAt);
+
+  if (frequency.includes("quinzen")) return `FREQ=WEEKLY;INTERVAL=2${day ? `;BYDAY=${day}` : ""}`;
+  if (frequency.includes("mensal") || frequency.includes("month")) return `FREQ=MONTHLY${day ? `;BYDAY=${day}` : ""}`;
+  return `FREQ=WEEKLY${day ? `;BYDAY=${day}` : ""}`;
+}
+
+function recurrenceLabel(frequency: string) {
+  const normalized = normalizeText(frequency);
+  if (normalized.includes("quinzen")) return "Recorrência quinzenal";
+  if (normalized.includes("mensal") || normalized.includes("month")) return "Recorrência mensal";
+  if (normalized.includes("custom") || normalized.includes("personal")) return "Recorrência personalizada";
+  return "Recorrência semanal";
+}
+
 function approvalMessage(input: {
   organizationName: string;
   title: string;
@@ -174,6 +219,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const startsAt = eventDate(body.startsAt ?? body.starts_at);
   const endsAt = eventDate(body.endsAt ?? body.ends_at);
   const allDay = asBool(body.allDay ?? body.all_day, false);
+  const isRecurring = asBool(body.isRecurring ?? body.recurring ?? body.recurrenceEnabled, false);
+  const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
+  const recurrenceWeekday = asText(body.recurrenceWeekday ?? body.weekday ?? body.diaSemana);
+  const recurrenceRule = buildRecurrenceRule({ isRecurring, frequency: recurrenceFrequency, weekday: recurrenceWeekday, startsAt });
   const location = asText(body.location);
   const groupSlug = asText(body.groupSlug ?? body.group_slug);
   const responsiblePersonId = asText(body.responsiblePersonId ?? body.responsible_person_id);
@@ -196,6 +245,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
     starts_at: startsAt,
     ends_at: endsAt,
     all_day: allDay,
+    recurrence_rule: recurrenceRule,
     location: location || null,
     group_slug: groupSlug || null,
     responsible_person_id: responsiblePersonId || null,
@@ -211,6 +261,11 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       image_url: imageUrl || null,
       image_alt: imageAlt || null,
       image_emoji: imageEmoji || null,
+      recurring: isRecurring,
+      recurrenceFrequency: isRecurring ? recurrenceFrequency : null,
+      recurrenceWeekday: isRecurring ? recurrenceWeekday || null : null,
+      recurrenceLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
+      periodicityLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
     },
     updated_at: new Date().toISOString(),
   };

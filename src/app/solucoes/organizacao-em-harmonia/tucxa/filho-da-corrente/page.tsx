@@ -18,6 +18,17 @@ type AccessPerson = {
   } | null;
 };
 
+
+type AgendaOption = {
+  slug: string;
+  label: string;
+  title?: string;
+  dateLabel?: string;
+  timeLabel?: string;
+  recurrenceLabel?: string;
+  description?: string;
+};
+
 type AccessResponse = {
   ok?: boolean;
   authEmail?: string;
@@ -61,7 +72,7 @@ export default function FilhoDaCorrenteTucxaPage() {
   const [notes, setNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>(["filho-da-corrente"]);
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
-  const [agendaOptions, setAgendaOptions] = useState<Array<{ slug: string; label: string }>>([...fallbackFilhoDaCorrenteAgenda]);
+  const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([...fallbackFilhoDaCorrenteAgenda]);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -73,10 +84,18 @@ export default function FilhoDaCorrenteTucxaPage() {
     let active = true;
     fetch("/api/organizacao-em-harmonia/site-tucxa/agenda-options")
       .then(async (response) => {
-        const result = (await response.json()) as { options?: Array<{ slug?: string; label?: string }> };
+        const result = (await response.json()) as { options?: Array<Partial<AgendaOption>> };
         if (!response.ok) return;
         const options = (result.options ?? [])
-          .map((item) => ({ slug: String(item.slug || "").trim(), label: String(item.label || "").trim() }))
+          .map((item) => ({
+            slug: String(item.slug || "").trim(),
+            label: String(item.label || "").trim(),
+            title: typeof item.title === "string" ? item.title.trim() : undefined,
+            dateLabel: typeof item.dateLabel === "string" ? item.dateLabel.trim() : undefined,
+            timeLabel: typeof item.timeLabel === "string" ? item.timeLabel.trim() : undefined,
+            recurrenceLabel: typeof item.recurrenceLabel === "string" ? item.recurrenceLabel.trim() : undefined,
+            description: typeof item.description === "string" ? item.description.trim() : undefined,
+          }))
           .filter((item) => item.slug && item.label);
         if (active && options.length) setAgendaOptions(options);
       })
@@ -96,7 +115,9 @@ export default function FilhoDaCorrenteTucxaPage() {
 
   const selectedSummary = useMemo(() => {
     const functionLabels = filhoDaCorrenteFunctions.filter((item) => functionSlugs.includes(item.slug)).map((item) => item.label);
-    const agendaLabels = agendaOptions.filter((item) => agendaSlugs.includes(item.slug)).map((item) => item.label);
+    const agendaLabels = agendaOptions
+      .filter((item) => agendaSlugs.includes(item.slug))
+      .map((item) => (item.description ? `${item.label} (${item.description})` : item.label));
     return [...functionLabels, ...agendaLabels];
   }, [agendaOptions, agendaSlugs, functionSlugs]);
 
@@ -297,7 +318,14 @@ export default function FilhoDaCorrenteTucxaPage() {
                 {agendaOptions.map((item) => (
                   <label key={item.slug} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                     <input type="checkbox" checked={agendaSlugs.includes(item.slug)} onChange={() => setAgendaSlugs((current) => toggleValue(current, item.slug))} className="mt-1 h-5 w-5" />
-                    <span className="text-sm font-bold text-[#123D2C]">{item.label}</span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-[#123D2C]">{item.label}</span>
+                      {(item.description || item.recurrenceLabel || item.dateLabel || item.timeLabel) && (
+                        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+                          {item.description || [item.recurrenceLabel, item.dateLabel, item.timeLabel].filter(Boolean).join(" • ")}
+                        </span>
+                      )}
+                    </span>
                   </label>
                 ))}
               </div>

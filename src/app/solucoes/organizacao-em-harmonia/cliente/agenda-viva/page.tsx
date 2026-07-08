@@ -62,6 +62,9 @@ type FormState = {
   startsAt: string;
   endsAt: string;
   allDay: boolean;
+  isRecurring: boolean;
+  recurrenceFrequency: string;
+  recurrenceWeekday: string;
   location: string;
   groupSlug: string;
   responsiblePersonId: string;
@@ -80,6 +83,9 @@ const emptyForm: FormState = {
   startsAt: "",
   endsAt: "",
   allDay: false,
+  isRecurring: false,
+  recurrenceFrequency: "semanal",
+  recurrenceWeekday: "",
   location: "",
   groupSlug: "",
   responsiblePersonId: "",
@@ -170,6 +176,37 @@ function colorFor(event: AgendaEvent, types: EventType[]) {
 function metadataText(event: AgendaEvent, key: string) {
   const value = event.metadata?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function metadataBoolean(event: AgendaEvent, key: string) {
+  const value = event.metadata?.[key];
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function recurrenceWeekdayFromRule(rule: string | null) {
+  if (!rule) return "";
+  const match = rule.toUpperCase().match(/BYDAY=([^;]+)/);
+  const day = match?.[1]?.split(",")[0] ?? "";
+  const map: Record<string, string> = { SU: "domingo", MO: "segunda", TU: "terca", WE: "quarta", TH: "quinta", FR: "sexta", SA: "sabado" };
+  return map[day] ?? "";
+}
+
+function recurrenceFrequencyFromRule(rule: string | null) {
+  if (!rule) return "semanal";
+  const normalized = rule.toUpperCase();
+  if (normalized.includes("FREQ=MONTHLY")) return "mensal";
+  if (normalized.includes("INTERVAL=2")) return "quinzenal";
+  return "semanal";
+}
+
+function recurrenceDisplay(event: AgendaEvent) {
+  if (!event.recurrence_rule && !metadataBoolean(event, "recurring")) return "Evento pontual";
+  const explicit = metadataText(event, "recurrenceLabel") || metadataText(event, "periodicityLabel");
+  if (explicit) return explicit;
+  const frequency = metadataText(event, "recurrenceFrequency") || recurrenceFrequencyFromRule(event.recurrence_rule);
+  if (frequency === "mensal") return "Recorrência mensal";
+  if (frequency === "quinzenal") return "Recorrência quinzenal";
+  return "Recorrência semanal";
 }
 
 function eventImageUrl(event: AgendaEvent) {
@@ -412,6 +449,9 @@ export default function OrganizacaoAgendaVivaPage() {
       startsAt: dateInputValue(event.starts_at),
       endsAt: dateInputValue(event.ends_at),
       allDay: event.all_day,
+      isRecurring: Boolean(event.recurrence_rule) || metadataBoolean(event, "recurring"),
+      recurrenceFrequency: metadataText(event, "recurrenceFrequency") || recurrenceFrequencyFromRule(event.recurrence_rule),
+      recurrenceWeekday: metadataText(event, "recurrenceWeekday") || recurrenceWeekdayFromRule(event.recurrence_rule),
       location: event.location ?? "",
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
@@ -449,8 +489,11 @@ export default function OrganizacaoAgendaVivaPage() {
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Nome da atividade/evento *</span><input value={form.title} onChange={(event) => update("title", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: Grupo de Estudos, Bazar, Clube do Livro, Festa Junina" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Tipo de atividade</span><select value={form.eventTypeId} onChange={(event) => update("eventTypeId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar tipo</option>{payload.eventTypes.filter((item) => item.active !== false).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Responsável</span><select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">A definir</option>{payload.people.filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Início</span><input type="datetime-local" value={form.startsAt} onChange={(event) => update("startsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Fim</span><input type="datetime-local" value={form.endsAt} onChange={(event) => update("endsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Data e horário de início</span><input type="datetime-local" value={form.startsAt} onChange={(event) => update("startsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Data e horário de término</span><input type="datetime-local" value={form.endsAt} onChange={(event) => update("endsAt", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100"><input type="checkbox" checked={form.isRecurring} onChange={(event) => update("isRecurring", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Evento recorrente</span></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Periodicidade</span><select value={form.recurrenceFrequency} onChange={(event) => update("recurrenceFrequency", event.target.value)} disabled={!form.isRecurring} className="rounded-2xl border border-slate-200 bg-white p-3 disabled:bg-slate-100 disabled:text-slate-400"><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option><option value="personalizada">Personalizada / conforme calendário</option></select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Dia da recorrência</span><select value={form.recurrenceWeekday} onChange={(event) => update("recurrenceWeekday", event.target.value)} disabled={!form.isRecurring} className="rounded-2xl border border-slate-200 bg-white p-3 disabled:bg-slate-100 disabled:text-slate-400"><option value="">Usar dia da data de início</option><option value="domingo">Domingo</option><option value="segunda">Segunda-feira</option><option value="terca">Terça-feira</option><option value="quarta">Quarta-feira</option><option value="quinta">Quinta-feira</option><option value="sexta">Sexta-feira</option><option value="sabado">Sábado</option></select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo / categoria</span><select value={form.groupSlug} onChange={(event) => update("groupSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="evento">Evento</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="segunda">Segunda</option><option value="terca">Terça</option><option value="quarta">Quarta</option><option value="ferias">Férias</option></select></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Local</span><input value={form.location} onChange={(event) => update("location", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Presencial, online, salão, etc." /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Emoji/ícone curto</span><input value={form.imageEmoji} onChange={(event) => update("imageEmoji", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: 🎬, 📚, 🚶" maxLength={4} /></label>
@@ -524,6 +567,7 @@ export default function OrganizacaoAgendaVivaPage() {
                   <article key={event.id} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><h3 className="font-black text-[#00334E]">{event.title}</h3><span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>{statusLabels[event.status] ?? event.status}</span></div>
                     <p className="mt-2 text-sm font-semibold text-slate-600">{formatDate(event.starts_at)} · {event.location || "local a confirmar"}</p>
+                    <p className="mt-1 text-xs font-black text-slate-500">{recurrenceDisplay(event)}</p>
                     <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => editEvent(event)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-slate-100">Editar</button>{["rascunho", "pendente_aprovacao", "ajuste_solicitado"].includes(event.status) && <button type="button" onClick={() => deleteEvent(event.id)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Excluir</button>}</div>
                   </article>
                 ))}
@@ -539,6 +583,7 @@ export default function OrganizacaoAgendaVivaPage() {
                   <article key={event.id} className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100">
                     <h3 className="font-black text-[#00334E]">{event.title}</h3>
                     <p className="mt-2 text-sm font-semibold text-slate-700">{formatDate(event.starts_at)} · {event.location || "local a confirmar"}</p>
+                    <p className="mt-1 text-xs font-black text-slate-500">{recurrenceDisplay(event)}</p>
                     <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => decideEvent(event.id, "approveEvent")} className="rounded-xl bg-[#31C16B] px-3 py-2 text-sm font-black text-[#00334E]">Aprovar</button><button type="button" onClick={() => decideEvent(event.id, "requestAdjustments")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E] ring-1 ring-amber-100">Pedir ajuste</button><button type="button" onClick={() => decideEvent(event.id, "rejectEvent")} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Reprovar</button></div>
                   </article>
                 ))}
