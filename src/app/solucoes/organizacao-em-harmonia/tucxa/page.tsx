@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { tucxaNavigation } from "./tucxa-content";
 import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
 export const dynamic = "force-dynamic";
@@ -16,16 +15,31 @@ const headerActions = [
   {
     label: "Início",
     href: "#inicio",
+    variant: "primary" as const,
+  },
+  {
+    label: "Visão",
+    href: "#visao",
     variant: "secondary" as const,
   },
   {
-    label: "Filho da Corrente",
+    label: "Módulos",
+    href: "#modulos",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Filhos da Corrente",
     href: "#corrente",
-    variant: "primary" as const,
+    variant: "secondary" as const,
   },
   {
     label: "Consulente",
     href: "#consulentes",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Como funciona",
+    href: "#como-funciona",
     variant: "secondary" as const,
   },
 ];
@@ -49,7 +63,7 @@ export default async function TucxaSitePage() {
 
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
+      <TucxaPublicHeader actions={headerActions} />
 
       <section className="scroll-mt-48 mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
