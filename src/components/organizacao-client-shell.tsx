@@ -109,6 +109,9 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
     router.replace("/solucoes/organizacao-em-harmonia/login");
   }
 
+  const activeGroup = sidebarGroups.find((group) => group.items.some((item) => isActive(pathname, item.href))) ?? sidebarGroups[0];
+  const orderedSidebarGroups = [activeGroup, ...sidebarGroups.filter((group) => group.label !== activeGroup.label)];
+
   return (
     <main className="min-h-screen bg-[#F4FBF7] text-[#00334E]">
       <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
@@ -183,13 +186,13 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[300px_1fr] lg:px-8">
         <aside className="hidden self-start lg:block rounded-[2rem] bg-[#06451F] p-4 text-white shadow-xl shadow-emerald-900/10 lg:sticky lg:top-44 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <div className="mb-4 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15">
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFF7DF]">Base Única</p>
-            <h2 className="mt-1 text-xl font-black">Cadastros e permissões</h2>
-            <p className="mt-2 text-xs leading-5 text-[#E8FFF0]">Pessoas, funções e módulos habilitados para o cliente.</p>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFF7DF]">Contexto atual</p>
+            <h2 className="mt-1 text-xl font-black">{activeGroup.label}</h2>
+            <p className="mt-2 text-xs leading-5 text-[#E8FFF0]">{activeGroup.description}</p>
           </div>
 
           <div className="grid gap-3">
-            {sidebarGroups.map((group) => (
+            {orderedSidebarGroups.map((group) => (
               <section key={group.label} className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/15">
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-[#CFF7DF]">{group.label}</p>
                 <p className="mt-1 text-xs leading-5 text-[#DDFCE8]">{group.description}</p>

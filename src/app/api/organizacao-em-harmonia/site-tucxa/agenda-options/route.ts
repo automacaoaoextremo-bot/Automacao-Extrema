@@ -223,6 +223,25 @@ function parseDate(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function parseLocalDateTime(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const text = value.trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) return null;
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/);
+  if (!match) return null;
+  const [, year, month, day, hour = "00", minute = "00"] = match;
+  return { year: Number(year), month: Number(month), day: Number(day), hour: Number(hour), minute: Number(minute) };
+}
+
+function eventLocalDate(event: AgendaEventRecord, kind: "start" | "end") {
+  const metadata = event.metadata ?? null;
+  const explicit = metadataValue(metadata, kind === "start" ? ["localStart", "local_start", "localStartsAt", "startsAtLocal"] : ["localEnd", "local_end", "localEndsAt", "endsAtLocal"]);
+  if (explicit) return explicit;
+  return kind === "start"
+    ? event.starts_at ?? event.start_at ?? event.start_date ?? ""
+    : event.ends_at ?? event.end_at ?? event.end_date ?? "";
+}
+
 function asBoolean(value: unknown) {
   return value === true || value === "true" || value === 1 || value === "1" || value === "sim";
 }
@@ -269,11 +288,15 @@ function labelForEvent(event: AgendaEventRecord) {
 
 function startsAt(event: AgendaEventRecord) {
   const metadata = event.metadata ?? null;
+  const local = parseLocalDateTime(eventLocalDate(event, "start"));
+  if (local) return new Date(`${local.year}-${String(local.month).padStart(2, "0")}-${String(local.day).padStart(2, "0")}T${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}:00-03:00`);
   return parseDate(event.starts_at) ?? parseDate(event.start_at) ?? parseDate(event.start_date) ?? parseDate(metadata?.startsAt) ?? parseDate(metadata?.startAt) ?? parseDate(metadata?.startDate) ?? parseDate(metadata?.dataInicio);
 }
 
 function endsAt(event: AgendaEventRecord) {
   const metadata = event.metadata ?? null;
+  const local = parseLocalDateTime(eventLocalDate(event, "end"));
+  if (local) return new Date(`${local.year}-${String(local.month).padStart(2, "0")}-${String(local.day).padStart(2, "0")}T${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}:00-03:00`);
   return parseDate(event.ends_at) ?? parseDate(event.end_at) ?? parseDate(event.end_date) ?? parseDate(metadata?.endsAt) ?? parseDate(metadata?.endAt) ?? parseDate(metadata?.endDate) ?? parseDate(metadata?.fim) ?? parseDate(metadata?.dataFim);
 }
 
@@ -358,6 +381,13 @@ function isMandatoryForAllFilhos(event: AgendaEventRecord) {
     text.includes("volta das ferias") ||
     text.includes("cavalinhos e cambonos")
   );
+}
+
+function hasExplicitFirstAccessEnabled(event: AgendaEventRecord) {
+  const metadata = event.metadata ?? null;
+  if (!metadata) return false;
+  const keys = ["firstAccessEnabled", "first_access_enabled", "showOnFirstAccess", "show_on_first_access", "displayOnFirstAccess"];
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(metadata, key) && asBoolean(metadata[key]));
 }
 
 function isDisabledForFirstAccess(event: AgendaEventRecord) {
@@ -564,14 +594,14 @@ export async function GET() {
     if (error) throw error;
     if (locationsError) throw locationsError;
     const locations = (locationsData ?? []) as LocationRecord[];
+    const rawEvents = (data ?? []) as AgendaEventRecord[];
 
     const generated = dedupeOptions(
-      (data ?? [])
-        .map((event) => event as AgendaEventRecord)
+      rawEvents
         .filter((event) => !isDisabledForFirstAccess(event))
-        .filter((event) => !hasEnded(event, today))
-        .filter((event) => !isVacationOrRecess(event))
-        .filter((event) => !isMandatoryForAllFilhos(event))
+        .filter((event) => !hasEnded(event, today) || isRecurringEvent(event))
+        .filter((event) => hasExplicitFirstAccessEnabled(event) || !isVacationOrRecess(event))
+        .filter((event) => hasExplicitFirstAccessEnabled(event) || !isMandatoryForAllFilhos(event))
         .sort((a, b) => {
           const left = sortWeight(a);
           const right = sortWeight(b);

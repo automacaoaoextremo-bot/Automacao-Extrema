@@ -157,6 +157,11 @@ const agendaLinks = [
 
 const eventColorClasses: Record<string, string> = {
   bazar: "bg-lime-100 text-lime-950 ring-lime-200",
+  "bazar-simples": "bg-purple-100 text-purple-950 ring-purple-200",
+  "acao-comunidade": "bg-yellow-100 text-yellow-950 ring-yellow-200",
+  bingo: "bg-lime-200 text-lime-950 ring-lime-300",
+  feijoada: "bg-red-100 text-red-950 ring-red-200",
+  "festa-junina": "bg-orange-100 text-orange-950 ring-orange-200",
   caminhada: "bg-emerald-100 text-emerald-950 ring-emerald-200",
   "grupo-estudos": "bg-yellow-100 text-yellow-950 ring-yellow-200",
   "dia-filme": "bg-rose-100 text-rose-950 ring-rose-200",
@@ -179,8 +184,7 @@ function dateInputValue(value: string | null) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "Data a definir";
-  return new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+  return formatLocalDateTime(value);
 }
 
 function visualTime(value: string | null, allDay: boolean) {
@@ -189,6 +193,8 @@ function visualTime(value: string | null, allDay: boolean) {
 }
 
 function dayKey(value: string | null) {
+  const local = parseLocalDateTime(value ?? "");
+  if (local) return `${local.year}-${String(local.month).padStart(2, "0")}-${String(local.day).padStart(2, "0")}`;
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -212,6 +218,82 @@ function monthMatrix(year: number, month: number) {
   return cells;
 }
 
+function weekdayFromCode(value: string) {
+  const days: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  return days[value.toUpperCase()] ?? null;
+}
+
+function ruleWeekday(rule: string | null) {
+  if (!rule) return null;
+  const match = rule.toUpperCase().match(/BYDAY=([^;]+)/);
+  const value = match?.[1]?.split(",")[0] ?? "";
+  return weekdayFromCode(value);
+}
+
+function ruleSetPositions(rule: string | null) {
+  if (!rule) return [];
+  const match = rule.toUpperCase().match(/BYSETPOS=([^;]+)/);
+  return (match?.[1] ?? "")
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item !== 0);
+}
+
+function dateForNthWeekday(year: number, month: number, weekday: number, position: number) {
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const matches: number[] = [];
+  for (let day = 1; day <= totalDays; day += 1) {
+    if (new Date(year, month, day).getDay() === weekday) matches.push(day);
+  }
+  const selected = position < 0 ? matches[matches.length + position] : matches[position - 1];
+  return selected ? localDate(year, month, selected) : "";
+}
+
+function weekdayFromStart(event: AgendaEvent) {
+  const start = toComparableDate(eventLocalStart(event));
+  return start ? start.getDay() : null;
+}
+
+function isInEventRange(event: AgendaEvent, key: string) {
+  const date = new Date(`${key}T12:00:00`);
+  const start = toComparableDate(eventLocalStart(event));
+  const end = toComparableDate(eventLocalEnd(event));
+  if (start && date < new Date(start.getFullYear(), start.getMonth(), start.getDate())) return false;
+  if (end && date > new Date(end.getFullYear(), end.getMonth(), end.getDate())) return false;
+  return true;
+}
+
+function occurrenceKeysForYear(event: AgendaEvent, year: number) {
+  const rule = event.recurrence_rule?.toUpperCase() ?? "";
+  const recurring = Boolean(event.recurrence_rule) || metadataBoolean(event, "recurring");
+  const firstKey = dayKey(eventLocalStart(event));
+  if (!recurring) return firstKey ? [firstKey] : [];
+
+  const weekday = ruleWeekday(rule) ?? weekdayFromStart(event);
+  if (weekday === null) return firstKey ? [firstKey] : [];
+
+  const keys: string[] = [];
+  if (rule.includes("FREQ=MONTHLY")) {
+    const positions = ruleSetPositions(rule);
+    for (let month = 0; month < 12; month += 1) {
+      const monthKeys = positions.length ? positions.map((position) => dateForNthWeekday(year, month, weekday, position)) : [dateForNthWeekday(year, month, weekday, 1)];
+      for (const key of monthKeys) if (key && isInEventRange(event, key)) keys.push(key);
+    }
+    return keys;
+  }
+
+  const interval = rule.includes("INTERVAL=2") ? 14 : 7;
+  const start = toComparableDate(eventLocalStart(event)) ?? new Date(year, 0, 1);
+  let cursor = new Date(Math.max(start.getTime(), new Date(year, 0, 1).getTime()));
+  while (cursor.getDay() !== weekday) cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+  while (cursor.getFullYear() === year) {
+    const key = localDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+    if (isInEventRange(event, key)) keys.push(key);
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + interval);
+  }
+  return keys;
+}
+
 function metadataText(event: AgendaEvent, key: string) {
   const value = event.metadata?.[key];
   return typeof value === "string" ? value : "";
@@ -220,6 +302,66 @@ function metadataText(event: AgendaEvent, key: string) {
 function metadataBoolean(event: AgendaEvent, key: string) {
   const value = event.metadata?.[key];
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function metadataAnyText(event: AgendaEvent, keys: string[]) {
+  for (const key of keys) {
+    const value = event.metadata?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function parseLocalDateTime(value: string | null | undefined) {
+  if (!value) return null;
+  const text = value.trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) return null;
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/);
+  if (!match) return null;
+  const [, year, month, day, hour = "00", minute = "00"] = match;
+  return {
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour: Number(hour),
+    minute: Number(minute),
+  };
+}
+
+function toComparableDate(value: string | null | undefined) {
+  const local = parseLocalDateTime(value ?? "");
+  if (local) return new Date(local.year, local.month - 1, local.day, local.hour, local.minute);
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatLocalDateTime(value: string | null | undefined) {
+  const local = parseLocalDateTime(value ?? "");
+  if (local) {
+    return `${String(local.day).padStart(2, "0")}/${String(local.month).padStart(2, "0")}/${local.year}, ${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}`;
+  }
+  if (!value) return "Data a definir";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data a definir";
+  return date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+}
+
+function formatLocalTime(value: string | null | undefined) {
+  const local = parseLocalDateTime(value ?? "");
+  if (local) return `${String(local.hour).padStart(2, "0")}h${String(local.minute).padStart(2, "0")}`;
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+}
+
+function eventLocalStart(event: AgendaEvent) {
+  return metadataAnyText(event, ["localStart", "local_start", "localStartsAt", "startsAtLocal"]) || event.starts_at;
+}
+
+function eventLocalEnd(event: AgendaEvent) {
+  return metadataAnyText(event, ["localEnd", "local_end", "localEndsAt", "endsAtLocal"]) || event.ends_at;
 }
 
 function metadataNumber(event: AgendaEvent, key: string) {
@@ -284,16 +426,21 @@ function recurrenceDisplay(event: AgendaEvent) {
 function agendaDateLabel(event: AgendaEvent) {
   const explicit = metadataText(event, "dateLabel") || metadataText(event, "publicDateLabel");
   if (explicit) return explicit;
-  if (!event.starts_at) return "Data a definir";
-  return new Date(event.starts_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+  const start = eventLocalStart(event);
+  const local = parseLocalDateTime(start);
+  if (local) {
+    return new Date(local.year, local.month - 1, local.day).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+  if (!start) return "Data a definir";
+  return new Date(start).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function agendaTimeLabel(event: AgendaEvent) {
   const explicit = metadataText(event, "timeLabel") || metadataText(event, "publicTimeLabel");
   if (explicit) return explicit;
   if (metadataBoolean(event, "timeUndefined") || event.all_day) return event.all_day ? "Dia inteiro" : "Horário a definir";
-  const start = event.starts_at ? visualTime(event.starts_at, false).replace(":", "h") : "";
-  const end = event.ends_at ? visualTime(event.ends_at, false).replace(":", "h") : "";
+  const start = formatLocalTime(eventLocalStart(event));
+  const end = formatLocalTime(eventLocalEnd(event));
   if (start && end) return `${start} às ${end}`;
   if (start) return `A partir de ${start}`;
   return "Horário a definir";
@@ -360,7 +507,9 @@ function formatLocationAddress(location: Location) {
 }
 
 function getEventDateTime(event: AgendaEvent) {
-  return [formatDate(event.starts_at), event.ends_at ? `até ${formatDate(event.ends_at)}` : "término a definir"].join(" ");
+  const start = eventLocalStart(event);
+  const end = eventLocalEnd(event);
+  return [formatDate(start), end ? `até ${formatDate(end)}` : "término a definir"].join(" ");
 }
 
 function sortedEvents(events: AgendaEvent[]) {
@@ -710,14 +859,14 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
-  const [calendarRange, setCalendarRange] = useState("futuros");
+  const [calendarRange, setCalendarRange] = useState("completo");
   const [calendarEventType, setCalendarEventType] = useState("todos");
   const [calendarAudience, setCalendarAudience] = useState("all");
   const [calendarPersonId, setCalendarPersonId] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const year = 2026;
-  const month = 6;
+  const months = Array.from({ length: 12 }, (_, index) => index);
 
   const titleByMode: Record<Mode, string> = {
     overview: "Agenda Viva",
@@ -837,8 +986,8 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       eventId: event.id,
       title: event.title,
       eventTypeId: event.event_type_id ?? "",
-      startsAt: dateInputValue(event.starts_at),
-      endsAt: dateInputValue(event.ends_at),
+      startsAt: metadataAnyText(event, ["localStart", "local_start", "localStartsAt", "startsAtLocal"]) || dateInputValue(event.starts_at),
+      endsAt: metadataAnyText(event, ["localEnd", "local_end", "localEndsAt", "endsAtLocal"]) || dateInputValue(event.ends_at),
       allDay: event.all_day,
       isRecurring: Boolean(event.recurrence_rule) || metadataBoolean(event, "recurring"),
       recurrenceFrequency: metadataText(event, "recurrenceFrequency") || recurrenceFrequencyFromRule(event.recurrence_rule),
@@ -887,8 +1036,8 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     const endFilter = periodEnd ? new Date(`${periodEnd}T23:59:59`) : null;
 
     return events.filter((event) => {
-      const start = event.starts_at ? new Date(event.starts_at) : null;
-      const end = event.ends_at ? new Date(event.ends_at) : start;
+      const start = toComparableDate(eventLocalStart(event));
+      const end = toComparableDate(eventLocalEnd(event)) ?? start;
       if (calendarRange === "futuros" && end && end < today) return false;
       if (startFilter && end && end < startFilter) return false;
       if (endFilter && start && start > endFilter) return false;
@@ -902,16 +1051,16 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const eventsByDay = useMemo(() => {
     const map = new Map<string, AgendaEvent[]>();
     for (const event of calendarEvents) {
-      const key = dayKey(event.starts_at);
-      if (!key) continue;
-      const list = map.get(key) ?? [];
-      list.push(event);
-      map.set(key, list);
+      for (const key of occurrenceKeysForYear(event, year)) {
+        const list = map.get(key) ?? [];
+        list.push(event);
+        map.set(key, list);
+      }
     }
     return map;
-  }, [calendarEvents]);
+  }, [calendarEvents, year]);
 
-  const cells = monthMatrix(year, month);
+  const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
   return (
     <OrganizacaoClientShell title={titleByMode[mode]} description={descriptionByMode[mode]}>
@@ -985,33 +1134,45 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
                 </div>
               </section>
-              <section className="overflow-hidden rounded-[2.5rem] bg-[#eef8b9] p-0 shadow ring-1 ring-lime-200">
-                <div className="bg-gradient-to-br from-white via-lime-50 to-[#e6f59b] px-5 py-8 sm:px-8"><p className="text-2xl font-black uppercase tracking-[0.24em] text-[#2F3F16] sm:text-3xl">Julho Cultural</p><h2 className="mt-6 text-5xl font-black text-[#3B4E16] sm:text-6xl">Calendário</h2><p className="text-xl font-black text-[#3B4E16] sm:text-2xl">Julho 2026</p></div>
-                <div className="bg-[#dff28f] p-3 sm:p-6">
-                  <div className="grid grid-cols-7 gap-2 text-center text-[0.65rem] font-black uppercase tracking-[0.18em] text-[#3B4E16]/70 sm:text-xs">{["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => <span key={day}>{day}</span>)}</div>
-                  <div className="mt-2 grid grid-cols-7 gap-2 sm:gap-3">
-                    {cells.map((cell) => {
-                      const dayEvents = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
-                      return (
-                        <div key={cell.key} className={`min-h-24 rounded-[1.7rem] p-1.5 ring-1 sm:min-h-32 sm:p-2.5 ${cell.day ? "bg-[#fbffe7]/95 ring-lime-200" : "bg-transparent ring-transparent"}`}>
-                          {cell.day && <p className="text-sm font-black text-[#314414] sm:text-base">{String(cell.day).padStart(2, "0")}/07</p>}
-                          <div className="mt-1 space-y-1 sm:mt-2">
-                            {dayEvents.slice(0, 2).map((event) => {
-                              const image = eventImageUrl(event);
-                              const time = visualTime(event.starts_at, event.all_day);
-                              return (
-                                <button key={event.id} type="button" title={`${event.title}\n${locationLabel(event, payload.locations)}`} onClick={() => editEvent(event)} className={`relative w-full overflow-hidden rounded-2xl p-1 text-center text-[0.62rem] font-black leading-4 shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md sm:text-[0.72rem] ${colorFor(event, payload.eventTypes)}`}>
-                                  {image ? <span className="mx-auto mb-1 block h-9 w-9 overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/70 sm:h-11 sm:w-11"><Image src={image} alt={eventImageAlt(event)} width={44} height={44} unoptimized className="h-full w-full object-cover" /></span> : <span className="mx-auto mb-1 block text-xl leading-none sm:text-2xl">{eventEmoji(event)}</span>}
-                                  <span className="block break-words">{event.title}</span>{time && <span className="block text-[0.58rem] font-black opacity-80 sm:text-[0.68rem]">{time}</span>}
-                                </button>
-                              );
-                            })}
-                            {dayEvents.length > 2 && <span className="block rounded-full bg-lime-200 px-2 py-1 text-[0.65rem] font-black text-lime-950">+{dayEvents.length - 2}</span>}
-                          </div>
+              <section className="overflow-hidden rounded-[2.5rem] bg-[#F7FAF2] p-0 shadow ring-1 ring-lime-200">
+                <div className="bg-gradient-to-br from-white via-lime-50 to-[#e6f59b] px-5 py-7 text-center sm:px-8">
+                  <p className="text-xs font-black uppercase tracking-[0.35em] text-[#2F6B43]">Agenda Viva</p>
+                  <h2 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-[#3B4E16] sm:text-5xl">Calendário Tucxa 2026</h2>
+                  <p className="mx-auto mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#3B4E16]/80">Visual anual inspirado no calendário oficial do Tucxa, com leitura mobile friendly, filtros e edição rápida ao tocar em um evento.</p>
+                </div>
+                <div className="grid gap-4 bg-[#eef8d6] p-3 sm:p-5 xl:grid-cols-2">
+                  {months.map((monthIndex) => {
+                    const cells = monthMatrix(year, monthIndex);
+                    return (
+                      <article key={monthIndex} className="rounded-[2rem] bg-white/90 p-3 shadow-sm ring-1 ring-lime-100 sm:p-4">
+                        <h3 className="rounded-2xl bg-[#A5C595] px-4 py-2 text-center text-sm font-black uppercase tracking-[0.26em] text-white">{monthNames[monthIndex]}</h3>
+                        <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[0.58rem] font-black uppercase tracking-[0.12em] text-[#3B4E16]/70 sm:text-[0.68rem]">{["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
+                        <div className="mt-1 grid grid-cols-7 gap-1">
+                          {cells.map((cell) => {
+                            const dayEvents = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
+                            const firstEvent = dayEvents[0];
+                            return (
+                              <div key={cell.key} className={`min-h-12 rounded-xl p-1 text-center ring-1 sm:min-h-16 ${cell.day ? "bg-[#fbffe7] ring-lime-100" : "bg-transparent ring-transparent"}`}>
+                                {cell.day && <p className="text-[0.68rem] font-black text-[#314414] sm:text-xs">{cell.day}</p>}
+                                <div className="mt-0.5 grid gap-0.5">
+                                  {dayEvents.slice(0, 2).map((event) => {
+                                    const time = formatLocalTime(eventLocalStart(event));
+                                    return (
+                                      <button key={event.id} type="button" title={`${event.title}\n${getEventDateTime(event)}\n${locationLabel(event, payload.locations)}`} onClick={() => editEvent(event)} className={`truncate rounded-lg px-1 py-0.5 text-[0.5rem] font-black leading-3 ring-1 transition hover:scale-105 sm:text-[0.58rem] ${colorFor(event, payload.eventTypes)}`}>
+                                        <span aria-hidden="true">{eventEmoji(event)} </span>{event.title}
+                                        {time && <span className="block opacity-80">{time}</span>}
+                                      </button>
+                                    );
+                                  })}
+                                  {firstEvent && dayEvents.length > 2 && <button type="button" onClick={() => editEvent(firstEvent)} className="rounded-lg bg-lime-200 px-1 py-0.5 text-[0.55rem] font-black text-lime-950">+{dayEvents.length - 2}</button>}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </article>
+                    );
+                  })}
                 </div>
               </section>
               <section className="grid gap-4 lg:grid-cols-2">{calendarEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} />)}{calendarEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado com os filtros selecionados.</p>}</section>

@@ -42,9 +42,25 @@ function whatsappUrl(phone: string | null | undefined, message: string) {
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
+function normalizeLocalDateTime(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
+  if (!match) return text;
+  return `${match[1]}T${match[2]}`;
+}
+
 function eventDate(value: unknown) {
   const text = asText(value);
   if (!text) return null;
+
+  // Campos datetime-local vêm sem fuso. O Tucxa opera em Campinas/SP, então
+  // tratamos estes valores como America/Sao_Paulo antes de gravar no timestamptz.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
+    const date = new Date(`${text.length === 16 ? `${text}:00` : text}-03:00`);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
@@ -223,8 +239,12 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const title = asText(body.title);
   const eventTypeId = asText(body.eventTypeId ?? body.event_type_id);
   const eventTypeSlug = asText(body.eventType ?? body.event_type) || "atividade";
-  const startsAt = eventDate(body.startsAt ?? body.starts_at);
-  const endsAt = eventDate(body.endsAt ?? body.ends_at);
+  const rawStartsAt = body.startsAt ?? body.starts_at;
+  const rawEndsAt = body.endsAt ?? body.ends_at;
+  const startsAt = eventDate(rawStartsAt);
+  const endsAt = eventDate(rawEndsAt);
+  const localStart = normalizeLocalDateTime(rawStartsAt);
+  const localEnd = normalizeLocalDateTime(rawEndsAt);
   const allDay = asBool(body.allDay ?? body.all_day, false);
   const isRecurring = asBool(body.isRecurring ?? body.recurring ?? body.recurrenceEnabled, false);
   const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
@@ -276,6 +296,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       location_id: locationId || null,
       location_name: location || null,
       locationLabel: location || null,
+      localStart: localStart || null,
+      local_start: localStart || null,
+      localEnd: localEnd || null,
+      local_end: localEnd || null,
       approval_requested_at: new Date().toISOString(),
       visual_calendar: true,
       highlight_visual: highlightVisual,
