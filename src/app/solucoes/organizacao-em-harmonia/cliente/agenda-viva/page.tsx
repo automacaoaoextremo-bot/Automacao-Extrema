@@ -73,6 +73,9 @@ type FormState = {
   imageAlt: string;
   imageEmoji: string;
   highlightVisual: boolean;
+  firstAccessEnabled: boolean;
+  firstAccessOrder: string;
+  firstAccessSummary: string;
   requiresApproval: boolean;
 };
 
@@ -94,6 +97,9 @@ const emptyForm: FormState = {
   imageAlt: "",
   imageEmoji: "",
   highlightVisual: true,
+  firstAccessEnabled: true,
+  firstAccessOrder: "",
+  firstAccessSummary: "",
   requiresApproval: true,
 };
 
@@ -181,6 +187,51 @@ function metadataText(event: AgendaEvent, key: string) {
 function metadataBoolean(event: AgendaEvent, key: string) {
   const value = event.metadata?.[key];
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function metadataNumber(event: AgendaEvent, key: string) {
+  const value = event.metadata?.[key];
+  const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value.replace(",", ".")) : NaN;
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function metadataBooleanAny(event: AgendaEvent, keys: string[], fallback: boolean) {
+  for (const key of keys) {
+    if (event.metadata && Object.prototype.hasOwnProperty.call(event.metadata, key)) return metadataBoolean(event, key);
+  }
+  return fallback;
+}
+
+function firstAccessEnabledFor(event: AgendaEvent) {
+  return metadataBooleanAny(event, ["firstAccessEnabled", "first_access_enabled", "showOnFirstAccess", "show_on_first_access"], true);
+}
+
+function firstAccessOrderFor(event: AgendaEvent) {
+  return metadataNumber(event, "firstAccessOrder") ?? metadataNumber(event, "first_access_order") ?? Number.MAX_SAFE_INTEGER;
+}
+
+function agendaDateLabel(event: AgendaEvent) {
+  const explicit = metadataText(event, "dateLabel") || metadataText(event, "publicDateLabel");
+  if (explicit) return explicit;
+  if (!event.starts_at) return "Data a definir";
+  return new Date(event.starts_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function agendaTimeLabel(event: AgendaEvent) {
+  const explicit = metadataText(event, "timeLabel") || metadataText(event, "publicTimeLabel");
+  if (explicit) return explicit;
+  if (metadataBoolean(event, "timeUndefined") || event.all_day) return event.all_day ? "Dia inteiro" : "Horário a definir";
+  const start = event.starts_at ? visualTime(event.starts_at, false).replace(":", "h") : "";
+  const end = event.ends_at ? visualTime(event.ends_at, false).replace(":", "h") : "";
+  if (start && end) return `${start} às ${end}`;
+  if (start) return `A partir de ${start}`;
+  return "Horário a definir";
+}
+
+function firstAccessDescriptionFor(event: AgendaEvent) {
+  const summary = metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary");
+  if (summary) return summary;
+  return [recurrenceDisplay(event), agendaDateLabel(event), agendaTimeLabel(event)].filter(Boolean).join(" • ");
 }
 
 function recurrenceWeekdayFromRule(rule: string | null) {
@@ -326,6 +377,22 @@ export default function OrganizacaoAgendaVivaPage() {
     return (payload?.events ?? []).filter((event) => event.status === "pendente_aprovacao");
   }, [payload?.events]);
 
+  const firstAccessPreviewEvents = useMemo(() => {
+    return (payload?.events ?? [])
+      .filter((event) => firstAccessEnabledFor(event))
+      .filter((event) => ["aprovado", "recorrente", "ativo", "publicado"].includes(event.status))
+      .sort((left, right) => {
+        const leftOrder = firstAccessOrderFor(left);
+        const rightOrder = firstAccessOrderFor(right);
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        const leftDate = left.starts_at ? new Date(left.starts_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const rightDate = right.starts_at ? new Date(right.starts_at).getTime() : Number.MAX_SAFE_INTEGER;
+        if (leftDate !== rightDate) return leftDate - rightDate;
+        return left.title.localeCompare(right.title, "pt-BR");
+      })
+      .slice(0, 30);
+  }, [payload?.events]);
+
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -460,6 +527,9 @@ export default function OrganizacaoAgendaVivaPage() {
       imageAlt: eventImageAlt(event),
       imageEmoji: eventEmoji(event),
       highlightVisual: event.metadata?.highlight_visual !== false,
+      firstAccessEnabled: firstAccessEnabledFor(event),
+      firstAccessOrder: String(firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "" : firstAccessOrderFor(event)),
+      firstAccessSummary: metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary"),
       requiresApproval: event.requires_approval,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -501,9 +571,40 @@ export default function OrganizacaoAgendaVivaPage() {
               <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
               <label className="flex items-center gap-3 rounded-2xl bg-lime-50 p-4 ring-1 ring-lime-100"><input type="checkbox" checked={form.highlightVisual} onChange={(event) => update("highlightVisual", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Destacar no calendário visual</span></label>
               <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Precisa de aprovação</span></label>
+              <div className="grid gap-4 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 md:col-span-2 md:grid-cols-[1fr_180px]">
+                <label className="flex items-center gap-3 md:col-span-2"><input type="checkbox" checked={form.firstAccessEnabled} onChange={(event) => update("firstAccessEnabled", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exibir no card Agenda do Primeiro Acesso</span></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Texto resumido no Primeiro Acesso</span><input value={form.firstAccessSummary} onChange={(event) => update("firstAccessSummary", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Ex.: Mensal • última sexta-feira • 19h às 20h30" /></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Ordem</span><input type="number" min="1" step="1" value={form.firstAccessOrder} onChange={(event) => update("firstAccessOrder", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3" placeholder="Ex.: 10" /></label>
+                <p className="md:col-span-2 rounded-2xl bg-white p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-100">Use a ordem para controlar a sequência do card Agenda sem alterar código. Eventos sem ordem aparecem depois dos eventos ordenados.</p>
+              </div>
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Descreva objetivo, público, responsáveis, materiais, comunicação e qualquer regra importante." /></label>
             </div>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={saveEvent} disabled={saving || !form.title.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.eventId ? "Salvar e reenviar para aprovação" : "Enviar para aprovação"}</button>{form.eventId && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
+          </section>
+
+          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Preview do Primeiro Acesso</p>
+                <h2 className="mt-2 text-2xl font-black text-[#00334E]">Card Agenda dos Filhos da Corrente</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Esta prévia mostra a ordem e o texto que aparecerão no primeiro acesso. Ajuste ordem, exibição e resumo no cadastro de cada evento.</p>
+              </div>
+              <span className="rounded-full bg-[#E9F2E7] px-4 py-2 text-xs font-black text-[#123D2C]">{firstAccessPreviewEvents.length} itens</span>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {firstAccessPreviewEvents.map((event, index) => (
+                <article key={event.id} className="rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#123D2C] text-xs font-black text-white">{firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? index + 1 : firstAccessOrderFor(event)}</span>
+                    <div className="min-w-0">
+                      <h3 className="font-black text-[#123D2C]">{event.title}</h3>
+                      <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{firstAccessDescriptionFor(event)}</p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {firstAccessPreviewEvents.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500 md:col-span-2">Nenhum evento aprovado configurado para aparecer no Primeiro Acesso.</p>}
+            </div>
           </section>
 
           <section className="rounded-[2rem] bg-[#00334E] p-5 text-white shadow sm:p-6">

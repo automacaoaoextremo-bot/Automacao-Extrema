@@ -220,6 +220,24 @@ function metadataValue(metadata: Record<string, unknown> | null | undefined, key
   return "";
 }
 
+function metadataNumber(metadata: Record<string, unknown> | null | undefined, keys: string[], fallback = Number.MAX_SAFE_INTEGER) {
+  if (!metadata) return fallback;
+  for (const key of keys) {
+    const value = metadata[key];
+    const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value.replace(",", ".")) : NaN;
+    if (Number.isFinite(numberValue) && numberValue > 0) return numberValue;
+  }
+  return fallback;
+}
+
+function metadataBooleanValue(metadata: Record<string, unknown> | null | undefined, keys: string[], fallback: boolean) {
+  if (!metadata) return fallback;
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(metadata, key)) return asBoolean(metadata[key]);
+  }
+  return fallback;
+}
+
 
 function labelForEvent(event: AgendaEventRecord) {
   const metadata = event.metadata ?? null;
@@ -319,6 +337,14 @@ function isMandatoryForAllFilhos(event: AgendaEventRecord) {
   );
 }
 
+function isDisabledForFirstAccess(event: AgendaEventRecord) {
+  return !metadataBooleanValue(event.metadata, ["firstAccessEnabled", "first_access_enabled", "showOnFirstAccess", "show_on_first_access", "displayOnFirstAccess"], true);
+}
+
+function firstAccessOrder(event: AgendaEventRecord) {
+  return metadataNumber(event.metadata, ["firstAccessOrder", "first_access_order", "agendaOrder", "agenda_order", "displayOrder", "sortOrder"]);
+}
+
 function weekdayFromText(value: string) {
   const normalized = normalize(value);
   const orderedDays = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
@@ -367,7 +393,7 @@ function sortDateValue(event: AgendaEventRecord) {
 
 function sortWeight(event: AgendaEventRecord) {
   const label = labelForEvent(event);
-  return { dateValue: sortDateValue(event), weekday: weekdayForEvent(event), label: label.toLocaleLowerCase("pt-BR") };
+  return { order: firstAccessOrder(event), dateValue: sortDateValue(event), weekday: weekdayForEvent(event), label: label.toLocaleLowerCase("pt-BR") };
 }
 
 function formatDateLabel(event: AgendaEventRecord) {
@@ -430,7 +456,8 @@ function optionForEvent(event: AgendaEventRecord): AgendaOption {
   const dateLabel = formatDateLabel(event);
   const timeLabel = formatTimeLabel(event);
   const recurrence = recurrenceLabel(event);
-  const description = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
+  const summary = metadataValue(event.metadata, ["firstAccessSummary", "first_access_summary", "agendaSummary", "agenda_summary", "publicSummary"]);
+  const description = summary || [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
 
   return {
     slug,
@@ -492,6 +519,7 @@ export async function GET() {
     const generated = dedupeOptions(
       (data ?? [])
         .map((event) => event as AgendaEventRecord)
+        .filter((event) => !isDisabledForFirstAccess(event))
         .filter((event) => !hasEnded(event, today))
         .filter((event) => !isVacationOrRecess(event))
         .filter((event) => !isMandatoryForAllFilhos(event))
@@ -499,6 +527,7 @@ export async function GET() {
           const left = sortWeight(a);
           const right = sortWeight(b);
 
+          if (left.order !== right.order) return left.order - right.order;
           if (left.dateValue !== right.dateValue) return left.dateValue - right.dateValue;
           if (left.weekday !== right.weekday) return left.weekday - right.weekday;
           return left.label.localeCompare(right.label, "pt-BR");

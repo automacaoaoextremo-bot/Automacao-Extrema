@@ -231,6 +231,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const imageAlt = asText(body.imageAlt ?? body.image_alt) || title;
   const imageEmoji = asText(body.imageEmoji ?? body.image_emoji);
   const highlightVisual = body.highlightVisual === undefined ? true : asBool(body.highlightVisual, true);
+  const firstAccessEnabled = body.firstAccessEnabled === undefined ? true : asBool(body.firstAccessEnabled, true);
+  const firstAccessOrderRaw = Number(asText(body.firstAccessOrder ?? body.first_access_order));
+  const firstAccessOrder = Number.isFinite(firstAccessOrderRaw) && firstAccessOrderRaw > 0 ? Math.trunc(firstAccessOrderRaw) : null;
+  const firstAccessSummary = asText(body.firstAccessSummary ?? body.first_access_summary);
   const requiresApproval = body.requiresApproval === undefined ? true : asBool(body.requiresApproval, true);
   const status = requiresApproval ? "pendente_aprovacao" : "aprovado";
 
@@ -258,6 +262,14 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       approval_requested_at: new Date().toISOString(),
       visual_calendar: true,
       highlight_visual: highlightVisual,
+      firstAccessEnabled,
+      first_access_enabled: firstAccessEnabled,
+      showOnFirstAccess: firstAccessEnabled,
+      show_on_first_access: firstAccessEnabled,
+      firstAccessOrder,
+      first_access_order: firstAccessOrder,
+      firstAccessSummary: firstAccessSummary || null,
+      first_access_summary: firstAccessSummary || null,
       image_url: imageUrl || null,
       image_alt: imageAlt || null,
       image_emoji: imageEmoji || null,
