@@ -39,7 +39,7 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Recorrência semanal",
     dateLabel: "Segunda-feira",
     timeLabel: "18h às 22h",
-    description: "Recorrência semanal • Segunda-feira • 18h às 22h",
+    description: "Recorrência semanal • Segunda-feira • 18h às 22h • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
   },
   {
     slug: "atendimento-terca",
@@ -48,7 +48,7 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Recorrência semanal",
     dateLabel: "Terça-feira",
     timeLabel: "18h às 22h",
-    description: "Recorrência semanal • Terça-feira • 18h às 22h",
+    description: "Recorrência semanal • Terça-feira • 18h às 22h • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
   },
   {
     slug: "tratamento-transformacao-quarta",
@@ -57,7 +57,7 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Conforme encaminhamento",
     dateLabel: "Quarta-feira",
     timeLabel: "18h30 às 22h",
-    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h",
+    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h • Abertura 18h45 • Porta fecha 19h",
   },
   {
     slug: "quinta-grupo-1",
@@ -66,7 +66,7 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "1ª e 3ª quinta-feira do mês",
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
-    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h",
+    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h • Abertura 19h • Porta fecha 19h30 e reabre 20h",
   },
   {
     slug: "quinta-grupo-2",
@@ -75,25 +75,61 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "2ª e 4ª quinta-feira do mês",
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
-    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h",
+    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h • Abertura 19h • Porta fecha 19h30 e reabre 20h",
   },
   {
     slug: "grupo-estudos",
     title: "Grupo de Estudos",
     label: "Grupo de Estudos",
-    recurrenceLabel: "Conforme calendário",
-    dateLabel: "Data a definir",
-    timeLabel: "Horário a definir",
-    description: "Conforme calendário • Data a definir • Horário a definir",
+    recurrenceLabel: "A cada 15 dias, conforme datas confirmadas",
+    dateLabel: "Domingo",
+    timeLabel: "15h às 17h",
+    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h",
   },
   {
-    slug: "clube-livro",
-    title: "Clube do Livro",
-    label: "Clube do Livro",
-    recurrenceLabel: "Conforme calendário",
-    dateLabel: "Data a definir",
-    timeLabel: "Horário a definir",
-    description: "Conforme calendário • Data a definir • Horário a definir",
+    slug: "caminhada-tucxa",
+    title: "Caminhada TUCXA",
+    label: "Caminhada TUCXA",
+    recurrenceLabel: "Evento pontual",
+    dateLabel: "Sábado, 11/07/2026",
+    timeLabel: "16h às 17h",
+    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h",
+  },
+  {
+    slug: "dia-do-filme",
+    title: "Dia do Filme",
+    label: "Dia do Filme",
+    recurrenceLabel: "Evento pontual",
+    dateLabel: "Quinta-feira, 16/07/2026",
+    timeLabel: "19h às 21h",
+    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h",
+  },
+  {
+    slug: "mostra-cultural-clube-livro",
+    title: "Mostra Cultural e Clube do Livro",
+    label: "Mostra Cultural e Clube do Livro",
+    recurrenceLabel: "Evento pontual",
+    dateLabel: "Terça-feira, 21/07/2026",
+    timeLabel: "19h às 21h",
+    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h",
+  },
+  {
+    slug: "clube-livro-extra",
+    title: "Clube do Livro Extra",
+    label: "Clube do Livro Extra",
+    recurrenceLabel: "Evento pontual",
+    dateLabel: "Sexta-feira, 31/07/2026",
+    timeLabel: "19h às 21h",
+    description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h • Online",
+  },
+  {
+    slug: "clube-livro-mensal",
+    title: "Clube do Livro Mensal",
+    label: "Clube do Livro Mensal",
+    recurrenceLabel: "Recorrência mensal, toda última sexta-feira do mês",
+    dateLabel: "Última sexta-feira do mês",
+    timeLabel: "19h às 20h30",
+    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30",
   },
   {
     slug: "voluntario-sementinha",
@@ -103,6 +139,15 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Data a definir",
     timeLabel: "Horário a definir",
     description: "Conforme calendário • Data a definir • Horário a definir",
+  },
+  {
+    slug: "encerramento-anual",
+    title: "Encerramento Anual",
+    label: "Encerramento Anual",
+    recurrenceLabel: "Evento pontual",
+    dateLabel: "Domingo, 20/12/2026",
+    timeLabel: "Horário a definir",
+    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir",
   },
 ];
 
@@ -166,9 +211,19 @@ function metadataText(metadata: Record<string, unknown> | null | undefined) {
     .map(([key, value]) => `${key} ${typeof value === "string" ? value : Array.isArray(value) ? value.join(" ") : ""}`)
     .join(" ");
 }
+function metadataValue(metadata: Record<string, unknown> | null | undefined, keys: string[]) {
+  if (!metadata) return "";
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 
 function labelForEvent(event: AgendaEventRecord) {
-  return event.title || event.name || event.event_type || event.group_slug || "Atividade";
+  const metadata = event.metadata ?? null;
+  return metadataValue(metadata, ["displayTitle", "tituloExibicao", "publicTitle"]) || event.title || event.name || event.event_type || event.group_slug || "Atividade";
 }
 
 function startsAt(event: AgendaEventRecord) {
@@ -230,7 +285,8 @@ function isMandatoryForAllFilhos(event: AgendaEventRecord) {
     asBoolean(metadata?.requiredForAll) ||
     asBoolean(metadata?.requiredForAllFilhosDaCorrente) ||
     asBoolean(metadata?.todosFilhosCorrente) ||
-    asBoolean(metadata?.allFilhosDaCorrente)
+    asBoolean(metadata?.allFilhosDaCorrente) ||
+    asBoolean(metadata?.hideFromFirstAccess)
   ) {
     return true;
   }
@@ -315,6 +371,9 @@ function sortWeight(event: AgendaEventRecord) {
 }
 
 function formatDateLabel(event: AgendaEventRecord) {
+  const explicit = metadataValue(event.metadata, ["dateLabel", "dataLabel", "publicDateLabel"]);
+  if (explicit) return explicit;
+
   const startDate = startsAt(event);
   if (startDate) {
     return startDate.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
@@ -332,6 +391,9 @@ function formatHour(value: Date | null) {
 }
 
 function formatTimeLabel(event: AgendaEventRecord) {
+  const explicit = metadataValue(event.metadata, ["timeLabel", "horarioLabel", "publicTimeLabel"]);
+  if (explicit) return explicit;
+  if (asBoolean(event.metadata?.timeUndefined) || asBoolean(event.metadata?.horarioAdefinir)) return "Horário a definir";
   if (event.all_day) return "Dia inteiro";
   const start = startsAt(event);
   const end = endsAt(event);
@@ -347,7 +409,7 @@ function recurrenceLabel(event: AgendaEventRecord) {
   if (!isRecurringEvent(event)) return "Evento pontual";
 
   const metadata = event.metadata ?? null;
-  const explicit = metadata?.recurrenceLabel ?? metadata?.recorrenciaLabel ?? metadata?.periodicityLabel ?? metadata?.periodicidadeLabel;
+  const explicit = metadata?.recurrenceLabel ?? metadata?.recorrenciaLabel ?? metadata?.periodicityLabel ?? metadata?.periodicidadeLabel ?? metadata?.publicRecurrenceLabel;
   if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
 
   const frequency = recurrenceFrequency(event);
@@ -382,7 +444,9 @@ function optionForEvent(event: AgendaEventRecord): AgendaOption {
 }
 
 function duplicateKey(option: AgendaOption) {
-  return slugify(option.title || option.label || option.slug);
+  const normalizedTitle = slugify(option.title || option.label || option.slug);
+  const withoutAccidentalCopy = normalizedTitle.replace(/-\d+$/, "");
+  return withoutAccidentalCopy;
 }
 
 function dedupeOptions(options: AgendaOption[]) {

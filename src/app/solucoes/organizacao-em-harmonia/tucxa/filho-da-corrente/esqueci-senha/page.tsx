@@ -49,7 +49,7 @@ export default function EsqueciSenhaFilhoDaCorrentePage() {
       const redirectTo = `${window.location.origin}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha`;
       const { error: resetError } = await supabaseBrowser.auth.resetPasswordForEmail(authEmail, { redirectTo });
       if (resetError) throw resetError;
-      setMessage("Enviamos um link de troca de senha para o e-mail vinculado ao seu cadastro. Abra o link e volte a esta página para definir a nova senha.");
+      setMessage("Enviamos um link seguro para o e-mail vinculado ao seu cadastro. Abra o link recebido; ele abrirá esta tela já liberando o cadastro da nova senha.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível enviar o link de troca de senha.");
     } finally {
@@ -79,7 +79,7 @@ export default function EsqueciSenhaFilhoDaCorrentePage() {
       setConfirmPassword("");
       setMessage("Senha atualizada com sucesso. Você já pode voltar e entrar com WhatsApp/e-mail e a nova senha.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível trocar a senha. Abra o link recebido por e-mail e tente novamente.");
+      setError(err instanceof Error ? err.message : "Não foi possível trocar a senha. Abra o link seguro recebido por e-mail e tente novamente.");
     } finally {
       setLoadingUpdate(false);
     }
@@ -99,9 +99,12 @@ export default function EsqueciSenhaFilhoDaCorrentePage() {
       <section className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-2 lg:px-8 lg:py-8">
         <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
           <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Esqueci minha senha</p>
-          <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Receba um link para trocar a senha.</h1>
+          <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Solicite um link seguro para trocar a senha.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-            Informe seu e-mail ou WhatsApp. Se o cadastro já estiver vinculado a um e-mail, o sistema enviará um link seguro para troca da senha.
+            Informe seu e-mail ou WhatsApp. Por segurança, o sistema envia um link para o e-mail vinculado ao cadastro antes de liberar a criação da nova senha.
+          </p>
+          <p className="mt-2 rounded-2xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
+            Assim, ninguém consegue trocar a senha apenas sabendo o WhatsApp ou e-mail de um Filho da Corrente.
           </p>
 
           <form onSubmit={requestReset} className="mt-5 grid gap-4">
@@ -125,7 +128,7 @@ export default function EsqueciSenhaFilhoDaCorrentePage() {
           <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Nova senha</p>
           <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Depois de abrir o link, defina sua nova senha.</h2>
           <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-            Ao clicar no link recebido por e-mail, volte para esta página e cadastre uma senha com pelo menos 8 caracteres.
+            O link recebido abrirá esta tela de forma segura. Depois disso, cadastre uma senha com pelo menos 8 caracteres.
           </p>
 
           <form onSubmit={updatePassword} className="mt-5 grid gap-4">

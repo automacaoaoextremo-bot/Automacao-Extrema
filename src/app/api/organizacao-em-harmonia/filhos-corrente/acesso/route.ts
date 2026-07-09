@@ -63,25 +63,33 @@ function mergeProfile(current: unknown, patch: Record<string, unknown>) {
 function buildTucxaProfile(functionSlugs: string[], agendaSlugs: string[], notes: string) {
   const hasFunction = (slug: string) => functionSlugs.includes(slug);
   const hasAgenda = (slug: string) => agendaSlugs.includes(slug);
-  const isLeadership = ["administrador-sistema", "coordenacao", "diretoria", "presidente"].some(hasFunction);
+  const isLeadership = ["administrador-sistema", "coordenacao", "diretoria", "presidente", "coordenacao-grupo-estudos", "coordenacao-clube-livro", "coordenacao-sementinha", "coordenacao-eventos"].some(hasFunction);
 
   return {
     involvementFunctions: functionSlugs,
     involvementAgenda: agendaSlugs,
     functionSlugs,
     agendaSlugs,
+    isFilhoDaCorrente: true,
+    onlyFilhoDaCorrente: functionSlugs.length === 0,
     isCavalinho: hasFunction("cavalinho"),
+    coordinatesStudyGroup: hasFunction("coordenacao-grupo-estudos"),
+    coordinatesBookClub: hasFunction("coordenacao-clube-livro"),
+    coordinatesSementinha: hasFunction("coordenacao-sementinha"),
+    volunteersSementinha: hasFunction("voluntario-sementinha"),
+    coordinatesEvents: hasFunction("coordenacao-eventos"),
+    volunteersEvents: hasFunction("voluntario-eventos"),
     isCambono: hasFunction("cambono") || hasFunction("cambono-volante-reserva"),
     isReserveCambono: hasFunction("cambono-volante-reserva"),
     supportsReception: hasFunction("recepcao") || hasFunction("apoia-recepcao"),
-    supportsOrganization: hasFunction("organizacao") || hasFunction("apoia-organizacao") || hasAgenda("organizacao-eventos"),
+    supportsOrganization: hasFunction("organizacao") || hasFunction("apoia-organizacao") || hasFunction("coordenacao-eventos") || hasFunction("voluntario-eventos") || hasAgenda("organizacao-eventos"),
     participatesMonday: hasAgenda("atendimento-segunda"),
     participatesTuesday: hasAgenda("atendimento-terca"),
     participatesWednesday: hasAgenda("atendimento-quarta"),
     participatesThursday: hasAgenda("quinta-grupo-1") || hasAgenda("quinta-grupo-2") || hasAgenda("quinta-grupo-1-e-2"),
     thursdayGroup: hasAgenda("quinta-grupo-1-e-2") ? "ambos" : hasAgenda("quinta-grupo-1") ? "grupo-1" : hasAgenda("quinta-grupo-2") ? "grupo-2" : "",
     canApproveEvents: isLeadership,
-    canEditCalendar: isLeadership || hasFunction("organizacao") || hasAgenda("organizacao-eventos"),
+    canEditCalendar: isLeadership || hasFunction("organizacao") || hasFunction("coordenacao-eventos") || hasAgenda("organizacao-eventos"),
     canViewReports: isLeadership || hasFunction("tesouraria-financeiro"),
     attendanceNotes: notes,
   };
@@ -422,9 +430,6 @@ export async function POST(request: Request) {
     if (whatsapp.length < 10) return NextResponse.json({ error: "Informe o WhatsApp com DDD." }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "Crie uma senha com pelo menos 8 caracteres." }, { status: 400 });
     if (email && !email.includes("@")) return NextResponse.json({ error: "Confira o e-mail informado ou deixe o campo em branco." }, { status: 400 });
-    if (functionSlugs.length + agendaSlugs.length === 0) {
-      return NextResponse.json({ error: "Marque pelo menos uma função ou agenda em que você esteja envolvido no Tucxa." }, { status: 400 });
-    }
 
     const existingByPhone = await findPersonByIdentifier(organization.id, whatsapp);
     const existingByEmail = email ? await findPersonByIdentifier(organization.id, email) : null;
@@ -515,7 +520,7 @@ export async function POST(request: Request) {
       loginIdentifier: email || whatsapp,
       notes: [
         notes,
-        functionSlugs.length ? `Funções selecionadas: ${functionSlugs.join(", ")}` : "Funções selecionadas: não informado",
+        functionSlugs.length ? `Funções adicionais selecionadas: ${functionSlugs.join(", ")}` : "Funções adicionais selecionadas: nenhuma — somente Filho da Corrente",
         agendaSlugs.length ? `Agenda selecionada: ${agendaSlugs.join(", ")}` : "Agenda selecionada: não informado",
       ].filter(Boolean).join("\n"),
     });

@@ -70,7 +70,7 @@ export default function FilhoDaCorrenteTucxaPage() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupShowPassword, setSignupShowPassword] = useState(false);
   const [notes, setNotes] = useState("");
-  const [functionSlugs, setFunctionSlugs] = useState<string[]>(["filho-da-corrente"]);
+  const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
   const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([...fallbackFilhoDaCorrenteAgenda]);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -168,9 +168,11 @@ export default function FilhoDaCorrenteTucxaPage() {
       setError("Informe seu WhatsApp com DDD. Este é o principal canal de orientação do Tucxa.");
       return;
     }
-    if (functionSlugs.length + agendaSlugs.length === 0) {
-      setError("Marque pelo menos uma função ou agenda em que você esteja envolvido no Tucxa.");
-      return;
+    if (functionSlugs.length === 0) {
+      const confirmed = window.confirm(
+        "Você não marcou nenhuma função além de Filho da Corrente. Confirma que atualmente é somente Filho da Corrente e não participa de nenhuma outra função listada?",
+      );
+      if (!confirmed) return;
     }
     if (signupPassword.length < 8) {
       setError("Crie uma senha com pelo menos 8 caracteres para os próximos acessos.");
@@ -213,20 +215,19 @@ export default function FilhoDaCorrenteTucxaPage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Entrar", href: "#acesso", variant: "primary" },
+          { label: "Início", href: "#inicio", variant: "primary" },
           { label: "Primeiro acesso", href: "#primeiro-acesso", variant: "secondary" },
-          { label: "Esqueci senha", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha", variant: "secondary" },
           { label: "Voltar ao site", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
         ]}
         navLabel="Menu dos Filhos da Corrente do Tucxa"
       />
 
-      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8">
+      <section id="inicio" className="mx-auto grid max-w-6xl scroll-mt-48 gap-5 px-4 py-5 sm:scroll-mt-44 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8">
         <div
           id="acesso"
           className="order-1 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-1 lg:row-start-1"
         >
-            <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acesso liberado</p>
+            <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Filho da Corrente - Acesso liberado</p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entrar com WhatsApp ou e-mail</h1>
             <p className="mt-3 leading-7 text-slate-700">
               Use este acesso depois que o responsável do Tucxa validar seus dados. A senha é a mesma cadastrada no primeiro acesso.
@@ -270,9 +271,9 @@ export default function FilhoDaCorrenteTucxaPage() {
 
           <div className="mt-4 rounded-3xl bg-[#123D2C] p-4 text-white shadow-lg shadow-green-900/10">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Importante</p>
-            <h2 className="mt-2 text-xl font-black">Marque tudo em que você participa.</h2>
+            <h2 className="mt-2 text-xl font-black">Informe somente o que se aplica a você.</h2>
             <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
-              Isso ajuda a casa a orientar melhor cada filho, organizar os grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
+              As funções adicionais e a agenda ajudam a casa a orientar melhor cada filho, organizar grupos, evitar chamadas duplicadas e preparar os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia com mais segurança.
             </p>
           </div>
 
@@ -300,7 +301,8 @@ export default function FilhoDaCorrenteTucxaPage() {
 
             <div className="rounded-3xl border border-[#123D2C]/10 bg-[#F7FAF2] p-4">
               <p className="text-sm font-black text-[#123D2C]">Função</p>
-              <p className="mt-1 text-xs font-semibold text-slate-600">Marque todas as funções em que você participa.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-600">Marque somente as funções adicionais que você exerce. Se você for apenas Filho da Corrente, deixe sem marcar.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">O vínculo de Filho da Corrente já fica registrado automaticamente neste cadastro.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {filhoDaCorrenteFunctions.map((item) => (
                   <label key={item.slug} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
