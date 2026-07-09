@@ -25,7 +25,7 @@ type NavGroup = {
 };
 
 const topNav: NavItem[] = [
-  { label: "Painel", href: "/solucoes/organizacao-em-harmonia/cliente" },
+  { label: "Início", href: "/solucoes/organizacao-em-harmonia/cliente" },
   { label: "Cadastro", href: "/solucoes/organizacao-em-harmonia/cliente/cadastro" },
   { label: "Base Única", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica" },
   { label: "Agenda Viva", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva" },
@@ -40,7 +40,7 @@ const sidebarGroups: NavGroup[] = [
     label: "Geral",
     description: "Visão inicial e dados principais do cliente.",
     items: [
-      { label: "Painel", href: "/solucoes/organizacao-em-harmonia/cliente", description: "Checklist, próximos passos e atalhos." },
+      { label: "Início", href: "/solucoes/organizacao-em-harmonia/cliente", description: "Checklist, próximos passos e atalhos." },
       { label: "Cadastro", href: "/solucoes/organizacao-em-harmonia/cliente/cadastro", description: "Dados da organização, contatos e endereço." },
     ],
   },
@@ -112,38 +112,70 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
   return (
     <main className="min-h-screen bg-[#F4FBF7] text-[#00334E]">
       <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <Link href="/solucoes/organizacao-em-harmonia/cliente" className="flex min-w-0 items-center gap-3">
-            <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-full bg-white shadow ring-1 ring-[#123D2C]/10">
-              <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="TUCXA" fill sizes="56px" className="object-cover" unoptimized />
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
+          <Link
+            href="/solucoes/organizacao-em-harmonia/cliente"
+            className="flex min-w-0 flex-1 items-center gap-3"
+            aria-label="Ir para o início da área logada do Tucxa"
+          >
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
+              <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="Logo do Tucxa" width={72} height={72} className="h-full w-full object-contain" priority />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-2xl font-black tracking-wide text-[#123D2C] sm:text-3xl">TUCXA</span>
-              <span className="block truncate text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43] sm:text-sm">Organização em Harmonia</span>
+              <span className="block whitespace-nowrap text-[1.05rem] font-black leading-[1.05] text-[#173323] sm:text-[1.45rem]">TUCXA</span>
+              <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
+                TEMPLO DE UMBANDA CABOCLO SETE FLEXA
+              </span>
             </span>
           </Link>
-          <button type="button" onClick={signOut} className="rounded-full bg-[#123D2C] px-4 py-2 text-sm font-black text-white shadow transition hover:-translate-y-0.5">
-            Sair
-          </button>
         </div>
 
-        <div className="border-t border-[#123D2C]/10 bg-white px-4 py-2 sm:px-6 lg:px-8">
-          <a href="https://www.automacaoextrema.com" target="_blank" rel="noreferrer" className="mx-auto flex max-w-5xl items-center justify-center gap-3 rounded-full bg-white px-4 py-2 text-sm font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:shadow-md">
-            <span>Desenvolvido por</span>
-            <span className="relative h-8 w-32 overflow-hidden rounded-xl bg-[#00334E]">
-              <Image src="/clientes/tucxa/automacao-extrema-logo.svg" alt="Automação Extrema" fill sizes="128px" className="object-contain" unoptimized />
-            </span>
-            <span className="hidden font-bold text-slate-500 sm:inline">Clique no logo e nos conheça</span>
-          </a>
+        <div className="bg-[#fffdf7] px-4 py-1">
+          <div className="mx-auto max-w-6xl">
+            <a
+              href="https://www.automacaoextrema.com"
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-h-10 items-center justify-center gap-2 rounded-full border border-[#ded8ca] bg-white/90 px-3 py-1.5 text-center shadow-sm transition hover:bg-white sm:min-h-11 sm:gap-4 sm:px-5"
+              aria-label="Conhecer a Automação Extrema"
+            >
+              <span className="shrink-0 text-sm font-black leading-none text-[#173323] sm:text-lg">Desenvolvido por</span>
+              <Image
+                src="/ae-logo-horizontal.png"
+                alt="Automação Extrema"
+                width={200}
+                height={60}
+                className="h-7 w-auto rounded-xl bg-[#00334E] object-contain px-2 py-1 sm:h-8"
+                priority
+              />
+              <span className="text-xs font-semibold leading-tight text-slate-500 sm:text-base">Clique no logo e nos conheça</span>
+            </a>
+          </div>
         </div>
 
-        <nav className="border-t border-[#123D2C]/10 bg-[#F7FAF2] px-4 py-3 sm:px-6 lg:px-8">
-          <div className="mx-auto flex max-w-7xl flex-wrap justify-center gap-2 text-sm font-black text-[#123D2C] sm:justify-start">
+        <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
             {topNav.map((item) => (
-              <Link key={item.href} href={item.href} className={`rounded-full px-4 py-2 shadow-sm ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 ${isActive(pathname, item.href) ? "bg-[#123D2C] text-white" : "bg-white hover:bg-[#E9F2E7]"}`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                  isActive(pathname, item.href)
+                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
+                }`}
+              >
                 {item.label}
               </Link>
             ))}
+            <button
+              type="button"
+              onClick={signOut}
+              className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+            >
+              Sair
+            </button>
           </div>
         </nav>
       </header>

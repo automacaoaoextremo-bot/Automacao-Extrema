@@ -389,12 +389,30 @@ async function decideEvent(organizationId: string, personId: string, body: Recor
 async function deleteEvent(organizationId: string, body: Record<string, unknown>) {
   const eventId = asText(body.eventId);
   if (!eventId) throw new Error("Atividade não informada.");
+
+  const { data: event, error: eventError } = await supabaseAdmin
+    .from("agv_events")
+    .select("id")
+    .eq("id", eventId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (eventError) throw eventError;
+  if (!event) throw new Error("Atividade não encontrada para esta organização.");
+
+  const { error: approvalError } = await supabaseAdmin
+    .from("agv_event_approvals")
+    .delete()
+    .eq("event_id", eventId);
+
+  if (approvalError) throw approvalError;
+
   const { error } = await supabaseAdmin
     .from("agv_events")
     .delete()
     .eq("id", eventId)
-    .eq("organization_id", organizationId)
-    .in("status", ["rascunho", "pendente_aprovacao", "ajuste_solicitado"]);
+    .eq("organization_id", organizationId);
+
   if (error) throw error;
 }
 

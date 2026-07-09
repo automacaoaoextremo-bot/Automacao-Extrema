@@ -641,7 +641,7 @@ function EventCard({ event, payload, onEdit, onDelete, compact = false }: { even
       {(onEdit || onDelete) && (
         <div className="mt-4 flex flex-wrap gap-2">
           {onEdit && <button type="button" onClick={() => onEdit(event)} className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white">Editar</button>}
-          {onDelete && ["rascunho", "pendente_aprovacao", "ajuste_solicitado"].includes(event.status) && <button type="button" onClick={() => onDelete(event.id)} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">Excluir</button>}
+          {onDelete && <button type="button" onClick={() => onDelete(event.id)} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">Excluir</button>}
         </div>
       )}
     </article>
@@ -817,7 +817,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   }
 
   async function deleteEvent(eventId: string) {
-    if (!window.confirm("Excluir esta atividade ainda não aprovada?")) return;
+    if (!window.confirm("Excluir esta atividade? Ela será removida da lista, do calendário, do preview e do card público do Primeiro Acesso.")) return;
     setSaving(true);
     setMessage("");
     setError("");
