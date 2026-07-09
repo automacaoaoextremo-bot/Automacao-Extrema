@@ -120,7 +120,7 @@ function approvalMessage(input: {
 }
 
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, eventsResult] = await Promise.all([
+  const [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, locationsResult, eventsResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, email, whatsapp, enabled_modules")
@@ -145,14 +145,20 @@ async function listPayload(organizationId: string) {
       .eq("organization_id", organizationId)
       .order("sort_order", { ascending: true }),
     supabaseAdmin
+      .from("oh_locations")
+      .select("id, name, location_type, address, number, complement, district, city, state, active, is_primary")
+      .eq("organization_id", organizationId)
+      .order("is_primary", { ascending: false })
+      .order("name", { ascending: true }),
+    supabaseAdmin
       .from("agv_events")
-      .select("id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, recurrence_rule, location, group_slug, responsible_person_id, created_by_person_id, approved_by_person_id, approved_at, requires_approval, notes, metadata, created_at, updated_at")
+      .select("id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, approved_by_person_id, approved_at, requires_approval, notes, metadata, created_at, updated_at")
       .eq("organization_id", organizationId)
       .order("starts_at", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
   ]);
 
-  for (const result of [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, eventsResult]) {
+  for (const result of [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, locationsResult, eventsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -162,6 +168,7 @@ async function listPayload(organizationId: string) {
     memberships: membershipsResult.data ?? [],
     roles: rolesResult.data ?? [],
     eventTypes: eventTypesResult.data ?? [],
+    locations: locationsResult.data ?? [],
     events: eventsResult.data ?? [],
   };
 }
@@ -223,7 +230,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
   const recurrenceWeekday = asText(body.recurrenceWeekday ?? body.weekday ?? body.diaSemana);
   const recurrenceRule = buildRecurrenceRule({ isRecurring, frequency: recurrenceFrequency, weekday: recurrenceWeekday, startsAt });
-  const location = asText(body.location);
+  const locationId = asText(body.locationId ?? body.location_id);
+  const locationName = asText(body.locationName ?? body.location_name);
+  const location = asText(body.location) || locationName;
+  const audience = asText(body.audience ?? body.publico ?? body.targetAudience) || "filhos-corrente";
   const groupSlug = asText(body.groupSlug ?? body.group_slug);
   const responsiblePersonId = asText(body.responsiblePersonId ?? body.responsible_person_id);
   const notes = asText(body.notes);
@@ -250,6 +260,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
     ends_at: endsAt,
     all_day: allDay,
     recurrence_rule: recurrenceRule,
+    location_id: locationId || null,
     location: location || null,
     group_slug: groupSlug || null,
     responsible_person_id: responsiblePersonId || null,
@@ -259,6 +270,12 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
     metadata: {
       source: "agenda_viva_cliente",
       requested_by: personId,
+      audience,
+      publico: audience,
+      targetAudience: audience,
+      location_id: locationId || null,
+      location_name: location || null,
+      locationLabel: location || null,
       approval_requested_at: new Date().toISOString(),
       visual_calendar: true,
       highlight_visual: highlightVisual,
@@ -293,9 +310,6 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       .maybeSingle();
     if (currentError) throw currentError;
     if (!current) throw new Error("Atividade não encontrada.");
-    if (!["rascunho", "pendente_aprovacao", "ajuste_solicitado"].includes(String(current.status))) {
-      throw new Error("Atividades já aprovadas só podem ser alteradas por novo pedido de ajuste.");
-    }
 
     const { error } = await supabaseAdmin
       .from("agv_events")
@@ -313,7 +327,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
     savedId = data.id as string;
   }
 
-  const approvalUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/agenda-viva?eventId=${encodeURIComponent(savedId)}`;
+  const approvalUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/agenda-viva/aprovacoes?eventId=${encodeURIComponent(savedId)}`;
   const typeName = await eventTypeName(organizationId, eventTypeId, eventTypeSlug);
   const approver = await findApprover(organizationId);
   const waMessage = approvalMessage({ organizationName, title, eventTypeName: typeName, requestedByName, approvalUrl, startsAt });

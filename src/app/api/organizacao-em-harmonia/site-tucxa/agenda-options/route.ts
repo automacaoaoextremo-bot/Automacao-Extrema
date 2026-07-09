@@ -10,6 +10,7 @@ type AgendaOption = {
   dateLabel: string;
   timeLabel: string;
   recurrenceLabel: string;
+  locationLabel?: string;
   description: string;
 };
 
@@ -18,6 +19,8 @@ type AgendaEventRecord = {
   title?: string | null;
   name?: string | null;
   event_type?: string | null;
+  location_id?: string | null;
+  location?: string | null;
   group_slug?: string | null;
   starts_at?: string | null;
   start_at?: string | null;
@@ -31,6 +34,13 @@ type AgendaEventRecord = {
   metadata?: Record<string, unknown> | null;
 };
 
+type LocationRecord = {
+  id: string;
+  name: string | null;
+  active?: boolean | null;
+};
+
+
 const fallbackOptions: AgendaOption[] = [
   {
     slug: "atendimento-segunda",
@@ -39,7 +49,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Recorrência semanal",
     dateLabel: "Segunda-feira",
     timeLabel: "18h às 22h",
-    description: "Recorrência semanal • Segunda-feira • 18h às 22h • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
+    locationLabel: "TUCXA",
+    description: "Recorrência semanal • Segunda-feira • 18h às 22h • Local: TUCXA • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
   },
   {
     slug: "atendimento-terca",
@@ -48,7 +59,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Recorrência semanal",
     dateLabel: "Terça-feira",
     timeLabel: "18h às 22h",
-    description: "Recorrência semanal • Terça-feira • 18h às 22h • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
+    locationLabel: "TUCXA",
+    description: "Recorrência semanal • Terça-feira • 18h às 22h • Local: TUCXA • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
   },
   {
     slug: "tratamento-transformacao-quarta",
@@ -57,7 +69,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Conforme encaminhamento",
     dateLabel: "Quarta-feira",
     timeLabel: "18h30 às 22h",
-    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h • Abertura 18h45 • Porta fecha 19h",
+    locationLabel: "TUCXA",
+    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h • Local: TUCXA • Abertura 18h45 • Porta fecha 19h",
   },
   {
     slug: "quinta-grupo-1",
@@ -66,7 +79,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "1ª e 3ª quinta-feira do mês",
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
-    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h • Abertura 19h • Porta fecha 19h30 e reabre 20h",
+    locationLabel: "TUCXA",
+    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h • Local: TUCXA • Abertura 19h • Porta fecha 19h30 e reabre 20h",
   },
   {
     slug: "quinta-grupo-2",
@@ -75,7 +89,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "2ª e 4ª quinta-feira do mês",
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
-    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h • Abertura 19h • Porta fecha 19h30 e reabre 20h",
+    locationLabel: "TUCXA",
+    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h • Local: TUCXA • Abertura 19h • Porta fecha 19h30 e reabre 20h",
   },
   {
     slug: "grupo-estudos",
@@ -84,7 +99,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "A cada 15 dias, conforme datas confirmadas",
     dateLabel: "Domingo",
     timeLabel: "15h às 17h",
-    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h",
+    locationLabel: "TUCXA",
+    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h • Local: TUCXA",
   },
   {
     slug: "caminhada-tucxa",
@@ -93,7 +109,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Sábado, 11/07/2026",
     timeLabel: "16h às 17h",
-    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h",
+    locationLabel: "A definir",
+    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h • Local: A definir",
   },
   {
     slug: "dia-do-filme",
@@ -102,7 +119,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Quinta-feira, 16/07/2026",
     timeLabel: "19h às 21h",
-    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h",
+    locationLabel: "TUCXA",
+    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h • Local: TUCXA",
   },
   {
     slug: "mostra-cultural-clube-livro",
@@ -111,7 +129,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Terça-feira, 21/07/2026",
     timeLabel: "19h às 21h",
-    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h",
+    locationLabel: "TUCXA",
+    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h • Local: TUCXA",
   },
   {
     slug: "clube-livro-extra",
@@ -120,6 +139,7 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Sexta-feira, 31/07/2026",
     timeLabel: "19h às 21h",
+    locationLabel: "TUCXA",
     description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h • Online",
   },
   {
@@ -129,7 +149,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Recorrência mensal, toda última sexta-feira do mês",
     dateLabel: "Última sexta-feira do mês",
     timeLabel: "19h às 20h30",
-    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30",
+    locationLabel: "TUCXA",
+    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30 • Local: TUCXA",
   },
   {
     slug: "voluntario-sementinha",
@@ -138,7 +159,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Conforme calendário",
     dateLabel: "Data a definir",
     timeLabel: "Horário a definir",
-    description: "Conforme calendário • Data a definir • Horário a definir",
+    locationLabel: "A definir",
+    description: "Conforme calendário • Data a definir • Horário a definir • Local: A definir",
   },
   {
     slug: "encerramento-anual",
@@ -147,7 +169,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Domingo, 20/12/2026",
     timeLabel: "Horário a definir",
-    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir",
+    locationLabel: "A definir",
+    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir • Local: A definir",
   },
 ];
 
@@ -446,18 +469,35 @@ function recurrenceLabel(event: AgendaEventRecord) {
   return "Recorrente";
 }
 
+
+function locationLabel(event: AgendaEventRecord, locations: LocationRecord[]) {
+  const metadata = event.metadata ?? null;
+  const explicit = metadataValue(metadata, ["locationLabel", "location_name", "localidade", "local"]);
+  if (explicit) return explicit;
+
+  const locationId = event.location_id || metadataValue(metadata, ["location_id", "localidade_id"]);
+  if (locationId) {
+    const location = locations.find((item) => item.id === locationId);
+    if (location?.name) return location.name;
+  }
+
+  if (typeof event.location === "string" && event.location.trim()) return event.location.trim();
+  return "Local a definir";
+}
+
 function eventSlug(event: AgendaEventRecord, label: string) {
   return event.group_slug || event.event_type || event.id || slugify(label);
 }
 
-function optionForEvent(event: AgendaEventRecord): AgendaOption {
+function optionForEvent(event: AgendaEventRecord, locations: LocationRecord[]): AgendaOption {
   const title = labelForEvent(event);
   const slug = eventSlug(event, title);
   const dateLabel = formatDateLabel(event);
   const timeLabel = formatTimeLabel(event);
   const recurrence = recurrenceLabel(event);
+  const location = locationLabel(event, locations);
   const summary = metadataValue(event.metadata, ["firstAccessSummary", "first_access_summary", "agendaSummary", "agenda_summary", "publicSummary"]);
-  const description = summary || [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
+  const description = summary ? `${summary} • Local: ${location}` : [recurrence, dateLabel, timeLabel, `Local: ${location}`].filter(Boolean).join(" • ");
 
   return {
     slug,
@@ -466,6 +506,7 @@ function optionForEvent(event: AgendaEventRecord): AgendaOption {
     dateLabel,
     timeLabel,
     recurrenceLabel: recurrence,
+    locationLabel: location,
     description,
   };
 }
@@ -506,15 +547,23 @@ export async function GET() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data, error } = await supabaseAdmin
-      .from("agv_events")
-      .select("*")
-      .eq("organization_id", organizationId)
-      .in("status", ["aprovado", "recorrente", "ativo", "publicado", "approved"])
-      .order("starts_at", { ascending: true, nullsFirst: true })
-      .limit(250);
+    const [{ data, error }, { data: locationsData, error: locationsError }] = await Promise.all([
+      supabaseAdmin
+        .from("agv_events")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .in("status", ["aprovado", "recorrente", "ativo", "publicado", "approved"])
+        .order("starts_at", { ascending: true, nullsFirst: true })
+        .limit(250),
+      supabaseAdmin
+        .from("oh_locations")
+        .select("id, name, active")
+        .eq("organization_id", organizationId),
+    ]);
 
     if (error) throw error;
+    if (locationsError) throw locationsError;
+    const locations = (locationsData ?? []) as LocationRecord[];
 
     const generated = dedupeOptions(
       (data ?? [])
@@ -532,7 +581,7 @@ export async function GET() {
           if (left.weekday !== right.weekday) return left.weekday - right.weekday;
           return left.label.localeCompare(right.label, "pt-BR");
         })
-        .map(optionForEvent)
+        .map((event) => optionForEvent(event, locations))
         .filter((item) => item.slug && item.label),
     );
 

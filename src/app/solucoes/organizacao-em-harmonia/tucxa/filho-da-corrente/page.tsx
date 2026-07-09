@@ -26,6 +26,7 @@ type AgendaOption = {
   dateLabel?: string;
   timeLabel?: string;
   recurrenceLabel?: string;
+  locationLabel?: string;
   description?: string;
 };
 
@@ -94,6 +95,7 @@ export default function FilhoDaCorrenteTucxaPage() {
             dateLabel: typeof item.dateLabel === "string" ? item.dateLabel.trim() : undefined,
             timeLabel: typeof item.timeLabel === "string" ? item.timeLabel.trim() : undefined,
             recurrenceLabel: typeof item.recurrenceLabel === "string" ? item.recurrenceLabel.trim() : undefined,
+            locationLabel: typeof item.locationLabel === "string" ? item.locationLabel.trim() : undefined,
             description: typeof item.description === "string" ? item.description.trim() : undefined,
           }))
           .filter((item) => item.slug && item.label);
@@ -324,7 +326,7 @@ export default function FilhoDaCorrenteTucxaPage() {
                       <span className="block text-sm font-bold text-[#123D2C]">{item.label}</span>
                       {(item.description || item.recurrenceLabel || item.dateLabel || item.timeLabel) && (
                         <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
-                          {item.description || [item.recurrenceLabel, item.dateLabel, item.timeLabel].filter(Boolean).join(" • ")}
+                          {item.description || [item.recurrenceLabel, item.dateLabel, item.timeLabel, item.locationLabel ? `Local: ${item.locationLabel}` : ""].filter(Boolean).join(" • ")}
                         </span>
                       )}
                     </span>

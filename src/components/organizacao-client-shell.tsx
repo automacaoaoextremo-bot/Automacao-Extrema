@@ -61,7 +61,12 @@ const sidebarGroups: NavGroup[] = [
   {
     label: "Agenda Viva",
     description: "Calendário, atividades e aprovações.",
-    items: [{ label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva", description: "Atividades, eventos e recorrências." }],
+    items: [
+      { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva", description: "Resumo do módulo e preview do Primeiro Acesso." },
+      { label: "Eventos", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/eventos", description: "Cadastro, edição, localidade, público e recorrência." },
+      { label: "Aprovações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/aprovacoes", description: "Validação pela organização antes de publicar." },
+      { label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario", description: "Filtros por período, evento, pessoa e público." },
+    ],
   },
   {
     label: "Atendimento em Harmonia",
@@ -106,23 +111,24 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
 
   return (
     <main className="min-h-screen bg-[#F4FBF7] text-[#00334E]">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <Link href="/solucoes/organizacao-em-harmonia/cliente" className="flex min-w-0 items-center gap-3">
-            <span className="relative flex h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[#31C16B] shadow-lg shadow-emerald-100">
-              <Image src="/clientes/tucxa/automacao-extrema-logo.svg" alt="Organização em Harmonia" fill sizes="48px" className="object-cover" unoptimized />
+            <span className="relative flex h-14 w-14 shrink-0 overflow-hidden rounded-full bg-white shadow ring-1 ring-[#123D2C]/10">
+              <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="TUCXA" fill sizes="56px" className="object-cover" unoptimized />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-lg font-black sm:text-2xl">Organização em Harmonia</span>
+              <span className="block truncate text-2xl font-black tracking-wide text-[#123D2C] sm:text-3xl">TUCXA</span>
+              <span className="block truncate text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43] sm:text-sm">Organização em Harmonia</span>
             </span>
           </Link>
-          <button type="button" onClick={signOut} className="rounded-full bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-lg shadow-emerald-100 transition hover:-translate-y-0.5">
+          <button type="button" onClick={signOut} className="rounded-full bg-[#123D2C] px-4 py-2 text-sm font-black text-white shadow transition hover:-translate-y-0.5">
             Sair
           </button>
         </div>
 
-        <div className="border-t border-slate-100 bg-white px-4 py-2 sm:px-6 lg:px-8">
-          <a href="https://www.automacaoextrema.com" target="_blank" rel="noreferrer" className="mx-auto flex max-w-7xl items-center justify-center gap-3 rounded-full bg-white px-4 py-2 text-sm font-black text-[#00334E] shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md">
+        <div className="border-t border-[#123D2C]/10 bg-white px-4 py-2 sm:px-6 lg:px-8">
+          <a href="https://www.automacaoextrema.com" target="_blank" rel="noreferrer" className="mx-auto flex max-w-5xl items-center justify-center gap-3 rounded-full bg-white px-4 py-2 text-sm font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:shadow-md">
             <span>Desenvolvido por</span>
             <span className="relative h-8 w-32 overflow-hidden rounded-xl bg-[#00334E]">
               <Image src="/clientes/tucxa/automacao-extrema-logo.svg" alt="Automação Extrema" fill sizes="128px" className="object-contain" unoptimized />
@@ -131,10 +137,10 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
           </a>
         </div>
 
-        <nav className="bg-[#00334E] px-4 py-2 sm:px-6 lg:px-8">
-          <div className="mx-auto flex max-w-7xl flex-wrap justify-center gap-2 text-xs font-black uppercase tracking-wide text-white sm:justify-start">
+        <nav className="border-t border-[#123D2C]/10 bg-[#F7FAF2] px-4 py-3 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-7xl flex-wrap justify-center gap-2 text-sm font-black text-[#123D2C] sm:justify-start">
             {topNav.map((item) => (
-              <Link key={item.href} href={item.href} className={`rounded-full px-4 py-2 transition hover:-translate-y-0.5 ${isActive(pathname, item.href) ? "bg-[#31C16B] text-[#00334E]" : "bg-white/10 hover:bg-white/20"}`}>
+              <Link key={item.href} href={item.href} className={`rounded-full px-4 py-2 shadow-sm ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 ${isActive(pathname, item.href) ? "bg-[#123D2C] text-white" : "bg-white hover:bg-[#E9F2E7]"}`}>
                 {item.label}
               </Link>
             ))}
@@ -142,8 +148,8 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
         </nav>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[280px_1fr] lg:px-8">
-        <aside className="self-start rounded-[2rem] bg-[#06451F] p-4 text-white shadow-xl shadow-emerald-900/10 lg:sticky lg:top-40 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[300px_1fr] lg:px-8">
+        <aside className="hidden self-start lg:block rounded-[2rem] bg-[#06451F] p-4 text-white shadow-xl shadow-emerald-900/10 lg:sticky lg:top-44 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <div className="mb-4 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFF7DF]">Base Única</p>
             <h2 className="mt-1 text-xl font-black">Cadastros e permissões</h2>
