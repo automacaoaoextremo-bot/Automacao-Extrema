@@ -76,7 +76,10 @@ const sidebarGroups: NavGroup[] = [
   {
     label: "Módulos",
     description: "Soluções habilitadas para o cliente.",
-    items: [{ label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Agenda Viva, Atendimento e Corrente em Dia." }],
+    items: [
+      { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
+      { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Contribuições, comprovantes e conferência financeira." },
+    ],
   },
   {
     label: "Configurações",

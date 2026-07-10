@@ -8,7 +8,8 @@ export default async function NovoConsulenteTucxaPage() {
   const content = await getTucxaPublicContent();
   const headerActions = [
     { label: "Cadastrar meus dados", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro", variant: "primary" as const },
-    { label: content.atendimentoEmHarmonia.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
+    { label: content.atendimentoEmHarmonia.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=atendimento", variant: "secondary" as const },
+    { label: content.agendaViva.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
     { label: content.correnteEmDia.shortLabel, href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao", variant: "secondary" as const },
     { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
   ];
@@ -43,14 +44,17 @@ export default async function NovoConsulenteTucxaPage() {
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             Primeiro, faça um cadastro simples com nome completo, WhatsApp, e-mail opcional e senha. A organização do Tucxa valida as informações e retorna pelo WhatsApp informado e também por e-mail, quando preenchido.
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               Fazer cadastro de consulente
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=atendimento" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               {content.atendimentoEmHarmonia.shortLabel}
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=anonima" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+              {content.agendaViva.shortLabel}
+            </Link>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=anonima" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               Contribuir anonimamente
             </Link>
           </div>
