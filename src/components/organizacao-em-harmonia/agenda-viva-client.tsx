@@ -498,7 +498,12 @@ function locationLabel(event: AgendaEvent, locations: Location[]) {
 function firstAccessDescriptionFor(event: AgendaEvent, locations: Location[]) {
   const summary = metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary");
   const location = locationLabel(event, locations);
+
+  // Este texto e a versao resumida que deve aparecer tanto no Preview da
+  // area logada quanto no card publico de Agenda do Primeiro Acesso.
+  // Ele prioriza o resumo configurado, mas sempre preserva a localidade.
   if (summary) return `${summary} • Local: ${location}`;
+
   return [recurrenceDisplay(event), agendaDateLabel(event), agendaTimeLabel(event), `Local: ${location}`].filter(Boolean).join(" • ");
 }
 
@@ -797,6 +802,18 @@ function EventCard({ event, payload, onEdit, onDelete, compact = false }: { even
   );
 }
 
+function FirstAccessAgendaItem({ event, locations }: { event: AgendaEvent; locations: Location[] }) {
+  return (
+    <article className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+      <span aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 rounded border-2 border-slate-300 bg-white" />
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-[#123D2C]">{event.title}</span>
+        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">{firstAccessDescriptionFor(event, locations)}</span>
+      </span>
+    </article>
+  );
+}
+
 function FirstAccessPreview({ events, locations }: { events: AgendaEvent[]; locations: Location[] }) {
   const [mode, setMode] = useState<"expanded" | "grouped">("expanded");
   const grouped = useMemo(() => {
@@ -813,22 +830,21 @@ function FirstAccessPreview({ events, locations }: { events: AgendaEvent[]; loca
   return (
     <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div><p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Preview do Primeiro Acesso</p><h2 className="mt-2 text-2xl font-black text-[#00334E]">Card Agenda</h2><p className="mt-2 text-sm leading-6 text-slate-600">Visualize como os eventos aparecem para os Filhos da Corrente no cadastro inicial, incluindo localidade.</p></div>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Preview do Primeiro Acesso</p>
+          <h2 className="mt-2 text-2xl font-black text-[#00334E]">Card Agenda</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Visualize os cards exatamente no formato exibido aos Filhos da Corrente no Primeiro Acesso, incluindo recorrência, data, horário e localidade.
+          </p>
+        </div>
         <div className="flex rounded-full bg-slate-100 p-1 text-sm font-black text-[#00334E]">
           <button type="button" onClick={() => setMode("grouped")} className={`rounded-full px-3 py-2 ${mode === "grouped" ? "bg-white shadow" : ""}`}>Agrupado</button>
           <button type="button" onClick={() => setMode("expanded")} className={`rounded-full px-3 py-2 ${mode === "expanded" ? "bg-white shadow" : ""}`}>Expandido</button>
         </div>
       </div>
       {mode === "expanded" ? (
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          {events.map((event, index) => (
-            <article key={event.id} className="rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#123D2C] text-xs font-black text-white">{firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? index + 1 : firstAccessOrderFor(event)}</span>
-                <div className="min-w-0"><h3 className="font-black text-[#123D2C]">{event.title}</h3><p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{firstAccessDescriptionFor(event, locations)}</p></div>
-              </div>
-            </article>
-          ))}
+        <div className="mt-5 grid gap-2 rounded-3xl border border-[#123D2C]/10 bg-[#F7FAF2] p-4 md:grid-cols-2">
+          {events.map((event) => <FirstAccessAgendaItem key={event.id} event={event} locations={locations} />)}
           {events.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500 md:col-span-2">Nenhum evento aprovado configurado para aparecer no Primeiro Acesso.</p>}
         </div>
       ) : (
@@ -838,7 +854,7 @@ function FirstAccessPreview({ events, locations }: { events: AgendaEvent[]; loca
               <h3 className="font-black text-[#123D2C]">{audienceLabel(audience)}</h3>
               <p className="mt-1 text-xs font-semibold text-slate-500">{list.length} evento(s)</p>
               <div className="mt-3 grid gap-2">
-                {list.map((event) => <p key={event.id} className="rounded-2xl bg-white p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-slate-100"><span className="block font-black text-[#123D2C]">{event.title}</span>{firstAccessDescriptionFor(event, locations)}</p>)}
+                {list.map((event) => <FirstAccessAgendaItem key={event.id} event={event} locations={locations} />)}
               </div>
             </article>
           ))}

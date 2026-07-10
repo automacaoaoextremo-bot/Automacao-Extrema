@@ -319,8 +319,8 @@ export default function FilhoDaCorrenteTucxaPage() {
               <p className="text-sm font-black text-[#123D2C]">Agenda</p>
               <p className="mt-1 text-xs font-semibold text-slate-600">Informe também os atendimentos, grupos, estudos e ações em que você está envolvido.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {agendaOptions.map((item) => (
-                  <label key={item.slug} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                {agendaOptions.map((item, index) => (
+                  <label key={`${item.slug}-${index}`} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                     <input type="checkbox" checked={agendaSlugs.includes(item.slug)} onChange={() => setAgendaSlugs((current) => toggleValue(current, item.slug))} className="mt-1 h-5 w-5" />
                     <span className="min-w-0">
                       <span className="block text-sm font-bold text-[#123D2C]">{item.label}</span>

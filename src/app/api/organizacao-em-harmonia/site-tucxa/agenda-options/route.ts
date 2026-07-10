@@ -543,8 +543,11 @@ function optionForEvent(event: AgendaEventRecord, locations: LocationRecord[]): 
 
 function duplicateKey(option: AgendaOption) {
   const normalizedTitle = slugify(option.title || option.label || option.slug);
-  const withoutAccidentalCopy = normalizedTitle.replace(/-\d+$/, "");
-  return withoutAccidentalCopy;
+
+  // Nao remover sufixos numericos aqui. Eventos como
+  // "Filhos da Corrente 2026 - Grupo 1" e "Grupo 2" sao distintos e
+  // precisam aparecer separadamente no Primeiro Acesso.
+  return normalizedTitle;
 }
 
 function dedupeOptions(options: AgendaOption[]) {
