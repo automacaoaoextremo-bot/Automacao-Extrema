@@ -349,11 +349,14 @@ function formatLocalDateTime(value: string | null | undefined) {
 
 function formatLocalTime(value: string | null | undefined) {
   const local = parseLocalDateTime(value ?? "");
-  if (local) return `${String(local.hour).padStart(2, "0")}h${String(local.minute).padStart(2, "0")}`;
+  if (local) return local.minute === 0 ? `${local.hour}h` : `${local.hour}h${String(local.minute).padStart(2, "0")}`;
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+  const parts = date.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).split(":");
+  const hour = Number(parts[0]);
+  const minute = parts[1] ?? "00";
+  return minute === "00" ? `${hour}h` : `${hour}h${minute}`;
 }
 
 function eventLocalStart(event: AgendaEvent) {
@@ -397,6 +400,38 @@ function audienceLabel(value: string) {
   return "Somente Filhos da Corrente";
 }
 
+
+const weekdayLabels: Record<string, string> = {
+  domingo: "Domingo",
+  segunda: "Segunda-feira",
+  terca: "Terça-feira",
+  terça: "Terça-feira",
+  quarta: "Quarta-feira",
+  quinta: "Quinta-feira",
+  sexta: "Sexta-feira",
+  sabado: "Sábado",
+  sábado: "Sábado",
+};
+
+function capitalizeLabel(value: string) {
+  const text = value.trim();
+  if (!text) return text;
+  return text.charAt(0).toLocaleUpperCase("pt-BR") + text.slice(1);
+}
+
+function weekdayLabel(value: string) {
+  return weekdayLabels[value] ?? capitalizeLabel(value);
+}
+
+function normalizeHourText(value: string) {
+  return value.replace(/\b0?(\d{1,2})h00\b/g, "$1h");
+}
+
+function formatFirstAccessDescription(recurrence: string, dateLabel: string, timeLabel: string, location: string) {
+  const detailLine = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
+  return `${detailLine}\nLocal: ${location}`;
+}
+
 function recurrenceWeekdayFromRule(rule: string | null) {
   if (!rule) return "";
   const match = rule.toUpperCase().match(/BYDAY=([^;]+)/);
@@ -425,19 +460,25 @@ function recurrenceDisplay(event: AgendaEvent) {
 
 function agendaDateLabel(event: AgendaEvent) {
   const explicit = metadataText(event, "dateLabel") || metadataText(event, "publicDateLabel");
-  if (explicit) return explicit;
+  if (explicit) return capitalizeLabel(explicit);
+
+  if (event.recurrence_rule || metadataBoolean(event, "recurring")) {
+    const recurrenceWeekday = metadataText(event, "recurrenceWeekday") || metadataText(event, "recurrence_weekday") || recurrenceWeekdayFromRule(event.recurrence_rule);
+    if (recurrenceWeekday) return weekdayLabel(recurrenceWeekday);
+  }
+
   const start = eventLocalStart(event);
   const local = parseLocalDateTime(start);
   if (local) {
-    return new Date(local.year, local.month - 1, local.day).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    return capitalizeLabel(new Date(local.year, local.month - 1, local.day).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }));
   }
   if (!start) return "Data a definir";
-  return new Date(start).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+  return capitalizeLabel(new Date(start).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }));
 }
 
 function agendaTimeLabel(event: AgendaEvent) {
   const explicit = metadataText(event, "timeLabel") || metadataText(event, "publicTimeLabel");
-  if (explicit) return explicit;
+  if (explicit) return normalizeHourText(explicit);
   if (metadataBoolean(event, "timeUndefined") || event.all_day) return event.all_day ? "Dia inteiro" : "Horário a definir";
   const start = formatLocalTime(eventLocalStart(event));
   const end = formatLocalTime(eventLocalEnd(event));
@@ -496,15 +537,8 @@ function locationLabel(event: AgendaEvent, locations: Location[]) {
 }
 
 function firstAccessDescriptionFor(event: AgendaEvent, locations: Location[]) {
-  const summary = metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary");
   const location = locationLabel(event, locations);
-
-  // Este texto e a versao resumida que deve aparecer tanto no Preview da
-  // area logada quanto no card publico de Agenda do Primeiro Acesso.
-  // Ele prioriza o resumo configurado, mas sempre preserva a localidade.
-  if (summary) return `${summary} • Local: ${location}`;
-
-  return [recurrenceDisplay(event), agendaDateLabel(event), agendaTimeLabel(event), `Local: ${location}`].filter(Boolean).join(" • ");
+  return formatFirstAccessDescription(recurrenceDisplay(event), agendaDateLabel(event), agendaTimeLabel(event), location);
 }
 
 function formatLocationAddress(location: Location) {
@@ -808,7 +842,11 @@ function FirstAccessAgendaItem({ event, locations }: { event: AgendaEvent; locat
       <span aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 rounded border-2 border-slate-300 bg-white" />
       <span className="min-w-0">
         <span className="block text-sm font-bold text-[#123D2C]">{event.title}</span>
-        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">{firstAccessDescriptionFor(event, locations)}</span>
+        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+          {firstAccessDescriptionFor(event, locations).split("\n").map((line) => (
+            <span key={line} className="block">{line}</span>
+          ))}
+        </span>
       </span>
     </article>
   );

@@ -50,7 +50,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Segunda-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "Recorrência semanal • Segunda-feira • 18h às 22h • Local: TUCXA • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
+    description: "Recorrência semanal • Segunda-feira • 18h às 22h\nLocal: TUCXA",
   },
   {
     slug: "atendimento-terca",
@@ -60,7 +60,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Terça-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "Recorrência semanal • Terça-feira • 18h às 22h • Local: TUCXA • Abertura 18h30 • Porta fecha 19h20 e reabre 20h",
+    description: "Recorrência semanal • Terça-feira • 18h às 22h\nLocal: TUCXA",
   },
   {
     slug: "tratamento-transformacao-quarta",
@@ -70,7 +70,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quarta-feira",
     timeLabel: "18h30 às 22h",
     locationLabel: "TUCXA",
-    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h • Local: TUCXA • Abertura 18h45 • Porta fecha 19h",
+    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h\nLocal: TUCXA",
   },
   {
     slug: "quinta-grupo-1",
@@ -80,7 +80,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h • Local: TUCXA • Abertura 19h • Porta fecha 19h30 e reabre 20h",
+    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h\nLocal: TUCXA",
   },
   {
     slug: "quinta-grupo-2",
@@ -90,7 +90,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h • Local: TUCXA • Abertura 19h • Porta fecha 19h30 e reabre 20h",
+    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h\nLocal: TUCXA",
   },
   {
     slug: "grupo-estudos",
@@ -100,7 +100,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Domingo",
     timeLabel: "15h às 17h",
     locationLabel: "TUCXA",
-    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h • Local: TUCXA",
+    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h\nLocal: TUCXA",
   },
   {
     slug: "caminhada-tucxa",
@@ -109,8 +109,8 @@ const fallbackOptions: AgendaOption[] = [
     recurrenceLabel: "Evento pontual",
     dateLabel: "Sábado, 11/07/2026",
     timeLabel: "16h às 17h",
-    locationLabel: "A definir",
-    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h • Local: A definir",
+    locationLabel: "A confirmar",
+    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h\nLocal: A confirmar",
   },
   {
     slug: "dia-do-filme",
@@ -120,7 +120,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira, 16/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h • Local: TUCXA",
+    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h\nLocal: TUCXA",
   },
   {
     slug: "mostra-cultural-clube-livro",
@@ -130,7 +130,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Terça-feira, 21/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h • Local: TUCXA",
+    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h\nLocal: TUCXA",
   },
   {
     slug: "clube-livro-extra",
@@ -140,7 +140,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Sexta-feira, 31/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h • Online",
+    description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h\nLocal: Online",
   },
   {
     slug: "clube-livro-mensal",
@@ -150,7 +150,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Última sexta-feira do mês",
     timeLabel: "19h às 20h30",
     locationLabel: "TUCXA",
-    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30 • Local: TUCXA",
+    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30\nLocal: TUCXA",
   },
   {
     slug: "voluntario-sementinha",
@@ -160,7 +160,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Data a definir",
     timeLabel: "Horário a definir",
     locationLabel: "A definir",
-    description: "Conforme calendário • Data a definir • Horário a definir • Local: A definir",
+    description: "Conforme calendário • Data a definir • Horário a definir\nLocal: A definir",
   },
   {
     slug: "encerramento-anual",
@@ -170,7 +170,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Domingo, 20/12/2026",
     timeLabel: "Horário a definir",
     locationLabel: "A definir",
-    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir • Local: A definir",
+    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir\nLocal: A definir",
   },
 ];
 
@@ -200,6 +200,26 @@ const dayOrder: Record<string, number> = {
 };
 
 const weekdayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
+
+function capitalizeLabel(value: string) {
+  const text = value.trim();
+  if (!text) return text;
+  return text.charAt(0).toLocaleUpperCase("pt-BR") + text.slice(1);
+}
+
+function normalizeHourText(value: string) {
+  return value.replace(/\b0?(\d{1,2})h00\b/g, "$1h");
+}
+
+function formatFirstAccessDescription(recurrence: string, dateLabel: string, timeLabel: string, location: string) {
+  const detailLine = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
+  return `${detailLine}\nLocal: ${location}`;
+}
+
+function weekdayLabelFromIndex(value: number) {
+  return value >= 0 && value <= 6 ? weekdayNames[value] : "";
+}
 
 function slugify(value: string) {
   return value
@@ -451,27 +471,37 @@ function sortWeight(event: AgendaEventRecord) {
 
 function formatDateLabel(event: AgendaEventRecord) {
   const explicit = metadataValue(event.metadata, ["dateLabel", "dataLabel", "publicDateLabel"]);
-  if (explicit) return explicit;
+  if (explicit) return capitalizeLabel(explicit);
+
+  if (isRecurringEvent(event)) {
+    const weekday = weekdayForEvent(event);
+    const weekdayLabel = weekdayLabelFromIndex(weekday);
+    if (weekdayLabel) return weekdayLabel;
+  }
 
   const startDate = startsAt(event);
   if (startDate) {
-    return startDate.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    return capitalizeLabel(startDate.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }));
   }
 
   const weekday = weekdayForEvent(event);
-  if (weekday >= 0 && weekday <= 6) return weekdayNames[weekday];
+  const weekdayLabel = weekdayLabelFromIndex(weekday);
+  if (weekdayLabel) return weekdayLabel;
 
   return "Data a definir";
 }
 
 function formatHour(value: Date | null) {
   if (!value) return "";
-  return value.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+  const parts = value.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).split(":");
+  const hour = Number(parts[0]);
+  const minute = parts[1] ?? "00";
+  return minute === "00" ? `${hour}h` : `${hour}h${minute}`;
 }
 
 function formatTimeLabel(event: AgendaEventRecord) {
   const explicit = metadataValue(event.metadata, ["timeLabel", "horarioLabel", "publicTimeLabel"]);
-  if (explicit) return explicit;
+  if (explicit) return normalizeHourText(explicit);
   if (asBoolean(event.metadata?.timeUndefined) || asBoolean(event.metadata?.horarioAdefinir)) return "Horário a definir";
   if (event.all_day) return "Dia inteiro";
   const start = startsAt(event);
@@ -526,8 +556,7 @@ function optionForEvent(event: AgendaEventRecord, locations: LocationRecord[]): 
   const timeLabel = formatTimeLabel(event);
   const recurrence = recurrenceLabel(event);
   const location = locationLabel(event, locations);
-  const summary = metadataValue(event.metadata, ["firstAccessSummary", "first_access_summary", "agendaSummary", "agenda_summary", "publicSummary"]);
-  const description = summary ? `${summary} • Local: ${location}` : [recurrence, dateLabel, timeLabel, `Local: ${location}`].filter(Boolean).join(" • ");
+  const description = formatFirstAccessDescription(recurrence, dateLabel, timeLabel, location);
 
   return {
     slug,

@@ -326,7 +326,11 @@ export default function FilhoDaCorrenteTucxaPage() {
                       <span className="block text-sm font-bold text-[#123D2C]">{item.label}</span>
                       {(item.description || item.recurrenceLabel || item.dateLabel || item.timeLabel) && (
                         <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
-                          {item.description || [item.recurrenceLabel, item.dateLabel, item.timeLabel, item.locationLabel ? `Local: ${item.locationLabel}` : ""].filter(Boolean).join(" • ")}
+                          {(item.description || [item.recurrenceLabel, item.dateLabel, item.timeLabel].filter(Boolean).join(" • ") + (item.locationLabel ? `\nLocal: ${item.locationLabel}` : ""))
+                            .split("\n")
+                            .map((line) => (
+                              <span key={line} className="block">{line}</span>
+                            ))}
                         </span>
                       )}
                     </span>
