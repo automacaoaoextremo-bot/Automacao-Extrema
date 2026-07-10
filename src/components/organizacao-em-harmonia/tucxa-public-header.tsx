@@ -96,20 +96,16 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, compact = false }: { href: string; compact?: boolean }) {
+function SupportLink({ href }: { href: string }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={
-        compact
-          ? "fixed bottom-5 right-4 z-[60] inline-flex items-center justify-center rounded-full bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow-xl shadow-green-950/25 ring-1 ring-white/40 transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
-          : "inline-flex min-h-7 items-center justify-center rounded-full bg-[#123D2C] px-2.5 py-1 text-center text-[0.72rem] font-black text-white shadow-sm ring-1 ring-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#2F6B43] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
-      }
+      className="inline-flex min-h-7 items-center justify-center rounded-full bg-[#123D2C] px-2.5 py-1 text-center text-[0.72rem] font-black text-white shadow-sm ring-1 ring-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#2F6B43] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
-      {compact ? "Dúvidas?" : "Dúvidas?"}
+      Dúvidas?
     </a>
   );
 }
@@ -165,12 +161,13 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
       setSupportHref(buildSupportWhatsappUrl());
     };
 
-    updateActiveHref();
+    const timer = window.setTimeout(updateActiveHref, 0);
 
     window.addEventListener("hashchange", updateActiveHref);
     window.addEventListener("popstate", updateActiveHref);
 
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener("hashchange", updateActiveHref);
       window.removeEventListener("popstate", updateActiveHref);
     };
@@ -236,7 +233,6 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
           </div>
         </nav>
       )}
-      <SupportLink href={supportHref} compact />
     </header>
   );
 }
