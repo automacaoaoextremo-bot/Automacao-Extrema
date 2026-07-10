@@ -187,11 +187,6 @@ function formatDate(value: string | null) {
   return formatLocalDateTime(value);
 }
 
-function visualTime(value: string | null, allDay: boolean) {
-  if (allDay || !value) return "";
-  return new Date(value).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
-}
-
 function dayKey(value: string | null) {
   const local = parseLocalDateTime(value ?? "");
   if (local) return `${local.year}-${String(local.month).padStart(2, "0")}-${String(local.day).padStart(2, "0")}`;
