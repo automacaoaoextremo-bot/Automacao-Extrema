@@ -50,7 +50,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Segunda-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "Recorrência semanal • Segunda-feira • 18h às 22h\nLocal: TUCXA",
+    description: "Recorrência semanal • Segunda-feira • 18h às 22h Local: TUCXA",
   },
   {
     slug: "atendimento-terca",
@@ -60,7 +60,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Terça-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "Recorrência semanal • Terça-feira • 18h às 22h\nLocal: TUCXA",
+    description: "Recorrência semanal • Terça-feira • 18h às 22h Local: TUCXA",
   },
   {
     slug: "tratamento-transformacao-quarta",
@@ -70,7 +70,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quarta-feira",
     timeLabel: "18h30 às 22h",
     locationLabel: "TUCXA",
-    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h\nLocal: TUCXA",
+    description: "Conforme encaminhamento • Quarta-feira • 18h30 às 22h Local: TUCXA",
   },
   {
     slug: "quinta-grupo-1",
@@ -80,7 +80,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h\nLocal: TUCXA",
+    description: "1ª e 3ª quinta-feira do mês • Quinta-feira • 18h às 22h Local: TUCXA",
   },
   {
     slug: "quinta-grupo-2",
@@ -90,7 +90,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira",
     timeLabel: "18h às 22h",
     locationLabel: "TUCXA",
-    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h\nLocal: TUCXA",
+    description: "2ª e 4ª quinta-feira do mês • Quinta-feira • 18h às 22h Local: TUCXA",
   },
   {
     slug: "grupo-estudos",
@@ -100,7 +100,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Domingo",
     timeLabel: "15h às 17h",
     locationLabel: "TUCXA",
-    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h\nLocal: TUCXA",
+    description: "A cada 15 dias • Domingos conforme datas confirmadas pelos coordenadores • 15h às 17h Local: TUCXA",
   },
   {
     slug: "caminhada-tucxa",
@@ -110,7 +110,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Sábado, 11/07/2026",
     timeLabel: "16h às 17h",
     locationLabel: "A confirmar",
-    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h\nLocal: A confirmar",
+    description: "Evento pontual • Sábado, 11/07/2026 • 16h às 17h Local: A confirmar",
   },
   {
     slug: "dia-do-filme",
@@ -120,7 +120,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Quinta-feira, 16/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h\nLocal: TUCXA",
+    description: "Evento pontual • Quinta-feira, 16/07/2026 • 19h às 21h Local: TUCXA",
   },
   {
     slug: "mostra-cultural-clube-livro",
@@ -130,7 +130,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Terça-feira, 21/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h\nLocal: TUCXA",
+    description: "Evento pontual • Terça-feira, 21/07/2026 • 19h às 21h Local: TUCXA",
   },
   {
     slug: "clube-livro-extra",
@@ -140,7 +140,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Sexta-feira, 31/07/2026",
     timeLabel: "19h às 21h",
     locationLabel: "TUCXA",
-    description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h\nLocal: Online",
+    description: "Evento pontual • Sexta-feira, 31/07/2026 • 19h às 21h Local: Online",
   },
   {
     slug: "clube-livro-mensal",
@@ -150,7 +150,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Última sexta-feira do mês",
     timeLabel: "19h às 20h30",
     locationLabel: "TUCXA",
-    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30\nLocal: TUCXA",
+    description: "Recorrência mensal • Última sexta-feira do mês • 19h às 20h30 Local: TUCXA",
   },
   {
     slug: "voluntario-sementinha",
@@ -160,7 +160,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Data a definir",
     timeLabel: "Horário a definir",
     locationLabel: "A definir",
-    description: "Conforme calendário • Data a definir • Horário a definir\nLocal: A definir",
+    description: "Conforme calendário • Data a definir • Horário a definir Local: A definir",
   },
   {
     slug: "encerramento-anual",
@@ -170,7 +170,7 @@ const fallbackOptions: AgendaOption[] = [
     dateLabel: "Domingo, 20/12/2026",
     timeLabel: "Horário a definir",
     locationLabel: "A definir",
-    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir\nLocal: A definir",
+    description: "Evento pontual • Domingo, 20/12/2026 • Horário a definir Local: A definir",
   },
 ];
 
@@ -214,7 +214,7 @@ function normalizeHourText(value: string) {
 
 function formatFirstAccessDescription(recurrence: string, dateLabel: string, timeLabel: string, location: string) {
   const detailLine = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
-  return `${detailLine}\nLocal: ${location}`;
+  return `${detailLine} Local: ${location}`;
 }
 
 function weekdayLabelFromIndex(value: number) {
@@ -532,14 +532,18 @@ function recurrenceLabel(event: AgendaEventRecord) {
 
 function locationLabel(event: AgendaEventRecord, locations: LocationRecord[]) {
   const metadata = event.metadata ?? null;
-  const explicit = metadataValue(metadata, ["locationLabel", "location_name", "localidade", "local"]);
-  if (explicit) return explicit;
 
+  // Prioriza a localidade cadastrada vinculada ao evento. Campos livres/legados
+  // como metadata.local ou event.location podem conter textos antigos (ex.: "Tucxa")
+  // e não devem sobrescrever a localidade escolhida na edição (ex.: "Tucxa1").
   const locationId = event.location_id || metadataValue(metadata, ["location_id", "localidade_id"]);
   if (locationId) {
     const location = locations.find((item) => item.id === locationId);
     if (location?.name) return location.name;
   }
+
+  const explicit = metadataValue(metadata, ["locationLabel", "location_name", "localidade", "local"]);
+  if (explicit) return explicit;
 
   if (typeof event.location === "string" && event.location.trim()) return event.location.trim();
   return "Local a definir";

@@ -429,7 +429,7 @@ function normalizeHourText(value: string) {
 
 function formatFirstAccessDescription(recurrence: string, dateLabel: string, timeLabel: string, location: string) {
   const detailLine = [recurrence, dateLabel, timeLabel].filter(Boolean).join(" • ");
-  return `${detailLine}\nLocal: ${location}`;
+  return `${detailLine} Local: ${location}`;
 }
 
 function recurrenceWeekdayFromRule(rule: string | null) {
