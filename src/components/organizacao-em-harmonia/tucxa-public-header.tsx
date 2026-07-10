@@ -73,6 +73,47 @@ function scrollToHash(event: MouseEvent<HTMLAnchorElement>, href: string) {
   window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
 }
 
+
+const AE_WHATSAPP_NUMBER = "5519989848246";
+
+function supportContextMessage() {
+  if (typeof window === "undefined") {
+    return "Olá! Vim do site do Tucxa e preciso de ajuda.";
+  }
+
+  const title = document.title || "Site do Tucxa";
+  const url = window.location.href;
+  return [
+    "Olá! Vim do site do Tucxa e preciso de ajuda.",
+    "",
+    `Página: ${title}`,
+    `Link: ${url}`,
+    "Contexto: cliquei em Dúvidas/WhatsApp no site.",
+  ].join("\n");
+}
+
+function buildSupportWhatsappUrl() {
+  return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
+}
+
+function SupportLink({ href, compact = false }: { href: string; compact?: boolean }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={
+        compact
+          ? "fixed bottom-5 right-4 z-[60] inline-flex items-center justify-center rounded-full bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow-xl shadow-green-950/25 ring-1 ring-white/40 transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+          : "inline-flex min-h-7 items-center justify-center rounded-full bg-[#123D2C] px-2.5 py-1 text-center text-[0.72rem] font-black text-white shadow-sm ring-1 ring-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#2F6B43] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+      }
+      aria-label="Falar com a Automação Extrema pelo WhatsApp"
+    >
+      {compact ? "Dúvidas?" : "Dúvidas?"}
+    </a>
+  );
+}
+
 function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void }) {
   return (
     <Link
@@ -116,11 +157,15 @@ function SectionLink({ link, active, onSelect }: { link: TucxaHeaderLink; active
 export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = "Menu do site do Tucxa" }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
   const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
+  const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
 
   useEffect(() => {
     const updateActiveHref = () => {
       setActiveHref(getCurrentActiveHref(allLinks));
+      setSupportHref(buildSupportWhatsappUrl());
     };
+
+    updateActiveHref();
 
     window.addEventListener("hashchange", updateActiveHref);
     window.addEventListener("popstate", updateActiveHref);
@@ -178,7 +223,7 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
         </div>
       </div>
 
-      {(actions.length > 0 || sectionLinks.length > 0) && (
+      {(actions.length > 0 || sectionLinks.length > 0 || supportHref) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
             {actions.map((link) => (
@@ -187,9 +232,11 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
             {sectionLinks.map((link) => (
               <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
             ))}
+            <SupportLink href={supportHref} />
           </div>
         </nav>
       )}
+      <SupportLink href={supportHref} compact />
     </header>
   );
 }

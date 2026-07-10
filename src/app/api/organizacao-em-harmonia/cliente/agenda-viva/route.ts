@@ -102,6 +102,43 @@ function buildRecurrenceRule(input: { isRecurring: boolean; frequency: string; w
   return `FREQ=WEEKLY${day ? `;BYDAY=${day}` : ""}`;
 }
 
+function defaultAgendaSettings() {
+  return {
+    maxRecurringAppointmentsPerConsulente: 2,
+    autoCancelRecurringOnAbsence: true,
+    wednesdayBookingMode: "coordination",
+    wednesdayAuthorizedPersonIds: [] as string[],
+    requireRecommendingEntityForWednesday: true,
+    appointmentReturnGuidance:
+      "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+  };
+}
+
+function mergeAgendaSettings(settings: unknown) {
+  const base = defaultAgendaSettings();
+  const current = settings && typeof settings === "object" && !Array.isArray(settings) ? (settings as Record<string, unknown>) : {};
+  return {
+    ...base,
+    ...current,
+    wednesdayAuthorizedPersonIds: Array.isArray(current.wednesdayAuthorizedPersonIds)
+      ? current.wednesdayAuthorizedPersonIds.map((item) => asText(item)).filter(Boolean)
+      : base.wednesdayAuthorizedPersonIds,
+  };
+}
+
+function asNumber(value: unknown, fallback: number) {
+  const numberValue = typeof value === "number" ? value : Number(asText(value).replace(",", "."));
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function asTextList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  return asText(value)
+    .split(/[;,|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function recurrenceLabel(frequency: string) {
   const normalized = normalizeText(frequency);
   if (normalized.includes("quinzen")) return "Recorrência quinzenal";
@@ -136,7 +173,7 @@ function approvalMessage(input: {
 }
 
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, locationsResult, eventsResult] = await Promise.all([
+  const [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, locationsResult, eventsResult, moduleSettingsResult, entitiesResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, email, whatsapp, enabled_modules")
@@ -172,11 +209,24 @@ async function listPayload(organizationId: string) {
       .eq("organization_id", organizationId)
       .order("starts_at", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("oh_module_settings")
+      .select("id, module_slug, enabled, settings")
+      .eq("organization_id", organizationId)
+      .eq("module_slug", "agenda-viva")
+      .maybeSingle(),
+    supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, name, slug, line, entity_type, usual_days, daily_capacity, appointment_enabled, appointment_notes, active")
+      .eq("organization_id", organizationId)
+      .order("name", { ascending: true }),
   ]);
 
   for (const result of [organizationResult, peopleResult, membershipsResult, rolesResult, eventTypesResult, locationsResult, eventsResult]) {
     if (result.error) throw result.error;
   }
+
+  const agendaSettings = mergeAgendaSettings(moduleSettingsResult.status === 200 && !moduleSettingsResult.error ? moduleSettingsResult.data?.settings : null);
 
   return {
     organization: organizationResult.data,
@@ -186,6 +236,8 @@ async function listPayload(organizationId: string) {
     eventTypes: eventTypesResult.data ?? [],
     locations: locationsResult.data ?? [],
     events: eventsResult.data ?? [],
+    entities: entitiesResult.status === 200 && !entitiesResult.error ? entitiesResult.data ?? [] : [],
+    agendaSettings,
   };
 }
 
@@ -410,6 +462,45 @@ async function decideEvent(organizationId: string, personId: string, body: Recor
   if (approvalError) throw approvalError;
 }
 
+async function updateAgendaSettings(organizationId: string, body: Record<string, unknown>) {
+  const current = mergeAgendaSettings(body.settings && typeof body.settings === "object" ? body.settings : body);
+  const settings = {
+    ...current,
+    maxRecurringAppointmentsPerConsulente: Math.max(0, Math.trunc(asNumber(body.maxRecurringAppointmentsPerConsulente ?? current.maxRecurringAppointmentsPerConsulente, 2))),
+    autoCancelRecurringOnAbsence: asBool(body.autoCancelRecurringOnAbsence ?? current.autoCancelRecurringOnAbsence, true),
+    wednesdayBookingMode: asText(body.wednesdayBookingMode ?? current.wednesdayBookingMode) || "coordination",
+    wednesdayAuthorizedPersonIds: asTextList(body.wednesdayAuthorizedPersonIds ?? current.wednesdayAuthorizedPersonIds),
+    requireRecommendingEntityForWednesday: asBool(body.requireRecommendingEntityForWednesday ?? current.requireRecommendingEntityForWednesday, true),
+    appointmentReturnGuidance: asText(body.appointmentReturnGuidance ?? current.appointmentReturnGuidance) || defaultAgendaSettings().appointmentReturnGuidance,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("oh_module_settings")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("module_slug", "agenda-viva")
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.id) {
+    const { error } = await supabaseAdmin
+      .from("oh_module_settings")
+      .update({ enabled: true, settings, updated_at: new Date().toISOString() })
+      .eq("id", existing.id);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from("oh_module_settings").insert({
+    organization_id: organizationId,
+    module_slug: "agenda-viva",
+    enabled: true,
+    settings,
+  });
+  if (error) throw error;
+}
+
 async function deleteEvent(organizationId: string, body: Record<string, unknown>) {
   const eventId = asText(body.eventId);
   if (!eventId) throw new Error("Atividade não informada.");
@@ -479,6 +570,8 @@ export async function POST(request: Request) {
       await decideEvent(auth.context.organizationId, auth.context.person.id, body, "ajuste_solicitado");
     } else if (action === "deleteEvent") {
       await deleteEvent(auth.context.organizationId, body);
+    } else if (action === "updateAgendaSettings") {
+      await updateAgendaSettings(auth.context.organizationId, body);
     }
 
     const payload = await listPayload(auth.context.organizationId);

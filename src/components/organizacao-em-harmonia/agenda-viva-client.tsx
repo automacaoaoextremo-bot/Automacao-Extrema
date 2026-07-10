@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Mode = "overview" | "eventos" | "aprovacoes" | "calendario";
+type Mode = "overview" | "eventos" | "aprovacoes" | "calendario" | "configuracoes";
 
 type Person = {
   id: string;
@@ -66,12 +66,36 @@ type AgendaEvent = {
   updated_at: string;
 };
 
+type SpiritualEntity = {
+  id: string;
+  name: string;
+  slug: string;
+  line: string | null;
+  entity_type: string | null;
+  usual_days: string[] | null;
+  daily_capacity?: number | null;
+  appointment_enabled?: boolean | null;
+  appointment_notes?: string | null;
+  active: boolean;
+};
+
+type AgendaSettings = {
+  maxRecurringAppointmentsPerConsulente: number;
+  autoCancelRecurringOnAbsence: boolean;
+  wednesdayBookingMode: string;
+  wednesdayAuthorizedPersonIds: string[];
+  requireRecommendingEntityForWednesday: boolean;
+  appointmentReturnGuidance: string;
+};
+
 type Payload = {
   organization: { id: string; name: string; slug: string | null } | null;
   people: Person[];
   eventTypes: EventType[];
   events: AgendaEvent[];
   locations: Location[];
+  entities?: SpiritualEntity[];
+  agendaSettings?: Partial<AgendaSettings>;
 };
 
 type FormState = {
@@ -99,6 +123,25 @@ type FormState = {
   firstAccessSummary: string;
   requiresApproval: boolean;
 };
+
+const defaultAgendaSettings: AgendaSettings = {
+  maxRecurringAppointmentsPerConsulente: 2,
+  autoCancelRecurringOnAbsence: true,
+  wednesdayBookingMode: "coordination",
+  wednesdayAuthorizedPersonIds: [],
+  requireRecommendingEntityForWednesday: true,
+  appointmentReturnGuidance:
+    "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+};
+
+function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettings {
+  return {
+    ...defaultAgendaSettings,
+    ...(value ?? {}),
+    maxRecurringAppointmentsPerConsulente: Number(value?.maxRecurringAppointmentsPerConsulente ?? defaultAgendaSettings.maxRecurringAppointmentsPerConsulente),
+    wednesdayAuthorizedPersonIds: Array.isArray(value?.wednesdayAuthorizedPersonIds) ? value.wednesdayAuthorizedPersonIds : [],
+  };
+}
 
 const emptyForm: FormState = {
   eventId: "",
@@ -152,6 +195,11 @@ const agendaLinks = [
     label: "Calendário",
     href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario",
     description: "Visualize eventos concluídos, futuros, por período, por evento, pessoa ou público.",
+  },
+  {
+    label: "Configurações",
+    href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/configuracoes",
+    description: "Regras de recorrência, ausências, quarta-feira e orientação de retorno.",
   },
 ];
 
@@ -618,6 +666,7 @@ function AgendaVivaSubnav({ active }: { active: Mode }) {
     { key: "eventos", label: "Eventos", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/eventos" },
     { key: "aprovacoes", label: "Aprovações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/aprovacoes" },
     { key: "calendario", label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario" },
+    { key: "configuracoes", label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/configuracoes" },
   ];
   return (
     <nav className="mb-5 flex flex-wrap gap-2 rounded-[2rem] bg-white p-3 shadow ring-1 ring-slate-100">
@@ -902,6 +951,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const router = useRouter();
   const { payload, setPayload, loading, error, setError } = useAgendaVivaData(router);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [settingsForm, setSettingsForm] = useState<AgendaSettings>(defaultAgendaSettings);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
@@ -917,11 +967,24 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const year = 2026;
   const months = Array.from({ length: 12 }, (_, index) => index);
 
+  useEffect(() => {
+    if (!payload?.agendaSettings) return;
+
+    const timer = window.setTimeout(() => {
+      setSettingsForm(normalizeAgendaSettings(payload.agendaSettings));
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [payload?.agendaSettings]);
+
   const titleByMode: Record<Mode, string> = {
     overview: "Agenda Viva",
     eventos: "Agenda Viva — Eventos",
     aprovacoes: "Agenda Viva — Aprovações",
     calendario: "Agenda Viva — Calendário",
+    configuracoes: "Agenda Viva — Configurações",
   };
 
   const descriptionByMode: Record<Mode, string> = {
@@ -929,10 +992,15 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     eventos: "Cadastre e edite eventos em uma lista com formulário em janela, sem precisar voltar ao topo da página.",
     aprovacoes: "Valide as solicitações antes de publicar no calendário e no Primeiro Acesso.",
     calendario: "Visualize eventos por período, público, tipo, responsável e status.",
+    configuracoes: "Defina regras de agendamento, recorrência, ausência e encaminhamento de quarta-feira.",
   };
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateSetting<K extends keyof AgendaSettings>(key: K, value: AgendaSettings[K]) {
+    setSettingsForm((current) => ({ ...current, [key]: value }));
   }
 
   const authenticatedRequest = useCallback(async (init: RequestInit) => {
@@ -971,6 +1039,25 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       setForm((current) => ({ ...current, imageUrl: dataUrl, imageAlt: current.imageAlt || file.name.replace(/\.[^.]+$/, "") }));
     };
     reader.readAsDataURL(file);
+  }
+
+  async function saveAgendaSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({
+        method: "POST",
+        body: JSON.stringify({ action: "updateAgendaSettings", ...settingsForm }),
+      });
+      if (result) setPayload(result);
+      setMessage("Configurações da Agenda Viva salvas.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar configurações da Agenda Viva.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveEvent(event: FormEvent<HTMLFormElement>) {
@@ -1226,6 +1313,70 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
               </section>
               <section className="grid gap-4 lg:grid-cols-2">{calendarEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} />)}{calendarEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado com os filtros selecionados.</p>}</section>
             </div>
+          )}
+
+
+
+          {mode === "configuracoes" && (
+            <form onSubmit={saveAgendaSettings} className="grid gap-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Regras da Agenda Viva</p>
+                <h2 className="mt-2 text-2xl font-black text-[#00334E]">Agendamentos e retornos</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Defina limites e permissões para que o calendário e a disponibilidade das entidades sejam respeitados no agendamento dos consulentes.</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Agendamentos recorrentes por consulente</span>
+                  <input
+                    value={String(settingsForm.maxRecurringAppointmentsPerConsulente)}
+                    onChange={(event) => updateSetting("maxRecurringAppointmentsPerConsulente", Math.max(0, Number(event.target.value.replace(/\D/g, "") || 0)))}
+                    className="rounded-2xl border border-slate-200 p-3"
+                    inputMode="numeric"
+                  />
+                </label>
+                <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                  <input type="checkbox" checked={settingsForm.autoCancelRecurringOnAbsence} onChange={(event) => updateSetting("autoCancelRecurringOnAbsence", event.target.checked)} className="h-5 w-5" />
+                  <span className="text-sm font-black text-[#00334E]">Cancelar recorrência automaticamente em caso de ausência</span>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Quem pode agendar quarta-feira</span>
+                  <select value={settingsForm.wednesdayBookingMode} onChange={(event) => updateSetting("wednesdayBookingMode", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <option value="coordination">Somente diretoria/coordenação definida</option>
+                    <option value="consulentes">Também pelos consulentes</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
+                  <input type="checkbox" checked={settingsForm.requireRecommendingEntityForWednesday} onChange={(event) => updateSetting("requireRecommendingEntityForWednesday", event.target.checked)} className="h-5 w-5" />
+                  <span className="text-sm font-black text-[#00334E]">Exigir entidade que recomendou/encaminhou na quarta-feira</span>
+                </label>
+              </div>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#00334E]">Pessoas autorizadas a agendar quarta-feira</span>
+                <select
+                  multiple
+                  value={settingsForm.wednesdayAuthorizedPersonIds}
+                  onChange={(event) => updateSetting("wednesdayAuthorizedPersonIds", Array.from(event.target.selectedOptions).map((option) => option.value))}
+                  className="min-h-40 rounded-2xl border border-slate-200 bg-white p-3"
+                >
+                  {(payload?.people ?? []).filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+                </select>
+                <span className="text-xs font-semibold text-slate-500">Use Ctrl/Shift para selecionar mais de uma pessoa no desktop.</span>
+              </label>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#00334E]">Orientação de retorno para consulentes</span>
+                <textarea value={settingsForm.appointmentReturnGuidance} onChange={(event) => updateSetting("appointmentReturnGuidance", event.target.value)} className="min-h-28 rounded-2xl border border-slate-200 p-3" />
+              </label>
+              <section className="rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100">
+                <h3 className="font-black text-[#00334E]">Entidades disponíveis para recomendação</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Na tela de agendamento, a pessoa informará qual entidade recomendou o atendimento quando a regra exigir encaminhamento.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(payload?.entities ?? []).filter((entity) => entity.active !== false).map((entity) => (
+                    <span key={entity.id} className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#00334E] ring-1 ring-slate-100">{entity.name} · {entity.daily_capacity ?? 4}/dia</span>
+                  ))}
+                </div>
+              </section>
+              <button disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{saving ? "Salvando..." : "Salvar configurações"}</button>
+            </form>
           )}
 
           <EventModal open={modalOpen} title={form.eventId ? "Editar evento" : "Novo evento"} onClose={() => setModalOpen(false)}>

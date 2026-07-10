@@ -26,7 +26,7 @@ export default async function ConsulenteTucxaPage() {
     },
     {
       label: content.agendaViva.shortLabel,
-      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar",
       variant: "secondary" as const,
     },
     {

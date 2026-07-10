@@ -6,11 +6,11 @@ import { OrganizacaoBaseUnicaSubnav } from "@/components/organizacao-base-unica-
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Entity = { id: string; name: string; slug: string; line: string | null; entity_type: string | null; usual_materials: string | null; usual_days: string[] | null; notes: string | null; active: boolean };
+type Entity = { id: string; name: string; slug: string; line: string | null; entity_type: string | null; usual_materials: string | null; usual_days: string[] | null; daily_capacity?: number | null; appointment_enabled?: boolean | null; appointment_notes?: string | null; notes: string | null; active: boolean };
 type Payload = { entities: Entity[] };
-type EntityForm = { id: string; name: string; slug: string; line: string; entityType: string; usualMaterials: string; usualDays: string[]; notes: string; active: boolean };
+type EntityForm = { id: string; name: string; slug: string; line: string; entityType: string; usualMaterials: string; usualDays: string[]; dailyCapacity: string; appointmentEnabled: boolean; appointmentNotes: string; notes: string; active: boolean };
 
-const emptyForm: EntityForm = { id: "", name: "", slug: "", line: "", entityType: "", usualMaterials: "", usualDays: [], notes: "", active: true };
+const emptyForm: EntityForm = { id: "", name: "", slug: "", line: "", entityType: "", usualMaterials: "", usualDays: [], dailyCapacity: "4", appointmentEnabled: true, appointmentNotes: "", notes: "", active: true };
 const dayOptions = [
   { slug: "segunda", label: "Segunda" },
   { slug: "terca", label: "Terça" },
@@ -91,6 +91,9 @@ export default function EntidadesPage() {
           entityType: form.entityType,
           usualMaterials: form.usualMaterials,
           usualDays: form.usualDays,
+          dailyCapacity: form.dailyCapacity,
+          appointmentEnabled: form.appointmentEnabled,
+          appointmentNotes: form.appointmentNotes,
           notes: form.notes,
           active: form.active,
         }),
@@ -145,6 +148,9 @@ export default function EntidadesPage() {
       entityType: entity.entity_type ?? "",
       usualMaterials: entity.usual_materials ?? "",
       usualDays: entity.usual_days ?? [],
+      dailyCapacity: String(entity.daily_capacity ?? 4),
+      appointmentEnabled: entity.appointment_enabled !== false,
+      appointmentNotes: entity.appointment_notes ?? "",
       notes: entity.notes ?? "",
       active: entity.active !== false,
     });
@@ -173,12 +179,24 @@ export default function EntidadesPage() {
               <p className="text-sm font-black text-[#00334E]">Dias em que costuma atender</p>
               <div className="mt-3 grid gap-2 md:grid-cols-3">{dayOptions.map((item) => <label key={item.slug} className="flex items-center gap-2 rounded-2xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-emerald-100"><input type="checkbox" checked={form.usualDays.includes(item.slug)} onChange={() => toggleDay(item.slug)} />{item.label}</label>)}</div>
             </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#00334E]">Capacidade de atendimento por dia</span>
+                <input value={form.dailyCapacity} onChange={(event) => update("dailyCapacity", event.target.value.replace(/\D/g, ""))} className="rounded-2xl border border-slate-200 p-3" inputMode="numeric" placeholder="4" />
+                <span className="text-xs font-semibold text-slate-500">Quando o limite é atingido, novos agendamentos para esta entidade ficam bloqueados.</span>
+              </label>
+              <label className="flex items-center gap-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
+                <input type="checkbox" checked={form.appointmentEnabled} onChange={(event) => update("appointmentEnabled", event.target.checked)} className="h-5 w-5" />
+                <span className="text-sm font-black text-[#00334E]">Permitir agendamento com esta entidade</span>
+              </label>
+            </div>
+            <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Orientações para agendamento</span><textarea value={form.appointmentNotes} onChange={(event) => update("appointmentNotes", event.target.value)} className="min-h-20 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: retorno obrigatório, preparo ou observações para a recepção." /></label>
             <label className="mt-4 grid gap-1"><span className="text-sm font-black text-[#00334E]">Observações</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
             <label className="mt-4 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.active} onChange={(event) => update("active", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Entidade ativa</span></label>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={saveEntity} disabled={saving || !form.name.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar entidade" : "Cadastrar entidade"}</button>{form.id && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
           </section>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {payload.entities.map((entity) => <article key={entity.id} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100"><div className="flex items-start justify-between gap-3"><div><h3 className="text-xl font-black text-[#00334E]">{entity.name}</h3><p className="text-xs font-bold text-slate-500">{[entity.line, entity.entity_type].filter(Boolean).join(" · ") || entity.slug}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-[#00334E]">{entity.active === false ? "Inativa" : "Ativa"}</span></div><p className="mt-3 text-sm leading-6 text-slate-600">{entity.notes || entity.usual_materials || "Sem observações."}</p><p className="mt-2 text-xs font-bold text-slate-500">Dias: {(entity.usual_days ?? []).join(", ") || "não definido"}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => editEntity(entity)} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black text-[#00334E]">Editar</button><button type="button" onClick={() => toggleEntity(entity)} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black text-[#00334E]">{entity.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deleteEntity(entity)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Inativar</button></div></article>)}
+            {payload.entities.map((entity) => <article key={entity.id} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100"><div className="flex items-start justify-between gap-3"><div><h3 className="text-xl font-black text-[#00334E]">{entity.name}</h3><p className="text-xs font-bold text-slate-500">{[entity.line, entity.entity_type].filter(Boolean).join(" · ") || entity.slug}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-[#00334E]">{entity.active === false ? "Inativa" : "Ativa"}</span></div><p className="mt-3 text-sm leading-6 text-slate-600">{entity.notes || entity.usual_materials || "Sem observações."}</p><p className="mt-2 text-xs font-bold text-slate-500">Dias: {(entity.usual_days ?? []).join(", ") || "não definido"}</p><p className="mt-1 text-xs font-bold text-slate-500">Capacidade: {entity.daily_capacity ?? 4} consulentes por dia · {entity.appointment_enabled === false ? "agendamento bloqueado" : "agendamento ativo"}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => editEntity(entity)} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black text-[#00334E]">Editar</button><button type="button" onClick={() => toggleEntity(entity)} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black text-[#00334E]">{entity.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deleteEntity(entity)} className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700">Inativar</button></div></article>)}
             {payload.entities.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhuma entidade cadastrada ainda.</p>}
           </section>
         </>

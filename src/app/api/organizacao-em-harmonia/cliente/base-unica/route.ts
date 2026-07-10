@@ -14,6 +14,11 @@ function asBool(value: unknown, fallback = true) {
   return ["sim", "s", "yes", "true", "1", "ativo"].includes(text);
 }
 
+function asNumber(value: unknown, fallback: number) {
+  const numberValue = typeof value === "number" ? value : Number(asText(value).replace(",", "."));
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
 
 const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
 
@@ -179,7 +184,7 @@ async function listPayload(organizationId: string) {
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, slug, line, entity_type, usual_materials, usual_days, notes, active")
+      .select("id, name, slug, line, entity_type, usual_materials, usual_days, daily_capacity, appointment_enabled, appointment_notes, notes, active")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
   ]);
@@ -367,6 +372,9 @@ async function upsertEntity(organizationId: string, body: Record<string, unknown
     entity_type: asText(body.entityType ?? body.entity_type) || null,
     usual_materials: asText(body.usualMaterials ?? body.usual_materials) || null,
     usual_days: normalizeModules(body.usualDays ?? body.usual_days),
+    daily_capacity: Math.max(1, Math.trunc(asNumber(body.dailyCapacity ?? body.daily_capacity, 4))),
+    appointment_enabled: asBool(body.appointmentEnabled ?? body.appointment_enabled, true),
+    appointment_notes: asText(body.appointmentNotes ?? body.appointment_notes) || null,
     notes: asText(body.notes) || null,
     active: asBool(body.active, true),
     updated_at: new Date().toISOString(),

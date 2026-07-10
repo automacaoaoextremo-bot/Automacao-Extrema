@@ -74,12 +74,12 @@ export default function PainelConsulenteTucxaPage() {
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <a id="atendimento" href="#agendamentos" className="rounded-[1.5rem] bg-[#123D2C] p-5 text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
+          <a id="atendimento" href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="rounded-[1.5rem] bg-[#123D2C] p-5 text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#CFE2C7]">Atendimento em Harmonia</p>
             <h2 className="mt-2 text-xl font-black">Agendar ou alterar atendimento</h2>
             <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">Solicite atendimento de segunda, terça ou Transformação de quarta quando houver encaminhamento.</p>
           </a>
-          <a id="agenda-viva" href="#agendamentos" className="rounded-[1.5rem] bg-white p-5 text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5">
+          <a id="agenda-viva" href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="rounded-[1.5rem] bg-white p-5 text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Agenda Viva</p>
             <h2 className="mt-2 text-xl font-black">Consultar calendário e filtros</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">Veja eventos disponíveis, seus agendamentos e solicitações por tipo ou período.</p>
