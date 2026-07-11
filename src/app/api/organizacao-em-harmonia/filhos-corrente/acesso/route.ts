@@ -338,8 +338,18 @@ function functionsLines(items: DraftItem[]) {
   return items.map((item) => `- ${item.label}`);
 }
 
-function footerText() {
-  return ["Automação Extrema - Organização em Harmonia - Tucxa", "Logo AE: " + `${siteUrl()}/clientes/tucxa/automacao-extrema-logo.svg`, "Logo Tucxa: " + `${siteUrl()}/clientes/tucxa/tucxa-logo.jpg`].join("\n");
+function footerText(options: { includeLogoLinks?: boolean } = {}) {
+  const includeLogoLinks = options.includeLogoLinks !== false;
+  const lines = ["Automação Extrema - Organização em Harmonia - Tucxa"];
+
+  if (includeLogoLinks) {
+    lines.push(
+      "Logo AE: " + `${siteUrl()}/clientes/tucxa/automacao-extrema-logo.svg`,
+      "Logo Tucxa: " + `${siteUrl()}/clientes/tucxa/tucxa-logo.jpg`,
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function footerHtml() {
@@ -505,8 +515,22 @@ function buildWhatsappPersonMessage(input: {
   statusUrl: string;
 }) {
   // A mensagem enviada ao WhatsApp da AE precisa ser a versão segura do Filho da Corrente.
-  // Não incluir links internos de validação ou simulação, pois eles são exclusivos dos validadores.
-  return buildPersonEmail(input).text;
+  // Não incluir links internos de validação/simulação nem links de logos, porque o WhatsApp
+  // exibe esses links como texto solto em vez de renderizar as imagens como no e-mail.
+  return [
+    `Olá, ${firstName(input.fullName)}.`,
+    "",
+    "Recebemos sua solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.",
+    "",
+    commonSummaryText(input),
+    "",
+    "Agora o Tucxa irá conferir as informações, validar seus vínculos e liberar o acesso quando tudo estiver correto.",
+    "",
+    "Você pode acompanhar por aqui:",
+    input.statusUrl,
+    "",
+    footerText({ includeLogoLinks: false }),
+  ].join("\n");
 }
 
 async function accessStatusForPerson(organizationId: string, personId: string) {

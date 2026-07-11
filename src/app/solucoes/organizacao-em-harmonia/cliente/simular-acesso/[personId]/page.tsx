@@ -10,6 +10,12 @@ type Person = { id: string; full_name: string; email: string | null; whatsapp: s
 type Membership = { id: string; person_id: string; status: string | null; module_slugs: string[] | null; agenda_viva_profile: Record<string, unknown> | null };
 type Payload = { people: Person[]; memberships: Membership[]; error?: string };
 
+function clientLoginUrl() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 function selectedLabels(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
@@ -32,7 +38,7 @@ export default function SimularAcessoFilhoDaCorrentePage() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      router.replace("/solucoes/organizacao-em-harmonia/login");
+      router.replace(clientLoginUrl());
       return;
     }
     const response = await fetch("/api/organizacao-em-harmonia/cliente/base-unica", { headers: { Authorization: `Bearer ${token}` } });

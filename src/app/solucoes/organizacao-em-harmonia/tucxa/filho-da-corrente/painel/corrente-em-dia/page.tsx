@@ -43,8 +43,19 @@ export default function Page() {
       <InfoCard title="Compromissos">
         <p>A manutenção da casa depende de organização, presença, comunicação de faltas, contribuições e participação consciente nas atividades.</p>
       </InfoCard>
+      <InfoCard title="Opções de contribuição">
+        <p>O Corrente em Dia deve permitir contribuições identificadas e, quando a organização habilitar, contribuições anônimas ou pontuais, com conferência segura pela tesouraria.</p>
+        <ul className="grid gap-2">
+          <li>• Contribuição mensal ou recorrente do Filho da Corrente</li>
+          <li>• Contribuição pontual para campanhas, reformas ou eventos</li>
+          <li>• Pix copia e cola, QR Code e instruções de pagamento</li>
+          <li>• Envio de comprovante quando necessário</li>
+          <li>• Status: aguardando, em conferência, aprovado ou pendente de ajuste</li>
+          <li>• Histórico individual e lembretes respeitosos</li>
+        </ul>
+      </InfoCard>
       <InfoCard title="Próximas evoluções">
-        <p>Este módulo pode concentrar contribuições, comprovantes, comunicados, pendências e orientações individuais de forma segura.</p>
+        <p>Este módulo pode concentrar contribuições, comprovantes, comunicados, pendências e orientações individuais de forma segura, sempre mostrando apenas o que faz sentido para cada Filho da Corrente.</p>
       </InfoCard>
     </PanelPageShell>
   );

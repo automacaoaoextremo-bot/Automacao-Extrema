@@ -62,8 +62,25 @@ export default function OrientacoesPage() {
         <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Uso recomendado</p>
         <h2 className="mt-2 text-2xl font-black text-[#00334E]">Conteúdo dos documentos dentro da operação</h2>
         <p className="mt-2 max-w-4xl leading-7 text-slate-600">
-          A proposta não é esconder os documentos em PDFs soltos. O ideal é transformar cada regra em orientação contextual: no cadastro de função, no calendário, nas atividades, nos atendimentos e nas aprovações.
+          A proposta não é esconder os documentos em PDFs soltos. O ideal é transformar cada regra em orientação contextual: no cadastro de função, no cadastro de entidade, no calendário, nas atividades, nos atendimentos e nas aprovações. Assim, ajustes futuros podem ser feitos na área logada, sem precisar compilar e fazer novo deploy.
         </p>
+      </section>
+
+      <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow sm:p-7">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Cadastros editáveis recomendados</p>
+        <h2 className="mt-2 text-2xl font-black">Como transformar os documentos em dados vivos</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {[
+            ["Documentos", "Título, versão, status, público, arquivo/link, resumo e seções por tópico."],
+            ["Funções", "Descrição, responsabilidades, permissões, módulos visíveis, documentos obrigatórios e checklist."],
+            ["Entidades", "Linha, dias, capacidade, materiais, observações, Cavalinhos vinculados e se atende consulentes."],
+          ].map(([title, description]) => (
+            <article key={title} className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
+              <h3 className="font-black">{title}</h3>
+              <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">{description}</p>
+            </article>
+          ))}
+        </div>
       </section>
       <section className="grid gap-4 lg:grid-cols-2">
         {sections.map((section) => (

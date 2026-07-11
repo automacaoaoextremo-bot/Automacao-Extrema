@@ -18,6 +18,18 @@ const settings = [
     title: "Conferência e aprovações",
     description: "Organização pode validar comprovantes, registrar recebimento em dinheiro e acompanhar pendências por responsável.",
   },
+  {
+    title: "Contribuições recorrentes",
+    description: "Configuração de contribuição mensal, lembretes, vencimento preferencial, cancelamento e histórico individual para Filhos da Corrente.",
+  },
+  {
+    title: "Campanhas e finalidades",
+    description: "Separação por manutenção da casa, eventos, reformas, Sementinha, campanhas especiais ou outras finalidades cadastradas pelo cliente.",
+  },
+  {
+    title: "Transparência e relatórios",
+    description: "Dashboard de valores previstos, recebidos, pendentes, formas de pagamento, comprovantes em análise e exportação para prestação interna.",
+  },
 ];
 
 export default function CorrenteEmDiaClientePage() {

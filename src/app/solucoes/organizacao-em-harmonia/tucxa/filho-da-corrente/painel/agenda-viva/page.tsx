@@ -43,7 +43,19 @@ export default function Page() {
           <li>• Grupos de desenvolvimento e estudos</li>
           <li>• Atendimentos e transformações em que você está envolvido</li>
           <li>• Eventos sociais, Sementinha e atividades de apoio</li>
-          <li>• Avisos de local, horário e recorrência</li>
+          <li>• Avisos de local, horário, recorrência e responsável</li>
+        </ul>
+      </InfoCard>
+      <InfoCard title="Filtros necessários no calendário do Filho da Corrente">
+        <p>Para facilitar a consulta no celular, a Agenda Viva deve separar a visão por contexto e evitar que a pessoa precise procurar em mensagens antigas.</p>
+        <ul className="grid gap-2">
+          <li>• Calendário completo, incluindo eventos concluídos</li>
+          <li>• Calendário a partir da data atual</li>
+          <li>• Tipo de evento: atendimento, estudo, desenvolvimento, social, Sementinha ou outro</li>
+          <li>• Classificação: Umbanda ou outros</li>
+          <li>• Público: Filho da Corrente, Consulente/Filho de Fora ou ambos</li>
+          <li>• Pessoa associada, responsável ou coordenação vinculada</li>
+          <li>• Período inicial e final</li>
         </ul>
       </InfoCard>
       <InfoCard title="Boa prática">

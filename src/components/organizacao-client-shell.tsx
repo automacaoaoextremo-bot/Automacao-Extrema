@@ -28,6 +28,7 @@ const topNav: NavItem[] = [
   { label: "Início", href: "/solucoes/organizacao-em-harmonia/cliente" },
   { label: "Cadastro", href: "/solucoes/organizacao-em-harmonia/cliente/cadastro" },
   { label: "Base Única", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica" },
+  { label: "Documentos", href: "/solucoes/organizacao-em-harmonia/cliente/documentos" },
   { label: "Validações", href: "/solucoes/organizacao-em-harmonia/cliente/validacoes" },
   { label: "Agenda Viva", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva" },
   { label: "Atendimento", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia" },
@@ -59,6 +60,7 @@ const sidebarGroups: NavGroup[] = [
       { label: "Localidades", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/localidades", description: "Sede, salas e locais externos." },
       { label: "Entidades", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/entidades", description: "Entidades, linhas e materiais." },
       { label: "Orientações", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/orientacoes", description: "Documentos e procedimentos." },
+      { label: "Documentos editáveis", href: "/solucoes/organizacao-em-harmonia/cliente/documentos", description: "Regulamento, procedimentos e manuais como cadastros vivos." },
     ],
   },
   {

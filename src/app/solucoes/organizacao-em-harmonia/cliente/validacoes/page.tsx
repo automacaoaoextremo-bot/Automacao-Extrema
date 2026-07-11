@@ -33,6 +33,12 @@ function asText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function clientLoginUrl() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 function selectedLabels(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
@@ -56,7 +62,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      router.replace("/solucoes/organizacao-em-harmonia/login");
+      router.replace(clientLoginUrl());
       return;
     }
 

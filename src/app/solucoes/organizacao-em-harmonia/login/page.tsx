@@ -47,6 +47,33 @@ function firstName(value: string) {
   return value.trim().split(/\s+/)[0] || "irmão(ã)";
 }
 
+function safeReturnTo() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/cliente";
+
+  const params = new URLSearchParams(window.location.search);
+  const returnTo = params.get("returnTo") || "";
+
+  if (
+    returnTo.startsWith("/solucoes/organizacao-em-harmonia/cliente") &&
+    !returnTo.startsWith("//") &&
+    !returnTo.includes("https://") &&
+    !returnTo.includes("http://")
+  ) {
+    return returnTo;
+  }
+
+  return "/solucoes/organizacao-em-harmonia/cliente";
+}
+
+function passwordResetRedirectUrl() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  const returnTo = safeReturnTo();
+  const params = new URLSearchParams();
+  if (returnTo !== "/solucoes/organizacao-em-harmonia/cliente") params.set("returnTo", returnTo);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return `${window.location.origin}/solucoes/organizacao-em-harmonia/login${suffix}`;
+}
+
 export default function OrganizacaoEmHarmoniaLoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -122,7 +149,7 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
         return;
       }
 
-      window.location.href = "/solucoes/organizacao-em-harmonia/cliente";
+      window.location.href = safeReturnTo();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
       setLoading(false);
@@ -146,7 +173,7 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
 
     setResetLoading(true);
     const { error: resetError } = await supabaseBrowser.auth.resetPasswordForEmail(value.toLowerCase(), {
-      redirectTo: `${window.location.origin}/solucoes/organizacao-em-harmonia/login`,
+      redirectTo: passwordResetRedirectUrl(),
     });
     setResetLoading(false);
 

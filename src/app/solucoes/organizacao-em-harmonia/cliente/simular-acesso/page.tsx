@@ -9,6 +9,12 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean };
 type Payload = { people: Person[]; error?: string };
 
+function clientLoginUrl() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export default function SimularAcessoPage() {
   const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
@@ -19,7 +25,7 @@ export default function SimularAcessoPage() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      router.replace("/solucoes/organizacao-em-harmonia/login");
+      router.replace(clientLoginUrl());
       return;
     }
     const response = await fetch("/api/organizacao-em-harmonia/cliente/base-unica", { headers: { Authorization: `Bearer ${token}` } });
