@@ -111,6 +111,10 @@ function defaultAgendaSettings() {
     requireRecommendingEntityForWednesday: true,
     appointmentReturnGuidance:
       "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+    accessValidationReviewerEmails: "",
+    accessValidationReviewerPersonIds: [] as string[],
+    accessSimulationPersonIds: [] as string[],
+    accessCopyEmail: "automacao.ao.extremo@gmail.com",
   };
 }
 
@@ -123,6 +127,14 @@ function mergeAgendaSettings(settings: unknown) {
     wednesdayAuthorizedPersonIds: Array.isArray(current.wednesdayAuthorizedPersonIds)
       ? current.wednesdayAuthorizedPersonIds.map((item) => asText(item)).filter(Boolean)
       : base.wednesdayAuthorizedPersonIds,
+    accessValidationReviewerEmails: asText(current.accessValidationReviewerEmails ?? base.accessValidationReviewerEmails),
+    accessValidationReviewerPersonIds: Array.isArray(current.accessValidationReviewerPersonIds)
+      ? current.accessValidationReviewerPersonIds.map((item) => asText(item)).filter(Boolean)
+      : base.accessValidationReviewerPersonIds,
+    accessSimulationPersonIds: Array.isArray(current.accessSimulationPersonIds)
+      ? current.accessSimulationPersonIds.map((item) => asText(item)).filter(Boolean)
+      : base.accessSimulationPersonIds,
+    accessCopyEmail: asText(current.accessCopyEmail ?? base.accessCopyEmail) || base.accessCopyEmail,
   };
 }
 
@@ -265,7 +277,7 @@ async function findApprover(organizationId: string) {
     if (person) return person;
   }
 
-  const fallbackWhatsapp = process.env.OH_AGENDA_APPROVER_WHATSAPP || process.env.AE_INTERNAL_WHATSAPP || "19992360856";
+  const fallbackWhatsapp = process.env.OH_AGENDA_APPROVER_WHATSAPP || process.env.AE_INTERNAL_WHATSAPP || "19989848246";
   const fallbackEmail = process.env.OH_AGENDA_APPROVER_EMAIL || process.env.EMAIL_COPY_TO || "automacao.ao.extremo@gmail.com";
   return {
     id: "fallback-approver",
@@ -306,6 +318,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const locationName = asText(body.locationName ?? body.location_name);
   const location = asText(body.location) || locationName;
   const audience = asText(body.audience ?? body.publico ?? body.targetAudience) || "filhos-corrente";
+  const eventClassification = asText(body.eventClassification ?? body.event_classification ?? body.classification ?? body.classificacao) || "umbanda";
   const groupSlug = asText(body.groupSlug ?? body.group_slug);
   const responsiblePersonId = asText(body.responsiblePersonId ?? body.responsible_person_id);
   const notes = asText(body.notes);
@@ -345,6 +358,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       audience,
       publico: audience,
       targetAudience: audience,
+      eventClassification,
+      event_classification: eventClassification,
+      classification: eventClassification,
+      classificacao: eventClassification,
       location_id: locationId || null,
       location_name: location || null,
       locationLabel: location || null,
@@ -472,6 +489,10 @@ async function updateAgendaSettings(organizationId: string, body: Record<string,
     wednesdayAuthorizedPersonIds: asTextList(body.wednesdayAuthorizedPersonIds ?? current.wednesdayAuthorizedPersonIds),
     requireRecommendingEntityForWednesday: asBool(body.requireRecommendingEntityForWednesday ?? current.requireRecommendingEntityForWednesday, true),
     appointmentReturnGuidance: asText(body.appointmentReturnGuidance ?? current.appointmentReturnGuidance) || defaultAgendaSettings().appointmentReturnGuidance,
+    accessValidationReviewerEmails: asText(body.accessValidationReviewerEmails ?? current.accessValidationReviewerEmails),
+    accessValidationReviewerPersonIds: asTextList(body.accessValidationReviewerPersonIds ?? current.accessValidationReviewerPersonIds),
+    accessSimulationPersonIds: asTextList(body.accessSimulationPersonIds ?? current.accessSimulationPersonIds),
+    accessCopyEmail: asText(body.accessCopyEmail ?? current.accessCopyEmail) || defaultAgendaSettings().accessCopyEmail,
     updated_at: new Date().toISOString(),
   };
 

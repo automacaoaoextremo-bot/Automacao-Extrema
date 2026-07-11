@@ -28,6 +28,7 @@ const topNav: NavItem[] = [
   { label: "Início", href: "/solucoes/organizacao-em-harmonia/cliente" },
   { label: "Cadastro", href: "/solucoes/organizacao-em-harmonia/cliente/cadastro" },
   { label: "Base Única", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica" },
+  { label: "Validações", href: "/solucoes/organizacao-em-harmonia/cliente/validacoes" },
   { label: "Agenda Viva", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva" },
   { label: "Atendimento", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia" },
   { label: "Módulos", href: "/solucoes/organizacao-em-harmonia/cliente/modulos" },
@@ -50,6 +51,8 @@ const sidebarGroups: NavGroup[] = [
     items: [
       { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica", description: "Resumo da estrutura cadastral." },
       { label: "Envolvidos", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos", description: "Pessoas, acessos e validações." },
+      { label: "Validações", href: "/solucoes/organizacao-em-harmonia/cliente/validacoes", description: "Aprovar Primeiro Acesso e simular visão do usuário." },
+      { label: "Simular acesso", href: "/solucoes/organizacao-em-harmonia/cliente/simular-acesso", description: "Ver o sistema como cada Filho da Corrente." },
       { label: "Funções", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/funcoes", description: "Papéis e responsabilidades." },
       { label: "Vínculos em lote", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/vinculos", description: "Aplicação rápida para grupos." },
       { label: "Grupos", href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/grupos", description: "Agrupamentos e responsabilidades." },

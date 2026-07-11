@@ -86,6 +86,10 @@ type AgendaSettings = {
   wednesdayAuthorizedPersonIds: string[];
   requireRecommendingEntityForWednesday: boolean;
   appointmentReturnGuidance: string;
+  accessValidationReviewerEmails: string;
+  accessValidationReviewerPersonIds: string[];
+  accessSimulationPersonIds: string[];
+  accessCopyEmail: string;
 };
 
 type Payload = {
@@ -111,6 +115,7 @@ type FormState = {
   locationId: string;
   location: string;
   audience: string;
+  eventClassification: string;
   groupSlug: string;
   responsiblePersonId: string;
   notes: string;
@@ -132,6 +137,10 @@ const defaultAgendaSettings: AgendaSettings = {
   requireRecommendingEntityForWednesday: true,
   appointmentReturnGuidance:
     "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+  accessValidationReviewerEmails: "",
+  accessValidationReviewerPersonIds: [],
+  accessSimulationPersonIds: [],
+  accessCopyEmail: "automacao.ao.extremo@gmail.com",
 };
 
 function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettings {
@@ -140,6 +149,10 @@ function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettin
     ...(value ?? {}),
     maxRecurringAppointmentsPerConsulente: Number(value?.maxRecurringAppointmentsPerConsulente ?? defaultAgendaSettings.maxRecurringAppointmentsPerConsulente),
     wednesdayAuthorizedPersonIds: Array.isArray(value?.wednesdayAuthorizedPersonIds) ? value.wednesdayAuthorizedPersonIds : [],
+    accessValidationReviewerEmails: typeof value?.accessValidationReviewerEmails === "string" ? value.accessValidationReviewerEmails : defaultAgendaSettings.accessValidationReviewerEmails,
+    accessValidationReviewerPersonIds: Array.isArray(value?.accessValidationReviewerPersonIds) ? value.accessValidationReviewerPersonIds : [],
+    accessSimulationPersonIds: Array.isArray(value?.accessSimulationPersonIds) ? value.accessSimulationPersonIds : [],
+    accessCopyEmail: typeof value?.accessCopyEmail === "string" && value.accessCopyEmail.trim() ? value.accessCopyEmail : defaultAgendaSettings.accessCopyEmail,
   };
 }
 
@@ -156,6 +169,7 @@ const emptyForm: FormState = {
   locationId: "",
   location: "",
   audience: "filhos-corrente",
+  eventClassification: "umbanda",
   groupSlug: "",
   responsiblePersonId: "",
   notes: "",
@@ -435,6 +449,20 @@ function eventAudience(event: AgendaEvent) {
   const metadata = event.metadata ?? {};
   const value = metadata.audience ?? metadata.publico ?? metadata.targetAudience;
   return typeof value === "string" && value.trim() ? value.trim() : "filhos-corrente";
+}
+
+function eventClassification(event: AgendaEvent) {
+  const metadata = event.metadata ?? {};
+  const value = metadata.eventClassification ?? metadata.event_classification ?? metadata.classification ?? metadata.classificacao;
+  return typeof value === "string" && value.trim() ? value.trim() : "umbanda";
+}
+
+function eventClassificationLabel(value: string) {
+  if (value === "outros") return "Outros";
+  if (value === "sementinha") return "Sementinha";
+  if (value === "estudos") return "Estudos";
+  if (value === "social") return "Social / comunidade";
+  return "Umbanda";
 }
 
 function audienceLabel(value: string) {
@@ -732,6 +760,16 @@ function AgendaEventForm({
           </select>
         </label>
         <label className="grid gap-1">
+          <span className="text-sm font-black text-[#00334E]">Classificação do evento</span>
+          <select value={form.eventClassification} onChange={(event) => update("eventClassification", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+            <option value="umbanda">Umbanda</option>
+            <option value="outros">Outros</option>
+            <option value="sementinha">Sementinha</option>
+            <option value="estudos">Estudos</option>
+            <option value="social">Social / comunidade</option>
+          </select>
+        </label>
+        <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Responsável</span>
           <select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
             <option value="">A definir</option>
@@ -861,6 +899,7 @@ function EventCard({ event, payload, onEdit, onDelete, compact = false }: { even
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{getEventDateTime(event)}</p>
           <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">Local: {location}</p>
           <p className="mt-1 text-xs font-black uppercase tracking-[0.16em] text-slate-500">{type?.name || event.event_type || "Atividade"} · {audienceLabel(eventAudience(event))}</p>
+          <p className="mt-2 inline-flex rounded-full bg-[#F7FAF2] px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{eventClassificationLabel(eventClassification(event))}</p>
         </div>
         <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>{statusLabels[event.status] ?? event.status}</span>
       </div>
@@ -958,9 +997,11 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
+  const [classificationFilter, setClassificationFilter] = useState("todos");
   const [calendarRange, setCalendarRange] = useState("completo");
   const [calendarEventType, setCalendarEventType] = useState("todos");
   const [calendarAudience, setCalendarAudience] = useState("all");
+  const [calendarClassification, setCalendarClassification] = useState("todos");
   const [calendarPersonId, setCalendarPersonId] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -1131,6 +1172,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       locationId: event.location_id || metadataText(event, "location_id"),
       location: event.location ?? "",
       audience: eventAudience(event),
+      eventClassification: eventClassification(event),
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
       notes: event.notes ?? "",
@@ -1158,12 +1200,14 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return events.filter((event) => {
-      const text = `${event.title} ${event.location ?? ""} ${event.group_slug ?? ""} ${event.event_type ?? ""}`.toLowerCase();
+      const classification = eventClassification(event);
+      const text = `${event.title} ${event.location ?? ""} ${event.group_slug ?? ""} ${event.event_type ?? ""} ${eventClassificationLabel(classification)}`.toLowerCase();
       if (normalizedQuery && !text.includes(normalizedQuery)) return false;
       if (statusFilter !== "todos" && event.status !== statusFilter) return false;
+      if (classificationFilter !== "todos" && classification !== classificationFilter) return false;
       return true;
     });
-  }, [events, query, statusFilter]);
+  }, [classificationFilter, events, query, statusFilter]);
 
   const calendarEvents = useMemo(() => {
     const today = new Date();
@@ -1179,10 +1223,11 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       if (endFilter && start && start > endFilter) return false;
       if (calendarEventType !== "todos" && event.event_type_id !== calendarEventType && event.event_type !== calendarEventType) return false;
       if (calendarAudience !== "all" && eventAudience(event) !== calendarAudience) return false;
+      if (calendarClassification !== "todos" && eventClassification(event) !== calendarClassification) return false;
       if (calendarPersonId && event.responsible_person_id !== calendarPersonId && event.created_by_person_id !== calendarPersonId) return false;
       return true;
     });
-  }, [calendarAudience, calendarEventType, calendarPersonId, calendarRange, events, periodEnd, periodStart]);
+  }, [calendarAudience, calendarClassification, calendarEventType, calendarPersonId, calendarRange, events, periodEnd, periodStart]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, AgendaEvent[]>();
@@ -1230,6 +1275,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                 <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
                   <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Buscar por nome, local ou tipo" />
                   <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                  <select value={classificationFilter} onChange={(event) => setClassificationFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option><option value="umbanda">Umbanda</option><option value="outros">Outros</option><option value="sementinha">Sementinha</option><option value="estudos">Estudos</option><option value="social">Social / comunidade</option></select>
                 </div>
               </section>
               <section className="grid gap-4 lg:grid-cols-2">
@@ -1265,6 +1311,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <select value={calendarRange} onChange={(event) => setCalendarRange(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="completo">Calendário completo, incluindo concluídos</option><option value="futuros">A partir da data atual</option></select>
                   <select value={calendarEventType} onChange={(event) => setCalendarEventType(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os eventos/tipos</option>{payload.eventTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                   <select value={calendarAudience} onChange={(event) => setCalendarAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="all">Todos os públicos</option><option value="filhos-corrente">Somente Filhos da Corrente</option><option value="consulentes">Consulentes / Filhos de Fora</option><option value="todos">Filhos e Consulentes</option></select>
+                  <select value={calendarClassification} onChange={(event) => setCalendarClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option><option value="umbanda">Umbanda</option><option value="outros">Outros</option><option value="sementinha">Sementinha</option><option value="estudos">Estudos</option><option value="social">Social / comunidade</option></select>
                   <select value={calendarPersonId} onChange={(event) => setCalendarPersonId(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Sem filtro por pessoa</option>{payload.people.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select>
                   <input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
                   <input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
@@ -1362,6 +1409,44 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                 </select>
                 <span className="text-xs font-semibold text-slate-500">Use Ctrl/Shift para selecionar mais de uma pessoa no desktop.</span>
               </label>
+              <section className="grid gap-4 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <h3 className="text-lg font-black text-[#00334E]">Validação do Primeiro Acesso</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Configure quem recebe os e-mails de validação e quem pode simular o acesso exatamente como um Filho da Corrente.</p>
+                </div>
+                <label className="grid gap-1 md:col-span-2">
+                  <span className="text-sm font-black text-[#00334E]">E-mails adicionais para validação</span>
+                  <textarea
+                    value={settingsForm.accessValidationReviewerEmails}
+                    onChange={(event) => updateSetting("accessValidationReviewerEmails", event.target.value)}
+                    className="min-h-24 rounded-2xl border border-slate-200 p-3"
+                    placeholder="um@email.com; outro@email.com"
+                  />
+                  <span className="text-xs font-semibold text-slate-500">Separe por ponto e vírgula, vírgula ou quebra de linha. O e-mail automacao.ao.extremo@gmail.com fica sempre em cópia.</span>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Pessoas que recebem validação</span>
+                  <select
+                    multiple
+                    value={settingsForm.accessValidationReviewerPersonIds}
+                    onChange={(event) => updateSetting("accessValidationReviewerPersonIds", Array.from(event.target.selectedOptions).map((option) => option.value))}
+                    className="min-h-40 rounded-2xl border border-slate-200 bg-white p-3"
+                  >
+                    {(payload?.people ?? []).filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Pessoas que podem simular acesso</span>
+                  <select
+                    multiple
+                    value={settingsForm.accessSimulationPersonIds}
+                    onChange={(event) => updateSetting("accessSimulationPersonIds", Array.from(event.target.selectedOptions).map((option) => option.value))}
+                    className="min-h-40 rounded-2xl border border-slate-200 bg-white p-3"
+                  >
+                    {(payload?.people ?? []).filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+                  </select>
+                </label>
+              </section>
               <label className="grid gap-1">
                 <span className="text-sm font-black text-[#00334E]">Orientação de retorno para consulentes</span>
                 <textarea value={settingsForm.appointmentReturnGuidance} onChange={(event) => updateSetting("appointmentReturnGuidance", event.target.value)} className="min-h-28 rounded-2xl border border-slate-200 p-3" />
