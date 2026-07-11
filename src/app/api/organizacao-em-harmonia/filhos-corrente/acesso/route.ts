@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_COPY_EMAIL = "automacao.ao.extremo@gmail.com";
+const AE_WHATSAPP_PHONE = "5519989848246";
 const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
 
 type DraftItem = {
@@ -81,7 +82,9 @@ function reviewCopyEmail() {
 }
 
 function whatsappSupportPhone() {
-  return process.env.AE_INTERNAL_WHATSAPP || "5519989848246";
+  // O destino do WhatsApp do fluxo de Primeiro Acesso deve ser sempre o atendimento da AE,
+  // nunca o telefone informado pelo Filho da Corrente no cadastro.
+  return AE_WHATSAPP_PHONE;
 }
 
 function syntheticEmailFromPhone(phone: string) {
@@ -492,33 +495,18 @@ function buildReviewerEmail(input: {
   return { subject: EMAIL_SUBJECT, text, html };
 }
 
-function buildWhatsappReviewMessage(input: {
+function buildWhatsappPersonMessage(input: {
   fullName: string;
   whatsapp: string;
   email: string;
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
-  validationUrl: string;
-  simulationUrl: string;
   statusUrl: string;
 }) {
-  return [
-    "AE - Aguardando Aprovação - Tucxa - Organização em Harmonia",
-    "",
-    `Solicitação de Primeiro Acesso para ${input.fullName}.`,
-    "",
-    commonSummaryText(input),
-    "",
-    "Validação:",
-    input.validationUrl,
-    "",
-    "Simulação:",
-    input.simulationUrl,
-    "",
-    "Status para o Filho da Corrente:",
-    input.statusUrl,
-  ].join("\n");
+  // A mensagem enviada ao WhatsApp da AE precisa ser a versão segura do Filho da Corrente.
+  // Não incluir links internos de validação ou simulação, pois eles são exclusivos dos validadores.
+  return buildPersonEmail(input).text;
 }
 
 async function accessStatusForPerson(organizationId: string, personId: string) {
@@ -620,7 +608,7 @@ async function submitFirstAccess(body: AccessBody) {
 
   const statusToken = crypto.randomUUID();
   const summary = { selectedFunctions, selectedAgenda, notes, statusToken };
-  const { data: validationRequest, error: validationError } = await supabaseAdmin
+  const { error: validationError } = await supabaseAdmin
     .from("oh_first_access_validation_requests")
     .insert({
       organization_id: organization.id,
@@ -632,13 +620,11 @@ async function submitFirstAccess(body: AccessBody) {
       function_slugs: functionSlugs,
       agenda_slugs: agendaSlugs,
       summary,
-    })
-    .select("id")
-    .single();
+    });
   if (validationError) throw validationError;
 
   const validationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/validacoes?personId=${encodeURIComponent(personId)}`;
-  const simulationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${encodeURIComponent(personId)}?validationId=${encodeURIComponent(String(validationRequest.id))}`;
+  const simulationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${encodeURIComponent(personId)}`;
   const statusUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/status?token=${encodeURIComponent(statusToken)}`;
   const common = {
     fullName,
@@ -660,8 +646,8 @@ async function submitFirstAccess(body: AccessBody) {
     html: reviewerEmail.html,
   });
 
+  const personEmail = buildPersonEmail({ ...common, statusUrl });
   if (displayEmail(emailForAuth)) {
-    const personEmail = buildPersonEmail({ ...common, statusUrl });
     await sendEmail({
       to: displayEmail(emailForAuth),
       cc: reviewCopyEmail(),
@@ -671,12 +657,13 @@ async function submitFirstAccess(body: AccessBody) {
     });
   }
 
-  const whatsappMessage = buildWhatsappReviewMessage({ ...common, validationUrl, simulationUrl, statusUrl });
+  const whatsappMessage = buildWhatsappPersonMessage({ ...common, statusUrl });
 
   return {
     personId,
     statusUrl,
     whatsappUrl: whatsappUrl(whatsappSupportPhone(), whatsappMessage),
+    whatsappPhone: whatsappSupportPhone(),
     message: "Cadastro confirmado e enviado para validação do Tucxa.",
   };
 }

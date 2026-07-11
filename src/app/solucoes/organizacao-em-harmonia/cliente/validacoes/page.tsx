@@ -26,6 +26,7 @@ type Payload = {
   people: Person[];
   memberships: Membership[];
   error?: string;
+  whatsappUrl?: string;
 };
 
 function asText(value: unknown) {
@@ -114,7 +115,13 @@ export default function ValidacoesPrimeiroAcessoPage() {
       const result = (await response.json()) as Payload & { error?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar a validação.");
       setPayload(result);
-      setMessage(action === "approveAccess" ? "Acesso liberado." : action === "deleteAccessValidation" ? "Pedido de validação excluído." : "Ajuste solicitado.");
+      if (result.whatsappUrl && action !== "deleteAccessValidation") {
+        window.setTimeout(() => {
+          const opened = window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
+          if (!opened) window.location.href = result.whatsappUrl || "";
+        }, 150);
+      }
+      setMessage(action === "approveAccess" ? "Acesso liberado. O WhatsApp do Filho da Corrente foi aberto com a mensagem de confirmação." : action === "deleteAccessValidation" ? "Pedido de validação excluído." : "Ajuste solicitado. O WhatsApp do Filho da Corrente foi aberto com a orientação.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar validação.");
     } finally {

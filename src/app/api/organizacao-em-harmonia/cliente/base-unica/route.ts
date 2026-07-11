@@ -592,7 +592,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     if (authError) throw authError;
   }
 
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login`;
   const email = displayEmail(person.email);
 
   const emailMessage = approved
