@@ -93,7 +93,11 @@ export default function ValidacoesPrimeiroAcessoPage() {
       .filter((item) => item.person);
   }, [payload?.memberships, payload?.people]);
 
-  async function decide(personId: string, action: "approveAccess" | "requestAccessAdjustment") {
+  async function decide(personId: string, action: "approveAccess" | "requestAccessAdjustment" | "deleteAccessValidation") {
+    if (action === "deleteAccessValidation") {
+      const confirmed = window.confirm("Excluir este pedido de validação? Isso remove o cadastro pendente para que o teste possa ser repetido.");
+      if (!confirmed) return;
+    }
     const reviewNotes = action === "requestAccessAdjustment" ? window.prompt("Informe o ajuste solicitado ao Filho da Corrente:") || "" : "";
     setSaving(true);
     setError("");
@@ -110,7 +114,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
       const result = (await response.json()) as Payload & { error?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar a validação.");
       setPayload(result);
-      setMessage(action === "approveAccess" ? "Acesso liberado." : "Ajuste solicitado.");
+      setMessage(action === "approveAccess" ? "Acesso liberado." : action === "deleteAccessValidation" ? "Pedido de validação excluído." : "Ajuste solicitado.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar validação.");
     } finally {
@@ -142,6 +146,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
                     <Link href={`/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${person?.id}`} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-[#00334E]">Simular acesso</Link>
                     <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "approveAccess")} className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-60">Aprovar</button>
                     <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "requestAccessAdjustment")} className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 disabled:opacity-60">Pedir ajuste</button>
+                    <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "deleteAccessValidation")} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60">Excluir pedido</button>
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -151,7 +156,9 @@ export default function ValidacoesPrimeiroAcessoPage() {
                   </div>
                   <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
                     <p className="font-black text-[#00334E]">Agenda</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{agendaLabels.length ? agendaLabels.join(" • ") : "Sem agenda selecionada"}</p>
+                    <div className="mt-2 grid gap-2 text-sm leading-6 text-slate-600">
+                      {agendaLabels.length ? agendaLabels.map((label) => <p key={label} className="rounded-xl bg-white/70 p-2 ring-1 ring-[#123D2C]/10">{label}</p>) : <p>Sem agenda selecionada</p>}
+                    </div>
                   </div>
                 </div>
                 {asText(profile.submittedAt) && <p className="mt-3 text-xs font-semibold text-slate-500">Enviado em: {new Date(asText(profile.submittedAt)).toLocaleString("pt-BR")}</p>}

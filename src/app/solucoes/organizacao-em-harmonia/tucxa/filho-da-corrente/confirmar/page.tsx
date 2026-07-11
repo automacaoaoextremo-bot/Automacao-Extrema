@@ -26,6 +26,7 @@ type SubmitResponse = {
   ok?: boolean;
   message?: string;
   whatsappUrl?: string;
+  statusUrl?: string;
   error?: string;
 };
 
@@ -76,7 +77,7 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [whatsappUrl, setWhatsappUrl] = useState("");
+  const [statusUrl, setStatusUrl] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -103,7 +104,7 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
     setSubmitting(true);
     setMessage("");
     setError("");
-    setWhatsappUrl("");
+    setStatusUrl("");
     try {
       const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/acesso", {
         method: "POST",
@@ -114,7 +115,13 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
       if (!response.ok) throw new Error(result.error || "Não foi possível confirmar o envio.");
       window.sessionStorage.removeItem(FIRST_ACCESS_DRAFT_KEY);
       setMessage(result.message || "Cadastro enviado para validação do Tucxa.");
-      setWhatsappUrl(result.whatsappUrl || "");
+      setStatusUrl(result.statusUrl || "");
+      if (result.whatsappUrl) {
+        window.setTimeout(() => {
+          const opened = window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
+          if (!opened) window.location.href = result.whatsappUrl || "";
+        }, 250);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar para validação.");
     } finally {
@@ -180,7 +187,7 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
                   Voltar para ajustar
                 </a>
                 <button type="button" onClick={confirmSubmit} disabled={submitting} className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:opacity-60">
-                  {submitting ? "Enviando..." : "Confirmar envio para validação"}
+                  {submitting ? "Enviando..." : "Enviar para validação"}
                 </button>
               </div>
             </div>
@@ -189,11 +196,11 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
           {message && (
             <div className="mt-6 rounded-3xl bg-emerald-50 p-5 text-emerald-900 ring-1 ring-emerald-100">
               <p className="text-xl font-black">{message}</p>
-              <p className="mt-2 text-sm leading-6">Agora é só aguardar a validação do Tucxa. Você também pode enviar o resumo pelo WhatsApp da Automação Extrema para facilitar o acompanhamento.</p>
+              <p className="mt-2 text-sm leading-6">Agora é só aguardar a validação do Tucxa. Guarde o link abaixo para acompanhar o status da aprovação.</p>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                {whatsappUrl && (
-                  <a href={whatsappUrl} target="_blank" rel="noreferrer" className="rounded-2xl bg-[#31C16B] px-5 py-3 text-center font-black text-[#00334E]">
-                    Enviar também pelo WhatsApp da AE
+                {statusUrl && (
+                  <a href={statusUrl} className="rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">
+                    Acompanhar status da aprovação
                   </a>
                 )}
                 <a href="/solucoes/organizacao-em-harmonia/tucxa" className="rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">

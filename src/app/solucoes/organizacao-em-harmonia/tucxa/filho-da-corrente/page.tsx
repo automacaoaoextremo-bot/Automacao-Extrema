@@ -67,10 +67,6 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function isEmail(value: string) {
-  return value.includes("@");
-}
-
 function toggleValue(values: string[], value: string) {
   return values.includes(value)
     ? values.filter((item) => item !== value)
@@ -235,7 +231,6 @@ export default function FilhoDaCorrenteTucxaPage() {
   async function resolveLoginEmail() {
     const value = identifier.trim();
     if (!value) throw new Error("Informe seu e-mail ou WhatsApp.");
-    if (isEmail(value)) return value.toLowerCase();
 
     const response = await fetch(
       "/api/organizacao-em-harmonia/filhos-corrente/acesso",
@@ -271,7 +266,16 @@ export default function FilhoDaCorrenteTucxaPage() {
         );
         return;
       }
-      window.location.href = "/solucoes/organizacao-em-harmonia/cliente";
+
+      const { data: userData } = await supabaseBrowser.auth.getUser();
+      const metadata = userData.user?.user_metadata ?? {};
+      if (metadata.oh_access_status && metadata.oh_access_status !== "ativo") {
+        await supabaseBrowser.auth.signOut();
+        setLoginError("Seu acesso ainda não foi liberado pelo Tucxa. Aguarde a validação ou acompanhe o status da solicitação.");
+        return;
+      }
+
+      window.location.href = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
     } catch (err) {
       setLoginError(
         err instanceof Error ? err.message : "Não foi possível entrar agora.",

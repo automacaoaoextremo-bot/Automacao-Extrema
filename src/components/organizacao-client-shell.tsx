@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -110,6 +110,26 @@ function isActive(pathname: string, href: string) {
 export function OrganizacaoClientShell({ title, description, children }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [accessGate, setAccessGate] = useState<"checking" | "allowed" | "blocked">("checking");
+
+  useEffect(() => {
+    let active = true;
+    supabaseBrowser.auth.getUser().then(async ({ data }) => {
+      if (!active) return;
+      const metadata = data.user?.user_metadata ?? {};
+      if (metadata.oh_profile === "filho-da-corrente") {
+        setAccessGate("blocked");
+        await supabaseBrowser.auth.signOut();
+        router.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente");
+        return;
+      }
+      setAccessGate("allowed");
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   async function signOut() {
     await supabaseBrowser.auth.signOut();
@@ -118,6 +138,22 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
 
   const activeGroup = sidebarGroups.find((group) => group.items.some((item) => isActive(pathname, item.href))) ?? sidebarGroups[0];
   const orderedSidebarGroups = [activeGroup, ...sidebarGroups.filter((group) => group.label !== activeGroup.label)];
+
+  if (accessGate !== "allowed") {
+    return (
+      <main className="min-h-screen bg-[#F4FBF7] p-6 text-[#00334E]">
+        <div className="mx-auto max-w-2xl rounded-[2rem] bg-white p-6 shadow ring-1 ring-slate-100">
+          <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
+          <h1 className="mt-2 text-2xl font-black">{accessGate === "blocked" ? "Acesso de gestão bloqueado" : "Verificando acesso..."}</h1>
+          <p className="mt-3 leading-7 text-slate-600">
+            {accessGate === "blocked"
+              ? "Este usuário é de Filho da Corrente e deve usar o acesso próprio do site público do Tucxa."
+              : "Estamos conferindo se este usuário tem permissão de gestão."}
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#F4FBF7] text-[#00334E]">

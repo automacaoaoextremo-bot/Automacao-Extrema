@@ -572,12 +572,20 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
 
+  await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .update({ status: nextStatus, updated_at: new Date().toISOString() })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .eq("status", "pendente_validacao");
+
   if (person.auth_user_id) {
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
       user_metadata: {
         full_name: person.full_name,
         whatsapp: person.whatsapp,
         organization_id: organizationId,
+        oh_profile: "filho-da-corrente",
         oh_access_status: nextStatus,
       },
     });
@@ -641,6 +649,49 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
   return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(email), emailTo: email };
 }
 
+async function deleteAccessValidation(organizationId: string, body: Record<string, unknown>) {
+  const personId = asText(body.personId);
+  if (!personId) throw new Error("Pessoa não informada para excluir o pedido de validação.");
+
+  const { data: person, error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, auth_user_id, full_name")
+    .eq("id", personId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (personError) throw personError;
+  if (!person?.id) throw new Error("Pedido de validação não localizado.");
+
+  const { error: requestsError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (requestsError) throw requestsError;
+
+  const { error: membershipsError } = await supabaseAdmin
+    .from("oh_memberships")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .in("status", ["pendente_validacao", "ajuste_solicitado", "inativo"]);
+  if (membershipsError) throw membershipsError;
+
+  const { error: personDeleteError } = await supabaseAdmin
+    .from("oh_people")
+    .delete()
+    .eq("id", personId)
+    .eq("organization_id", organizationId)
+    .eq("active", false);
+  if (personDeleteError) throw personDeleteError;
+
+  if (person.auth_user_id) {
+    await supabaseAdmin.auth.admin.deleteUser(person.auth_user_id as string).catch(() => undefined);
+  }
+
+  return { deletedValidation: true, deletedPersonName: person.full_name };
+}
+
 export async function GET(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
@@ -688,6 +739,8 @@ export async function POST(request: Request) {
       actionResult = await updateAccessStatus(auth.context.organizationId, body, true);
     } else if (action === "requestAccessAdjustment") {
       actionResult = await updateAccessStatus(auth.context.organizationId, body, false);
+    } else if (action === "deleteAccessValidation") {
+      actionResult = await deleteAccessValidation(auth.context.organizationId, body);
     } else if (action === "upsertRole") {
       await upsertRole(auth.context.organizationId, body);
     } else if (action === "toggleRole") {

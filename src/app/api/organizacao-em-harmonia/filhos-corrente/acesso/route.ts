@@ -117,7 +117,7 @@ function hasSmtpConfig() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
 }
 
-async function sendEmail(input: { to: string; subject: string; text: string; cc?: string; replyTo?: string }) {
+async function sendEmail(input: { to: string; subject: string; text: string; html?: string; cc?: string; replyTo?: string }) {
   if (process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return { skipped: true };
 
   const transporter = nodemailer.createTransport({
@@ -139,6 +139,7 @@ async function sendEmail(input: { to: string; subject: string; text: string; cc?
     replyTo: input.replyTo || undefined,
     subject: input.subject,
     text: input.text,
+    html: input.html,
   });
 
   return { skipped: false };
@@ -308,8 +309,147 @@ async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: s
   return data.user.id;
 }
 
-function buildReviewMessage(input: {
-  organizationName: string;
+const EMAIL_SUBJECT = "AE - Aguardando Aprovação - Tuxca - Organização em Harmonia";
+const ORGANIZATION_DISPLAY_NAME = "Templo de Umbanda Caboclo Sete Flexa - TUCXA";
+
+function firstName(value: string) {
+  return value.trim().split(/\s+/)[0] || "irmão(ã)";
+}
+
+function htmlEscape(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function agendaLines(items: DraftItem[]) {
+  if (!items.length) return ["- Nenhum item de agenda selecionado"];
+  return items.map((item) => `- ${item.label}${item.description ? ` — ${item.description}` : ""}`);
+}
+
+function functionsLines(items: DraftItem[]) {
+  if (!items.length) return ["- Somente Filho da Corrente"];
+  return items.map((item) => `- ${item.label}`);
+}
+
+function footerText() {
+  return ["Automação Extrema - Organização em Harmonia - Tucxa", "Logo AE: " + `${siteUrl()}/clientes/tucxa/automacao-extrema-logo.svg`, "Logo Tucxa: " + `${siteUrl()}/clientes/tucxa/tucxa-logo.jpg`].join("\n");
+}
+
+function footerHtml() {
+  return `
+    <div style="margin-top:28px;border-top:1px solid #dfe8df;padding-top:18px;font-family:Arial,sans-serif;color:#123D2C">
+      <p style="margin:0 0 12px 0;font-weight:700">Automação Extrema - Organização em Harmonia - Tucxa</p>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <img src="${siteUrl()}/clientes/tucxa/automacao-extrema-logo.svg" alt="Automação Extrema" style="height:42px;max-width:180px;background:#00334E;border-radius:10px;padding:6px" />
+        <img src="${siteUrl()}/clientes/tucxa/tucxa-logo.jpg" alt="Tucxa" style="height:52px;width:52px;border-radius:12px;object-fit:contain" />
+      </div>
+    </div>`;
+}
+
+function listToHtml(lines: string[], spacious = false) {
+  return lines
+    .map((line) => `<p style="margin:${spacious ? "0 0 14px" : "0 0 6px"} 0;line-height:1.6">${htmlEscape(line)}</p>`)
+    .join("");
+}
+
+function commonSummaryText(input: {
+  fullName: string;
+  whatsapp: string;
+  email: string;
+  notes: string;
+  selectedFunctions: DraftItem[];
+  selectedAgenda: DraftItem[];
+}) {
+  return [
+    `Organização: ${ORGANIZATION_DISPLAY_NAME}`,
+    `Nome: ${input.fullName}`,
+    `WhatsApp: ${input.whatsapp}`,
+    `E-mail: ${input.email || "não informado"}`,
+    "",
+    "Funções:",
+    functionsLines(input.selectedFunctions).join("\n"),
+    "",
+    "Agenda:",
+    agendaLines(input.selectedAgenda).join("\n\n"),
+    "",
+    input.notes ? `Observação: ${input.notes}` : "Observação: não informada",
+  ].join("\n");
+}
+
+function commonSummaryHtml(input: {
+  fullName: string;
+  whatsapp: string;
+  email: string;
+  notes: string;
+  selectedFunctions: DraftItem[];
+  selectedAgenda: DraftItem[];
+}) {
+  return `
+    <p style="margin:0 0 8px 0"><strong>Organização:</strong> ${htmlEscape(ORGANIZATION_DISPLAY_NAME)}</p>
+    <p style="margin:0 0 8px 0"><strong>Nome:</strong> ${htmlEscape(input.fullName)}</p>
+    <p style="margin:0 0 8px 0"><strong>WhatsApp:</strong> ${htmlEscape(input.whatsapp)}</p>
+    <p style="margin:0 0 16px 0"><strong>E-mail:</strong> ${htmlEscape(input.email || "não informado")}</p>
+    <h3 style="margin:22px 0 8px 0;color:#123D2C">Funções:</h3>
+    ${listToHtml(functionsLines(input.selectedFunctions))}
+    <h3 style="margin:22px 0 8px 0;color:#123D2C">Agenda:</h3>
+    ${listToHtml(agendaLines(input.selectedAgenda), true)}
+    <p style="margin:18px 0 0 0"><strong>Observação:</strong> ${htmlEscape(input.notes || "não informada")}</p>`;
+}
+
+function wrapEmailHtml(title: string, body: string) {
+  return `<!doctype html><html><body style="margin:0;background:#F7FAF2;padding:24px;font-family:Arial,sans-serif;color:#10251C">
+    <div style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #dfe8df;border-radius:22px;padding:24px">
+      <h2 style="margin:0 0 18px 0;color:#123D2C">${htmlEscape(title)}</h2>
+      ${body}
+      ${footerHtml()}
+    </div>
+  </body></html>`;
+}
+
+function buildPersonEmail(input: {
+  fullName: string;
+  whatsapp: string;
+  email: string;
+  notes: string;
+  selectedFunctions: DraftItem[];
+  selectedAgenda: DraftItem[];
+  statusUrl: string;
+}) {
+  const text = [
+    `Olá, ${firstName(input.fullName)}.`,
+    "",
+    "Recebemos sua solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.",
+    "",
+    commonSummaryText(input),
+    "",
+    "Agora o Tucxa irá conferir as informações, validar seus vínculos e liberar o acesso quando tudo estiver correto.",
+    "",
+    "Você pode acompanhar por aqui:",
+    input.statusUrl,
+    "",
+    footerText(),
+  ].join("\n");
+
+  const html = wrapEmailHtml(
+    `Olá, ${firstName(input.fullName)}.`,
+    `
+      <p style="line-height:1.6">Recebemos sua solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.</p>
+      ${commonSummaryHtml(input)}
+      <p style="margin-top:22px;line-height:1.6">Agora o Tucxa irá conferir as informações, validar seus vínculos e liberar o acesso quando tudo estiver correto.</p>
+      <p style="line-height:1.6">Você pode acompanhar por aqui:</p>
+      <p><a href="${input.statusUrl}" style="display:inline-block;background:#123D2C;color:#ffffff;text-decoration:none;border-radius:14px;padding:12px 18px;font-weight:700">Acompanhar aprovação</a></p>
+      <p style="word-break:break-all;color:#64748b;font-size:12px">${htmlEscape(input.statusUrl)}</p>
+    `,
+  );
+
+  return { subject: EMAIL_SUBJECT, text, html };
+}
+
+function buildReviewerEmail(input: {
   fullName: string;
   whatsapp: string;
   email: string;
@@ -317,42 +457,81 @@ function buildReviewMessage(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   validationUrl: string;
+  simulationUrl: string;
 }) {
-  const functions = input.selectedFunctions.length ? input.selectedFunctions.map((item) => `- ${item.label}`).join("\n") : "- Somente Filho da Corrente";
-  const agenda = input.selectedAgenda.length ? input.selectedAgenda.map((item) => `- ${item.label}${item.description ? ` — ${item.description}` : ""}`).join("\n") : "- Nenhum item de agenda selecionado";
-
-  return [
-    "Olá! Há uma nova solicitação de Primeiro Acesso aguardando validação.",
+  const text = [
+    "Equipe Organização em Harmonia - Tucxa",
+    ".",
+    "Recebemos a solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa para:",
     "",
-    `Organização: ${input.organizationName}`,
-    `Nome: ${input.fullName}`,
-    `WhatsApp: ${input.whatsapp}`,
-    `E-mail: ${input.email || "não informado"}`,
+    commonSummaryText(input),
     "",
-    "Funções:",
-    functions,
+    `Simular o acesso como o Filho da Corrente ${input.fullName} acessando o link abaixo:`,
+    input.simulationUrl,
     "",
-    "Agenda:",
-    agenda,
-    "",
-    input.notes ? `Observação: ${input.notes}` : "Observação: não informada",
-    "",
-    "Para validar e, se necessário, simular o acesso do Filho da Corrente, acesse:",
+    "Caso tudo esteja OK, clique em aprovar na página de validações:",
     input.validationUrl,
+    "",
+    footerText(),
+  ].join("\n");
+
+  const html = wrapEmailHtml(
+    "Equipe Organização em Harmonia - Tucxa",
+    `
+      <p style="line-height:1.6">Recebemos a solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa para:</p>
+      ${commonSummaryHtml(input)}
+      <p style="margin-top:22px;line-height:1.6">Simular o acesso como o Filho da Corrente <strong>${htmlEscape(input.fullName)}</strong> acessando o link abaixo:</p>
+      <p><a href="${input.simulationUrl}" style="display:inline-block;background:#123D2C;color:#ffffff;text-decoration:none;border-radius:14px;padding:12px 18px;font-weight:700">Simular acesso</a></p>
+      <p style="word-break:break-all;color:#64748b;font-size:12px">${htmlEscape(input.simulationUrl)}</p>
+      <p style="line-height:1.6">Caso tudo esteja OK, clique em aprovar na página de validações:</p>
+      <p><a href="${input.validationUrl}" style="display:inline-block;background:#31C16B;color:#00334E;text-decoration:none;border-radius:14px;padding:12px 18px;font-weight:700">Abrir validações</a></p>
+      <p style="word-break:break-all;color:#64748b;font-size:12px">${htmlEscape(input.validationUrl)}</p>
+    `,
+  );
+
+  return { subject: EMAIL_SUBJECT, text, html };
+}
+
+function buildWhatsappReviewMessage(input: {
+  fullName: string;
+  whatsapp: string;
+  email: string;
+  notes: string;
+  selectedFunctions: DraftItem[];
+  selectedAgenda: DraftItem[];
+  validationUrl: string;
+  simulationUrl: string;
+  statusUrl: string;
+}) {
+  return [
+    "AE - Aguardando Aprovação - Tucxa - Organização em Harmonia",
+    "",
+    `Solicitação de Primeiro Acesso para ${input.fullName}.`,
+    "",
+    commonSummaryText(input),
+    "",
+    "Validação:",
+    input.validationUrl,
+    "",
+    "Simulação:",
+    input.simulationUrl,
+    "",
+    "Status para o Filho da Corrente:",
+    input.statusUrl,
   ].join("\n");
 }
 
-function buildPersonMessage(input: { fullName: string; validationUrl: string }) {
-  return [
-    `Olá, ${input.fullName.split(/\s+/)[0] || "irmão(ã)"}.`,
-    "",
-    "Recebemos sua solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.",
-    "",
-    "Agora o Tucxa irá conferir as informações, validar seus vínculos e liberar o acesso quando tudo estiver correto.",
-    "",
-    "Você pode acompanhar ou retornar ao site por aqui:",
-    input.validationUrl,
-  ].join("\n");
+async function accessStatusForPerson(organizationId: string, personId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("status, active")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return { status: (data?.status as string | null) || "pendente_validacao", active: data?.active === true };
 }
 
 async function submitFirstAccess(body: AccessBody) {
@@ -439,51 +618,65 @@ async function submitFirstAccess(body: AccessBody) {
     if (error) throw error;
   }
 
-  await supabaseAdmin.from("oh_first_access_validation_requests").insert({
-    organization_id: organization.id,
-    person_id: personId,
-    status: "pendente_validacao",
-    full_name: fullName,
-    whatsapp,
-    email: displayEmail(emailForAuth) || null,
-    function_slugs: functionSlugs,
-    agenda_slugs: agendaSlugs,
-    summary: { selectedFunctions, selectedAgenda, notes },
-  });
+  const statusToken = crypto.randomUUID();
+  const summary = { selectedFunctions, selectedAgenda, notes, statusToken };
+  const { data: validationRequest, error: validationError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .insert({
+      organization_id: organization.id,
+      person_id: personId,
+      status: "pendente_validacao",
+      full_name: fullName,
+      whatsapp,
+      email: displayEmail(emailForAuth) || null,
+      function_slugs: functionSlugs,
+      agenda_slugs: agendaSlugs,
+      summary,
+    })
+    .select("id")
+    .single();
+  if (validationError) throw validationError;
 
   const validationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/validacoes?personId=${encodeURIComponent(personId)}`;
-  const reviewMessage = buildReviewMessage({
-    organizationName: organization.name,
+  const simulationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${encodeURIComponent(personId)}?validationId=${encodeURIComponent(String(validationRequest.id))}`;
+  const statusUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/status?token=${encodeURIComponent(statusToken)}`;
+  const common = {
     fullName,
     whatsapp,
     email: displayEmail(emailForAuth),
     notes,
     selectedFunctions,
     selectedAgenda,
-    validationUrl,
-  });
+  };
 
   const reviewers = await reviewerEmails(organization.id);
+  const reviewerEmail = buildReviewerEmail({ ...common, validationUrl, simulationUrl });
   await sendEmail({
     to: reviewers.join(", "),
     cc: reviewCopyEmail(),
     replyTo: displayEmail(emailForAuth) || undefined,
-    subject: `Validação de Primeiro Acesso - ${fullName}`,
-    text: reviewMessage,
+    subject: reviewerEmail.subject,
+    text: reviewerEmail.text,
+    html: reviewerEmail.html,
   });
 
   if (displayEmail(emailForAuth)) {
+    const personEmail = buildPersonEmail({ ...common, statusUrl });
     await sendEmail({
       to: displayEmail(emailForAuth),
       cc: reviewCopyEmail(),
-      subject: "Solicitação recebida - Organização em Harmonia Tucxa",
-      text: buildPersonMessage({ fullName, validationUrl: `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente` }),
+      subject: personEmail.subject,
+      text: personEmail.text,
+      html: personEmail.html,
     });
   }
 
+  const whatsappMessage = buildWhatsappReviewMessage({ ...common, validationUrl, simulationUrl, statusUrl });
+
   return {
     personId,
-    whatsappUrl: whatsappUrl(whatsappSupportPhone(), reviewMessage),
+    statusUrl,
+    whatsappUrl: whatsappUrl(whatsappSupportPhone(), whatsappMessage),
     message: "Cadastro confirmado e enviado para validação do Tucxa.",
   };
 }
@@ -498,9 +691,29 @@ export async function POST(request: Request) {
     if (action === "resolve-login") {
       const person = await findPersonByIdentifier(organization.id, asText(body.identifier));
       if (!person) throw new Error("Cadastro não localizado para este WhatsApp/e-mail.");
+      const access = await accessStatusForPerson(organization.id, person.id);
+      if (!access.active || access.status !== "ativo") {
+        throw new Error("Seu acesso ainda não foi liberado pelo Tucxa. Acompanhe o status da validação ou aguarde a confirmação.");
+      }
       const authEmail = person.email || (person.whatsapp ? syntheticEmailFromPhone(person.whatsapp) : "");
       if (!authEmail) throw new Error("Este cadastro ainda não possui e-mail de acesso associado.");
       return NextResponse.json({ ok: true, authEmail });
+    }
+
+    if (action === "status") {
+      const token = asText((body as { token?: unknown; statusToken?: unknown }).token ?? (body as { statusToken?: unknown }).statusToken);
+      if (!token) throw new Error("Link de acompanhamento inválido.");
+      const { data, error } = await supabaseAdmin
+        .from("oh_first_access_validation_requests")
+        .select("id, status, full_name, whatsapp, email, summary, created_at, updated_at")
+        .eq("organization_id", organization.id)
+        .filter("summary->>statusToken", "eq", token)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) throw new Error("Solicitação não encontrada para este link.");
+      return NextResponse.json({ ok: true, request: data });
     }
 
     const result = await submitFirstAccess(body);

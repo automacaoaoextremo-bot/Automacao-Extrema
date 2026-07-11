@@ -87,17 +87,11 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
 
   async function resolveLoginEmail() {
     const value = identifier.trim();
-    if (!value) throw new Error("Informe seu e-mail ou WhatsApp.");
-    if (isEmail(value)) return value.toLowerCase();
-
-    const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/acesso", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "resolve-login", identifier: value }),
-    });
-    const result = (await response.json()) as AccessResponse;
-    if (!response.ok || !result.authEmail) throw new Error(result.error || "Não foi possível localizar seu cadastro pelo WhatsApp.");
-    return result.authEmail;
+    if (!value) throw new Error("Informe o e-mail de gestor da Organização em Harmonia.");
+    if (!isEmail(value)) {
+      throw new Error("A área de gestão deve ser acessada somente com e-mail de gestor. Filhos da Corrente devem usar o acesso próprio do Tucxa.");
+    }
+    return value.toLowerCase();
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -114,7 +108,16 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
       });
 
       if (authError) {
-        setError("Não foi possível entrar. Confira e-mail/WhatsApp e senha. Caso seja seu primeiro acesso, confirme seus dados no formulário abaixo.");
+        setError("Não foi possível entrar. Confira e-mail e senha. Caso seja Filho da Corrente, use o acesso próprio do Tucxa.");
+        setLoading(false);
+        return;
+      }
+
+      const { data: userData } = await supabaseBrowser.auth.getUser();
+      const metadata = userData.user?.user_metadata ?? {};
+      if (metadata.oh_profile === "filho-da-corrente") {
+        await supabaseBrowser.auth.signOut();
+        setError("Este usuário é de Filho da Corrente e não pode acessar a área de gestão. Use o acesso próprio no site público do Tucxa.");
         setLoading(false);
         return;
       }
