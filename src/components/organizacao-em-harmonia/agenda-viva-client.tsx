@@ -885,7 +885,7 @@ function EventModal({ open, children, onClose, title }: { open: boolean; childre
   );
 }
 
-function EventCard({ event, payload, onEdit, onDelete, compact = false }: { event: AgendaEvent; payload: Payload; onEdit?: (event: AgendaEvent) => void; onDelete?: (eventId: string) => void; compact?: boolean }) {
+function EventCard({ event, payload, onEdit, onDuplicate, onDelete, compact = false }: { event: AgendaEvent; payload: Payload; onEdit?: (event: AgendaEvent) => void; onDuplicate?: (event: AgendaEvent) => void; onDelete?: (eventId: string) => void; compact?: boolean }) {
   const type = eventTypeFor(event, payload.eventTypes);
   const location = locationLabel(event, payload.locations);
   return (
@@ -909,9 +909,10 @@ function EventCard({ event, payload, onEdit, onDelete, compact = false }: { even
         {firstAccessEnabledFor(event) && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-900 ring-1 ring-emerald-100">Primeiro Acesso: ordem {firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "auto" : firstAccessOrderFor(event)}</span>}
       </div>
       {event.notes && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">{event.notes}</p>}
-      {(onEdit || onDelete) && (
+      {(onEdit || onDuplicate || onDelete) && (
         <div className="mt-4 flex flex-wrap gap-2">
           {onEdit && <button type="button" onClick={() => onEdit(event)} className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white">Editar</button>}
+          {onDuplicate && <button type="button" onClick={() => onDuplicate(event)} className="rounded-xl bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-900 ring-1 ring-emerald-100">Duplicar</button>}
           {onDelete && <button type="button" onClick={() => onDelete(event.id)} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">Excluir</button>}
         </div>
       )}
@@ -995,6 +996,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const [message, setMessage] = useState("");
   const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState("Novo evento");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [classificationFilter, setClassificationFilter] = useState("todos");
@@ -1158,10 +1160,11 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     }
   }
 
-  function editEvent(event: AgendaEvent) {
-    setForm({
-      eventId: event.id,
-      title: event.title,
+  function eventToForm(event: AgendaEvent, options?: { duplicate?: boolean }): FormState {
+    const duplicate = options?.duplicate === true;
+    return {
+      eventId: duplicate ? "" : event.id,
+      title: duplicate ? `Cópia de ${event.title}` : event.title,
       eventTypeId: event.event_type_id ?? "",
       startsAt: metadataAnyText(event, ["localStart", "local_start", "localStartsAt", "startsAtLocal"]) || dateInputValue(event.starts_at),
       endsAt: metadataAnyText(event, ["localEnd", "local_end", "localEndsAt", "endsAtLocal"]) || dateInputValue(event.ends_at),
@@ -1184,12 +1187,27 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       firstAccessOrder: String(firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "" : firstAccessOrderFor(event)),
       firstAccessSummary: metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary"),
       requiresApproval: event.requires_approval,
-    });
+    };
+  }
+
+  function editEvent(event: AgendaEvent) {
+    setForm(eventToForm(event));
+    setModalTitle("Editar evento");
+    setModalOpen(true);
+  }
+
+  function duplicateEvent(event: AgendaEvent) {
+    setForm(eventToForm(event, { duplicate: true }));
+    setModalTitle("Duplicar evento");
+    setMessage("Revise a cópia do evento e salve para criar um novo registro.");
+    setError("");
+    setApprovalWhatsappUrl("");
     setModalOpen(true);
   }
 
   function newEvent() {
     setForm(emptyForm);
+    setModalTitle("Novo evento");
     setModalOpen(true);
   }
 
@@ -1279,7 +1297,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                 </div>
               </section>
               <section className="grid gap-4 lg:grid-cols-2">
-                {filteredEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} onDelete={deleteEvent} />)}
+                {filteredEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} onDuplicate={duplicateEvent} onDelete={deleteEvent} />)}
                 {filteredEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado.</p>}
               </section>
               <FirstAccessPreview events={firstAccessPreviewEvents} locations={payload.locations} />
@@ -1358,7 +1376,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   })}
                 </div>
               </section>
-              <section className="grid gap-4 lg:grid-cols-2">{calendarEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} />)}{calendarEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado com os filtros selecionados.</p>}</section>
+              <section className="grid gap-4 lg:grid-cols-2">{calendarEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} onDuplicate={duplicateEvent} />)}{calendarEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado com os filtros selecionados.</p>}</section>
             </div>
           )}
 
@@ -1464,7 +1482,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
             </form>
           )}
 
-          <EventModal open={modalOpen} title={form.eventId ? "Editar evento" : "Novo evento"} onClose={() => setModalOpen(false)}>
+          <EventModal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
             <AgendaEventForm form={form} payload={payload} saving={saving} onCancel={() => setModalOpen(false)} onImageFile={onImageFile} onSave={saveEvent} update={update} />
           </EventModal>
         </>
