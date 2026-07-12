@@ -552,13 +552,49 @@ async function deleteEvent(organizationId: string, body: Record<string, unknown>
   if (error) throw error;
 }
 
+type AuthPerson = {
+  id: string;
+  full_name: string;
+  email: string | null;
+};
+
+
+function normalizeOrganizationName(organization: unknown) {
+  if (!organization || typeof organization !== "object") return "Organização em Harmonia";
+
+  const record = organization as Record<string, unknown>;
+  return asText(record.name) || asText(record.title) || "Organização em Harmonia";
+}
+
+function normalizeAuthPerson(person: unknown): AuthPerson | null {
+  if (!person || typeof person !== "object") return null;
+
+  const record = person as Record<string, unknown>;
+  const id = asText(record.id);
+  if (!id) return null;
+
+  return {
+    id,
+    full_name: asText(record.full_name) || asText(record.name) || "Usuário Organização em Harmonia",
+    email: asText(record.email) || null,
+  };
+}
+
 export async function GET(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
 
+  const currentPerson = normalizeAuthPerson(auth.context.person);
+  if (!currentPerson) {
+    return NextResponse.json(
+      { error: "Este usuário ainda não está vinculado à Organização em Harmonia." },
+      { status: 403 },
+    );
+  }
+
   try {
     const payload = await listPayload(auth.context.organizationId);
-    return NextResponse.json({ ...payload, currentPerson: auth.context.person });
+    return NextResponse.json({ ...payload, currentPerson });
   } catch (error) {
     return NextResponse.json({ error: errorToMessage(error, "Erro ao carregar Agenda Viva.") }, { status: 500 });
   }
@@ -568,6 +604,14 @@ export async function POST(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
 
+  const currentPerson = normalizeAuthPerson(auth.context.person);
+  if (!currentPerson) {
+    return NextResponse.json(
+      { error: "Este usuário ainda não está vinculado à Organização em Harmonia." },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action) || "upsertEvent";
@@ -576,19 +620,19 @@ export async function POST(request: Request) {
     if (action === "upsertEvent") {
       const result = await upsertEvent(
         auth.context.organizationId,
-        auth.context.person.id,
+        currentPerson.id,
         body,
-        auth.context.organization?.name || "Organização em Harmonia",
-        auth.context.person.full_name,
-        auth.context.person.email,
+        normalizeOrganizationName(auth.context.organization),
+        currentPerson.full_name,
+        currentPerson.email,
       );
       approvalWhatsappUrl = result.approvalWhatsappUrl;
     } else if (action === "approveEvent") {
-      await decideEvent(auth.context.organizationId, auth.context.person.id, body, "aprovado");
+      await decideEvent(auth.context.organizationId, currentPerson.id, body, "aprovado");
     } else if (action === "rejectEvent") {
-      await decideEvent(auth.context.organizationId, auth.context.person.id, body, "reprovado");
+      await decideEvent(auth.context.organizationId, currentPerson.id, body, "reprovado");
     } else if (action === "requestAdjustments") {
-      await decideEvent(auth.context.organizationId, auth.context.person.id, body, "ajuste_solicitado");
+      await decideEvent(auth.context.organizationId, currentPerson.id, body, "ajuste_solicitado");
     } else if (action === "deleteEvent") {
       await deleteEvent(auth.context.organizationId, body);
     } else if (action === "updateAgendaSettings") {
