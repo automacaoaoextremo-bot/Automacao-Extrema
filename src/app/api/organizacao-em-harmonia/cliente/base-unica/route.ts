@@ -151,7 +151,7 @@ function mergeProfile(current: unknown, patch: Record<string, unknown>) {
 }
 
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult] = await Promise.all([
+  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult, validationRequestsResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, organization_type, email, whatsapp, enabled_modules, status")
@@ -187,6 +187,11 @@ async function listPayload(organizationId: string) {
       .select("id, name, slug, line, entity_type, usual_materials, usual_days, daily_capacity, appointment_enabled, appointment_notes, notes, active")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
+    supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .select("id, person_id, status, summary, created_at, updated_at")
+      .eq("organization_id", organizationId)
+      .order("updated_at", { ascending: false }),
   ]);
 
   for (const result of [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult]) {
@@ -201,9 +206,11 @@ async function listPayload(organizationId: string) {
     modules: moduleSettingsResult.data ?? [],
     locations: locationsResult.status === 200 && !locationsResult.error ? locationsResult.data ?? [] : [],
     entities: entitiesResult.status === 200 && !entitiesResult.error ? entitiesResult.data ?? [] : [],
+    validationRequests: validationRequestsResult.status === 200 && !validationRequestsResult.error ? validationRequestsResult.data ?? [] : [],
     warnings: [
       locationsResult.error ? `Localidades: ${locationsResult.error.message}` : "",
       entitiesResult.error ? `Entidades: ${entitiesResult.error.message}` : "",
+      validationRequestsResult.error ? `Validações: ${validationRequestsResult.error.message}` : "",
     ].filter(Boolean),
   };
 }
@@ -294,8 +301,10 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
       role_id: roleId || null,
       module_slugs: moduleSlugs.length > 0 ? moduleSlugs : DEFAULT_MODULE_SLUGS,
       active,
-      status: active ? "ativo" : "inativo",
-      agenda_viva_profile: agendaVivaProfile,
+      // Cadastro na Base Única não equivale a Primeiro Acesso aprovado.
+      // A aprovação dos Filhos da Corrente só acontece pelo fluxo de validação.
+      status: active ? "cadastro_base_unica" : "inativo",
+      agenda_viva_profile: mergeProfile(agendaVivaProfile, { validationStatus: active ? "pendente_primeiro_acesso" : "inativo" }),
       updated_at: new Date().toISOString(),
     };
 
@@ -565,9 +574,26 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .eq("organization_id", organizationId);
   if (personUpdateError) throw personUpdateError;
 
+  const { data: currentMembership, error: currentMembershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id, agenda_viva_profile")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentMembershipError) throw currentMembershipError;
+
+  const mergedProfile = mergeProfile(currentMembership?.agenda_viva_profile, {
+    source: "primeiro_acesso_filho_corrente",
+    validationStatus: nextStatus,
+    reviewedAt: new Date().toISOString(),
+    reviewNotes: reviewNotes || "",
+  });
+
   const { error: membershipError } = await supabaseAdmin
     .from("oh_memberships")
-    .update({ active: approved, status: nextStatus, module_slugs: DEFAULT_MODULE_SLUGS, updated_at: new Date().toISOString() })
+    .update({ active: approved, status: nextStatus, module_slugs: DEFAULT_MODULE_SLUGS, agenda_viva_profile: mergedProfile, updated_at: new Date().toISOString() })
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
@@ -728,7 +754,7 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       const { error: membershipError } = await supabaseAdmin
         .from("oh_memberships")
-        .update({ active, status: active ? "ativo" : "inativo", updated_at: new Date().toISOString() })
+        .update({ active, status: active ? "cadastro_base_unica" : "inativo", updated_at: new Date().toISOString() })
         .eq("organization_id", auth.context.organizationId)
         .eq("person_id", personId);
       if (membershipError) throw membershipError;

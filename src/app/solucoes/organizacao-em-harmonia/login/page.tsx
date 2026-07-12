@@ -49,6 +49,7 @@ function firstName(value: string) {
 
 const CLIENT_HOME = "/solucoes/organizacao-em-harmonia/cliente";
 const CLIENT_LOGIN = "/solucoes/organizacao-em-harmonia/login";
+const CLIENT_PASSWORD_RESET = "/solucoes/organizacao-em-harmonia/login/trocar-senha";
 
 function normalizeClientReturnTo(rawValue: string | null) {
   if (typeof window === "undefined") return CLIENT_HOME;
@@ -103,7 +104,11 @@ function passwordResetRedirectUrl() {
   const params = new URLSearchParams();
   if (returnTo !== CLIENT_HOME) params.set("returnTo", returnTo);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return `${window.location.origin}${CLIENT_LOGIN}${suffix}`;
+
+  // O Supabase precisa redirecionar para uma página dedicada a troca de senha.
+  // Usar a página de login como redirect pode deixar o usuário sem sessão de recovery
+  // em alguns clientes/e-mails e passa a sensação de que o e-mail não chegou.
+  return `${window.location.origin}${CLIENT_PASSWORD_RESET}${suffix}`;
 }
 
 export default function OrganizacaoEmHarmoniaLoginPage() {
@@ -196,7 +201,10 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
       });
 
       if (authError) {
-        setError("Não foi possível entrar. Confira e-mail e senha. Caso seja Filho da Corrente, use o acesso próprio do Tucxa.");
+        const message = authError.message?.toLowerCase().includes("invalid")
+          ? "Não foi possível entrar. Confira e-mail e senha. Se a senha foi alterada ou esquecida, use Esqueci minha senha para receber um link de redefinição."
+          : "Não foi possível entrar agora. Tente novamente ou use Esqueci minha senha.";
+        setError(`${message} Caso seja Filho da Corrente, use o acesso próprio do Tucxa.`);
         setLoading(false);
         return;
       }
@@ -239,7 +247,7 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
     setResetLoading(false);
 
     if (resetError) {
-      setResetMessage("Não foi possível enviar o link de redefinição. Confira o e-mail ou fale com a Automação Extrema.");
+      setResetMessage("Não foi possível enviar o link de redefinição. Confira o e-mail, tente pela página Esqueci minha senha ou fale com a Automação Extrema.");
       return;
     }
 

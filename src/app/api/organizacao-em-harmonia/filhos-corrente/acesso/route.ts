@@ -537,16 +537,43 @@ function buildWhatsappPersonMessage(input: {
 }
 
 async function accessStatusForPerson(organizationId: string, personId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("oh_memberships")
-    .select("status, active")
-    .eq("organization_id", organizationId)
-    .eq("person_id", personId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return { status: (data?.status as string | null) || "pendente_validacao", active: data?.active === true };
+  const [membershipResult, requestResult] = await Promise.all([
+    supabaseAdmin
+      .from("oh_memberships")
+      .select("status, active, agenda_viva_profile")
+      .eq("organization_id", organizationId)
+      .eq("person_id", personId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .select("status")
+      .eq("organization_id", organizationId)
+      .eq("person_id", personId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (membershipResult.error) throw membershipResult.error;
+  if (requestResult.error) throw requestResult.error;
+
+  const profile =
+    membershipResult.data?.agenda_viva_profile &&
+    typeof membershipResult.data.agenda_viva_profile === "object" &&
+    !Array.isArray(membershipResult.data.agenda_viva_profile)
+      ? (membershipResult.data.agenda_viva_profile as Record<string, unknown>)
+      : {};
+
+  const cameFromFirstAccess = profile.source === "primeiro_acesso_filho_corrente" || Boolean(requestResult.data?.status);
+  const status = (requestResult.data?.status as string | null) || (profile.validationStatus as string | undefined) || (membershipResult.data?.status as string | null) || "pendente_primeiro_acesso";
+
+  return {
+    status: cameFromFirstAccess ? status : "pendente_primeiro_acesso",
+    active: cameFromFirstAccess && status === "ativo" && membershipResult.data?.active === true,
+    cameFromFirstAccess,
+  };
 }
 
 async function submitFirstAccess(body: AccessBody) {
@@ -701,6 +728,25 @@ export async function POST(request: Request) {
     const action = asText(body.action) || "submit";
     const organization = await findTucxaOrganizationId();
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
+
+    if (action === "lookup") {
+      const person = await findPersonByIdentifier(organization.id, asText(body.identifier));
+      if (!person) return NextResponse.json({ ok: true, found: false, person: null });
+
+      const access = await accessStatusForPerson(organization.id, person.id);
+      return NextResponse.json({
+        ok: true,
+        found: true,
+        person: {
+          fullName: person.full_name || "",
+          whatsapp: person.whatsapp || "",
+          email: displayEmail(person.email),
+          notes: person.notes || "",
+          accessStatus: access.status,
+          modules: DEFAULT_MODULE_SLUGS,
+        },
+      });
+    }
 
     if (action === "resolve-login") {
       const person = await findPersonByIdentifier(organization.id, asText(body.identifier));

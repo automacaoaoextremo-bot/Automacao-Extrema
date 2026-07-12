@@ -21,11 +21,27 @@ type Membership = {
   agenda_viva_profile: Record<string, unknown> | null;
 };
 
+type ValidationRequest = {
+  id: string;
+  person_id: string;
+  status: string | null;
+  summary: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 type Payload = {
   people: Person[];
   memberships: Membership[];
+  validationRequests?: ValidationRequest[];
   error?: string;
   whatsappUrl?: string;
+};
+
+type ValidationItem = {
+  membership: Membership & { status: string };
+  request: ValidationRequest | null;
+  person: Person;
 };
 
 function asText(value: unknown) {
@@ -92,20 +108,47 @@ export default function ValidacoesPrimeiroAcessoPage() {
 
   const validations = useMemo(() => {
     const people = payload?.people ?? [];
+    const requests = payload?.validationRequests ?? [];
+    const requestByPerson = new Map(requests.map((request) => [request.person_id, request]));
+
     return (payload?.memberships ?? [])
-      .filter((membership) => {
-        const status = membership.status || (membership.active ? "ativo" : "inativo");
-        return ["pendente_validacao", "ativo", "ajuste_solicitado", "inativo"].includes(status) || membership.active === false;
+      .flatMap<ValidationItem>((membership) => {
+        const profile = membership.agenda_viva_profile ?? {};
+        const request = requestByPerson.get(membership.person_id) ?? null;
+        const cameFromFirstAccess =
+          profile.source === "primeiro_acesso_filho_corrente" ||
+          Boolean(profile.submittedAt) ||
+          Boolean(profile.validationStatus) ||
+          Boolean(request);
+
+        if (!cameFromFirstAccess) return [];
+
+        const person = people.find((personItem) => personItem.id === membership.person_id);
+        if (!person) return [];
+
+        const status = request?.status || asText(profile.validationStatus) || membership.status || "pendente_primeiro_acesso";
+
+        return [
+          {
+            membership: { ...membership, status },
+            request,
+            person,
+          },
+        ];
       })
-      .map((membership) => ({ membership, person: people.find((person) => person.id === membership.person_id) ?? null }))
-      .filter((item) => item.person)
       .sort((a, b) => {
-        const order: Record<string, number> = { pendente_validacao: 0, ajuste_solicitado: 1, ativo: 2, inativo: 3 };
-        const aStatus = a.membership.status || (a.membership.active ? "ativo" : "inativo");
-        const bStatus = b.membership.status || (b.membership.active ? "ativo" : "inativo");
+        const order: Record<string, number> = {
+          pendente_validacao: 0,
+          pendente_primeiro_acesso: 1,
+          ajuste_solicitado: 2,
+          ativo: 3,
+          inativo: 4,
+        };
+        const aStatus = a.membership.status || "pendente_primeiro_acesso";
+        const bStatus = b.membership.status || "pendente_primeiro_acesso";
         return (order[aStatus] ?? 9) - (order[bStatus] ?? 9);
       });
-  }, [payload?.memberships, payload?.people]);
+  }, [payload?.memberships, payload?.people, payload?.validationRequests]);
 
   async function decide(personId: string, action: "approveAccess" | "requestAccessAdjustment" | "deleteAccessValidation") {
     if (action === "deleteAccessValidation") {
@@ -158,7 +201,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
               <article key={membership.id} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">{membership.status === "ativo" ? "Acesso aprovado" : membership.status === "ajuste_solicitado" ? "Ajuste solicitado" : "Aguardando validação"}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">{membership.status === "ativo" ? "Acesso aprovado" : membership.status === "ajuste_solicitado" ? "Ajuste solicitado" : membership.status === "pendente_primeiro_acesso" ? "Aguardando primeiro acesso" : "Aguardando validação"}</p>
                     <h2 className="mt-1 text-2xl font-black text-[#00334E]">{person?.full_name}</h2>
                     <p className="mt-2 text-sm leading-6 text-slate-600">{person?.whatsapp || "WhatsApp não informado"} · {person?.email || "E-mail não informado"}</p>
                   </div>
