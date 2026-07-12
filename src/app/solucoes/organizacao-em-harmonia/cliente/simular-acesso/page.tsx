@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -16,7 +15,6 @@ function clientLoginUrl() {
 }
 
 export default function SimularAcessoPage() {
-  const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -25,14 +23,14 @@ export default function SimularAcessoPage() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      router.replace(clientLoginUrl());
+      window.location.replace(clientLoginUrl());
       return;
     }
     const response = await fetch("/api/organizacao-em-harmonia/cliente/base-unica", { headers: { Authorization: `Bearer ${token}` } });
     const result = (await response.json()) as Payload;
     if (!response.ok) throw new Error(result.error || "Não foi possível carregar pessoas.");
     setPeople(result.people ?? []);
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     let active = true;

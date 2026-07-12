@@ -109,6 +109,13 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+
+function clientLoginUrl() {
+  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export function OrganizacaoClientShell({ title, description, children }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -118,11 +125,16 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
     let active = true;
     supabaseBrowser.auth.getUser().then(async ({ data }) => {
       if (!active) return;
-      const metadata = data.user?.user_metadata ?? {};
+      if (!data.user) {
+        router.replace(clientLoginUrl());
+        return;
+      }
+
+      const metadata = data.user.user_metadata ?? {};
       if (metadata.oh_profile === "filho-da-corrente") {
         setAccessGate("blocked");
         await supabaseBrowser.auth.signOut();
-        router.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente");
+        router.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
         return;
       }
       setAccessGate("allowed");

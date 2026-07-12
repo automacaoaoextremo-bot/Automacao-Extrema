@@ -482,6 +482,8 @@ function buildReviewerEmail(input: {
     `Simular o acesso como o Filho da Corrente ${input.fullName} acessando o link abaixo:`,
     input.simulationUrl,
     "",
+    "Caso abra a tela de login, entre com o usuário gestor. Depois do login, o sistema voltará para a simulação.",
+    "",
     "Caso tudo esteja OK, clique em aprovar na página de validações:",
     input.validationUrl,
     "",
@@ -496,6 +498,7 @@ function buildReviewerEmail(input: {
       <p style="margin-top:22px;line-height:1.6">Simular o acesso como o Filho da Corrente <strong>${htmlEscape(input.fullName)}</strong> acessando o link abaixo:</p>
       <p><a href="${input.simulationUrl}" style="display:inline-block;background:#123D2C;color:#ffffff;text-decoration:none;border-radius:14px;padding:12px 18px;font-weight:700">Simular acesso</a></p>
       <p style="word-break:break-all;color:#64748b;font-size:12px">${htmlEscape(input.simulationUrl)}</p>
+      <p style="line-height:1.6;color:#64748b;font-size:13px">Se abrir a tela de login, entre com o usuário gestor. Depois do login, o sistema voltará para esta simulação.</p>
       <p style="line-height:1.6">Caso tudo esteja OK, clique em aprovar na página de validações:</p>
       <p><a href="${input.validationUrl}" style="display:inline-block;background:#31C16B;color:#00334E;text-decoration:none;border-radius:14px;padding:12px 18px;font-weight:700">Abrir validações</a></p>
       <p style="word-break:break-all;color:#64748b;font-size:12px">${htmlEscape(input.validationUrl)}</p>

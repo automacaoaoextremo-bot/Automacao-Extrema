@@ -47,31 +47,48 @@ function firstName(value: string) {
   return value.trim().split(/\s+/)[0] || "irmão(ã)";
 }
 
-function safeReturnTo() {
-  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/cliente";
+const CLIENT_HOME = "/solucoes/organizacao-em-harmonia/cliente";
+const CLIENT_LOGIN = "/solucoes/organizacao-em-harmonia/login";
 
-  const params = new URLSearchParams(window.location.search);
-  const returnTo = params.get("returnTo") || "";
+function normalizeClientReturnTo(rawValue: string | null) {
+  if (typeof window === "undefined") return CLIENT_HOME;
 
-  if (
-    returnTo.startsWith("/solucoes/organizacao-em-harmonia/cliente") &&
-    !returnTo.startsWith("//") &&
-    !returnTo.includes("https://") &&
-    !returnTo.includes("http://")
-  ) {
-    return returnTo;
+  const raw = (rawValue || "").trim();
+  if (!raw) return CLIENT_HOME;
+
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin) return CLIENT_HOME;
+
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (
+      path.startsWith(CLIENT_HOME) &&
+      !path.startsWith(`${CLIENT_LOGIN}`) &&
+      !path.startsWith("//")
+    ) {
+      return path;
+    }
+  } catch {
+    return CLIENT_HOME;
   }
 
-  return "/solucoes/organizacao-em-harmonia/cliente";
+  return CLIENT_HOME;
+}
+
+function safeReturnTo() {
+  if (typeof window === "undefined") return CLIENT_HOME;
+
+  const params = new URLSearchParams(window.location.search);
+  return normalizeClientReturnTo(params.get("returnTo"));
 }
 
 function passwordResetRedirectUrl() {
-  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/login";
+  if (typeof window === "undefined") return CLIENT_LOGIN;
   const returnTo = safeReturnTo();
   const params = new URLSearchParams();
-  if (returnTo !== "/solucoes/organizacao-em-harmonia/cliente") params.set("returnTo", returnTo);
+  if (returnTo !== CLIENT_HOME) params.set("returnTo", returnTo);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return `${window.location.origin}/solucoes/organizacao-em-harmonia/login${suffix}`;
+  return `${window.location.origin}${CLIENT_LOGIN}${suffix}`;
 }
 
 export default function OrganizacaoEmHarmoniaLoginPage() {
@@ -109,6 +126,35 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
 
     return () => {
       data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      supabaseBrowser.auth.getUser().then(async ({ data }) => {
+        if (!active || !data.user) return;
+
+        const metadata = data.user.user_metadata ?? {};
+        if (metadata.oh_profile === "filho-da-corrente") {
+          await supabaseBrowser.auth.signOut();
+          if (active) {
+            setError("Este usuário é de Filho da Corrente. Use o acesso próprio do Tucxa.");
+          }
+          return;
+        }
+
+        const destination = safeReturnTo();
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (destination !== current) {
+          window.location.replace(destination);
+        }
+      });
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
     };
   }, []);
 

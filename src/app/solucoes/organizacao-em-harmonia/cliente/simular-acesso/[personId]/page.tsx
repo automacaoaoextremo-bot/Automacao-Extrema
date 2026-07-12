@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -28,7 +28,6 @@ function selectedLabels(value: unknown) {
 }
 
 export default function SimularAcessoFilhoDaCorrentePage() {
-  const router = useRouter();
   const params = useParams<{ personId: string }>();
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,14 +37,14 @@ export default function SimularAcessoFilhoDaCorrentePage() {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
-      router.replace(clientLoginUrl());
+      window.location.replace(clientLoginUrl());
       return;
     }
     const response = await fetch("/api/organizacao-em-harmonia/cliente/base-unica", { headers: { Authorization: `Bearer ${token}` } });
     const result = (await response.json()) as Payload;
     if (!response.ok) throw new Error(result.error || "Não foi possível carregar simulação.");
     setPayload(result);
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     let active = true;
