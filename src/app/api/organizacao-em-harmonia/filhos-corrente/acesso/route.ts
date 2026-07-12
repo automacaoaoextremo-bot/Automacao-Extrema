@@ -548,7 +548,7 @@ async function accessStatusForPerson(organizationId: string, personId: string) {
       .maybeSingle(),
     supabaseAdmin
       .from("oh_first_access_validation_requests")
-      .select("status")
+      .select("status, summary")
       .eq("organization_id", organizationId)
       .eq("person_id", personId)
       .order("updated_at", { ascending: false })
@@ -566,8 +566,20 @@ async function accessStatusForPerson(organizationId: string, personId: string) {
       ? (membershipResult.data.agenda_viva_profile as Record<string, unknown>)
       : {};
 
-  const cameFromFirstAccess = profile.source === "primeiro_acesso_filho_corrente" || Boolean(requestResult.data?.status);
-  const status = (requestResult.data?.status as string | null) || (profile.validationStatus as string | undefined) || (membershipResult.data?.status as string | null) || "pendente_primeiro_acesso";
+  const requestSummary =
+    requestResult.data?.summary &&
+    typeof requestResult.data.summary === "object" &&
+    !Array.isArray(requestResult.data.summary)
+      ? (requestResult.data.summary as Record<string, unknown>)
+      : {};
+
+  const membershipStatus = (membershipResult.data?.status as string | null) || "pendente_primeiro_acesso";
+  const requestStatus = (requestResult.data?.status as string | null) || "";
+  const isProfileUpdatePending = requestSummary.requestType === "profile_update" && requestStatus !== "ativo";
+  const cameFromFirstAccess = profile.source === "primeiro_acesso_filho_corrente" || Boolean(requestStatus);
+  const status = isProfileUpdatePending && membershipStatus === "ativo"
+    ? "ativo"
+    : requestStatus || (profile.validationStatus as string | undefined) || membershipStatus || "pendente_primeiro_acesso";
 
   return {
     status: cameFromFirstAccess ? status : "pendente_primeiro_acesso",

@@ -21,33 +21,18 @@ const statusLabels: Record<string, string> = {
 const moduleCards = [
   {
     title: "Agenda Viva",
-    description: "Veja atividades, grupos, estudos e eventos associados ao seu vínculo, com foco no que realmente importa para a sua participação.",
+    description: "Calendário completo ou a partir de hoje, com filtros por tipo de evento, Umbanda/outros, público, responsável e período.",
     href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/agenda-viva",
   },
   {
-    title: "Atendimento em Harmonia",
-    description: "Consulte orientações de atendimento, retorno, responsabilidades de cambonos, cavalinhos e comunicação com a coordenação.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento",
-  },
-  {
     title: "Corrente em Dia",
-    description: "Acompanhe comunicados, contribuições, compromissos e orientações administrativas que apoiam a manutenção da casa.",
+    description: "Escolha uma contribuição mensal, pontual ou de apoio à casa e peça orientação para Pix, comprovante e conferência.",
     href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia",
   },
   {
-    title: "Documentos do Tucxa",
-    description: "Regulamento, procedimentos básicos e manual para cambonos em um lugar simples para consulta rápida.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/documentos",
-  },
-  {
-    title: "Funções e responsabilidades",
-    description: "Entenda o que significa ser Filho da Corrente, Cambono, Cavalinho, voluntário ou integrante da organização.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/funcoes",
-  },
-  {
-    title: "Entidades e vínculos",
-    description: "Consulte a estrutura de entidades, linhas, dias de atendimento e vínculos com cavalinhos quando cadastrados.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/entidades",
+    title: "Atualizar meus dados",
+    description: "Revise dados pessoais, funções, agendas já selecionadas e novas atividades disponíveis para enviar atualização à validação do Tucxa.",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados",
   },
 ];
 
@@ -108,7 +93,7 @@ export default function PainelFilhoDaCorrentePage() {
               <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Área exclusiva do Filho da Corrente</p>
               <h1 className="mt-2 text-3xl font-black sm:text-4xl">Olá, {userInfo.fullName.split(/\s+/)[0]}.</h1>
               <p className="mt-3 max-w-3xl leading-7 text-[#EEF7EA]">
-                Este é o seu espaço de consulta e orientação. Ele mostra apenas informações úteis ao Filho da Corrente e não libera a área de gestão da Organização em Harmonia.
+                Este é o seu espaço de consulta e orientação. Acesse a Agenda Viva, acompanhe o Corrente em Dia e mantenha seus dados, funções e agendas sempre atualizados.
               </p>
               <div className="mt-4 grid gap-3 text-sm font-bold sm:grid-cols-3">
                 <p className="rounded-2xl bg-white/10 p-3">Status: {statusLabels[userInfo.status] ?? userInfo.status}</p>
@@ -129,8 +114,8 @@ export default function PainelFilhoDaCorrentePage() {
             <section className="rounded-[1.75rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10">
               <h2 className="text-xl font-black text-[#123D2C]">Atalhos rápidos</h2>
               <div className="mt-4 flex flex-wrap gap-3">
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente#primeiro-acesso" className="rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Atualizar meus dados</Link>
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/status" className="rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Acompanhar validação</Link>
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/agenda-viva" className="rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Ver Agenda Viva</Link>
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados" className="rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Atualizar meus dados</Link>
                 <button type="button" onClick={signOut} className="rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white shadow">Sair do acesso</button>
               </div>
             </section>

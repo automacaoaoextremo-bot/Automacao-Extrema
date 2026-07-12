@@ -105,31 +105,31 @@ export default function LoginFilhoDaCorrentePage() {
       />
 
       <section className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
-        <article className="rounded-[2rem] bg-[#123D2C] p-6 text-white shadow-xl shadow-green-900/10 sm:p-8">
+        <article className="overflow-hidden rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.26em] text-[#CFE2C7]">Área exclusiva - Login seguro</p>
-          <h1 className="mt-3 text-3xl font-black sm:text-4xl">Entrar como Filho da Corrente</h1>
+          <h1 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">Entrar como Filho da Corrente</h1>
 
-          <form onSubmit={onSubmit} className="mt-7 grid gap-4 rounded-[1.75rem] bg-white/10 p-4 ring-1 ring-white/10 sm:p-5">
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-white">WhatsApp ou e-mail</span>
+          <form onSubmit={onSubmit} className="mt-7 grid gap-4 rounded-[1.75rem] bg-white p-4 text-[#10251C] shadow-2xl shadow-green-950/20 ring-1 ring-[#123D2C]/10 sm:p-5">
+            <label className="grid min-w-0 gap-2">
+              <span className="text-sm font-black text-[#123D2C]">WhatsApp ou e-mail</span>
               <input
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
-                className="rounded-2xl border border-white/20 bg-white p-4 text-base text-[#123D2C] outline-none transition placeholder:text-slate-400 focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
+                className="block w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-base text-[#123D2C] outline-none transition placeholder:text-slate-400 focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
                 placeholder="(19) 99999-9999 ou seu@email.com"
                 autoComplete="username"
                 required
               />
             </label>
 
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-white">Senha</span>
-              <div className="flex rounded-2xl border border-white/20 bg-white focus-within:border-[#31C16B] focus-within:ring-4 focus-within:ring-emerald-100">
+            <label className="grid min-w-0 gap-2">
+              <span className="text-sm font-black text-[#123D2C]">Senha</span>
+              <div className="flex w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white focus-within:border-[#31C16B] focus-within:ring-4 focus-within:ring-emerald-100">
                 <input
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   type={showPassword ? "text" : "password"}
-                  className="min-w-0 flex-1 rounded-2xl bg-transparent p-4 text-base text-[#123D2C] outline-none placeholder:text-slate-400"
+                  className="block min-w-0 flex-1 bg-transparent px-4 py-4 text-base text-[#123D2C] outline-none placeholder:text-slate-400"
                   placeholder="Digite sua senha"
                   autoComplete="current-password"
                   required
@@ -142,7 +142,7 @@ export default function LoginFilhoDaCorrentePage() {
 
             {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
 
-            <button type="submit" disabled={loading} className="rounded-2xl bg-white px-5 py-4 text-base font-black text-[#123D2C] shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
               {loading ? "Entrando..." : "Entrar no painel do Filho"}
             </button>
           </form>
