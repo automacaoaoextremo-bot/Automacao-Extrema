@@ -79,7 +79,22 @@ function safeReturnTo() {
   if (typeof window === "undefined") return CLIENT_HOME;
 
   const params = new URLSearchParams(window.location.search);
-  return normalizeClientReturnTo(params.get("returnTo"));
+  const fromUrl = normalizeClientReturnTo(params.get("returnTo"));
+  if (fromUrl !== CLIENT_HOME) {
+    window.sessionStorage.setItem("oh_client_return_to", fromUrl);
+    return fromUrl;
+  }
+
+  const stored = normalizeClientReturnTo(window.sessionStorage.getItem("oh_client_return_to"));
+  return stored;
+}
+
+function consumeSafeReturnTo() {
+  const destination = safeReturnTo();
+  if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem("oh_client_return_to");
+  }
+  return destination;
 }
 
 function passwordResetRedirectUrl() {
@@ -195,7 +210,7 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
         return;
       }
 
-      window.location.href = safeReturnTo();
+      window.location.href = consumeSafeReturnTo();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
       setLoading(false);
@@ -253,6 +268,9 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
     setRecoveryMode(false);
     setPassword("");
     setNewPassword("");
+    window.setTimeout(() => {
+      window.location.href = consumeSafeReturnTo();
+    }, 500);
   }
 
   async function lookupSignup() {

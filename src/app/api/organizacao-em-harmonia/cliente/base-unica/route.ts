@@ -576,8 +576,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .from("oh_first_access_validation_requests")
     .update({ status: nextStatus, updated_at: new Date().toISOString() })
     .eq("organization_id", organizationId)
-    .eq("person_id", personId)
-    .eq("status", "pendente_validacao");
+    .eq("person_id", personId);
 
   if (person.auth_user_id) {
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
@@ -673,16 +672,14 @@ async function deleteAccessValidation(organizationId: string, body: Record<strin
     .from("oh_memberships")
     .delete()
     .eq("organization_id", organizationId)
-    .eq("person_id", personId)
-    .in("status", ["pendente_validacao", "ajuste_solicitado", "inativo"]);
+    .eq("person_id", personId);
   if (membershipsError) throw membershipsError;
 
   const { error: personDeleteError } = await supabaseAdmin
     .from("oh_people")
     .delete()
     .eq("id", personId)
-    .eq("organization_id", organizationId)
-    .eq("active", false);
+    .eq("organization_id", organizationId);
   if (personDeleteError) throw personDeleteError;
 
   if (person.auth_user_id) {

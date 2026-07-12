@@ -90,12 +90,21 @@ export default function ValidacoesPrimeiroAcessoPage() {
     };
   }, [load]);
 
-  const pending = useMemo(() => {
+  const validations = useMemo(() => {
     const people = payload?.people ?? [];
     return (payload?.memberships ?? [])
-      .filter((membership) => membership.status === "pendente_validacao" || membership.active === false)
+      .filter((membership) => {
+        const status = membership.status || (membership.active ? "ativo" : "inativo");
+        return ["pendente_validacao", "ativo", "ajuste_solicitado", "inativo"].includes(status) || membership.active === false;
+      })
       .map((membership) => ({ membership, person: people.find((person) => person.id === membership.person_id) ?? null }))
-      .filter((item) => item.person);
+      .filter((item) => item.person)
+      .sort((a, b) => {
+        const order: Record<string, number> = { pendente_validacao: 0, ajuste_solicitado: 1, ativo: 2, inativo: 3 };
+        const aStatus = a.membership.status || (a.membership.active ? "ativo" : "inativo");
+        const bStatus = b.membership.status || (b.membership.active ? "ativo" : "inativo");
+        return (order[aStatus] ?? 9) - (order[bStatus] ?? 9);
+      });
   }, [payload?.memberships, payload?.people]);
 
   async function decide(personId: string, action: "approveAccess" | "requestAccessAdjustment" | "deleteAccessValidation") {
@@ -103,7 +112,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
       const confirmed = window.confirm("Excluir este pedido de validação? Isso remove o cadastro pendente para que o teste possa ser repetido.");
       if (!confirmed) return;
     }
-    const reviewNotes = action === "requestAccessAdjustment" ? window.prompt("Informe o ajuste solicitado ao Filho da Corrente:") || "" : "";
+    const reviewNotes = action === "requestAccessAdjustment" ? window.prompt("Informe o ajuste/reprovação ao Filho da Corrente:") || "" : "";
     setSaving(true);
     setError("");
     setMessage("");
@@ -141,7 +150,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
 
       {!loading && (
         <section className="grid gap-4">
-          {pending.map(({ membership, person }) => {
+          {validations.map(({ membership, person }) => {
             const profile = membership.agenda_viva_profile ?? {};
             const functionLabels = selectedLabels(profile.selectedFunctions);
             const agendaLabels = selectedLabels(profile.selectedAgenda);
@@ -149,14 +158,20 @@ export default function ValidacoesPrimeiroAcessoPage() {
               <article key={membership.id} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Aguardando validação</p>
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">{membership.status === "ativo" ? "Acesso aprovado" : membership.status === "ajuste_solicitado" ? "Ajuste solicitado" : "Aguardando validação"}</p>
                     <h2 className="mt-1 text-2xl font-black text-[#00334E]">{person?.full_name}</h2>
                     <p className="mt-2 text-sm leading-6 text-slate-600">{person?.whatsapp || "WhatsApp não informado"} · {person?.email || "E-mail não informado"}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Link href={`/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${person?.id}`} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-[#00334E]">Simular acesso</Link>
-                    <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "approveAccess")} className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-60">Aprovar</button>
-                    <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "requestAccessAdjustment")} className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 disabled:opacity-60">Pedir ajuste</button>
+                    {membership.status !== "ativo" && (
+                      <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "approveAccess")} className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-60">Aprovar</button>
+                    )}
+                    {membership.status === "ativo" ? (
+                      <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "requestAccessAdjustment")} className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 disabled:opacity-60">Reprovar / voltar para ajuste</button>
+                    ) : (
+                      <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "requestAccessAdjustment")} className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 disabled:opacity-60">Pedir ajuste</button>
+                    )}
                     <button disabled={saving} type="button" onClick={() => person?.id && decide(person.id, "deleteAccessValidation")} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60">Excluir pedido</button>
                   </div>
                 </div>
@@ -176,7 +191,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
               </article>
             );
           })}
-          {pending.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhuma validação pendente no momento.</p>}
+          {validations.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum pedido de validação encontrado.</p>}
         </section>
       )}
     </OrganizacaoClientShell>
