@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -30,9 +30,25 @@ type FilterOption = {
   label: string;
 };
 
+type CalendarView = "schedule" | "day" | "threeDays" | "week" | "month" | "year";
+
+type PeriodMode = "future" | "all";
+
+type AgendaPreferences = {
+  defaultView?: CalendarView;
+  periodMode?: PeriodMode;
+  eventTypes?: string[];
+  classification?: string;
+  audience?: string;
+  responsible?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
 type AgendaPayload = {
   ok?: boolean;
   events?: AgendaEvent[];
+  agendaPreferences?: AgendaPreferences;
   filters?: {
     eventTypes?: FilterOption[];
     classifications?: string[];
@@ -44,8 +60,6 @@ type AgendaPayload = {
   };
   error?: string;
 };
-
-type CalendarView = "schedule" | "day" | "threeDays" | "week" | "month" | "year";
 
 type CalendarDay = {
   isoDate: string;
@@ -73,7 +87,6 @@ const todayIso = new Date().toISOString().slice(0, 10);
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const compactWeekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
-const calendarHours = Array.from({ length: 17 }, (_, index) => index + 6);
 const calendarViews: { value: CalendarView; label: string; description: string }[] = [
   { value: "schedule", label: "Agenda", description: "Lista objetiva" },
   { value: "day", label: "Dia", description: "Um dia" },
@@ -207,6 +220,19 @@ function viewTitle(view: CalendarView, periodStart: Date) {
   return `${shortDateLabel(start)} – ${shortDateLabel(end)}`;
 }
 
+function popupTitle(view: CalendarView, periodStart: Date) {
+  const labelByView: Record<CalendarView, string> = {
+    schedule: "AGENDA",
+    day: "CALENDÁRIO DIÁRIO",
+    threeDays: "CALENDÁRIO 3 DIAS",
+    week: "CALENDÁRIO SEMANAL",
+    month: "CALENDÁRIO MENSAL",
+    year: "CALENDÁRIO ANUAL",
+  };
+
+  return `${labelByView[view]} - ${viewTitle(view, periodStart)}`;
+}
+
 function statusIsDone(status: string) {
   const normalized = normalize(status);
   return normalized.includes("conclu") || normalized.includes("realiz") || normalized.includes("finaliz");
@@ -287,119 +313,142 @@ function uniqueSortedEvents(events: AgendaEvent[]) {
   return [...events].sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
 }
 
+function isCalendarView(value: unknown): value is CalendarView {
+  return typeof value === "string" && calendarViews.some((item) => item.value === value);
+}
+
+function cleanStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => (typeof item === "string" ? item : "")).filter(Boolean) : [];
+}
+
 function CalendarEventPill({ event, compact = false }: { event: AgendaEvent; compact?: boolean }) {
   const tone = eventTone(event);
   const done = statusIsDone(event.status);
 
   return (
     <div
-      className={`overflow-hidden rounded-xl px-2 py-1 font-black shadow-sm ${done ? "opacity-55" : ""} ${compact ? "text-[0.62rem] leading-tight" : "text-xs leading-tight"}`}
+      className={`overflow-hidden rounded-xl px-2 py-1 font-black shadow-sm ${done ? "opacity-55" : ""} ${compact ? "text-[0.56rem] leading-tight" : "text-xs leading-tight"}`}
       style={{ backgroundColor: done ? tone.soft : tone.background, border: `1px solid ${tone.border}`, color: done ? tone.border : tone.text }}
       title={`${event.title} • ${event.timeLabel}`}
     >
-      <span className="block truncate">{event.title}</span>
+      <span className="block truncate">{compact ? event.title.slice(0, 12) : event.title}</span>
       {!compact && <span className="block truncate text-[0.68rem] font-bold opacity-90">{event.timeLabel}</span>}
     </div>
   );
 }
 
-function MonthCalendar({ events, periodStart, onSelectDay }: { events: AgendaEvent[]; periodStart: Date; onSelectDay: (date: Date) => void }) {
+function FilterSummary({ summary }: { summary: string }) {
+  return <p className="rounded-2xl bg-[#F7FAF2] px-3 py-2 text-xs font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">{summary}</p>;
+}
+
+function MonthCalendar({ events, periodStart, onSelectDay, compact = false, filterSummary }: { events: AgendaEvent[]; periodStart: Date; onSelectDay: (day: CalendarDay) => void; compact?: boolean; filterSummary?: string }) {
   const monthDays = useMemo(() => buildMonthDays(events, periodStart), [events, periodStart]);
-  const isJuly = periodStart.getUTCMonth() === 6;
+  const title = `CALENDÁRIO MENSAL - ${monthTitle(periodStart)}`;
 
   return (
-    <section className="overflow-hidden rounded-[1.75rem] bg-white shadow ring-1 ring-[#123D2C]/10">
-      <div className={`p-4 ${isJuly ? "bg-[#EAF5B8]" : "bg-white"}`}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">{isJuly ? "Julho Cultural Tucxa" : "Calendário mensal"}</p>
-            <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{monthTitle(periodStart)}</h2>
-          </div>
-          <p className="max-w-xl text-sm font-semibold leading-6 text-slate-600">
-            Eventos aparecem com cores por tipo/classificação. Toque em um dia para abrir a visão diária.
-          </p>
+    <section className="overflow-hidden rounded-[1.5rem] bg-white shadow ring-1 ring-[#123D2C]/10">
+      <div className="bg-white p-3 sm:p-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="text-[1.05rem] font-black uppercase tracking-[0.14em] text-[#123D2C] sm:text-2xl">{title}</h2>
+          {filterSummary && <FilterSummary summary={filterSummary} />}
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Toque nos dias com cores diferentes para o detalhe do evento.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 border-y border-[#123D2C]/10 bg-[#F7FAF2] text-center text-[0.68rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-xs">
+      <div className="grid grid-cols-7 border-y border-[#123D2C]/10 bg-[#F7FAF2] text-center text-[0.62rem] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-xs">
         {compactWeekDayLabels.map((day, index) => (
-          <span key={`${day}-${index}`} className="py-2">
+          <span key={`${day}-${index}`} className="py-1.5 sm:py-2">
             {day}
           </span>
         ))}
       </div>
 
       <div className="grid grid-cols-7 bg-white">
-        {monthDays.map((day) => (
-          <button
-            key={day.isoDate}
-            type="button"
-            onClick={() => onSelectDay(dateFromIso(day.isoDate))}
-            className={`min-h-24 border-b border-r border-[#123D2C]/10 p-1.5 text-left align-top transition hover:bg-[#F7FAF2] sm:min-h-32 sm:p-2 ${day.outsideMonth ? "bg-slate-50 text-slate-400" : "bg-white text-[#123D2C]"}`}
-          >
-            <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-black ${day.isToday ? "bg-[#123D2C] text-white" : ""}`}>{day.dayNumber}</span>
-            <span className="mt-1 grid gap-1">
-              {day.events.slice(0, 3).map((event) => (
-                <CalendarEventPill key={`${day.isoDate}-${event.id}`} event={event} compact />
-              ))}
-              {day.events.length > 3 && <span className="text-[0.62rem] font-black text-[#2F6B43]">+{day.events.length - 3}</span>}
-            </span>
-          </button>
-        ))}
+        {monthDays.map((day) => {
+          const firstTone = day.events[0] ? eventTone(day.events[0]) : null;
+          return (
+            <button
+              key={day.isoDate}
+              type="button"
+              onClick={() => onSelectDay(day)}
+              className={`min-h-[3.65rem] border-b border-r border-[#123D2C]/10 p-1 text-left align-top transition hover:bg-[#F7FAF2] sm:min-h-24 sm:p-2 ${day.outsideMonth ? "bg-slate-50 text-slate-400" : "bg-white text-[#123D2C]"}`}
+            >
+              <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-black sm:h-7 sm:w-7 sm:text-sm ${day.isToday ? "bg-[#123D2C] text-white" : ""}`}>{day.dayNumber}</span>
+              {compact ? (
+                <span className="mt-1 flex flex-wrap gap-0.5">
+                  {day.events.slice(0, 4).map((event) => {
+                    const tone = eventTone(event);
+                    return <span key={`${day.isoDate}-${event.id}`} className="h-1.5 w-3 rounded-full" style={{ backgroundColor: tone.background }} title={event.title} />;
+                  })}
+                  {day.events.length > 4 && <span className="text-[0.55rem] font-black text-[#2F6B43]">+{day.events.length - 4}</span>}
+                </span>
+              ) : (
+                <span className="mt-1 grid gap-1">
+                  {day.events.slice(0, 2).map((event) => (
+                    <CalendarEventPill key={`${day.isoDate}-${event.id}`} event={event} compact />
+                  ))}
+                  {day.events.length > 2 && <span className="text-[0.62rem] font-black text-[#2F6B43]">+{day.events.length - 2}</span>}
+                </span>
+              )}
+              {firstTone && day.events.length > 0 && <span className="sr-only">Dia com evento: {day.events.map((event) => event.title).join(", ")}</span>}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function TimeGridCalendar({ events, view, periodStart, onSelectDay }: { events: AgendaEvent[]; view: "day" | "threeDays" | "week"; periodStart: Date; onSelectDay: (date: Date) => void }) {
+function TimeGridCalendar({ events, view, periodStart, onSelectDay }: { events: AgendaEvent[]; view: "day" | "threeDays" | "week"; periodStart: Date; onSelectDay: (day: CalendarDay) => void }) {
   const days = useMemo(() => periodDays(view, periodStart), [periodStart, view]);
   const grouped = useMemo(() => eventsByDate(events), [events]);
 
   return (
-    <section className="overflow-x-auto rounded-[1.75rem] bg-white shadow ring-1 ring-[#123D2C]/10">
-      <div className={`grid min-w-[760px] ${view === "day" ? "grid-cols-[76px_1fr]" : view === "threeDays" ? "grid-cols-[76px_repeat(3,minmax(180px,1fr))]" : "grid-cols-[76px_repeat(7,minmax(140px,1fr))]"}`}>
-        <div className="sticky left-0 z-10 border-b border-r border-[#123D2C]/10 bg-white p-3 text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Hora</div>
-        {days.map((day) => {
-          const iso = toIsoDate(day);
-          return (
-            <button key={iso} type="button" onClick={() => onSelectDay(day)} className="border-b border-r border-[#123D2C]/10 bg-[#F7FAF2] p-3 text-left transition hover:bg-[#E9F2E7]">
-              <span className="block text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{weekDayLabels[day.getUTCDay()]}</span>
-              <span className={`mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full text-lg font-black ${iso === todayIso ? "bg-[#123D2C] text-white" : "text-[#123D2C]"}`}>{day.getUTCDate()}</span>
+    <section className="grid gap-3 rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-[#123D2C]/10 sm:p-4">
+      {days.map((day) => {
+        const iso = toIsoDate(day);
+        const dayEvents = grouped.get(iso) ?? [];
+        const calendarDay: CalendarDay = {
+          isoDate: iso,
+          dayNumber: day.getUTCDate(),
+          month: day.getUTCMonth(),
+          year: day.getUTCFullYear(),
+          outsideMonth: false,
+          isToday: iso === todayIso,
+          events: dayEvents,
+        };
+        return (
+          <article key={iso} className="rounded-3xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+            <button type="button" onClick={() => onSelectDay(calendarDay)} className="flex w-full items-center justify-between text-left">
+              <span>
+                <span className="block text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">{weekDayLabels[day.getUTCDay()]}</span>
+                <span className="mt-1 block text-xl font-black text-[#123D2C]">{longDateLabel(day)}</span>
+              </span>
+              <span className={`inline-flex h-11 w-11 items-center justify-center rounded-full text-lg font-black ${iso === todayIso ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>{day.getUTCDate()}</span>
             </button>
-          );
-        })}
-
-        {calendarHours.map((hour) => (
-          <div key={hour} className="contents">
-            <div className="sticky left-0 z-10 border-r border-[#123D2C]/10 bg-white px-3 py-4 text-right text-xs font-black text-slate-500">{hour}h</div>
-            {days.map((day) => {
-              const iso = toIsoDate(day);
-              const dayEvents = (grouped.get(iso) ?? []).filter((event) => {
-                const eventHour = eventStartHour(event);
-                return eventHour === hour || (eventHour === null && hour === 6);
-              });
-              return (
-                <div key={`${iso}-${hour}`} className="min-h-20 border-b border-r border-[#123D2C]/10 bg-[#FBFCF8] p-2">
-                  <div className="grid gap-2">
-                    {dayEvents.map((event) => (
-                      <article key={`${iso}-${hour}-${event.id}`} className="rounded-2xl p-2 shadow-sm" style={{ backgroundColor: eventTone(event).soft, border: `1px solid ${eventTone(event).border}` }}>
-                        <p className="line-clamp-2 text-sm font-black text-[#123D2C]">{event.title}</p>
-                        <p className="mt-1 text-xs font-bold text-slate-700">{event.timeLabel}</p>
-                        {eventDurationHours(event) > 1 && <p className="text-[0.65rem] font-black uppercase tracking-[0.12em] text-slate-500">Duração aproximada: {eventDurationHours(event)}h</p>}
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+            <div className="mt-3 grid gap-2">
+              {dayEvents.length === 0 && <p className="rounded-2xl bg-white p-3 text-sm font-bold text-slate-500">Sem eventos nesta data.</p>}
+              {dayEvents.map((event) => {
+                const tone = eventTone(event);
+                const start = eventStartHour(event);
+                const end = eventEndHour(event);
+                return (
+                  <button key={`${iso}-${event.id}`} type="button" onClick={() => onSelectDay(calendarDay)} className="rounded-2xl p-3 text-left shadow-sm" style={{ backgroundColor: tone.soft, border: `1px solid ${tone.border}` }}>
+                    <p className="font-black text-[#123D2C]">{event.title}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-700">{event.timeLabel} • {event.locationLabel}</p>
+                    {start !== null && <p className="mt-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">{start}h{end !== null && end !== start ? ` • ${eventDurationHours(event)}h de duração` : ""}</p>}
+                  </button>
+                );
+              })}
+            </div>
+          </article>
+        );
+      })}
     </section>
   );
 }
 
-function ScheduleCalendar({ events, periodStart }: { events: AgendaEvent[]; periodStart: Date }) {
+function ScheduleCalendar({ events, periodStart, onSelectDay }: { events: AgendaEvent[]; periodStart: Date; onSelectDay: (day: CalendarDay) => void }) {
   const grouped = useMemo(() => eventsByDate(events), [events]);
   const dates = useMemo(
     () => Array.from(grouped.keys()).filter((date) => date >= toIsoDate(periodStart)).sort(),
@@ -407,21 +456,22 @@ function ScheduleCalendar({ events, periodStart }: { events: AgendaEvent[]; peri
   );
 
   return (
-    <section className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
+    <section className="rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
       <div className="grid gap-4">
         {dates.slice(0, 60).map((isoDate) => {
           const date = dateFromIso(isoDate);
           const dayEvents = grouped.get(isoDate) ?? [];
+          const day: CalendarDay = { isoDate, dayNumber: date.getUTCDate(), month: date.getUTCMonth(), year: date.getUTCFullYear(), outsideMonth: false, isToday: isoDate === todayIso, events: dayEvents };
           return (
             <article key={isoDate} className="grid gap-3 border-b border-[#123D2C]/10 pb-4 last:border-b-0 last:pb-0 sm:grid-cols-[110px_1fr]">
-              <div>
+              <button type="button" onClick={() => onSelectDay(day)} className="text-left">
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">{weekDayLabels[date.getUTCDay()]}</p>
                 <p className={`mt-1 inline-flex h-12 w-12 items-center justify-center rounded-full text-2xl font-black ${isoDate === todayIso ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>{date.getUTCDate()}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">{monthLabel(date)}</p>
-              </div>
+              </button>
               <div className="grid gap-2">
                 {dayEvents.map((event) => (
-                  <article key={`${isoDate}-${event.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <button key={`${isoDate}-${event.id}`} type="button" onClick={() => onSelectDay(day)} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
                     <div className="flex items-start gap-2">
                       <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: eventTone(event).background }} />
                       <div className="min-w-0 flex-1">
@@ -430,7 +480,7 @@ function ScheduleCalendar({ events, periodStart }: { events: AgendaEvent[]; peri
                         <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">{event.eventTypeLabel} • {event.classification}</p>
                       </div>
                     </div>
-                  </article>
+                  </button>
                 ))}
               </div>
             </article>
@@ -446,15 +496,11 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
   const year = periodStart.getUTCFullYear();
 
   return (
-    <section className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Calendário anual</p>
-          <h2 className="text-3xl font-black text-[#123D2C]">Tucxa - {year}</h2>
-        </div>
-        <p className="max-w-xl text-sm font-semibold leading-6 text-slate-600">Visão inspirada no calendário anual usado pela casa, com marcações por mês e cores dos eventos.</p>
+    <section className="rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
+      <div className="mb-4">
+        <h2 className="text-2xl font-black text-[#123D2C]">Tucxa - {year}</h2>
       </div>
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 12 }, (_, monthIndex) => {
           const monthDate = new Date(Date.UTC(year, monthIndex, 1, 12));
           const days = buildMonthDays(events, monthDate).filter((day) => !day.outsideMonth);
@@ -486,9 +532,13 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
   );
 }
 
-function EventDetailsList({ events }: { events: AgendaEvent[] }) {
+function EventDetailsList({ events, title = "Detalhes dos eventos" }: { events: AgendaEvent[]; title?: string }) {
   return (
     <section className="grid gap-3">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Eventos</p>
+        <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{title}</h2>
+      </div>
       {events.map((event) => (
         <article key={event.id} className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -513,12 +563,58 @@ function EventDetailsList({ events }: { events: AgendaEvent[] }) {
   );
 }
 
+function CalendarRenderer({ view, events, periodStart, onSelectDay, onSelectMonth, filterSummary, compactMonth = false }: { view: CalendarView; events: AgendaEvent[]; periodStart: Date; onSelectDay: (day: CalendarDay) => void; onSelectMonth: (date: Date) => void; filterSummary?: string; compactMonth?: boolean }) {
+  if (view === "month") return <MonthCalendar events={events} periodStart={periodStart} onSelectDay={onSelectDay} compact={compactMonth} filterSummary={filterSummary} />;
+  if (view === "day" || view === "threeDays" || view === "week") return <TimeGridCalendar events={events} view={view} periodStart={periodStart} onSelectDay={onSelectDay} />;
+  if (view === "schedule") return <ScheduleCalendar events={events} periodStart={periodStart} onSelectDay={onSelectDay} />;
+  return <YearCalendar events={events} periodStart={periodStart} onSelectMonth={onSelectMonth} />;
+}
+
+function ModalShell({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-[#10251C]/70 px-3 py-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F7FAF2] shadow-2xl ring-1 ring-white/30">
+        <div className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
+          <h2 className="min-w-0 truncate text-sm font-black uppercase tracking-[0.12em] text-[#123D2C] sm:text-xl">{title}</h2>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function DayEventsModal({ day, onClose }: { day: CalendarDay; onClose: () => void }) {
+  return (
+    <ModalShell title={`Eventos de ${longDateLabel(dateFromIso(day.isoDate))}`} onClose={onClose}>
+      <EventDetailsList events={day.events} title="Detalhe do evento" />
+    </ModalShell>
+  );
+}
+
+function ViewButtons({ view, onChange }: { view: CalendarView; onChange: (view: CalendarView) => void }) {
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+      {calendarViews.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => onChange(item.value)}
+          className={`rounded-2xl px-3 py-2 text-sm font-black shadow-sm ring-1 transition ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AgendaVivaFilhoDaCorrentePage() {
   const [payload, setPayload] = useState<AgendaPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [periodMode, setPeriodMode] = useState<"future" | "all">("future");
-  const [eventType, setEventType] = useState("");
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("future");
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [classification, setClassification] = useState("");
   const [audience, setAudience] = useState("");
   const [responsible, setResponsible] = useState("");
@@ -527,7 +623,24 @@ export default function AgendaVivaFilhoDaCorrentePage() {
   const [view, setView] = useState<CalendarView>("month");
   const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [notice, setNotice] = useState("");
   const touchStart = useRef<TouchPoint | null>(null);
+  const preferencesApplied = useRef(false);
+
+  const applyPreferences = useCallback((preferences?: AgendaPreferences) => {
+    if (!preferences) return;
+    if (isCalendarView(preferences.defaultView)) setView(preferences.defaultView);
+    if (preferences.periodMode === "all" || preferences.periodMode === "future") setPeriodMode(preferences.periodMode);
+    setEventTypes(cleanStringArray(preferences.eventTypes));
+    setClassification(typeof preferences.classification === "string" ? preferences.classification : "");
+    setAudience(typeof preferences.audience === "string" ? preferences.audience : "");
+    setResponsible(typeof preferences.responsible === "string" ? preferences.responsible : "");
+    setStartDate(typeof preferences.startDate === "string" ? preferences.startDate : "");
+    setEndDate(typeof preferences.endDate === "string" ? preferences.endDate : "");
+  }, []);
 
   const load = useCallback(async () => {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
@@ -542,8 +655,15 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     });
     const result = (await response.json()) as AgendaPayload;
     if (!response.ok) throw new Error(result.error || "Não foi possível carregar a Agenda Viva.");
+
+    if (!preferencesApplied.current) {
+      applyPreferences(result.agendaPreferences);
+      preferencesApplied.current = true;
+    }
+
     setPayload(result);
-  }, []);
+    setCalendarOpen(true);
+  }, [applyPreferences]);
 
   useEffect(() => {
     let active = true;
@@ -563,23 +683,30 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     };
   }, [load]);
 
+  const eventTypeLabels = useMemo(() => {
+    return new Map((payload?.filters?.eventTypes ?? []).map((option) => [option.value, option.label]));
+  }, [payload?.filters?.eventTypes]);
+
   const filteredEvents = useMemo(() => {
     const events = payload?.events ?? [];
     return uniqueSortedEvents(events).filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
       if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
-      if (eventType && event.eventType !== eventType) return false;
+      if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
       if (classification && event.classification !== classification) return false;
       if (audience && event.audience !== audience) return false;
       if (responsible) {
-        const target = event.responsiblePersonId || event.responsiblePersonName;
-        if (target !== responsible) return false;
+        if (responsible === "__associated__" && !event.associatedToCurrentPerson) return false;
+        if (responsible !== "__associated__") {
+          const target = event.responsiblePersonId || event.responsiblePersonName;
+          if (target !== responsible) return false;
+        }
       }
       if (startDate && dateOnly && dateOnly < startDate) return false;
       if (endDate && dateOnly && dateOnly > endDate) return false;
       return true;
     });
-  }, [audience, classification, endDate, eventType, payload?.events, periodMode, responsible, startDate]);
+  }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);
@@ -614,11 +741,20 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     return { total: events.length, future, filtered: filteredEvents.length, visible: visibleEvents.length };
   }, [filteredEvents.length, payload?.events, visibleEvents.length]);
 
-  const activeView = calendarViews.find((item) => item.value === view) ?? calendarViews[0];
+  const filterSummary = useMemo(() => {
+    const parts = [periodMode === "future" ? "a partir de hoje" : "calendário completo"];
+    if (eventTypes.length > 0) parts.push(`tipos: ${eventTypes.map((value) => eventTypeLabels.get(value) ?? value).join(", ")}`);
+    if (classification) parts.push(classification);
+    if (audience) parts.push(`público: ${audience}`);
+    if (responsible === "__associated__") parts.push("minhas atividades");
+    else if (responsible) parts.push(`responsável: ${payload?.filters?.responsiblePeople?.find((item) => item.value === responsible)?.label ?? responsible}`);
+    if (startDate || endDate) parts.push(`${startDate || "início"} até ${endDate || "fim"}`);
+    return `Exibindo ${parts.join(" • ")} • ${counters.visible} evento(s) nesta visão.`;
+  }, [audience, classification, counters.visible, endDate, eventTypeLabels, eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate]);
 
   function clearFilters() {
     setPeriodMode("future");
-    setEventType("");
+    setEventTypes([]);
     setClassification("");
     setAudience("");
     setResponsible("");
@@ -634,8 +770,13 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     setPeriodStart((current) => movePeriod(view, current, direction));
   }
 
-  function selectDay(date: Date) {
-    setPeriodStart(startOfDay(date));
+  function selectDay(day: CalendarDay) {
+    if (day.events.length > 0) {
+      setSelectedDay(day);
+      return;
+    }
+
+    setPeriodStart(startOfDay(dateFromIso(day.isoDate)));
     setView("day");
   }
 
@@ -662,151 +803,196 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     move(deltaX < 0 ? 1 : -1);
   }
 
+  function toggleEventType(value: string) {
+    setEventTypes((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
+  }
+
+  async function saveDefaults() {
+    setSavingDefaults(true);
+    setNotice("");
+    setError("");
+    try {
+      const { data: sessionData } = await supabaseBrowser.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        window.location.replace(loginUrl());
+        return;
+      }
+
+      const preferences: AgendaPreferences = {
+        defaultView: view,
+        periodMode,
+        eventTypes,
+        classification,
+        audience,
+        responsible,
+        startDate,
+        endDate,
+      };
+
+      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/agenda", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "savePreferences", preferences }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar seu padrão da Agenda Viva.");
+      setPayload((current) => (current ? { ...current, agendaPreferences: preferences } : current));
+      setNotice(result.message || "Padrão da Agenda Viva salvo com sucesso.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar padrão da Agenda Viva.");
+    } finally {
+      setSavingDefaults(false);
+    }
+  }
+
+  const modalCalendar = (
+    <div className="grid gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
+        <button type="button" onClick={() => move(-1)} className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">←</button>
+        <button type="button" onClick={goToday} className="rounded-2xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Hoje</button>
+        <button type="button" onClick={() => move(1)} className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">→</button>
+      </div>
+      <ViewButtons view={view} onChange={setView} />
+      <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
+        <CalendarRenderer view={view} events={filteredEvents} periodStart={periodStart} onSelectDay={selectDay} onSelectMonth={selectMonth} filterSummary={filterSummary} compactMonth />
+      </section>
+    </div>
+  );
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Agenda Viva dos Filhos da Corrente" />
+      <FilhoCorrentePanelHeader navLabel="Agenda Viva" />
 
       <section className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Agenda Viva dos Filhos da Corrente</p>
-              <h1 className="mt-2 text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-3 max-w-3xl leading-7 text-slate-700">
-                Visualize a agenda como no calendário do celular: escolha agenda, dia, 3 dias, semana, mês ou ano; deslize para trocar o período e use filtros quando precisar.
-              </p>
+              <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Escolha a visualização, ajuste filtros e salve seu padrão para abrir a Agenda Viva do seu jeito.</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-              <button type="button" onClick={() => move(-1)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">← Anterior</button>
-              <button type="button" onClick={goToday} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Hoje</button>
-              <button type="button" onClick={() => move(1)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Próximo →</button>
-              <button type="button" onClick={() => setFiltersOpen((value) => !value)} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Filtros</button>
-            </div>
-          </div>
 
-          {loading && <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
-          {error && <p className="mt-5 rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+            {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
+            {error && <p className="rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+            {notice && <p className="rounded-3xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{notice}</p>}
 
-          {!loading && !error && (
-            <div className="mt-5 grid gap-5">
-              <section className="rounded-[1.75rem] bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">{activeView.label}</p>
-                    <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{viewTitle(view, periodStart)}</h2>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">{activeView.description} • {counters.visible} evento(s) nesta visão</p>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                    {calendarViews.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        onClick={() => setView(item.value)}
-                        className={`rounded-2xl px-3 py-2 text-sm font-black shadow-sm ring-1 transition ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {filtersOpen && (
-                <section className="rounded-[1.75rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                  <div className="mb-3 grid gap-2 sm:grid-cols-4">
-                    <article className="rounded-3xl bg-[#123D2C] p-4 text-white">
-                      <p className="text-2xl font-black">{counters.future}</p>
-                      <p className="text-xs font-bold text-[#CFE2C7]">A partir de hoje</p>
-                    </article>
-                    <article className="rounded-3xl bg-[#E9F2E7] p-4 text-[#123D2C]">
-                      <p className="text-2xl font-black">{counters.total}</p>
-                      <p className="text-xs font-bold">Calendário completo</p>
-                    </article>
-                    <article className="rounded-3xl bg-white p-4 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                      <p className="text-2xl font-black">{counters.filtered}</p>
-                      <p className="text-xs font-bold">Resultado filtrado</p>
-                    </article>
-                    <article className="rounded-3xl bg-white p-4 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                      <p className="text-2xl font-black">{counters.visible}</p>
-                      <p className="text-xs font-bold">Na visão atual</p>
-                    </article>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Visão do conteúdo
-                      <select value={periodMode} onChange={(event) => setPeriodMode(event.target.value as "future" | "all")} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                        <option value="future">A partir da data atual</option>
-                        <option value="all">Calendário completo, incluindo concluídos</option>
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Tipo de evento
-                      <select value={eventType} onChange={(event) => setEventType(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                        <option value="">Todos</option>
-                        {(payload?.filters?.eventTypes ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Umbanda / outros
-                      <select value={classification} onChange={(event) => setClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                        <option value="">Todos</option>
-                        {(payload?.filters?.classifications ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Público
-                      <select value={audience} onChange={(event) => setAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                        <option value="">Todos</option>
-                        {(payload?.filters?.audiences ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Pessoa associada/responsável
-                      <select value={responsible} onChange={(event) => setResponsible(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                        <option value="">Todos</option>
-                        {(payload?.filters?.responsiblePeople ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Período inicial
-                      <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]" />
-                    </label>
-                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                      Período final
-                      <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]" />
-                    </label>
-                    <div className="flex items-end">
-                      <button type="button" onClick={clearFilters} className="w-full rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Limpar filtros</button>
+            {!loading && !error && (
+              <>
+                <section className="rounded-[1.75rem] bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
+                  <div className="grid gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">{calendarViews.find((item) => item.value === view)?.label ?? "Mês"}</p>
+                      <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{viewTitle(view, periodStart)}</h2>
                     </div>
+                    <ViewButtons view={view} onChange={setView} />
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                      <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir calendário</button>
+                      <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como padrão"}</button>
+                    </div>
+                    <FilterSummary summary={filterSummary} />
                   </div>
                 </section>
-              )}
 
-              <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
-                {view === "month" && <MonthCalendar events={filteredEvents} periodStart={periodStart} onSelectDay={selectDay} />}
-                {(view === "day" || view === "threeDays" || view === "week") && <TimeGridCalendar events={filteredEvents} view={view} periodStart={periodStart} onSelectDay={selectDay} />}
-                {view === "schedule" && <ScheduleCalendar events={filteredEvents} periodStart={periodStart} />}
-                {view === "year" && <YearCalendar events={filteredEvents} periodStart={periodStart} onSelectMonth={selectMonth} />}
-              </section>
+                <EventDetailsList events={visibleEvents.slice(0, 12)} title="Próximos detalhes da visão atual" />
 
-              <section className="rounded-[1.75rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Eventos da visão atual</p>
-                    <h2 className="mt-1 text-2xl font-black text-[#123D2C]">Detalhes e orientações</h2>
-                  </div>
-                  <p className="max-w-xl text-sm font-semibold leading-6 text-slate-600">Use esta lista para conferir local, recorrência, público e responsável pelos eventos exibidos no calendário.</p>
-                </div>
-              </section>
-
-              <EventDetailsList events={visibleEvents} />
-
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
-            </div>
-          )}
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
+              </>
+            )}
+          </div>
         </div>
       </section>
+
+      {calendarOpen && <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>{modalCalendar}</ModalShell>}
+
+      {filtersOpen && (
+        <ModalShell title="Filtros da Agenda Viva" onClose={() => setFiltersOpen(false)}>
+          <div className="grid gap-4">
+            <div className="grid gap-2 sm:grid-cols-4">
+              <article className="rounded-3xl bg-[#123D2C] p-4 text-white">
+                <p className="text-2xl font-black">{counters.future}</p>
+                <p className="text-xs font-bold text-[#CFE2C7]">A partir de hoje</p>
+              </article>
+              <article className="rounded-3xl bg-[#E9F2E7] p-4 text-[#123D2C]">
+                <p className="text-2xl font-black">{counters.total}</p>
+                <p className="text-xs font-bold">Calendário completo</p>
+              </article>
+              <article className="rounded-3xl bg-white p-4 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                <p className="text-2xl font-black">{counters.filtered}</p>
+                <p className="text-xs font-bold">Resultado filtrado</p>
+              </article>
+              <article className="rounded-3xl bg-white p-4 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                <p className="text-2xl font-black">{counters.visible}</p>
+                <p className="text-xs font-bold">Na visão atual</p>
+              </article>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Visão do conteúdo
+                <select value={periodMode} onChange={(event) => setPeriodMode(event.target.value as PeriodMode)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
+                  <option value="future">A partir da data atual</option>
+                  <option value="all">Calendário completo, incluindo concluídos</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Umbanda / outros
+                <select value={classification} onChange={(event) => setClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
+                  <option value="">Todos</option>
+                  {(payload?.filters?.classifications ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Público
+                <select value={audience} onChange={(event) => setAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
+                  <option value="">Todos</option>
+                  {(payload?.filters?.audiences ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Pessoa associada/responsável
+                <select value={responsible} onChange={(event) => setResponsible(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
+                  <option value="">Todos</option>
+                  <option value="__associated__">Somente minhas atividades</option>
+                  {(payload?.filters?.responsiblePeople ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Período inicial
+                <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]" />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Período final
+                <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]" />
+              </label>
+            </div>
+
+            <section className="rounded-3xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+              <p className="text-sm font-black text-[#123D2C]">Tipo de Evento</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">Pode escolher mais de uma opção.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {(payload?.filters?.eventTypes ?? []).map((option) => (
+                  <label key={option.value} className="flex items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                    <input type="checkbox" checked={eventTypes.includes(option.value)} onChange={() => toggleEventType(option.value)} className="h-5 w-5 accent-[#123D2C]" />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button type="button" onClick={clearFilters} className="rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Limpar filtros</button>
+              <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como padrão"}</button>
+              <button type="button" onClick={() => setFiltersOpen(false)} className="rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white shadow ring-1 ring-[#123D2C]">Aplicar</button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {selectedDay && <DayEventsModal day={selectedDay} onClose={() => setSelectedDay(null)} />}
     </main>
   );
 }

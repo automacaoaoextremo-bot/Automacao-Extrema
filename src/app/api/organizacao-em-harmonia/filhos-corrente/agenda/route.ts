@@ -47,6 +47,49 @@ type LookupRecord = {
   slug?: string | null;
 };
 
+type AgendaEvent = {
+  id: string;
+  title: string;
+  status: string;
+  eventType: string;
+  eventTypeLabel: string;
+  classification: string;
+  audience: string;
+  responsiblePersonId: string;
+  responsiblePersonName: string;
+  associatedToCurrentPerson: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  dateLabel: string;
+  timeLabel: string;
+  locationLabel: string;
+  recurrenceLabel: string;
+  notes: string;
+};
+
+type AgendaPreferences = {
+  defaultView?: string;
+  periodMode?: string;
+  eventTypes?: string[];
+  classification?: string;
+  audience?: string;
+  responsible?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
+const weekDayMap: Record<string, number> = {
+  SU: 0,
+  MO: 1,
+  TU: 2,
+  WE: 3,
+  TH: 4,
+  FR: 5,
+  SA: 6,
+};
+
+const calendarViews = new Set(["schedule", "day", "threeDays", "week", "month", "year"]);
+
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -215,12 +258,247 @@ function mapById<T extends LookupRecord>(items: T[]) {
   return new Map(items.map((item) => [item.id, item]));
 }
 
+function localDateIso(value: string | null | undefined) {
+  const date = parseDate(value);
+  if (!date) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  return year && month && day ? `${year}-${month}-${day}` : "";
+}
+
+function localTime(value: string | null | undefined) {
+  const date = parseDate(value);
+  if (!date) return "00:00";
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date);
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  return `${hour}:${minute}`;
+}
+
+function dateFromIso(value: string) {
+  const [year = "", month = "", day = ""] = value.split("-");
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+}
+
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + amount);
+  return next;
+}
+
+function startOfWeek(date: Date) {
+  const base = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12));
+  base.setUTCDate(base.getUTCDate() - base.getUTCDay());
+  return base;
+}
+
+function parseRRule(rule: string | null | undefined) {
+  const cleanRule = asText(rule).replace(/^RRULE:/i, "").toUpperCase();
+  const result: Record<string, string> = {};
+  cleanRule.split(";").forEach((part) => {
+    const [key = "", value = ""] = part.split("=");
+    if (key && value) result[key] = value;
+  });
+  return result;
+}
+
+function monthDatesForBySetPos(year: number, month: number, weekday: number, positions: number[]) {
+  const dates: Date[] = [];
+  const cursor = new Date(Date.UTC(year, month, 1, 12));
+  while (cursor.getUTCMonth() === month) {
+    if (cursor.getUTCDay() === weekday) dates.push(new Date(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return positions.flatMap((position) => {
+    if (position > 0) return dates[position - 1] ? [dates[position - 1]] : [];
+    const index = dates.length + position;
+    return dates[index] ? [dates[index]] : [];
+  });
+}
+
+function buildOccurrence(event: EventRecord, occurrenceDateIso: string, occurrenceIndex: number): EventRecord {
+  if (!event.recurrence_rule) return event;
+
+  const startTime = localTime(event.starts_at);
+  const endTime = localTime(event.ends_at);
+  const startsAt = event.all_day ? `${occurrenceDateIso}T00:00:00-03:00` : `${occurrenceDateIso}T${startTime}:00-03:00`;
+  let endsAt: string | null = null;
+
+  if (event.ends_at && !event.all_day) {
+    const startHour = Number(startTime.slice(0, 2));
+    const startMinute = Number(startTime.slice(3, 5));
+    const endHour = Number(endTime.slice(0, 2));
+    const endMinute = Number(endTime.slice(3, 5));
+    const endDate = endHour < startHour || (endHour === startHour && endMinute <= startMinute) ? toIsoDate(addDays(dateFromIso(occurrenceDateIso), 1)) : occurrenceDateIso;
+    endsAt = `${endDate}T${endTime}:00-03:00`;
+  }
+
+  return {
+    ...event,
+    id: `${event.id}__${occurrenceDateIso}__${occurrenceIndex}`,
+    starts_at: startsAt,
+    ends_at: endsAt,
+  };
+}
+
+function expandRecurringEvent(event: EventRecord) {
+  const rule = parseRRule(event.recurrence_rule);
+  if (!rule.FREQ || !event.starts_at) return [event];
+
+  const startIso = localDateIso(event.starts_at);
+  if (!startIso) return [event];
+
+  const startDate = dateFromIso(startIso);
+  const endIso = event.ends_at && localDateIso(event.ends_at) !== startIso ? localDateIso(event.ends_at) : `${startDate.getUTCFullYear()}-12-31`;
+  const endDate = dateFromIso(endIso);
+  const interval = Math.max(Number(rule.INTERVAL || "1") || 1, 1);
+  const byDays = asText(rule.BYDAY)
+    .split(",")
+    .map((day) => day.trim())
+    .filter(Boolean);
+  const positions = asText(rule.BYSETPOS)
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item !== 0);
+
+  const occurrences: EventRecord[] = [];
+
+  if (rule.FREQ === "WEEKLY") {
+    const allowedWeekdays = byDays.length > 0 ? new Set(byDays.map((day) => weekDayMap[day]).filter((item) => item !== undefined)) : new Set([startDate.getUTCDay()]);
+    const startWeek = startOfWeek(startDate);
+    let cursor = new Date(startDate);
+    let index = 0;
+
+    while (cursor <= endDate && index < 370) {
+      const weekDiff = Math.floor((startOfWeek(cursor).getTime() - startWeek.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      if (weekDiff >= 0 && weekDiff % interval === 0 && allowedWeekdays.has(cursor.getUTCDay())) {
+        occurrences.push(buildOccurrence(event, toIsoDate(cursor), occurrences.length));
+      }
+      cursor = addDays(cursor, 1);
+      index += 1;
+    }
+  }
+
+  if (rule.FREQ === "MONTHLY") {
+    let cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1, 12));
+    let monthIndex = 0;
+
+    while (cursor <= endDate && monthIndex < 36) {
+      if (monthIndex % interval === 0) {
+        if (byDays.length > 0) {
+          byDays.forEach((byDay) => {
+            const weekday = weekDayMap[byDay];
+            if (weekday === undefined) return;
+            const dates = positions.length > 0 ? monthDatesForBySetPos(cursor.getUTCFullYear(), cursor.getUTCMonth(), weekday, positions) : monthDatesForBySetPos(cursor.getUTCFullYear(), cursor.getUTCMonth(), weekday, [1]);
+            dates.forEach((date) => {
+              if (date >= startDate && date <= endDate) occurrences.push(buildOccurrence(event, toIsoDate(date), occurrences.length));
+            });
+          });
+        } else {
+          const date = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), startDate.getUTCDate(), 12));
+          if (date.getUTCMonth() === cursor.getUTCMonth() && date >= startDate && date <= endDate) occurrences.push(buildOccurrence(event, toIsoDate(date), occurrences.length));
+        }
+      }
+      cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1, 12));
+      monthIndex += 1;
+    }
+  }
+
+  return occurrences.length > 0 ? occurrences : [event];
+}
+
+function agendaPreferences(profile: Record<string, unknown>): AgendaPreferences {
+  const primaryPreferences = asRecord(profile.agendaPreferences);
+  const fallbackPreferences = asRecord(profile.agendaViewPreferences);
+  const preferences = Object.keys(primaryPreferences).length > 0 ? primaryPreferences : fallbackPreferences;
+  const defaultView = asText(preferences.defaultView);
+  const periodMode = asText(preferences.periodMode);
+  return {
+    defaultView: calendarViews.has(defaultView) ? defaultView : "month",
+    periodMode: periodMode === "all" ? "all" : "future",
+    eventTypes: Array.isArray(preferences.eventTypes) ? preferences.eventTypes.map((item) => asText(item)).filter(Boolean) : [],
+    classification: asText(preferences.classification),
+    audience: asText(preferences.audience),
+    responsible: asText(preferences.responsible),
+    startDate: asText(preferences.startDate),
+    endDate: asText(preferences.endDate),
+  };
+}
+
+function normalizePreferences(value: unknown): AgendaPreferences {
+  const record = asRecord(value);
+  const defaultView = asText(record.defaultView);
+  const periodMode = asText(record.periodMode);
+  return {
+    defaultView: calendarViews.has(defaultView) ? defaultView : "month",
+    periodMode: periodMode === "all" ? "all" : "future",
+    eventTypes: Array.isArray(record.eventTypes) ? record.eventTypes.map((item) => asText(item)).filter(Boolean) : [],
+    classification: asText(record.classification),
+    audience: asText(record.audience),
+    responsible: asText(record.responsible),
+    startDate: asText(record.startDate),
+    endDate: asText(record.endDate),
+  };
+}
+
+function eventPayload(event: EventRecord, context: { currentPersonId: string; selectedAgendaSlugs: string[]; eventTypes: Map<string, LookupRecord>; locations: Map<string, LookupRecord>; people: Map<string, LookupRecord> }): AgendaEvent {
+  const metadata = asRecord(event.metadata);
+  const typeRecord = event.event_type_id ? context.eventTypes.get(event.event_type_id) : null;
+  const locationRecord = event.location_id ? context.locations.get(event.location_id) : null;
+  const responsible = event.responsible_person_id ? context.people.get(event.responsible_person_id) : null;
+  const eventType = asText(event.event_type) || asText(typeRecord?.slug) || "atividade";
+  const groupSlug = asText(event.group_slug);
+  const associatedPersonIds = [
+    ...metadataList(metadata.personIds),
+    ...metadataList(metadata.associatedPersonIds),
+    ...metadataList(metadata.pessoasAssociadas),
+    asText(event.responsible_person_id),
+    asText(event.created_by_person_id),
+  ].filter(Boolean);
+  const associatedAgendaSlugs = [
+    groupSlug,
+    eventType,
+    asText(typeRecord?.slug),
+    ...metadataList(metadata.agendaSlugs),
+    ...metadataList(metadata.associatedAgendaSlugs),
+  ].filter(Boolean);
+
+  return {
+    id: event.id,
+    title: asText(event.title) || labelFromSlug(eventType),
+    status: asText(event.status) || "ativo",
+    eventType,
+    eventTypeLabel: asText(typeRecord?.name) || labelFromSlug(eventType),
+    classification: eventClassification(event),
+    audience: eventAudience(event),
+    responsiblePersonId: asText(event.responsible_person_id),
+    responsiblePersonName: asText(responsible?.name) || "Responsável a definir",
+    associatedToCurrentPerson: associatedPersonIds.includes(context.currentPersonId) || associatedAgendaSlugs.some((slug) => context.selectedAgendaSlugs.includes(slug)),
+    startsAt: event.starts_at,
+    endsAt: event.ends_at,
+    dateLabel: formatDate(event.starts_at),
+    timeLabel: formatTime(event),
+    locationLabel: asText(locationRecord?.name) || asText(event.location) || asText(metadata.locationLabel) || "Local a definir",
+    recurrenceLabel: recurrenceLabel(event),
+    notes: asText(event.notes),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const organization = await findTucxaOrganizationId();
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
 
     const current = await currentFilho(request, organization.id);
+    const profile = asRecord(current.membership.agenda_viva_profile);
+    const selectedAgendaSlugs = Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [];
 
     const [eventsResult, typesResult, locationsResult, peopleResult] = await Promise.all([
       supabaseAdmin
@@ -245,41 +523,9 @@ export async function GET(request: Request) {
 
     const events = ((eventsResult.data ?? []) as EventRecord[])
       .filter(shouldShowEvent)
-      .map((event) => {
-        const metadata = asRecord(event.metadata);
-        const typeRecord = event.event_type_id ? eventTypes.get(event.event_type_id) : null;
-        const locationRecord = event.location_id ? locations.get(event.location_id) : null;
-        const responsible = event.responsible_person_id ? people.get(event.responsible_person_id) : null;
-        const associatedPersonIds = [
-          ...metadataList(metadata.personIds),
-          ...metadataList(metadata.associatedPersonIds),
-          ...metadataList(metadata.pessoasAssociadas),
-          asText(event.responsible_person_id),
-          asText(event.created_by_person_id),
-        ].filter(Boolean);
-
-        return {
-          id: event.id,
-          title: asText(event.title) || labelFromSlug(asText(event.event_type) || "atividade"),
-          status: asText(event.status) || "ativo",
-          eventType: asText(event.event_type) || asText(typeRecord?.slug) || "atividade",
-          eventTypeLabel: asText(typeRecord?.name) || labelFromSlug(asText(event.event_type) || "atividade"),
-          classification: eventClassification(event),
-          audience: eventAudience(event),
-          responsiblePersonId: asText(event.responsible_person_id),
-          responsiblePersonName: asText(responsible?.name) || "Responsável a definir",
-          associatedToCurrentPerson: associatedPersonIds.includes(current.person.id),
-          startsAt: event.starts_at,
-          endsAt: event.ends_at,
-          dateLabel: formatDate(event.starts_at),
-          timeLabel: formatTime(event),
-          locationLabel: asText(locationRecord?.name) || asText(event.location) || asText(metadata.locationLabel) || "Local a definir",
-          recurrenceLabel: recurrenceLabel(event),
-          notes: asText(event.notes),
-        };
-      });
-
-    const profile = asRecord(current.membership.agenda_viva_profile);
+      .flatMap(expandRecurringEvent)
+      .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, eventTypes, locations, people }))
+      .sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
 
     return NextResponse.json({
       ok: true,
@@ -290,8 +536,9 @@ export async function GET(request: Request) {
         email: displayEmail(current.person.email),
         whatsapp: current.person.whatsapp || "",
       },
-      selectedAgendaSlugs: Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [],
+      selectedAgendaSlugs,
       selectedFunctionSlugs: Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [],
+      agendaPreferences: agendaPreferences(profile),
       events,
       filters: {
         eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
@@ -302,6 +549,45 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao carregar Agenda Viva dos Filhos da Corrente.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const organization = await findTucxaOrganizationId();
+    if (!organization) throw new Error("Organização Tucxa não encontrada.");
+
+    const current = await currentFilho(request, organization.id);
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const action = asText(body.action);
+    if (action !== "savePreferences") throw new Error("Ação inválida para a Agenda Viva.");
+
+    const preferences = normalizePreferences(body.preferences);
+    const previousProfile = asRecord(current.membership.agenda_viva_profile);
+    const now = new Date().toISOString();
+    const nextProfile = {
+      ...previousProfile,
+      agendaPreferences: preferences,
+      agendaViewPreferences: preferences,
+      agendaPreferencesUpdatedAt: now,
+    };
+
+    const { error } = await supabaseAdmin
+      .from("oh_memberships")
+      .update({
+        agenda_viva_profile: nextProfile,
+        updated_at: now,
+      })
+      .eq("id", current.membership.id)
+      .eq("person_id", current.person.id)
+      .eq("organization_id", organization.id);
+
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true, agendaPreferences: preferences, message: "Padrão da Agenda Viva salvo com sucesso." });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erro ao salvar padrão da Agenda Viva.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
