@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { filhoDaCorrenteFunctions } from "../../../tucxa-content";
 
@@ -219,13 +219,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader
-        actions={[
-          { label: "Painel", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel", variant: "primary" },
-          { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
-        ]}
-        navLabel="Atualização de dados do Filho da Corrente"
-      />
+      <FilhoCorrentePanelHeader navLabel="Atualização de dados do Filho da Corrente" />
 
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">

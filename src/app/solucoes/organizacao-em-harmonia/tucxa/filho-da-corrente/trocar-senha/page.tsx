@@ -44,8 +44,7 @@ export default function TrocarSenhaFilhoDaCorrentePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Voltar ao login", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente", variant: "primary" },
-          { label: "Esqueci senha", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha", variant: "secondary" },
+          { label: "Voltar ao login", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "primary" },
           { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
         ]}
         navLabel="Menu de definição de nova senha do Tucxa"

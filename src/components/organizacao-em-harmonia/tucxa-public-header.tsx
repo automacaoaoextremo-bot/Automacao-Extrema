@@ -3,18 +3,21 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { tucxaTheme } from "@/app/solucoes/organizacao-em-harmonia/tucxa/tucxa-content";
 
 type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
+  action?: "signOutFilhoCorrente";
 };
 
 type TucxaPublicHeaderProps = {
   actions?: TucxaHeaderLink[];
   sectionLinks?: TucxaHeaderLink[];
   navLabel?: string;
+  showSupport?: boolean;
 };
 
 function getLocationMatchKey(href: string) {
@@ -110,7 +113,37 @@ function SupportLink({ href }: { href: string }) {
   );
 }
 
+function headerActionClassName(active: boolean) {
+  return `inline-flex min-h-7 items-center justify-center rounded-full border px-2.5 py-1 text-center text-[0.72rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+    active
+      ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
+      : "border-[#123D2C]/15 bg-white text-[#123D2C] shadow-none ring-1 ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
+  }`;
+}
+
 function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void }) {
+  async function handleSpecialAction() {
+    if (link.action === "signOutFilhoCorrente") {
+      await supabaseBrowser.auth.signOut();
+      window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+    }
+  }
+
+  if (link.action) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          onSelect(link.href);
+          void handleSpecialAction();
+        }}
+        className={headerActionClassName(active)}
+      >
+        {link.label}
+      </button>
+    );
+  }
+
   return (
     <Link
       href={link.href}
@@ -119,11 +152,7 @@ function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; activ
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={`inline-flex min-h-7 items-center justify-center rounded-full border px-2.5 py-1 text-center text-[0.72rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
-        active
-          ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
-          : "border-[#123D2C]/15 bg-white text-[#123D2C] shadow-none ring-1 ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
-      }`}
+      className={headerActionClassName(active)}
     >
       {link.label}
     </Link>
@@ -150,7 +179,7 @@ function SectionLink({ link, active, onSelect }: { link: TucxaHeaderLink; active
   );
 }
 
-export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = "Menu do site do Tucxa" }: TucxaPublicHeaderProps) {
+export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = "Menu do site do Tucxa", showSupport = true }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
   const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
   const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
@@ -220,7 +249,7 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
         </div>
       </div>
 
-      {(actions.length > 0 || sectionLinks.length > 0 || supportHref) && (
+      {(actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
             {actions.map((link) => (
@@ -229,7 +258,7 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
             {sectionLinks.map((link) => (
               <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
             ))}
-            <SupportLink href={supportHref} />
+            {showSupport && <SupportLink href={supportHref} />}
           </div>
         </nav>
       )}

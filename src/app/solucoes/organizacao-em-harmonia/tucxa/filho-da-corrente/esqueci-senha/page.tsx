@@ -9,14 +9,9 @@ type AccessResponse = {
   error?: string;
 };
 
-function isEmail(value: string) {
-  return value.includes("@");
-}
-
 async function resolveAuthEmail(identifier: string) {
   const value = identifier.trim();
   if (!value) throw new Error("Informe seu e-mail ou WhatsApp.");
-  if (isEmail(value)) return value.toLowerCase();
 
   const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/acesso", {
     method: "POST",
@@ -24,7 +19,10 @@ async function resolveAuthEmail(identifier: string) {
     body: JSON.stringify({ action: "resolve-login", identifier: value }),
   });
   const result = (await response.json()) as AccessResponse;
-  if (!response.ok || !result.authEmail) throw new Error(result.error || "Não foi possível localizar seu cadastro pelo WhatsApp.");
+  if (!response.ok || !result.authEmail) throw new Error(result.error || "Não foi possível localizar seu cadastro liberado pelo Tucxa.");
+  if (result.authEmail.endsWith("@organizacao-em-harmonia.local")) {
+    throw new Error("Seu acesso foi criado pelo WhatsApp e ainda não possui e-mail real para recuperação automática. Procure a organização do Tucxa ou use o botão Dúvidas?.");
+  }
   return result.authEmail;
 }
 
@@ -57,8 +55,7 @@ export default function EsqueciSenhaFilhoDaCorrentePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Voltar ao login", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente", variant: "primary" },
-          { label: "Primeiro acesso", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente#primeiro-acesso", variant: "secondary" },
+          { label: "Voltar ao login", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "primary" },
           { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
         ]}
         navLabel="Menu de troca de senha do Tucxa"

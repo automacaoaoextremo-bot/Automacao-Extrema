@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -145,6 +146,13 @@ export default function LoginFilhoDaCorrentePage() {
             <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
               {loading ? "Entrando..." : "Entrar no painel do Filho"}
             </button>
+
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha"
+              className="block w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-center text-base font-black text-[#123D2C] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#F7FAF2]"
+            >
+              Esqueci minha senha
+            </Link>
           </form>
         </article>
       </section>

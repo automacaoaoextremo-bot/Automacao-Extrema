@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type AgendaEvent = {
@@ -58,6 +58,58 @@ function eventDateOnly(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
+}
+
+type CalendarDay = {
+  isoDate: string;
+  dayNumber: number;
+  outsideMonth: boolean;
+  events: AgendaEvent[];
+};
+
+function calendarBaseDate(events: AgendaEvent[], startDate: string) {
+  const firstEventDate = events.map((event) => eventDateOnly(event.startsAt)).find(Boolean);
+  const baseIso = startDate || firstEventDate || todayIso;
+  const [yearText, monthText] = baseIso.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText) - 1;
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return new Date();
+  return new Date(Date.UTC(year, month, 1));
+}
+
+function buildCalendarDays(events: AgendaEvent[], startDate: string): CalendarDay[] {
+  const base = calendarBaseDate(events, startDate);
+  const year = base.getUTCFullYear();
+  const month = base.getUTCMonth();
+  const firstDay = new Date(Date.UTC(year, month, 1));
+  const offset = firstDay.getUTCDay();
+  const eventByDate = new Map<string, AgendaEvent[]>();
+
+  events.forEach((event) => {
+    const isoDate = eventDateOnly(event.startsAt);
+    if (!isoDate) return;
+    const currentEvents = eventByDate.get(isoDate) ?? [];
+    currentEvents.push(event);
+    eventByDate.set(isoDate, currentEvents);
+  });
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = index - offset + 1;
+    const date = new Date(Date.UTC(year, month, day));
+    const isoDate = date.toISOString().slice(0, 10);
+    return {
+      isoDate,
+      dayNumber: date.getUTCDate(),
+      outsideMonth: date.getUTCMonth() !== month,
+      events: eventByDate.get(isoDate) ?? [],
+    };
+  });
+}
+
+function calendarTitle(events: AgendaEvent[], startDate: string) {
+  const base = calendarBaseDate(events, startDate);
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(base);
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function normalize(value: string) {
@@ -140,6 +192,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     return { total: events.length, future, filtered: filteredEvents.length };
   }, [filteredEvents.length, payload?.events]);
 
+  const calendarDays = useMemo(() => buildCalendarDays(filteredEvents, startDate), [filteredEvents, startDate]);
+  const currentCalendarTitle = useMemo(() => calendarTitle(filteredEvents, startDate), [filteredEvents, startDate]);
+
   function clearFilters() {
     setPeriodMode("future");
     setEventType("");
@@ -152,13 +207,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader
-        actions={[
-          { label: "Painel", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel", variant: "primary" },
-          { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
-        ]}
-        navLabel="Agenda Viva dos Filhos da Corrente"
-      />
+      <FilhoCorrentePanelHeader navLabel="Agenda Viva dos Filhos da Corrente" />
 
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
@@ -236,6 +285,36 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                   <div className="flex items-end">
                     <button type="button" onClick={clearFilters} className="w-full rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Limpar filtros</button>
                   </div>
+                </div>
+              </section>
+
+              <section className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Calendário visual</p>
+                    <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{currentCalendarTitle}</h2>
+                  </div>
+                  <p className="max-w-xl text-sm font-semibold leading-6 text-slate-600">
+                    Visão em grade para facilitar a leitura dos compromissos, inspirada nos calendários anuais e culturais usados pelo Tucxa.
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[0.68rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-xs">
+                  {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
+                </div>
+                <div className="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
+                  {calendarDays.map((day) => (
+                    <article key={day.isoDate} className={`min-h-20 rounded-2xl p-2 text-left ring-1 sm:min-h-28 ${day.outsideMonth ? "bg-slate-50 text-slate-400 ring-slate-100" : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"}`}>
+                      <p className="text-sm font-black sm:text-base">{day.dayNumber}</p>
+                      <div className="mt-1 grid gap-1">
+                        {day.events.slice(0, 2).map((event) => (
+                          <p key={`${day.isoDate}-${event.id}`} className="truncate rounded-lg bg-white px-1.5 py-1 text-[0.62rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-[0.68rem]" title={event.title}>
+                            {event.title}
+                          </p>
+                        ))}
+                        {day.events.length > 2 && <p className="text-[0.62rem] font-black text-[#2F6B43]">+{day.events.length - 2} evento(s)</p>}
+                      </div>
+                    </article>
+                  ))}
                 </div>
               </section>
 
