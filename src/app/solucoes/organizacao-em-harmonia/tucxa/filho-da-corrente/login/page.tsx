@@ -99,7 +99,6 @@ export default function LoginFilhoDaCorrentePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Início", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "primary" },
           { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
         ]}
         navLabel="Login dos Filhos da Corrente do Tucxa"

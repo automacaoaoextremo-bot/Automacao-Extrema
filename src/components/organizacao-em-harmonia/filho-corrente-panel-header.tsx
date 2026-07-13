@@ -8,6 +8,7 @@ export function FilhoCorrentePanelHeader({ navLabel = "Painel do Filho da Corren
   return (
     <TucxaPublicHeader
       actions={[
+        { label: "Início", href: PANEL_BASE, variant: "primary" },
         { label: "Agenda Viva", href: `${PANEL_BASE}/agenda-viva`, variant: "secondary" },
         { label: "Atendimento em Harmonia", href: `${PANEL_BASE}/atendimento`, variant: "secondary" },
         { label: "Corrente em Dia", href: `${PANEL_BASE}/corrente-em-dia`, variant: "secondary" },
@@ -15,7 +16,7 @@ export function FilhoCorrentePanelHeader({ navLabel = "Painel do Filho da Corren
         { label: "Sair", href: "#sair", variant: "secondary", action: "signOutFilhoCorrente" },
       ]}
       navLabel={navLabel}
-      showSupport={false}
+      showSupport
     />
   );
 }
