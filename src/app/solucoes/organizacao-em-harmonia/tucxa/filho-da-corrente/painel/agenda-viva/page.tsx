@@ -533,11 +533,10 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
       <div className="mb-4">
         <h2 className="text-2xl font-black text-[#123D2C]">Tucxa - {year}</h2>
       </div>
-      <TucxaLegend />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 12 }, (_, monthIndex) => {
           const monthDate = new Date(Date.UTC(year, monthIndex, 1, 12));
-          const days = buildMonthDays(events, monthDate).filter((day) => !day.outsideMonth);
+          const days = buildMonthDays(events, monthDate);
           return (
             <button key={monthIndex} type="button" onClick={() => onSelectMonth(monthDate)} className="rounded-3xl bg-[#FBFCF8] p-3 text-left ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] hover:shadow-lg">
               <p className="mb-2 text-center text-sm font-black uppercase tracking-[0.16em] text-[#123D2C]">{monthLabel(monthDate)}</p>
@@ -546,6 +545,10 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
               </div>
               <div className="mt-1 grid grid-cols-7 gap-0.5">
                 {days.map((day) => {
+                  if (day.outsideMonth) {
+                    return <span key={day.isoDate} aria-hidden="true" className="h-6 rounded bg-transparent" />;
+                  }
+
                   const tone = day.events[0] ? eventTone(day.events[0]) : null;
                   return (
                     <span
@@ -622,17 +625,15 @@ function AnnualGuideModal({ onClose, onDisableAuto }: { onClose: () => void; onD
   return (
     <ModalShell title="Calendário anual Tucxa 2026" onClose={onClose}>
       <div className="grid gap-3">
-        <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold leading-6 text-slate-600 ring-1 ring-[#123D2C]/10">
-          Esta é a visão parecida com o PDF enviado pelo WhatsApp. No celular, use o movimento de pinça para aproximar ou afastar e arraste para navegar. Você pode configurar nos filtros se ela deve abrir automaticamente.
-        </p>
-        <div className="max-h-[72vh] overflow-auto rounded-3xl bg-black p-3" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
+        <div className="overflow-hidden rounded-3xl bg-white p-0 ring-1 ring-[#123D2C]/10" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
           <Image
             src="/clientes/tucxa/eventos/calendario-tucxa-2026.jpeg"
             alt="Calendário anual Tucxa 2026"
             width={1200}
             height={675}
             priority
-            className="mx-auto min-w-[760px] max-w-none rounded-xl bg-white"
+            sizes="(max-width: 768px) 92vw, 960px"
+            className="h-auto w-full max-w-full rounded-3xl bg-white object-contain"
           />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

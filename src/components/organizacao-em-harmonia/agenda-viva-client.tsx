@@ -955,6 +955,13 @@ function AgendaEventForm({
             {responsiblePeople(payload).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
           </select>
         </label>
+        <label className="flex items-start gap-3 rounded-2xl bg-sky-50 p-4 ring-1 ring-sky-100 md:col-span-2">
+          <input type="checkbox" checked={form.continuesDuringVacation} onChange={(event) => update("continuesDuringVacation", event.target.checked)} className="mt-1 h-5 w-5" />
+          <span className="text-sm font-black text-[#00334E]">
+            Continuar aparecendo durante férias/recesso
+            <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">Marque somente para eventos que acontecem mesmo quando os atendimentos de Umbanda estiverem suspensos.</span>
+          </span>
+        </label>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Localidade cadastrada</span>
           <select value={form.locationId} onChange={(event) => update("locationId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1035,7 +1042,6 @@ function AgendaEventForm({
         </label>
         <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-lime-50 p-4 ring-1 ring-lime-100"><input type="checkbox" checked={form.highlightVisual} onChange={(event) => update("highlightVisual", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Destacar no calendário visual</span></label>
-        <label className="flex items-center gap-3 rounded-2xl bg-sky-50 p-4 ring-1 ring-sky-100"><input type="checkbox" checked={form.continuesDuringVacation} onChange={(event) => update("continuesDuringVacation", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Continuar aparecendo durante férias/recesso</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exige aprovação antes de publicar</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-green-50 p-4 ring-1 ring-green-100"><input type="checkbox" checked={form.firstAccessEnabled} onChange={(event) => update("firstAccessEnabled", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exibir no card Agenda do Primeiro Acesso</span></label>
         <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Ordem no Primeiro Acesso</span><input value={form.firstAccessOrder} onChange={(event) => update("firstAccessOrder", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: 10" inputMode="numeric" /></label>
