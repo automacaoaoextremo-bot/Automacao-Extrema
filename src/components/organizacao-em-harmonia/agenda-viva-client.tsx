@@ -1568,7 +1568,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, AgendaEvent[]>();
-    const vacationKeys = vacationKeysForYear(calendarEvents, year);
+    const vacationKeys = vacationKeysForYear(events, year);
     for (const event of calendarEvents) {
       for (const key of occurrenceKeysForYear(event, year)) {
         if (!isVacationEvent(event) && isUmbandaEvent(event) && !continuesDuringVacation(event) && vacationKeys.has(key)) continue;
@@ -1578,7 +1578,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       }
     }
     return map;
-  }, [calendarEvents, year]);
+  }, [calendarEvents, events, year]);
 
   const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 

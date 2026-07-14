@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -263,14 +262,102 @@ function eventTone(event: AgendaEvent) {
 }
 
 function TucxaLegend() {
+  const legendRows = [
+    { kind: "section", label: "Atendimento\nFilhos de Fora" },
+    { kind: "tone", label: "Grupo Segunda-Feira", tone: tucxaLegendTones[0]?.tone },
+    { kind: "tone", label: "Grupo Terça-Feira", tone: tucxaLegendTones[1]?.tone },
+    { kind: "tone", label: "Tratamento Espiritual", tone: tucxaLegendTones[2]?.tone },
+    { kind: "section", label: "Atendimento\nFilhos da Corrente" },
+    { kind: "tone", label: "Grupo 1", tone: tucxaLegendTones[3]?.tone },
+    { kind: "tone", label: "Grupo 2", tone: tucxaLegendTones[4]?.tone },
+    { kind: "note", label: "24/01 - Mutirão de Limpeza" },
+    { kind: "note", label: "29/01 e 30/07\nTrabalho para todos\nos Cavalinhos e Cambonos" },
+    { kind: "note", label: "20/12 - Encerramento" },
+    { kind: "vacation", label: "Períodos de Férias:\nJaneiro até 28\nJulho até 29\na partir de 21 de Dezembro" },
+  ];
+
   return (
-    <div className="grid gap-2 rounded-[1.5rem] bg-white/90 p-3 text-[0.68rem] font-black uppercase tracking-[0.08em] ring-1 ring-[#123D2C]/10 sm:grid-cols-2 lg:grid-cols-3">
-      {tucxaLegendTones.slice(0, 6).map((item) => (
-        <span key={item.label} className="rounded-xl px-3 py-2" style={{ backgroundColor: item.tone.soft, border: `2px solid ${item.tone.border}`, color: item.tone.text === "#FFFFFF" ? item.tone.border : item.tone.text }}>
-          {item.label}
-        </span>
-      ))}
-    </div>
+    <aside className="grid gap-1 text-center text-[0.42rem] font-black uppercase leading-tight text-[#10251C] sm:text-[0.5rem]">
+      {legendRows.map((row, index) => {
+        if (row.kind === "section") {
+          return (
+            <div key={`${row.kind}-${index}`} className="whitespace-pre-line border border-dashed border-[#10251C] bg-[#F6EFD8] px-1 py-1">
+              {row.label}
+            </div>
+          );
+        }
+
+        if (row.kind === "tone" && row.tone) {
+          return (
+            <div key={`${row.kind}-${index}`} className="px-1 py-1" style={{ backgroundColor: row.tone.background, color: row.tone.text === "#FFFFFF" ? "#10251C" : row.tone.text }}>
+              {row.label}
+            </div>
+          );
+        }
+
+        if (row.kind === "vacation") {
+          return (
+            <div key={`${row.kind}-${index}`} className="whitespace-pre-line bg-[#DDEDDD] px-1 py-1 text-[0.38rem] leading-tight">
+              {row.label}
+            </div>
+          );
+        }
+
+        return (
+          <div key={`${row.kind}-${index}`} className="whitespace-pre-line bg-[#FFF4CF] px-1 py-1 text-[0.38rem] leading-tight">
+            {row.label}
+          </div>
+        );
+      })}
+    </aside>
+  );
+}
+
+function AnnualMiniMonth({ events, monthDate, onSelectMonth }: { events: AgendaEvent[]; monthDate: Date; onSelectMonth?: (date: Date) => void }) {
+  const days = useMemo(() => buildMonthDays(events, monthDate), [events, monthDate]);
+
+  return (
+    <button type="button" onClick={() => onSelectMonth?.(monthDate)} className="rounded-sm bg-white p-0.5 text-left ring-1 ring-[#10251C]/40 transition hover:scale-[1.02]">
+      <h3 className="border-b border-[#10251C]/40 bg-[#EDE7DA] py-0.5 text-center text-[0.46rem] font-black uppercase leading-none text-[#10251C] sm:text-[0.55rem]">
+        {monthTitle(monthDate).split(" de ")[0]}
+      </h3>
+      <div className="grid grid-cols-7 text-center text-[0.34rem] font-black leading-none text-[#10251C] sm:text-[0.42rem]">
+        {compactWeekDayLabels.map((label, index) => <span key={`${monthDate.toISOString()}-${label}-${index}`} className="py-0.5">{label}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-px text-center">
+        {days.map((day, index) => {
+          if (day.outsideMonth) return <span key={`${day.isoDate}-${index}`} className="h-3 sm:h-3.5" />;
+          const tone = day.events[0] ? eventTone(day.events[0]) : null;
+          return (
+            <span
+              key={`${day.isoDate}-${index}`}
+              className="flex h-3 items-center justify-center text-[0.34rem] font-bold leading-none sm:h-3.5 sm:text-[0.42rem]"
+              style={{ backgroundColor: tone ? tone.background : "#FFFFFF", color: tone ? tone.text : "#10251C", border: tone ? `1px solid ${tone.border}` : "1px solid #D8D8D8" }}
+            >
+              {day.dayNumber}
+            </span>
+          );
+        })}
+      </div>
+    </button>
+  );
+}
+
+function DynamicAnnualTucxaPoster({ events, year, onSelectMonth }: { events: AgendaEvent[]; year: number; onSelectMonth?: (date: Date) => void }) {
+  return (
+    <section className="overflow-hidden rounded-3xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+      <div className="grid grid-cols-[4.9rem_1fr] gap-2 sm:grid-cols-[6rem_1fr] sm:gap-3">
+        <TucxaLegend />
+        <div className="min-w-0">
+          <h2 className="pb-1 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-xl">Tucxa - {year}</h2>
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+            {Array.from({ length: 12 }, (_, monthIndex) => (
+              <AnnualMiniMonth key={monthIndex} events={events} monthDate={new Date(Date.UTC(year, monthIndex, 1, 12))} onSelectMonth={onSelectMonth} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -384,8 +471,6 @@ function MonthCalendar({ events, periodStart, onSelectDay, compact = false, filt
           <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Toque nos dias com cores diferentes para o detalhe do evento.</p>
         </div>
       </div>
-
-      <div className="px-3 pb-3 sm:px-4"><TucxaLegend /></div>
 
       <div className="grid grid-cols-7 border-y border-[#123D2C]/10 bg-[#F7FAF2] text-center text-[0.62rem] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-xs">
         {compactWeekDayLabels.map((day, index) => (
@@ -621,19 +706,20 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
   );
 }
 
-function AnnualGuideModal({ onClose, onDisableAuto }: { onClose: () => void; onDisableAuto: () => void }) {
+function AnnualGuideModal({ events, periodStart, onClose, onDisableAuto, onSelectMonth }: { events: AgendaEvent[]; periodStart: Date; onClose: () => void; onDisableAuto: () => void; onSelectMonth: (date: Date) => void }) {
+  const year = periodStart.getUTCFullYear();
+
   return (
-    <ModalShell title="Calendário anual Tucxa 2026" onClose={onClose}>
+    <ModalShell title={`Calendário anual Tucxa ${year}`} onClose={onClose}>
       <div className="grid gap-3">
-        <div className="overflow-hidden rounded-3xl bg-white p-0 ring-1 ring-[#123D2C]/10" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
-          <Image
-            src="/clientes/tucxa/eventos/calendario-tucxa-2026.jpeg"
-            alt="Calendário anual Tucxa 2026"
-            width={1200}
-            height={675}
-            priority
-            sizes="(max-width: 768px) 92vw, 960px"
-            className="h-auto w-full max-w-full rounded-3xl bg-white object-contain"
+        <div style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
+          <DynamicAnnualTucxaPoster
+            events={events}
+            year={year}
+            onSelectMonth={(date) => {
+              onSelectMonth(date);
+              onClose();
+            }}
           />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -808,15 +894,22 @@ export default function AgendaVivaFilhoDaCorrentePage() {
   }, [filteredEvents.length, payload?.events, visibleEvents.length]);
 
   const filterSummary = useMemo(() => {
+    const availableEventTypes = payload?.filters?.eventTypes ?? [];
+    const allEventTypesSelected = availableEventTypes.length > 0 && eventTypes.length === availableEventTypes.length && availableEventTypes.every((option) => eventTypes.includes(option.value));
     const parts = [periodMode === "future" ? "a partir de hoje" : "calendário completo"];
-    if (eventTypes.length > 0) parts.push(`tipos: ${eventTypes.map((value) => eventTypeLabels.get(value) ?? value).join(", ")}`);
+
+    if (eventTypes.length > 0 && !allEventTypesSelected) {
+      const selectedLabels = eventTypes.map((value) => eventTypeLabels.get(value) ?? value);
+      parts.push(selectedLabels.length <= 3 ? `tipos: ${selectedLabels.join(", ")}` : `${selectedLabels.length} tipos de evento`);
+    }
+
     if (classification) parts.push(classification);
     if (audience) parts.push(`público: ${audience}`);
     if (responsible === "__associated__") parts.push("minhas atividades");
     else if (responsible) parts.push(`responsável: ${payload?.filters?.responsiblePeople?.find((item) => item.value === responsible)?.label ?? responsible}`);
     if (startDate || endDate) parts.push(`${startDate || "início"} até ${endDate || "fim"}`);
-    return `Exibindo ${parts.join(" • ")} • ${counters.visible} evento(s) nesta visão.`;
-  }, [audience, classification, counters.visible, endDate, eventTypeLabels, eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate]);
+    return `Exibindo ${parts.join(" • ")} • ${visibleEvents.length} evento(s) nesta visão.`;
+  }, [audience, classification, endDate, eventTypeLabels, eventTypes, payload?.filters?.eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate, visibleEvents.length]);
 
   function clearFilters() {
     setPeriodMode("future");
@@ -946,7 +1039,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       </div>
       <ViewButtons view={view} onChange={setView} />
       <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
-        <CalendarRenderer view={view} events={filteredEvents} periodStart={periodStart} onSelectDay={selectDay} onSelectMonth={selectMonth} filterSummary={filterSummary} compactMonth />
+        <CalendarRenderer view={view} events={visibleEvents} periodStart={periodStart} onSelectDay={selectDay} onSelectMonth={selectMonth} filterSummary={filterSummary} compactMonth />
       </section>
     </div>
   );
@@ -996,7 +1089,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
         </div>
       </section>
 
-      {annualGuideOpen && <AnnualGuideModal onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} />}
+      {annualGuideOpen && <AnnualGuideModal events={filteredEvents} periodStart={periodStart} onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} onSelectMonth={selectMonth} />}
       {calendarOpen && <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>{modalCalendar}</ModalShell>}
 
       {filtersOpen && (
