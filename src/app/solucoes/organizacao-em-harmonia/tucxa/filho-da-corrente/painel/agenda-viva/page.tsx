@@ -807,6 +807,15 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     setEventTypes((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
   }
 
+  function toggleAllEventTypes() {
+    const allTypes = (payload?.filters?.eventTypes ?? []).map((option) => option.value);
+    setEventTypes((current) => current.length === allTypes.length ? [] : allTypes);
+  }
+
+  function toggleOnlyMine() {
+    setResponsible((current) => current === "__associated__" ? "" : "__associated__");
+  }
+
   async function saveDefaults() {
     setSavingDefaults(true);
     setNotice("");
@@ -891,6 +900,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                     <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                       <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir calendário</button>
                       <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+                      <button type="button" onClick={toggleOnlyMine} className={`rounded-2xl px-4 py-3 text-sm font-black shadow ring-1 ${responsible === "__associated__" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}>Minhas atividades</button>
                       <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como padrão"}</button>
                     </div>
                     <FilterSummary summary={filterSummary} />
@@ -972,7 +982,12 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
             <section className="rounded-3xl bg-white p-4 ring-1 ring-[#123D2C]/10">
               <p className="text-sm font-black text-[#123D2C]">Tipo de Evento</p>
-              <p className="mt-1 text-xs font-semibold text-slate-500">Pode escolher mais de uma opção.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold text-slate-500">Pode escolher mais de uma opção.</p>
+                <button type="button" onClick={toggleAllEventTypes} className="rounded-full bg-[#E9F2E7] px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {eventTypes.length === (payload?.filters?.eventTypes ?? []).length ? "Deselecionar todos" : "Selecionar todos"}
+                </button>
+              </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {(payload?.filters?.eventTypes ?? []).map((option) => (
                   <label key={option.value} className="flex items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">
