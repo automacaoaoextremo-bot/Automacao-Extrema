@@ -139,6 +139,7 @@ type FormState = {
   imageAlt: string;
   imageEmoji: string;
   highlightVisual: boolean;
+  continuesDuringVacation: boolean;
   firstAccessEnabled: boolean;
   firstAccessOrder: string;
   firstAccessSummary: string;
@@ -213,20 +214,6 @@ function activeCatalogItems(items: AgendaCatalogItem[]) {
   return items.filter((item) => item.active !== false && item.archived !== true);
 }
 
-function nextCatalogItemId(kind: "audiences" | "classifications", items: AgendaCatalogItem[]) {
-  const prefix = `novo-${kind}-`;
-  const usedIds = new Set(items.map((item) => item.id));
-  let index = items.length + 1;
-  let id = `${prefix}${index}`;
-
-  while (usedIds.has(id)) {
-    index += 1;
-    id = `${prefix}${index}`;
-  }
-
-  return id;
-}
-
 const defaultAgendaSettings: AgendaSettings = {
   maxRecurringAppointmentsPerConsulente: 2,
   autoCancelRecurringOnAbsence: true,
@@ -277,6 +264,7 @@ const emptyForm: FormState = {
   imageAlt: "",
   imageEmoji: "",
   highlightVisual: true,
+  continuesDuringVacation: false,
   firstAccessEnabled: true,
   firstAccessOrder: "",
   firstAccessSummary: "",
@@ -323,6 +311,8 @@ const agendaLinks = [
 ];
 
 const eventColorClasses: Record<string, string> = {
+  ferias: "bg-yellow-100 text-yellow-950 ring-yellow-300 border-yellow-300",
+  recesso: "bg-yellow-100 text-yellow-950 ring-yellow-300 border-yellow-300",
   bazar: "bg-lime-100 text-lime-950 ring-lime-200",
   "bazar-simples": "bg-purple-100 text-purple-950 ring-purple-200",
   "acao-comunidade": "bg-yellow-100 text-yellow-950 ring-yellow-200",
@@ -606,8 +596,29 @@ function isUmbandaEvent(event: AgendaEvent) {
   return normalizeText(eventClassification(event)).includes("umbanda");
 }
 
+function continuesDuringVacation(event: AgendaEvent) {
+  return metadataBooleanAny(event, ["continuesDuringVacation", "continues_during_vacation", "keepDuringVacation", "mantemNasFerias"], false);
+}
+
+function addVacationRange(keys: Set<string>, year: number, startMonth: number, startDay: number, endMonth: number, endDay: number) {
+  let cursor = new Date(year, startMonth, startDay);
+  const end = new Date(year, endMonth, endDay);
+  while (cursor <= end) {
+    keys.add(localDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+  }
+}
+
 function vacationKeysForYear(events: AgendaEvent[], year: number) {
   const keys = new Set<string>();
+
+  // Regras oficiais do calendário anual do Tucxa 2026: férias em janeiro até 28, julho até 29 e a partir de 21/12.
+  if (year === 2026) {
+    addVacationRange(keys, year, 0, 1, 0, 28);
+    addVacationRange(keys, year, 6, 1, 6, 29);
+    addVacationRange(keys, year, 11, 21, 11, 31);
+  }
+
   events.filter(isVacationEvent).forEach((event) => {
     const occurrences = occurrenceKeysForYear(event, year);
     occurrences.forEach((key) => keys.add(key));
@@ -744,6 +755,25 @@ function eventTypeFor(event: AgendaEvent, types: EventType[]) {
 function colorFor(event: AgendaEvent, types: EventType[]) {
   const type = eventTypeFor(event, types);
   return eventColorClasses[type?.slug ?? event.event_type] ?? "bg-white text-[#00334E] ring-slate-200";
+}
+
+function TucxaCalendarLegend() {
+  const items = [
+    { label: "Grupo Segunda-feira", className: "bg-rose-100 text-rose-950 ring-rose-200" },
+    { label: "Grupo Terça-feira", className: "bg-sky-100 text-sky-950 ring-sky-200" },
+    { label: "Tratamento espiritual", className: "bg-emerald-100 text-emerald-950 ring-emerald-200" },
+    { label: "Grupo 1", className: "bg-green-100 text-green-950 ring-green-200" },
+    { label: "Grupo 2", className: "bg-blue-100 text-blue-950 ring-blue-200" },
+    { label: "Férias/recesso", className: "bg-yellow-100 text-yellow-950 ring-yellow-200" },
+  ];
+
+  return (
+    <div className="grid gap-2 rounded-3xl bg-white/90 p-3 text-xs font-black ring-1 ring-lime-100 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((item) => (
+        <span key={item.label} className={`rounded-xl px-3 py-2 ring-1 ${item.className}`}>{item.label}</span>
+      ))}
+    </div>
+  );
 }
 
 function publicStatusClass(status: string) {
@@ -1005,6 +1035,7 @@ function AgendaEventForm({
         </label>
         <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={form.allDay} onChange={(event) => update("allDay", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Dia inteiro</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-lime-50 p-4 ring-1 ring-lime-100"><input type="checkbox" checked={form.highlightVisual} onChange={(event) => update("highlightVisual", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Destacar no calendário visual</span></label>
+        <label className="flex items-center gap-3 rounded-2xl bg-sky-50 p-4 ring-1 ring-sky-100"><input type="checkbox" checked={form.continuesDuringVacation} onChange={(event) => update("continuesDuringVacation", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Continuar aparecendo durante férias/recesso</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => update("requiresApproval", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exige aprovação antes de publicar</span></label>
         <label className="flex items-center gap-3 rounded-2xl bg-green-50 p-4 ring-1 ring-green-100"><input type="checkbox" checked={form.firstAccessEnabled} onChange={(event) => update("firstAccessEnabled", event.target.checked)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exibir no card Agenda do Primeiro Acesso</span></label>
         <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Ordem no Primeiro Acesso</span><input value={form.firstAccessOrder} onChange={(event) => update("firstAccessOrder", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Ex.: 10" inputMode="numeric" /></label>
@@ -1056,6 +1087,7 @@ function EventCard({ event, payload, onEdit, onDuplicate, onDelete, compact = fa
         <span className="rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-100">{recurrenceDisplay(event)}</span>
         <span className="rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-100">{agendaTimeLabel(event)}</span>
         {firstAccessEnabledFor(event) && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-900 ring-1 ring-emerald-100">Primeiro Acesso: ordem {firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "auto" : firstAccessOrderFor(event)}</span>}
+        {continuesDuringVacation(event) && <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-900 ring-1 ring-sky-100">Continua nas férias</span>}
       </div>
       {event.notes && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">{event.notes}</p>}
       {(onEdit || onDuplicate || onDelete) && (
@@ -1237,6 +1269,20 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       setForm((current) => ({ ...current, imageUrl: dataUrl, imageAlt: current.imageAlt || file.name.replace(/\.[^.]+$/, "") }));
     };
     reader.readAsDataURL(file);
+  }
+
+  function nextCatalogItemId(kind: "audiences" | "classifications", items: AgendaCatalogItem[]) {
+    const prefix = `novo-${kind}-`;
+    const usedIds = new Set(items.map((item) => item.id));
+    let index = items.length + 1;
+    let id = `${prefix}${index}`;
+
+    while (usedIds.has(id)) {
+      index += 1;
+      id = `${prefix}${index}`;
+    }
+
+    return id;
   }
 
   function updateCatalogItem(kind: "audiences" | "classifications", id: string, patch: Partial<AgendaCatalogItem>) {
@@ -1449,6 +1495,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       imageAlt: eventImageAlt(event),
       imageEmoji: eventEmoji(event),
       highlightVisual: event.metadata?.highlight_visual !== false,
+      continuesDuringVacation: continuesDuringVacation(event),
       firstAccessEnabled: firstAccessEnabledFor(event),
       firstAccessOrder: String(firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "" : firstAccessOrderFor(event)),
       firstAccessSummary: metadataText(event, "firstAccessSummary") || metadataText(event, "first_access_summary"),
@@ -1518,7 +1565,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     const vacationKeys = vacationKeysForYear(calendarEvents, year);
     for (const event of calendarEvents) {
       for (const key of occurrenceKeysForYear(event, year)) {
-        if (!isVacationEvent(event) && isUmbandaEvent(event) && vacationKeys.has(key)) continue;
+        if (!isVacationEvent(event) && isUmbandaEvent(event) && !continuesDuringVacation(event) && vacationKeys.has(key)) continue;
         const list = map.get(key) ?? [];
         list.push(event);
         map.set(key, list);
@@ -1609,6 +1656,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <h2 className="mt-3 text-3xl font-black uppercase tracking-[0.08em] text-[#3B4E16] sm:text-5xl">Calendário Tucxa 2026</h2>
                   <p className="mx-auto mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#3B4E16]/80">Visual anual inspirado no calendário oficial do Tucxa, com leitura mobile friendly, filtros e edição rápida ao tocar em um evento.</p>
                 </div>
+                <div className="bg-[#eef8d6] px-3 pt-3 sm:px-5 sm:pt-5"><TucxaCalendarLegend /></div>
                 <div className="grid gap-4 bg-[#eef8d6] p-3 sm:p-5 xl:grid-cols-2">
                   {months.map((monthIndex) => {
                     const cells = monthMatrix(year, monthIndex);
@@ -1621,7 +1669,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                             const dayEvents = cell.day ? eventsByDay.get(cell.key) ?? [] : [];
                             const firstEvent = dayEvents[0];
                             return (
-                              <div key={cell.key} className={`min-h-12 rounded-xl p-1 text-center ring-1 sm:min-h-16 ${cell.day ? "bg-[#fbffe7] ring-lime-100" : "bg-transparent ring-transparent"}`}>
+                              <div key={cell.key} className={`min-h-12 rounded-xl p-1 text-center ring-1 sm:min-h-16 ${cell.day ? dayEvents.length > 0 ? `${colorFor(dayEvents[0], payload.eventTypes)} border-2` : "bg-[#fbffe7] ring-lime-100" : "bg-transparent ring-transparent"}`}>
                                 {cell.day && <p className="text-[0.68rem] font-black text-[#314414] sm:text-xs">{cell.day}</p>}
                                 <div className="mt-0.5 grid gap-0.5">
                                   {dayEvents.slice(0, 2).map((event) => {

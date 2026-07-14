@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -23,6 +24,7 @@ type AgendaEvent = {
   locationLabel: string;
   recurrenceLabel: string;
   notes: string;
+  continuesDuringVacation?: boolean;
 };
 
 type FilterOption = {
@@ -43,6 +45,7 @@ type AgendaPreferences = {
   responsible?: string;
   startDate?: string;
   endDate?: string;
+  showAnnualGuide?: boolean;
 };
 
 type AgendaPayload = {
@@ -105,6 +108,17 @@ const eventTones: EventTone[] = [
   { background: "#0F766E", border: "#0F5F59", text: "#FFFFFF", soft: "#CCFBF1" },
   { background: "#BE185D", border: "#9D174D", text: "#FFFFFF", soft: "#FCE7F3" },
   { background: "#CA8A04", border: "#A16207", text: "#FFFFFF", soft: "#FEF3C7" },
+];
+
+const tucxaLegendTones: Array<{ label: string; keywords: string[]; tone: EventTone }> = [
+  { label: "Grupo Segunda-feira", keywords: ["segunda", "segunda-feira", "filhos de fora segunda"], tone: { background: "#F5B7B1", border: "#D9827B", text: "#1F2937", soft: "#FCE3E0" } },
+  { label: "Grupo Terça-feira", keywords: ["terca", "terça", "terça-feira", "filhos de fora terca"], tone: { background: "#B8D8F1", border: "#6BAED6", text: "#123D2C", soft: "#E4F1FB" } },
+  { label: "Tratamento espiritual", keywords: ["tratamento", "transformacao", "transformação", "quarta"], tone: { background: "#CDE8CC", border: "#80B97F", text: "#123D2C", soft: "#EAF7E8" } },
+  { label: "Grupo 1", keywords: ["grupo 1", "grupo-1"], tone: { background: "#6EA87A", border: "#2F6B43", text: "#FFFFFF", soft: "#DDEDDD" } },
+  { label: "Grupo 2", keywords: ["grupo 2", "grupo-2"], tone: { background: "#4EA3D8", border: "#2477A8", text: "#FFFFFF", soft: "#D9EEF9" } },
+  { label: "Férias/recesso", keywords: ["ferias", "férias", "recesso"], tone: { background: "#F7E6B5", border: "#D9B85F", text: "#3B2F11", soft: "#FFF4CF" } },
+  { label: "Mutirão/limpeza", keywords: ["mutirao", "mutirão", "limpeza"], tone: { background: "#F8D789", border: "#D6A531", text: "#3B2F11", soft: "#FFF2CF" } },
+  { label: "Encerramento", keywords: ["encerramento"], tone: { background: "#E9DFCB", border: "#BFAE8F", text: "#3B2F11", soft: "#F6EFE2" } },
 ];
 
 function loginUrl() {
@@ -239,9 +253,25 @@ function statusIsDone(status: string) {
 }
 
 function eventTone(event: AgendaEvent) {
+  const search = normalize(`${event.title} ${event.eventType} ${event.eventTypeLabel} ${event.classification}`);
+  const matched = tucxaLegendTones.find((item) => item.keywords.some((keyword) => search.includes(normalize(keyword))));
+  if (matched) return matched.tone;
+
   const key = `${event.eventType}-${event.classification}-${event.audience}`;
   const index = Array.from(key).reduce((total, char) => total + char.charCodeAt(0), 0) % eventTones.length;
   return eventTones[index] ?? eventTones[0];
+}
+
+function TucxaLegend() {
+  return (
+    <div className="grid gap-2 rounded-[1.5rem] bg-white/90 p-3 text-[0.68rem] font-black uppercase tracking-[0.08em] ring-1 ring-[#123D2C]/10 sm:grid-cols-2 lg:grid-cols-3">
+      {tucxaLegendTones.slice(0, 6).map((item) => (
+        <span key={item.label} className="rounded-xl px-3 py-2" style={{ backgroundColor: item.tone.soft, border: `2px solid ${item.tone.border}`, color: item.tone.text === "#FFFFFF" ? item.tone.border : item.tone.text }}>
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function visiblePeriodStart(view: CalendarView, periodStart: Date) {
@@ -355,6 +385,8 @@ function MonthCalendar({ events, periodStart, onSelectDay, compact = false, filt
         </div>
       </div>
 
+      <div className="px-3 pb-3 sm:px-4"><TucxaLegend /></div>
+
       <div className="grid grid-cols-7 border-y border-[#123D2C]/10 bg-[#F7FAF2] text-center text-[0.62rem] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-xs">
         {compactWeekDayLabels.map((day, index) => (
           <span key={`${day}-${index}`} className="py-1.5 sm:py-2">
@@ -371,7 +403,8 @@ function MonthCalendar({ events, periodStart, onSelectDay, compact = false, filt
               key={day.isoDate}
               type="button"
               onClick={() => onSelectDay(day)}
-              className={`min-h-[3.65rem] border-b border-r border-[#123D2C]/10 p-1 text-left align-top transition hover:bg-[#F7FAF2] sm:min-h-24 sm:p-2 ${day.outsideMonth ? "bg-slate-50 text-slate-400" : "bg-white text-[#123D2C]"}`}
+              className={`min-h-[3.1rem] border-b border-r border-[#123D2C]/10 p-1 text-left align-top transition hover:bg-[#F7FAF2] sm:min-h-24 sm:p-2 ${day.outsideMonth ? "bg-slate-50 text-slate-400" : "bg-white text-[#123D2C]"}`}
+              style={firstTone && day.events.length > 0 ? { backgroundColor: firstTone.soft, border: `2px solid ${firstTone.border}` } : undefined}
             >
               <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-black sm:h-7 sm:w-7 sm:text-sm ${day.isToday ? "bg-[#123D2C] text-white" : ""}`}>{day.dayNumber}</span>
               {compact ? (
@@ -500,6 +533,7 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
       <div className="mb-4">
         <h2 className="text-2xl font-black text-[#123D2C]">Tucxa - {year}</h2>
       </div>
+      <TucxaLegend />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 12 }, (_, monthIndex) => {
           const monthDate = new Date(Date.UTC(year, monthIndex, 1, 12));
@@ -517,7 +551,7 @@ function YearCalendar({ events, periodStart, onSelectMonth }: { events: AgendaEv
                     <span
                       key={day.isoDate}
                       className={`flex h-6 items-center justify-center rounded text-[0.65rem] font-black ${day.isToday ? "text-white" : "text-[#123D2C]"}`}
-                      style={{ backgroundColor: day.isToday ? "#123D2C" : tone ? tone.soft : "#FFFFFF", border: day.events.length ? `1px solid ${tone?.border ?? "#DDE9DD"}` : "1px solid #EEF3EE" }}
+                      style={{ backgroundColor: day.isToday ? "#123D2C" : tone ? tone.soft : "#FFFFFF", border: day.events.length ? `2px solid ${tone?.border ?? "#DDE9DD"}` : "1px solid #EEF3EE" }}
                     >
                       {day.dayNumber}
                     </span>
@@ -584,6 +618,32 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
   );
 }
 
+function AnnualGuideModal({ onClose, onDisableAuto }: { onClose: () => void; onDisableAuto: () => void }) {
+  return (
+    <ModalShell title="Calendário anual Tucxa 2026" onClose={onClose}>
+      <div className="grid gap-3">
+        <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold leading-6 text-slate-600 ring-1 ring-[#123D2C]/10">
+          Esta é a visão parecida com o PDF enviado pelo WhatsApp. No celular, use o movimento de pinça para aproximar ou afastar e arraste para navegar. Você pode configurar nos filtros se ela deve abrir automaticamente.
+        </p>
+        <div className="max-h-[72vh] overflow-auto rounded-3xl bg-black p-3" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
+          <Image
+            src="/clientes/tucxa/eventos/calendario-tucxa-2026.jpeg"
+            alt="Calendário anual Tucxa 2026"
+            width={1200}
+            height={675}
+            priority
+            className="mx-auto min-w-[760px] max-w-none rounded-xl bg-white"
+          />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onDisableAuto} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Não abrir automaticamente</button>
+          <button type="button" onClick={onClose} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow">Abrir calendário interativo</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 function DayEventsModal({ day, onClose }: { day: CalendarDay; onClose: () => void }) {
   return (
     <ModalShell title={`Eventos de ${longDateLabel(dateFromIso(day.isoDate))}`} onClose={onClose}>
@@ -624,6 +684,8 @@ export default function AgendaVivaFilhoDaCorrentePage() {
   const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [annualGuideOpen, setAnnualGuideOpen] = useState(false);
+  const [showAnnualGuide, setShowAnnualGuide] = useState(true);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [notice, setNotice] = useState("");
@@ -640,6 +702,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     setResponsible(typeof preferences.responsible === "string" ? preferences.responsible : "");
     setStartDate(typeof preferences.startDate === "string" ? preferences.startDate : "");
     setEndDate(typeof preferences.endDate === "string" ? preferences.endDate : "");
+    setShowAnnualGuide(preferences.showAnnualGuide !== false);
   }, []);
 
   const load = useCallback(async () => {
@@ -662,7 +725,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     }
 
     setPayload(result);
-    setCalendarOpen(true);
+    const shouldShowAnnualGuide = result.agendaPreferences?.showAnnualGuide !== false;
+    setAnnualGuideOpen(shouldShowAnnualGuide);
+    setCalendarOpen(!shouldShowAnnualGuide);
   }, [applyPreferences]);
 
   useEffect(() => {
@@ -807,6 +872,18 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     setEventTypes((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
   }
 
+
+  function closeAnnualGuide(openInteractive = true) {
+    setAnnualGuideOpen(false);
+    if (openInteractive) setCalendarOpen(true);
+  }
+
+  async function disableAnnualGuideAuto() {
+    setShowAnnualGuide(false);
+    setAnnualGuideOpen(false);
+    setCalendarOpen(true);
+  }
+
   function toggleAllEventTypes() {
     const allTypes = (payload?.filters?.eventTypes ?? []).map((option) => option.value);
     setEventTypes((current) => current.length === allTypes.length ? [] : allTypes);
@@ -837,6 +914,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
         responsible,
         startDate,
         endDate,
+        showAnnualGuide,
       };
 
       const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/agenda", {
@@ -898,6 +976,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                     </div>
                     <ViewButtons view={view} onChange={setView} />
                     <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                      <button type="button" onClick={() => setAnnualGuideOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Visão PDF</button>
                       <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir calendário</button>
                       <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
                       <button type="button" onClick={toggleOnlyMine} className={`rounded-2xl px-4 py-3 text-sm font-black shadow ring-1 ${responsible === "__associated__" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}>Minhas atividades</button>
@@ -916,6 +995,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
         </div>
       </section>
 
+      {annualGuideOpen && <AnnualGuideModal onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} />}
       {calendarOpen && <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>{modalCalendar}</ModalShell>}
 
       {filtersOpen && (
@@ -982,9 +1062,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
             <section className="rounded-3xl bg-white p-4 ring-1 ring-[#123D2C]/10">
               <p className="text-sm font-black text-[#123D2C]">Tipo de Evento</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <p className="text-xs font-semibold text-slate-500">Pode escolher mais de uma opção.</p>
-                <button type="button" onClick={toggleAllEventTypes} className="rounded-full bg-[#E9F2E7] px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+              <p className="mt-1 text-xs font-semibold text-slate-500">Pode escolher mais de uma opção.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={toggleAllEventTypes} className="rounded-2xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">
                   {eventTypes.length === (payload?.filters?.eventTypes ?? []).length ? "Deselecionar todos" : "Selecionar todos"}
                 </button>
               </div>
@@ -997,6 +1077,11 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                 ))}
               </div>
             </section>
+
+            <label className="flex items-center gap-3 rounded-2xl bg-white p-4 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">
+              <input type="checkbox" checked={showAnnualGuide} onChange={(event) => setShowAnnualGuide(event.target.checked)} className="h-5 w-5 accent-[#123D2C]" />
+              Abrir visão anual estilo PDF automaticamente ao entrar na Agenda Viva
+            </label>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button type="button" onClick={clearFilters} className="rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Limpar filtros</button>

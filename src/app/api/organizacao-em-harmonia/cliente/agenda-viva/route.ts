@@ -75,7 +75,7 @@ function normalizeText(value: string) {
 function slugify(value: string) {
   return normalizeText(value)
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || `item-${Date.now()}`;
+    .replace(/^-+|-+$/g, "") || "item";
 }
 
 function weekdayCode(value: string) {
@@ -377,6 +377,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const imageAlt = asText(body.imageAlt ?? body.image_alt) || title;
   const imageEmoji = asText(body.imageEmoji ?? body.image_emoji);
   const highlightVisual = body.highlightVisual === undefined ? true : asBool(body.highlightVisual, true);
+  const continuesDuringVacation = body.continuesDuringVacation === undefined ? false : asBool(body.continuesDuringVacation, false);
   const firstAccessEnabled = body.firstAccessEnabled === undefined ? true : asBool(body.firstAccessEnabled, true);
   const firstAccessOrderRaw = Number(asText(body.firstAccessOrder ?? body.first_access_order));
   const firstAccessOrder = Number.isFinite(firstAccessOrderRaw) && firstAccessOrderRaw > 0 ? Math.trunc(firstAccessOrderRaw) : null;
@@ -423,6 +424,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       approval_requested_at: new Date().toISOString(),
       visual_calendar: true,
       highlight_visual: highlightVisual,
+      continuesDuringVacation,
+      continues_during_vacation: continuesDuringVacation,
+      keepDuringVacation: continuesDuringVacation,
+      mantemNasFerias: continuesDuringVacation,
       firstAccessEnabled,
       first_access_enabled: firstAccessEnabled,
       showOnFirstAccess: firstAccessEnabled,

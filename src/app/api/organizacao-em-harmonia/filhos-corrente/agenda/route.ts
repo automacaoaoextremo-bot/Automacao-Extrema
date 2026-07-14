@@ -65,6 +65,7 @@ type AgendaEvent = {
   locationLabel: string;
   recurrenceLabel: string;
   notes: string;
+  continuesDuringVacation: boolean;
 };
 
 type AgendaPreferences = {
@@ -76,6 +77,7 @@ type AgendaPreferences = {
   responsible?: string;
   startDate?: string;
   endDate?: string;
+  showAnnualGuide?: boolean;
 };
 
 const weekDayMap: Record<string, number> = {
@@ -237,6 +239,23 @@ function metadataList(value: unknown) {
   return text ? [text] : [];
 }
 
+function metadataBoolean(event: EventRecord, keys: string[], fallback = false) {
+  const metadata = asRecord(event.metadata);
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(metadata, key)) continue;
+    const value = metadata[key];
+    if (typeof value === "boolean") return value;
+    const text = normalize(asText(value));
+    if (["true", "1", "sim", "s", "yes"].includes(text)) return true;
+    if (["false", "0", "nao", "não", "n", "no"].includes(text)) return false;
+  }
+  return fallback;
+}
+
+function continuesDuringVacation(event: EventRecord) {
+  return metadataBoolean(event, ["continuesDuringVacation", "continues_during_vacation", "keepDuringVacation", "mantemNasFerias"], false);
+}
+
 function shouldShowEvent(event: EventRecord) {
   const status = normalize(asText(event.status));
   const hidden = new Set(["pendente_aprovacao", "pendente", "reprovado", "ajuste_solicitado", "rascunho", "draft", "cancelado", "cancelled"]);
@@ -253,8 +272,20 @@ function isUmbandaEvent(event: EventRecord) {
   return normalize(eventClassification(event)).includes("umbanda");
 }
 
+function addVacationRange(keys: Set<string>, year: number, startMonth: number, startDay: number, endMonth: number, endDay: number) {
+  let cursor = new Date(Date.UTC(year, startMonth, startDay, 12));
+  const end = new Date(Date.UTC(year, endMonth, endDay, 12));
+  while (cursor <= end) {
+    keys.add(toIsoDate(cursor));
+    cursor = addDays(cursor, 1);
+  }
+}
+
 function vacationDateKeys(events: EventRecord[]) {
   const keys = new Set<string>();
+  addVacationRange(keys, 2026, 0, 1, 0, 28);
+  addVacationRange(keys, 2026, 6, 1, 6, 29);
+  addVacationRange(keys, 2026, 11, 21, 11, 31);
   events.filter(isVacationEvent).forEach((event) => {
     const startIso = localDateIso(event.starts_at);
     const endIso = localDateIso(event.ends_at) || startIso;
@@ -273,7 +304,7 @@ function removeUmbandaDuringVacations(events: EventRecord[]) {
   const vacationKeys = vacationDateKeys(events);
   if (vacationKeys.size === 0) return events;
   return events.filter((event) => {
-    if (isVacationEvent(event) || !isUmbandaEvent(event)) return true;
+    if (isVacationEvent(event) || !isUmbandaEvent(event) || continuesDuringVacation(event)) return true;
     const key = localDateIso(event.starts_at);
     return !key || !vacationKeys.has(key);
   });
@@ -466,6 +497,7 @@ function agendaPreferences(profile: Record<string, unknown>): AgendaPreferences 
     responsible: asText(preferences.responsible),
     startDate: asText(preferences.startDate),
     endDate: asText(preferences.endDate),
+    showAnnualGuide: preferences.showAnnualGuide === false ? false : true,
   };
 }
 
@@ -482,6 +514,7 @@ function normalizePreferences(value: unknown): AgendaPreferences {
     responsible: asText(record.responsible),
     startDate: asText(record.startDate),
     endDate: asText(record.endDate),
+    showAnnualGuide: record.showAnnualGuide === false ? false : true,
   };
 }
 
@@ -525,6 +558,7 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     locationLabel: asText(locationRecord?.name) || asText(event.location) || asText(metadata.locationLabel) || "Local a definir",
     recurrenceLabel: recurrenceLabel(event),
     notes: asText(event.notes),
+    continuesDuringVacation: continuesDuringVacation(event),
   };
 }
 
