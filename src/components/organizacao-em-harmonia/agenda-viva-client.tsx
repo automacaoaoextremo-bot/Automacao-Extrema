@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Mode = "overview" | "eventos" | "aprovacoes" | "calendario" | "configuracoes";
+type Mode = "overview" | "eventos" | "aprovacoes" | "calendario" | "cadastros" | "configuracoes";
 
 type Person = {
   id: string;
@@ -79,6 +79,21 @@ type SpiritualEntity = {
   active: boolean;
 };
 
+type AgendaCatalogItem = {
+  id: string;
+  value: string;
+  label: string;
+  description?: string;
+  active: boolean;
+  archived: boolean;
+};
+
+type AgendaCatalogs = {
+  audiences: AgendaCatalogItem[];
+  classifications: AgendaCatalogItem[];
+  responsiblePersonIds: string[];
+};
+
 type AgendaSettings = {
   maxRecurringAppointmentsPerConsulente: number;
   autoCancelRecurringOnAbsence: boolean;
@@ -90,6 +105,7 @@ type AgendaSettings = {
   accessValidationReviewerPersonIds: string[];
   accessSimulationPersonIds: string[];
   accessCopyEmail: string;
+  agendaCatalogs: AgendaCatalogs;
 };
 
 type Payload = {
@@ -129,6 +145,88 @@ type FormState = {
   requiresApproval: boolean;
 };
 
+const defaultAgendaCatalogs: AgendaCatalogs = {
+  audiences: [
+    { id: "filhos-corrente", value: "filhos-corrente", label: "Somente Filhos da Corrente", active: true, archived: false },
+    { id: "consulentes", value: "consulentes", label: "Consulentes / Filhos de Fora", active: true, archived: false },
+    { id: "todos", value: "todos", label: "Filhos da Corrente e Consulentes", active: true, archived: false },
+  ],
+  classifications: [
+    { id: "umbanda", value: "umbanda", label: "Umbanda", active: true, archived: false },
+    { id: "outros", value: "outros", label: "Outros", active: true, archived: false },
+    { id: "sementinha", value: "sementinha", label: "Sementinha", active: true, archived: false },
+    { id: "estudos", value: "estudos", label: "Estudos", active: true, archived: false },
+    { id: "social", value: "social", label: "Social / comunidade", active: true, archived: false },
+  ],
+  responsiblePersonIds: [],
+};
+
+function normalizeText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function slugifyCatalogValue(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "item";
+}
+
+function normalizeCatalogItem(value: unknown, fallback: AgendaCatalogItem): AgendaCatalogItem {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const label = typeof record.label === "string" && record.label.trim() ? record.label.trim() : fallback.label;
+  const rawValue = typeof record.value === "string" && record.value.trim() ? record.value.trim() : fallback.value || slugifyCatalogValue(label);
+  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : rawValue;
+  return {
+    id,
+    value: rawValue,
+    label,
+    description: typeof record.description === "string" ? record.description.trim() : fallback.description,
+    active: typeof record.active === "boolean" ? record.active : fallback.active,
+    archived: typeof record.archived === "boolean" ? record.archived : fallback.archived,
+  };
+}
+
+function mergeCatalogItems(defaults: AgendaCatalogItem[], custom: unknown): AgendaCatalogItem[] {
+  const items = Array.isArray(custom) ? custom : [];
+  const map = new Map<string, AgendaCatalogItem>();
+  defaults.forEach((item) => map.set(item.value, item));
+  items.forEach((item) => {
+    const fallback = normalizeCatalogItem(item, { id: "", value: "", label: "Item", active: true, archived: false });
+    map.set(fallback.value, fallback);
+  });
+  return Array.from(map.values());
+}
+
+function normalizeAgendaCatalogs(value: unknown): AgendaCatalogs {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return {
+    audiences: mergeCatalogItems(defaultAgendaCatalogs.audiences, record.audiences),
+    classifications: mergeCatalogItems(defaultAgendaCatalogs.classifications, record.classifications),
+    responsiblePersonIds: Array.isArray(record.responsiblePersonIds) ? record.responsiblePersonIds.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [],
+  };
+}
+
+function activeCatalogItems(items: AgendaCatalogItem[]) {
+  return items.filter((item) => item.active !== false && item.archived !== true);
+}
+
+function nextCatalogItemId(kind: "audiences" | "classifications", items: AgendaCatalogItem[]) {
+  const prefix = `novo-${kind}-`;
+  const usedIds = new Set(items.map((item) => item.id));
+  let index = items.length + 1;
+  let id = `${prefix}${index}`;
+
+  while (usedIds.has(id)) {
+    index += 1;
+    id = `${prefix}${index}`;
+  }
+
+  return id;
+}
+
 const defaultAgendaSettings: AgendaSettings = {
   maxRecurringAppointmentsPerConsulente: 2,
   autoCancelRecurringOnAbsence: true,
@@ -141,6 +239,7 @@ const defaultAgendaSettings: AgendaSettings = {
   accessValidationReviewerPersonIds: [],
   accessSimulationPersonIds: [],
   accessCopyEmail: "automacao.ao.extremo@gmail.com",
+  agendaCatalogs: defaultAgendaCatalogs,
 };
 
 function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettings {
@@ -153,6 +252,7 @@ function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettin
     accessValidationReviewerPersonIds: Array.isArray(value?.accessValidationReviewerPersonIds) ? value.accessValidationReviewerPersonIds : [],
     accessSimulationPersonIds: Array.isArray(value?.accessSimulationPersonIds) ? value.accessSimulationPersonIds : [],
     accessCopyEmail: typeof value?.accessCopyEmail === "string" && value.accessCopyEmail.trim() ? value.accessCopyEmail : defaultAgendaSettings.accessCopyEmail,
+    agendaCatalogs: normalizeAgendaCatalogs((value as Partial<AgendaSettings> | undefined)?.agendaCatalogs),
   };
 }
 
@@ -209,6 +309,11 @@ const agendaLinks = [
     label: "Calendário",
     href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario",
     description: "Visualize eventos concluídos, futuros, por período, por evento, pessoa ou público.",
+  },
+  {
+    label: "Cadastros",
+    href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/cadastros",
+    description: "Cadastre tipos, públicos, classificações e responsáveis usados nos eventos.",
   },
   {
     label: "Configurações",
@@ -466,9 +571,58 @@ function eventClassificationLabel(value: string) {
 }
 
 function audienceLabel(value: string) {
+  const option = activeCatalogItems(defaultAgendaCatalogs.audiences).find((item) => item.value === value);
+  if (option) return option.label;
   if (value === "todos") return "Filhos da Corrente e Consulentes";
   if (value === "consulentes") return "Consulentes / Filhos de Fora";
   return "Somente Filhos da Corrente";
+}
+
+function agendaCatalogsFromPayload(payload: Payload) {
+  return normalizeAgendaCatalogs(payload.agendaSettings?.agendaCatalogs);
+}
+
+function audienceOptions(payload: Payload) {
+  return activeCatalogItems(agendaCatalogsFromPayload(payload).audiences);
+}
+
+function classificationOptions(payload: Payload) {
+  return activeCatalogItems(agendaCatalogsFromPayload(payload).classifications);
+}
+
+function responsiblePeople(payload: Payload) {
+  const allowed = agendaCatalogsFromPayload(payload).responsiblePersonIds;
+  const people = payload.people.filter((person) => person.active !== false);
+  return allowed.length ? people.filter((person) => allowed.includes(person.id)) : people;
+}
+
+function isVacationEvent(event: AgendaEvent) {
+  const text = `${event.title} ${event.event_type} ${event.group_slug ?? ""} ${metadataText(event, "eventTypeLabel")} ${metadataText(event, "classification")}`;
+  const normalized = normalizeText(text);
+  return normalized.includes("ferias") || normalized.includes("recesso");
+}
+
+function isUmbandaEvent(event: AgendaEvent) {
+  return normalizeText(eventClassification(event)).includes("umbanda");
+}
+
+function vacationKeysForYear(events: AgendaEvent[], year: number) {
+  const keys = new Set<string>();
+  events.filter(isVacationEvent).forEach((event) => {
+    const occurrences = occurrenceKeysForYear(event, year);
+    occurrences.forEach((key) => keys.add(key));
+    const start = toComparableDate(eventLocalStart(event));
+    const end = toComparableDate(eventLocalEnd(event));
+    if (start && end && end >= start) {
+      let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      while (cursor <= last && cursor.getFullYear() <= year) {
+        if (cursor.getFullYear() === year) keys.add(localDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()));
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+      }
+    }
+  });
+  return keys;
 }
 
 
@@ -694,6 +848,7 @@ function AgendaVivaSubnav({ active }: { active: Mode }) {
     { key: "eventos", label: "Eventos", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/eventos" },
     { key: "aprovacoes", label: "Aprovações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/aprovacoes" },
     { key: "calendario", label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario" },
+    { key: "cadastros", label: "Cadastros", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/cadastros" },
     { key: "configuracoes", label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/configuracoes" },
   ];
   return (
@@ -754,26 +909,20 @@ function AgendaEventForm({
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Público do evento</span>
           <select value={form.audience} onChange={(event) => update("audience", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
-            <option value="filhos-corrente">Somente Filhos da Corrente</option>
-            <option value="consulentes">Consulentes / Filhos de Fora</option>
-            <option value="todos">Filhos da Corrente e Consulentes</option>
+            {audienceOptions(payload).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Classificação do evento</span>
           <select value={form.eventClassification} onChange={(event) => update("eventClassification", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
-            <option value="umbanda">Umbanda</option>
-            <option value="outros">Outros</option>
-            <option value="sementinha">Sementinha</option>
-            <option value="estudos">Estudos</option>
-            <option value="social">Social / comunidade</option>
+            {classificationOptions(payload).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Responsável</span>
           <select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
             <option value="">A definir</option>
-            {payload.people.filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+            {responsiblePeople(payload).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
           </select>
         </label>
         <label className="grid gap-1">
@@ -992,6 +1141,8 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const { payload, setPayload, loading, error, setError } = useAgendaVivaData(router);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [settingsForm, setSettingsForm] = useState<AgendaSettings>(defaultAgendaSettings);
+  const [catalogDraft, setCatalogDraft] = useState<AgendaCatalogs>(defaultAgendaCatalogs);
+  const [eventTypeDraft, setEventTypeDraft] = useState({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
@@ -1014,7 +1165,9 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     if (!payload?.agendaSettings) return;
 
     const timer = window.setTimeout(() => {
-      setSettingsForm(normalizeAgendaSettings(payload.agendaSettings));
+      const normalizedSettings = normalizeAgendaSettings(payload.agendaSettings);
+      setSettingsForm(normalizedSettings);
+      setCatalogDraft(normalizedSettings.agendaCatalogs);
     }, 0);
 
     return () => {
@@ -1027,6 +1180,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     eventos: "Agenda Viva — Eventos",
     aprovacoes: "Agenda Viva — Aprovações",
     calendario: "Agenda Viva — Calendário",
+    cadastros: "Agenda Viva — Cadastros",
     configuracoes: "Agenda Viva — Configurações",
   };
 
@@ -1035,6 +1189,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     eventos: "Cadastre e edite eventos em uma lista com formulário em janela, sem precisar voltar ao topo da página.",
     aprovacoes: "Valide as solicitações antes de publicar no calendário e no Primeiro Acesso.",
     calendario: "Visualize eventos por período, público, tipo, responsável e status.",
+    cadastros: "Configure os cadastros usados nos eventos: tipo, público, classificação e responsáveis.",
     configuracoes: "Defina regras de agendamento, recorrência, ausência e encaminhamento de quarta-feira.",
   };
 
@@ -1082,6 +1237,117 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       setForm((current) => ({ ...current, imageUrl: dataUrl, imageAlt: current.imageAlt || file.name.replace(/\.[^.]+$/, "") }));
     };
     reader.readAsDataURL(file);
+  }
+
+  function updateCatalogItem(kind: "audiences" | "classifications", id: string, patch: Partial<AgendaCatalogItem>) {
+    setCatalogDraft((current) => ({
+      ...current,
+      [kind]: current[kind].map((item) => item.id === id ? { ...item, ...patch, value: patch.label && !patch.value ? slugifyCatalogValue(patch.label) : item.value } : item),
+    }));
+  }
+
+  function addCatalogItem(kind: "audiences" | "classifications") {
+    setCatalogDraft((current) => {
+      const id = nextCatalogItemId(kind, current[kind]);
+      return {
+        ...current,
+        [kind]: [...current[kind], { id, value: id, label: "Novo item", active: true, archived: false }],
+      };
+    });
+  }
+
+  function removeCatalogItem(kind: "audiences" | "classifications", id: string) {
+    setCatalogDraft((current) => ({ ...current, [kind]: current[kind].filter((item) => item.id !== id) }));
+  }
+
+  function toggleResponsiblePerson(personId: string) {
+    setCatalogDraft((current) => {
+      const ids = current.responsiblePersonIds.includes(personId)
+        ? current.responsiblePersonIds.filter((id) => id !== personId)
+        : [...current.responsiblePersonIds, personId];
+      return { ...current, responsiblePersonIds: ids };
+    });
+  }
+
+  async function saveCatalogs() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "updateAgendaCatalogs", agendaCatalogs: catalogDraft }) });
+      if (result) setPayload(result);
+      setMessage("Cadastros da Agenda Viva salvos.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar cadastros da Agenda Viva.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveEventTypeDraft() {
+    if (!eventTypeDraft.name.trim()) {
+      setError("Informe o nome do tipo de atividade.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "upsertEventType", eventType: eventTypeDraft }) });
+      if (result) setPayload(result);
+      setEventTypeDraft({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" });
+      setMessage("Tipo de atividade salvo.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar tipo de atividade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+
+  async function toggleEventTypeActive(item: EventType) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({
+        method: "POST",
+        body: JSON.stringify({
+          action: "upsertEventType",
+          eventType: {
+            id: item.id,
+            name: item.name,
+            slug: item.slug,
+            description: item.description ?? "",
+            requiresApproval: item.requires_approval,
+            active: !item.active,
+            sortOrder: String(item.sort_order ?? ""),
+          },
+        }),
+      });
+      if (result) setPayload(result);
+      setMessage(item.active ? "Tipo de atividade inativado/arquivado." : "Tipo de atividade ativado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao alterar tipo de atividade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteEventTypeDraft(id: string) {
+    if (!window.confirm("Excluir este tipo de atividade? Se já estiver em uso, ele será apenas inativado.")) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "deleteEventType", eventTypeId: id }) });
+      if (result) setPayload(result);
+      setMessage("Tipo de atividade removido ou inativado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao remover tipo de atividade.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveAgendaSettings(event: FormEvent<HTMLFormElement>) {
@@ -1249,8 +1515,10 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, AgendaEvent[]>();
+    const vacationKeys = vacationKeysForYear(calendarEvents, year);
     for (const event of calendarEvents) {
       for (const key of occurrenceKeysForYear(event, year)) {
+        if (!isVacationEvent(event) && isUmbandaEvent(event) && vacationKeys.has(key)) continue;
         const list = map.get(key) ?? [];
         list.push(event);
         map.set(key, list);
@@ -1328,9 +1596,9 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                 <div className="mt-5 grid gap-3 md:grid-cols-3">
                   <select value={calendarRange} onChange={(event) => setCalendarRange(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="completo">Calendário completo, incluindo concluídos</option><option value="futuros">A partir da data atual</option></select>
                   <select value={calendarEventType} onChange={(event) => setCalendarEventType(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os eventos/tipos</option>{payload.eventTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-                  <select value={calendarAudience} onChange={(event) => setCalendarAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="all">Todos os públicos</option><option value="filhos-corrente">Somente Filhos da Corrente</option><option value="consulentes">Consulentes / Filhos de Fora</option><option value="todos">Filhos e Consulentes</option></select>
-                  <select value={calendarClassification} onChange={(event) => setCalendarClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option><option value="umbanda">Umbanda</option><option value="outros">Outros</option><option value="sementinha">Sementinha</option><option value="estudos">Estudos</option><option value="social">Social / comunidade</option></select>
-                  <select value={calendarPersonId} onChange={(event) => setCalendarPersonId(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Sem filtro por pessoa</option>{payload.people.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select>
+                  <select value={calendarAudience} onChange={(event) => setCalendarAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="all">Todos os públicos</option>{audienceOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <select value={calendarClassification} onChange={(event) => setCalendarClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option>{classificationOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <select value={calendarPersonId} onChange={(event) => setCalendarPersonId(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Sem filtro por pessoa</option>{responsiblePeople(payload).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select>
                   <input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
                   <input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
                 </div>
@@ -1381,6 +1649,97 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
           )}
 
 
+
+          {mode === "cadastros" && (
+            <div className="grid gap-5">
+              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Cadastros auxiliares</p>
+                    <h2 className="mt-2 text-2xl font-black text-[#00334E]">Listas usadas no formulário de eventos</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Inclua, edite, arquive, ative/inative ou exclua as opções que aparecem nos campos circulados do Novo evento.</p>
+                  </div>
+                  <button type="button" onClick={saveCatalogs} disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{saving ? "Salvando..." : "Salvar cadastros"}</button>
+                </div>
+              </section>
+
+              <section className="grid gap-4 lg:grid-cols-2">
+                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-black text-[#00334E]">Tipo de atividade</h3>
+                      <p className="mt-1 text-sm text-slate-600">Cadastro gravado na tabela de tipos da Agenda Viva.</p>
+                    </div>
+                    <button type="button" onClick={() => setEventTypeDraft({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" })} className="rounded-2xl bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#00334E]">Novo</button>
+                  </div>
+                  <div className="mt-4 grid gap-3 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100">
+                    <input value={eventTypeDraft.name} onChange={(event) => setEventTypeDraft((current) => ({ ...current, name: event.target.value, slug: current.slug || slugifyCatalogValue(event.target.value) }))} placeholder="Nome do tipo" className="rounded-2xl border border-slate-200 p-3" />
+                    <input value={eventTypeDraft.slug} onChange={(event) => setEventTypeDraft((current) => ({ ...current, slug: slugifyCatalogValue(event.target.value) }))} placeholder="slug" className="rounded-2xl border border-slate-200 p-3" />
+                    <textarea value={eventTypeDraft.description} onChange={(event) => setEventTypeDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Descrição" className="min-h-20 rounded-2xl border border-slate-200 p-3" />
+                    <label className="flex items-center gap-2 text-sm font-bold text-[#00334E]"><input type="checkbox" checked={eventTypeDraft.requiresApproval} onChange={(event) => setEventTypeDraft((current) => ({ ...current, requiresApproval: event.target.checked }))} /> Exige aprovação</label>
+                    <label className="flex items-center gap-2 text-sm font-bold text-[#00334E]"><input type="checkbox" checked={eventTypeDraft.active} onChange={(event) => setEventTypeDraft((current) => ({ ...current, active: event.target.checked }))} /> Ativo</label>
+                    <button type="button" onClick={saveEventTypeDraft} disabled={saving} className="rounded-2xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-60">Salvar tipo</button>
+                  </div>
+                  <div className="mt-4 grid gap-2">
+                    {payload.eventTypes.map((item) => (
+                      <div key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div><p className="font-black text-[#00334E]">{item.name}</p><p className="text-xs font-bold text-slate-500">{item.slug} · {item.active ? "ativo" : "inativo/arquivado"}</p></div>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setEventTypeDraft({ id: item.id, name: item.name, slug: item.slug, description: item.description ?? "", requiresApproval: item.requires_approval, active: item.active, sortOrder: String(item.sort_order ?? "") })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">Editar</button>
+                            <button type="button" onClick={() => toggleEventTypeActive(item)} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.active ? "Inativar/arquivar" : "Ativar"}</button>
+                            <button type="button" onClick={() => deleteEventTypeDraft(item.id)} className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700 ring-1 ring-red-100">Excluir</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+
+                {(["audiences", "classifications"] as const).map((kind) => (
+                  <article key={kind} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-black text-[#00334E]">{kind === "audiences" ? "Público do evento" : "Classificação do evento"}</h3>
+                        <p className="mt-1 text-sm text-slate-600">Opções usadas nos filtros e no modal de evento.</p>
+                      </div>
+                      <button type="button" onClick={() => addCatalogItem(kind)} className="rounded-2xl bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#00334E]">Incluir</button>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      {catalogDraft[kind].map((item) => (
+                        <div key={item.id} className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
+                          <input value={item.label} onChange={(event) => updateCatalogItem(kind, item.id, { label: event.target.value, value: slugifyCatalogValue(event.target.value) })} className="rounded-xl border border-slate-200 p-2 font-bold" />
+                          <input value={item.value} onChange={(event) => updateCatalogItem(kind, item.id, { value: slugifyCatalogValue(event.target.value) })} className="rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-600" />
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => updateCatalogItem(kind, item.id, { active: !item.active })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.active ? "Inativar" : "Ativar"}</button>
+                            <button type="button" onClick={() => updateCatalogItem(kind, item.id, { archived: !item.archived, active: item.archived ? item.active : false })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.archived ? "Desarquivar" : "Arquivar"}</button>
+                            <button type="button" onClick={() => removeCatalogItem(kind, item.id)} className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700 ring-1 ring-red-100">Excluir</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+
+                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 lg:col-span-2">
+                  <h3 className="text-xl font-black text-[#00334E]">Responsáveis</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">A inclusão e edição dos responsáveis continua na Base Única. Aqui você define quais pessoas ficam ativas no campo Responsável da Agenda Viva.</p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {payload.people.filter((person) => person.active !== false).map((person) => {
+                      const selected = catalogDraft.responsiblePersonIds.length === 0 || catalogDraft.responsiblePersonIds.includes(person.id);
+                      return (
+                        <label key={person.id} className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
+                          <input type="checkbox" checked={selected} onChange={() => toggleResponsiblePerson(person.id)} className="mt-1 h-5 w-5" />
+                          <span><span className="block font-black text-[#00334E]">{person.full_name}</span><span className="block text-xs font-bold text-slate-500">{selected ? "Ativo na Agenda" : "Inativo na Agenda"}</span></span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos" className="mt-4 inline-flex rounded-2xl bg-[#00334E] px-4 py-3 font-black text-white">Incluir ou editar pessoa na Base Única</Link>
+                </article>
+              </section>
+            </div>
+          )}
 
           {mode === "configuracoes" && (
             <form onSubmit={saveAgendaSettings} className="grid gap-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">

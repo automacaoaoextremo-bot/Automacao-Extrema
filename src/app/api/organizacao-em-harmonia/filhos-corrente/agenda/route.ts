@@ -242,6 +242,43 @@ function shouldShowEvent(event: EventRecord) {
   const hidden = new Set(["pendente_aprovacao", "pendente", "reprovado", "ajuste_solicitado", "rascunho", "draft", "cancelado", "cancelled"]);
   return !hidden.has(status);
 }
+function isVacationEvent(event: EventRecord) {
+  const metadata = asRecord(event.metadata);
+  const text = `${event.title ?? ""} ${event.event_type ?? ""} ${event.group_slug ?? ""} ${asText(metadata.eventTypeLabel)} ${asText(metadata.classification)}`;
+  const normalized = normalize(text);
+  return normalized.includes("ferias") || normalized.includes("recesso");
+}
+
+function isUmbandaEvent(event: EventRecord) {
+  return normalize(eventClassification(event)).includes("umbanda");
+}
+
+function vacationDateKeys(events: EventRecord[]) {
+  const keys = new Set<string>();
+  events.filter(isVacationEvent).forEach((event) => {
+    const startIso = localDateIso(event.starts_at);
+    const endIso = localDateIso(event.ends_at) || startIso;
+    if (!startIso) return;
+    let cursor = dateFromIso(startIso);
+    const last = dateFromIso(endIso);
+    while (cursor <= last) {
+      keys.add(toIsoDate(cursor));
+      cursor = addDays(cursor, 1);
+    }
+  });
+  return keys;
+}
+
+function removeUmbandaDuringVacations(events: EventRecord[]) {
+  const vacationKeys = vacationDateKeys(events);
+  if (vacationKeys.size === 0) return events;
+  return events.filter((event) => {
+    if (isVacationEvent(event) || !isUmbandaEvent(event)) return true;
+    const key = localDateIso(event.starts_at);
+    return !key || !vacationKeys.has(key);
+  });
+}
+
 
 function eventClassification(event: EventRecord) {
   const metadata = asRecord(event.metadata);
@@ -521,9 +558,11 @@ export async function GET(request: Request) {
     const locations = mapById((locationsResult.data ?? []) as LookupRecord[]);
     const people = mapById((peopleResult.data ?? []) as LookupRecord[]);
 
-    const events = ((eventsResult.data ?? []) as EventRecord[])
+    const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
       .filter(shouldShowEvent)
-      .flatMap(expandRecurringEvent)
+      .flatMap(expandRecurringEvent);
+
+    const events = removeUmbandaDuringVacations(expandedEvents)
       .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, eventTypes, locations, people }))
       .sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
 

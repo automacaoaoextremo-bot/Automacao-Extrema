@@ -72,6 +72,12 @@ function normalizeText(value: string) {
     .toLowerCase();
 }
 
+function slugify(value: string) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || `item-${Date.now()}`;
+}
+
 function weekdayCode(value: string) {
   const normalized = normalizeText(value);
   if (normalized.includes("domingo") || normalized === "0" || normalized === "su") return "SU";
@@ -115,12 +121,50 @@ function defaultAgendaSettings() {
     accessValidationReviewerPersonIds: [] as string[],
     accessSimulationPersonIds: [] as string[],
     accessCopyEmail: "automacao.ao.extremo@gmail.com",
+    agendaCatalogs: {
+      audiences: [
+        { id: "filhos-corrente", value: "filhos-corrente", label: "Somente Filhos da Corrente", active: true, archived: false },
+        { id: "consulentes", value: "consulentes", label: "Consulentes / Filhos de Fora", active: true, archived: false },
+        { id: "todos", value: "todos", label: "Filhos da Corrente e Consulentes", active: true, archived: false },
+      ],
+      classifications: [
+        { id: "umbanda", value: "umbanda", label: "Umbanda", active: true, archived: false },
+        { id: "outros", value: "outros", label: "Outros", active: true, archived: false },
+        { id: "sementinha", value: "sementinha", label: "Sementinha", active: true, archived: false },
+        { id: "estudos", value: "estudos", label: "Estudos", active: true, archived: false },
+        { id: "social", value: "social", label: "Social / comunidade", active: true, archived: false },
+      ],
+      responsiblePersonIds: [] as string[],
+    },
   };
 }
 
 function mergeAgendaSettings(settings: unknown) {
   const base = defaultAgendaSettings();
   const current = settings && typeof settings === "object" && !Array.isArray(settings) ? (settings as Record<string, unknown>) : {};
+  const currentCatalogs = current.agendaCatalogs && typeof current.agendaCatalogs === "object" && !Array.isArray(current.agendaCatalogs) ? current.agendaCatalogs as Record<string, unknown> : {};
+  const normalizeCatalogItems = (fallback: Array<Record<string, unknown>>, value: unknown) => {
+    const map = new Map<string, Record<string, unknown>>();
+    fallback.forEach((item) => map.set(asText(item.value), item));
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return;
+        const record = item as Record<string, unknown>;
+        const label = asText(record.label) || "Item";
+        const valueText = asText(record.value) || slugify(label);
+        map.set(valueText, {
+          id: asText(record.id) || valueText,
+          value: valueText,
+          label,
+          description: asText(record.description),
+          active: record.active === false ? false : true,
+          archived: record.archived === true,
+        });
+      });
+    }
+    return Array.from(map.values());
+  };
+
   return {
     ...base,
     ...current,
@@ -135,6 +179,13 @@ function mergeAgendaSettings(settings: unknown) {
       ? current.accessSimulationPersonIds.map((item) => asText(item)).filter(Boolean)
       : base.accessSimulationPersonIds,
     accessCopyEmail: asText(current.accessCopyEmail ?? base.accessCopyEmail) || base.accessCopyEmail,
+    agendaCatalogs: {
+      audiences: normalizeCatalogItems(base.agendaCatalogs.audiences, currentCatalogs.audiences),
+      classifications: normalizeCatalogItems(base.agendaCatalogs.classifications, currentCatalogs.classifications),
+      responsiblePersonIds: Array.isArray(currentCatalogs.responsiblePersonIds)
+        ? currentCatalogs.responsiblePersonIds.map((item) => asText(item)).filter(Boolean)
+        : base.agendaCatalogs.responsiblePersonIds,
+    },
   };
 }
 
@@ -522,6 +573,108 @@ async function updateAgendaSettings(organizationId: string, body: Record<string,
   if (error) throw error;
 }
 
+async function upsertEventType(organizationId: string, body: Record<string, unknown>) {
+  const record = body.eventType && typeof body.eventType === "object" && !Array.isArray(body.eventType) ? body.eventType as Record<string, unknown> : body;
+  const id = asText(record.id);
+  const name = asText(record.name);
+  const slug = slugify(asText(record.slug) || name);
+  const description = asText(record.description);
+  const requiresApproval = record.requiresApproval === undefined ? true : asBool(record.requiresApproval, true);
+  const active = record.active === undefined ? true : asBool(record.active, true);
+  const sortOrderRaw = Number(asText(record.sortOrder ?? record.sort_order));
+  const sortOrder = Number.isFinite(sortOrderRaw) ? Math.trunc(sortOrderRaw) : 100;
+
+  if (!name) throw new Error("Informe o nome do tipo de atividade.");
+
+  if (id) {
+    const { error } = await supabaseAdmin
+      .from("agv_event_types")
+      .update({ name, slug, description: description || null, requires_approval: requiresApproval, active, sort_order: sortOrder, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("organization_id", organizationId);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from("agv_event_types").insert({
+    organization_id: organizationId,
+    name,
+    slug,
+    description: description || null,
+    requires_approval: requiresApproval,
+    active,
+    sort_order: sortOrder,
+  });
+  if (error) throw error;
+}
+
+async function deleteEventType(organizationId: string, body: Record<string, unknown>) {
+  const eventTypeId = asText(body.eventTypeId ?? body.id);
+  if (!eventTypeId) throw new Error("Tipo de atividade não informado.");
+
+  const { data: events, error: eventsError } = await supabaseAdmin
+    .from("agv_events")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("event_type_id", eventTypeId)
+    .limit(1);
+  if (eventsError) throw eventsError;
+
+  if ((events ?? []).length > 0) {
+    const { error } = await supabaseAdmin
+      .from("agv_event_types")
+      .update({ active: false, updated_at: new Date().toISOString() })
+      .eq("id", eventTypeId)
+      .eq("organization_id", organizationId);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("agv_event_types")
+    .delete()
+    .eq("id", eventTypeId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+}
+
+async function updateAgendaCatalogs(organizationId: string, body: Record<string, unknown>) {
+  const currentPayload = await listPayload(organizationId);
+  const currentSettings = mergeAgendaSettings(currentPayload.agendaSettings);
+  const incoming = body.agendaCatalogs && typeof body.agendaCatalogs === "object" && !Array.isArray(body.agendaCatalogs)
+    ? body.agendaCatalogs as Record<string, unknown>
+    : {};
+  const settings = mergeAgendaSettings({
+    ...currentSettings,
+    agendaCatalogs: incoming,
+  });
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("oh_module_settings")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("module_slug", "agenda-viva")
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.id) {
+    const { error } = await supabaseAdmin
+      .from("oh_module_settings")
+      .update({ enabled: true, settings, updated_at: new Date().toISOString() })
+      .eq("id", existing.id);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabaseAdmin.from("oh_module_settings").insert({
+    organization_id: organizationId,
+    module_slug: "agenda-viva",
+    enabled: true,
+    settings,
+  });
+  if (error) throw error;
+}
+
 async function deleteEvent(organizationId: string, body: Record<string, unknown>) {
   const eventId = asText(body.eventId);
   if (!eventId) throw new Error("Atividade não informada.");
@@ -635,6 +788,12 @@ export async function POST(request: Request) {
       await decideEvent(auth.context.organizationId, currentPerson.id, body, "ajuste_solicitado");
     } else if (action === "deleteEvent") {
       await deleteEvent(auth.context.organizationId, body);
+    } else if (action === "upsertEventType") {
+      await upsertEventType(auth.context.organizationId, body);
+    } else if (action === "deleteEventType") {
+      await deleteEventType(auth.context.organizationId, body);
+    } else if (action === "updateAgendaCatalogs") {
+      await updateAgendaCatalogs(auth.context.organizationId, body);
     } else if (action === "updateAgendaSettings") {
       await updateAgendaSettings(auth.context.organizationId, body);
     }

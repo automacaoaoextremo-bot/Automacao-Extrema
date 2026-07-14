@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { supabaseBrowser } from "@/lib/supabase-browser";
 import {
   filhoDaCorrenteAgenda as fallbackFilhoDaCorrenteAgenda,
   filhoDaCorrenteFunctions,
@@ -32,14 +31,6 @@ type AgendaOption = {
   description?: string;
 };
 
-type AccessResponse = {
-  ok?: boolean;
-  authEmail?: string;
-  person?: AccessPerson | null;
-  message?: string;
-  error?: string;
-  whatsappUrl?: string;
-};
 
 type FirstAccessDraft = {
   fullName: string;
@@ -74,11 +65,6 @@ function toggleValue(values: string[], value: string) {
 }
 
 export default function FilhoDaCorrenteTucxaPage() {
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState("");
 
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -228,63 +214,6 @@ export default function FilhoDaCorrenteTucxaPage() {
     [selectedAgenda.length, selectedFunctions.length],
   );
 
-  async function resolveLoginEmail() {
-    const value = identifier.trim();
-    if (!value) throw new Error("Informe seu e-mail ou WhatsApp.");
-
-    const response = await fetch(
-      "/api/organizacao-em-harmonia/filhos-corrente/acesso",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resolve-login", identifier: value }),
-      },
-    );
-    const result = (await response.json()) as AccessResponse;
-    if (!response.ok || !result.authEmail)
-      throw new Error(
-        result.error ||
-          "Não foi possível localizar seu cadastro pelo WhatsApp.",
-      );
-    return result.authEmail;
-  }
-
-  async function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoginError("");
-    setLoginLoading(true);
-    try {
-      const authEmail = await resolveLoginEmail();
-      const { error: authError } =
-        await supabaseBrowser.auth.signInWithPassword({
-          email: authEmail,
-          password,
-        });
-      if (authError) {
-        setLoginError(
-          "Não foi possível entrar. Confira WhatsApp/e-mail e senha. Se for seu primeiro acesso, confirme seus dados abaixo.",
-        );
-        return;
-      }
-
-      const { data: userData } = await supabaseBrowser.auth.getUser();
-      const metadata = userData.user?.user_metadata ?? {};
-      if (metadata.oh_access_status && metadata.oh_access_status !== "ativo") {
-        await supabaseBrowser.auth.signOut();
-        setLoginError("Seu acesso ainda não foi liberado pelo Tucxa. Aguarde a validação ou acompanhe o status da solicitação.");
-        return;
-      }
-
-      window.location.href = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
-    } catch (err) {
-      setLoginError(
-        err instanceof Error ? err.message : "Não foi possível entrar agora.",
-      );
-    } finally {
-      setLoginLoading(false);
-    }
-  }
-
   async function submitFirstAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -342,96 +271,20 @@ export default function FilhoDaCorrenteTucxaPage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Início", href: "#inicio", variant: "primary" },
-          {
-            label: "Primeiro acesso",
-            href: "#primeiro-acesso",
-            variant: "secondary",
-          },
-          {
-            label: "Voltar ao site",
-            href: "/solucoes/organizacao-em-harmonia/tucxa",
-            variant: "secondary",
-          },
+          { label: "Primeiro acesso", href: "#primeiro-acesso", variant: "primary" },
+          { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
+          { label: "Acesso liberado", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "secondary" },
         ]}
         navLabel="Menu dos Filhos da Corrente do Tucxa"
       />
 
       <section
         id="inicio"
-        className="mx-auto grid max-w-6xl scroll-mt-48 gap-5 px-4 py-5 sm:scroll-mt-44 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-8"
+        className="mx-auto grid max-w-6xl scroll-mt-48 gap-5 px-4 py-5 sm:scroll-mt-44 sm:px-6 lg:px-8 lg:py-8"
       >
         <div
-          id="acesso"
-          className="order-1 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-1 lg:row-start-1"
-        >
-          <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">
-            Filho da Corrente - Acesso liberado
-          </p>
-          <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">
-            Entrar com WhatsApp ou e-mail
-          </h1>
-          <p className="mt-3 leading-7 text-slate-700">
-            Use este acesso depois que o responsável do Tucxa validar seus
-            dados. A senha é a mesma cadastrada no primeiro acesso.
-          </p>
-
-          <form onSubmit={login} className="mt-5 grid gap-4">
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">
-                E-mail ou WhatsApp
-              </span>
-              <input
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-                className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
-                placeholder="seu@email.com ou (19) 99999-9999"
-                required
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">Senha</span>
-              <div className="flex rounded-2xl border border-[#123D2C]/15 bg-white focus-within:border-[#2F6B43] focus-within:ring-4 focus-within:ring-[#E9F2E7]">
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type={showPassword ? "text" : "password"}
-                  className="min-w-0 flex-1 rounded-2xl bg-transparent p-4 text-base outline-none"
-                  placeholder="Digite sua senha"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="shrink-0 px-4 text-sm font-black text-[#123D2C]"
-                >
-                  {showPassword ? "Ocultar" : "Mostrar"}
-                </button>
-              </div>
-            </label>
-            {loginError && (
-              <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
-                {loginError}
-              </p>
-            )}
-            <button
-              disabled={loginLoading}
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:opacity-60"
-            >
-              {loginLoading ? "Entrando..." : "Entrar"}
-            </button>
-            <a
-              href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/esqueci-senha"
-              className="text-center text-sm font-black text-[#123D2C] underline underline-offset-4"
-            >
-              Esqueci minha senha
-            </a>
-          </form>
-        </div>
-
-        <div
           id="primeiro-acesso"
-          className="order-2 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+          className="order-2 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:max-w-3xl lg:mx-auto"
         >
           <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">

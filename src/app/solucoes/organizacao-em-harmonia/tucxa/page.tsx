@@ -18,6 +18,11 @@ const headerActions = [
     variant: "primary" as const,
   },
   {
+    label: "Cadastro",
+    href: "#cadastro",
+    variant: "secondary" as const,
+  },
+  {
     label: "Visão",
     href: "#visao",
     variant: "secondary" as const,
@@ -77,8 +82,11 @@ export default async function TucxaSitePage() {
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
-              Sou Filho da Corrente
+            <Link href="#cadastro" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
+              Sou Filho da Corrente - Primeiro acesso
+            </Link>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-white sm:text-base">
+              Sou Filho da Corrente - Acesso Liberado
             </Link>
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
               Sou Consulente / Filho de Fora
@@ -87,7 +95,7 @@ export default async function TucxaSitePage() {
         </div>
 
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+          <div id="cadastro" className="scroll-mt-48 rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que atualizar os dados?</p>
             <h2 className="mt-2 text-xl font-black text-[#123D2C] sm:text-2xl">Para receber a orientação certa, no canal certo, sem retrabalho.</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
@@ -95,6 +103,12 @@ export default async function TucxaSitePage() {
             </p>
           </div>
           <div className="mt-4 grid gap-2.5">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:text-base">
+              Começar Primeiro Acesso do Filho da Corrente
+            </Link>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
+              Já tenho acesso liberado
+            </Link>
             {benefits.map((benefit) => (
               <div key={benefit} className="rounded-2xl border border-[#123D2C]/10 bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] sm:p-4 sm:text-base">
                 {benefit}
@@ -143,9 +157,14 @@ export default async function TucxaSitePage() {
             <p className="mt-3 text-base leading-7 text-slate-700">
               Ao preencher os dados, o cadastro fica aguardando validação. Depois da conferência, o responsável libera o acesso e envia as orientações por e-mail, quando informado, e por WhatsApp.
             </p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
-              Acessar página do Filho da Corrente
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso" className="inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
+                Fazer Primeiro Acesso
+              </Link>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="inline-flex rounded-2xl bg-white px-5 py-3.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
+                Acesso liberado
+              </Link>
+            </div>
           </div>
         </div>
       </section>

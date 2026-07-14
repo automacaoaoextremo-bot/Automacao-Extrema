@@ -99,13 +99,14 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href }: { href: string }) {
+function SupportLink({ href, active, onSelect }: { href: string; active: boolean; onSelect: () => void }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex min-h-7 items-center justify-center rounded-full bg-[#123D2C] px-2.5 py-1 text-center text-[0.72rem] font-black text-white shadow-sm ring-1 ring-[#123D2C] transition hover:-translate-y-0.5 hover:bg-[#2F6B43] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+      onClick={onSelect}
+      className={headerActionClassName(active)}
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
       Dúvidas?
@@ -258,7 +259,7 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
             {sectionLinks.map((link) => (
               <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
             ))}
-            {showSupport && <SupportLink href={supportHref} />}
+            {showSupport && <SupportLink href={supportHref} active={activeHref === "#duvidas"} onSelect={() => handleSelect("#duvidas")} />}
           </div>
         </nav>
       )}
