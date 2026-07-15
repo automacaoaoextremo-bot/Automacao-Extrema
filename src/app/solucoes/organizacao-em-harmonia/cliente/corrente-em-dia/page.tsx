@@ -1,70 +1,48 @@
 import Link from "next/link";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 
-const settings = [
+const cards = [
   {
-    title: "Contribuição identificada",
-    description: "Consulente ou Filho de Fora entra com cadastro validado, escolhe valor, forma de pagamento e envia comprovante quando necessário.",
+    title: "Configurações financeiras",
+    description: "Valor padrão, valor familiar, dias de vencimento, Pix, lembretes antes do vencimento e lembretes em atraso.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes",
   },
   {
-    title: "Contribuição anônima",
-    description: "Pessoa contribui sem login, escolhendo valor e forma. O sistema mantém a conferência financeira sem expor identidade no painel público.",
+    title: "Contribuições e conferência",
+    description: "Acompanhe histórico, próximos vencimentos, comprovantes enviados, forma de pagamento e confirmação pela tesouraria.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes",
   },
   {
-    title: "Formas de pagamento",
-    description: "Pix copia e cola, QR Code, comprovante, dinheiro, débito/crédito e solicitação de link online quando disponível.",
+    title: "Filhos com regra diferenciada",
+    description: "Use a Base Única para identificar Filhos da Corrente com valor familiar, dia diferenciado ou orientação específica.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos",
   },
   {
-    title: "Conferência e aprovações",
-    description: "Organização pode validar comprovantes, registrar recebimento em dinheiro e acompanhar pendências por responsável.",
-  },
-  {
-    title: "Contribuições recorrentes",
-    description: "Configuração de contribuição mensal, lembretes, vencimento preferencial, cancelamento e histórico individual para Filhos da Corrente.",
-  },
-  {
-    title: "Campanhas e finalidades",
-    description: "Separação por manutenção da casa, eventos, reformas, Sementinha, campanhas especiais ou outras finalidades cadastradas pelo cliente.",
-  },
-  {
-    title: "Transparência e relatórios",
-    description: "Dashboard de valores previstos, recebidos, pendentes, formas de pagamento, comprovantes em análise e exportação para prestação interna.",
+    title: "Relatórios e prestação interna",
+    description: "Consolide valores previstos, recebidos, pendentes, atrasados e formas de pagamento para a organização do Tucxa.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/relatorios",
   },
 ];
 
 export default function CorrenteEmDiaClientePage() {
   return (
-    <OrganizacaoClientShell
-      title="Corrente em Dia"
-      description="Configure as regras financeiras e operacionais das contribuições do Tucxa, sem misturar com Base Única ou Agenda Viva."
-    >
-      <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Módulo financeiro-operacional</p>
-        <h2 className="mt-2 text-2xl font-black text-[#00334E]">Menos comprovante espalhado, mais clareza para a tesouraria.</h2>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-          Esta primeira versão organiza as regras do Corrente em Dia e prepara o fluxo para contribuições identificadas e anônimas. A etapa seguinte pode conectar Pix, QR Code, links de pagamento e relatórios.
+    <OrganizacaoClientShell title="Corrente em Dia" description="Configure e acompanhe contribuições dos Filhos da Corrente, Consulentes e Filhos de Fora.">
+      <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow sm:p-7">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Módulo financeiro-operacional</p>
+        <h2 className="mt-2 text-2xl font-black">Mais previsibilidade para a casa, menos comprovante espalhado.</h2>
+        <p className="mt-2 max-w-4xl text-sm font-semibold leading-6 text-[#EEF7EA]">
+          O Corrente em Dia ajuda a organizar contribuições mensais, familiares, pontuais e campanhas. O objetivo é facilitar a vida do Filho da Corrente e dar clareza para a tesouraria, sem transformar a contribuição em cobrança fria.
         </p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        {settings.map((item) => (
-          <article key={item.title} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-            <h3 className="text-xl font-black text-[#00334E]">{item.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
-          </article>
+      <section className="grid gap-5 md:grid-cols-2">
+        {cards.map((card) => (
+          <Link key={card.href} href={card.href} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:shadow-lg sm:p-6">
+            <h3 className="text-xl font-black text-[#00334E]">{card.title}</h3>
+            <p className="mt-2 leading-7 text-slate-600">{card.description}</p>
+            <span className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Abrir</span>
+          </Link>
         ))}
-      </section>
-
-      <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow sm:p-7">
-        <h2 className="text-2xl font-black">Configurações relacionadas</h2>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <Link href="/solucoes/organizacao-em-harmonia/cliente/configuracoes/aprovacoes" className="rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C]">
-            Responsáveis por aprovação
-          </Link>
-          <Link href="/solucoes/organizacao-em-harmonia/cliente/relatorios" className="rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center font-black text-[#123D2C]">
-            Relatórios e conferência
-          </Link>
-        </div>
       </section>
     </OrganizacaoClientShell>
   );

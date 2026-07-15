@@ -71,6 +71,9 @@ export default function AgendarConsulentePage() {
     appointmentDate: "",
     entityId: "",
     isRecurring: false,
+    recurrenceCount: "1",
+    age: "",
+    condition: "",
     recommendedByEntityId: "",
     scheduledByPersonId: "",
     notes: "",
@@ -120,7 +123,7 @@ export default function AgendarConsulentePage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar o agendamento.");
       setMessage(result.message || "Solicitação registrada.");
-      setForm((current) => ({ ...current, appointmentDate: "", entityId: "", recommendedByEntityId: "", scheduledByPersonId: "", notes: "" }));
+      setForm((current) => ({ ...current, appointmentDate: "", entityId: "", recommendedByEntityId: "", scheduledByPersonId: "", age: "", condition: "", notes: "" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao solicitar agendamento.");
     } finally {
@@ -179,8 +182,22 @@ export default function AgendarConsulentePage() {
               <input type="checkbox" checked={form.isRecurring} onChange={(event) => update("isRecurring", event.target.checked)} className="h-5 w-5" />
               <span className="text-sm font-black text-[#123D2C]">Solicitar como agendamento recorrente</span>
             </label>
+            {form.isRecurring && (
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#123D2C]">Quantidade de recorrências</span>
+                <input value={form.recurrenceCount} onChange={(event) => update("recurrenceCount", event.target.value)} inputMode="numeric" className="rounded-2xl border border-[#123D2C]/15 p-4" />
+              </label>
+            )}
             {isWednesday && (
               <>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#123D2C]">Idade do consulente *</span>
+                  <input value={form.age} onChange={(event) => update("age", event.target.value)} className="rounded-2xl border border-[#123D2C]/15 p-4" required />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#123D2C]">Doença / motivo *</span>
+                  <input value={form.condition} onChange={(event) => update("condition", event.target.value)} className="rounded-2xl border border-[#123D2C]/15 p-4" required />
+                </label>
                 <label className="grid gap-1">
                   <span className="text-sm font-black text-[#123D2C]">Quem recomendou / encaminhou</span>
                   <select value={form.recommendedByEntityId} onChange={(event) => update("recommendedByEntityId", event.target.value)} className="rounded-2xl border border-[#123D2C]/15 bg-white p-4" required={payload?.settings?.requireRecommendingEntityForWednesday !== false}>

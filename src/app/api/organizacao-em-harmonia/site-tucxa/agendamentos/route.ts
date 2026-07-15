@@ -32,7 +32,10 @@ function normalizeSettings(settings: unknown) {
   const current = settings && typeof settings === "object" && !Array.isArray(settings) ? (settings as Record<string, unknown>) : {};
   return {
     maxRecurringAppointmentsPerConsulente: Number(current.maxRecurringAppointmentsPerConsulente ?? 2),
+    recurringEnabled: current.recurringEnabled !== false,
     autoCancelRecurringOnAbsence: current.autoCancelRecurringOnAbsence !== false,
+    allowDifferentEntityAfterFirstAppointment: current.allowDifferentEntityAfterFirstAppointment !== false,
+    allowAlternateEntityWhenUnavailable: current.allowAlternateEntityWhenUnavailable !== false,
     wednesdayBookingMode: asText(current.wednesdayBookingMode) || "coordination",
     wednesdayAuthorizedPersonIds: Array.isArray(current.wednesdayAuthorizedPersonIds) ? current.wednesdayAuthorizedPersonIds.map((item) => asText(item)).filter(Boolean) : [],
     requireRecommendingEntityForWednesday: current.requireRecommendingEntityForWednesday !== false,
@@ -128,6 +131,9 @@ export async function POST(request: Request) {
     const whatsapp = normalizePhone(body.whatsapp);
     const email = asText(body.email).toLowerCase();
     const isRecurring = asBool(body.isRecurring ?? body.recurring, false);
+    const recurrenceCount = Math.max(1, Math.min(12, Number(asText(body.recurrenceCount) || 1)));
+    const age = asText(body.age);
+    const condition = asText(body.condition);
     const recommendedByEntityId = asText(body.recommendedByEntityId ?? body.recommended_by_entity_id);
     const scheduledByPersonId = asText(body.scheduledByPersonId ?? body.scheduled_by_person_id);
     const notes = asText(body.notes);
@@ -152,6 +158,12 @@ export async function POST(request: Request) {
       if (settings.requireRecommendingEntityForWednesday && !recommendedByEntityId) {
         throw new Error("Para quarta-feira, informe qual entidade recomendou o atendimento.");
       }
+      if (!age) {
+        throw new Error("Para quarta-feira, informe a idade do consulente.");
+      }
+      if (!condition) {
+        throw new Error("Para quarta-feira, informe a doença ou motivo do atendimento.");
+      }
       if (settings.wednesdayBookingMode === "coordination" && !scheduledByPersonId) {
         throw new Error("Agendamentos de quarta-feira devem ser registrados por uma pessoa autorizada pela coordenação/diretoria.");
       }
@@ -170,8 +182,12 @@ export async function POST(request: Request) {
     if (countError) throw countError;
 
     const capacity = Math.max(1, Number(entity.daily_capacity ?? 4));
-    if ((count ?? 0) >= capacity) {
+    if ((count ?? 0) >= capacity && !settings.allowAlternateEntityWhenUnavailable) {
       return NextResponse.json({ error: `Limite de ${capacity} atendimentos para ${entity.name} nesta data já foi atingido.` }, { status: 409 });
+    }
+
+    if (isRecurring && !settings.recurringEnabled) {
+      throw new Error("Agendamento recorrente não está habilitado para este fluxo.");
     }
 
     if (isRecurring && settings.maxRecurringAppointmentsPerConsulente > 0) {
@@ -203,12 +219,16 @@ export async function POST(request: Request) {
         appointment_date: appointmentDate,
         appointment_time: asText(body.appointmentTime ?? body.time) || null,
         is_recurring: isRecurring,
+        recurrence_count: isRecurring ? recurrenceCount : 1,
         status: "solicitado",
         notes: notes || null,
         metadata: {
           source: "site_tucxa_consulente",
           return_guidance: settings.appointmentReturnGuidance,
           weekday: dateWeekday,
+          age: age || null,
+          condition: condition || null,
+          recurrence_count: isRecurring ? recurrenceCount : 1,
         },
       })
       .select("id, status")

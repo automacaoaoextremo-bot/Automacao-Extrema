@@ -77,7 +77,11 @@ const sidebarGroups: NavGroup[] = [
   {
     label: "Atendimento em Harmonia",
     description: "Acolhimentos, entidades e encaminhamentos.",
-    items: [{ label: "Atendimentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." }],
+    items: [
+      { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." },
+      { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/configuracoes", description: "Recorrência, ausências, troca de entidade e quarta-feira." },
+      { label: "Agendamentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos", description: "Fila, filtros, impressão e status por entidade." },
+    ],
   },
   {
     label: "Módulos",
@@ -85,6 +89,8 @@ const sidebarGroups: NavGroup[] = [
     items: [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
       { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Contribuições, comprovantes e conferência financeira." },
+      { label: "Configurações financeiras", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes", description: "Valores, Pix, vencimentos e lembretes." },
+      { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Histórico, comprovantes, pendências e conferência." },
     ],
   },
   {
