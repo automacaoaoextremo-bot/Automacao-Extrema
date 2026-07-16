@@ -10,7 +10,7 @@ type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente";
+  action?: "signOutFilhoCorrente" | "supportWhatsapp";
 };
 
 type TucxaPublicHeaderProps = {
@@ -99,7 +99,7 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, active, onSelect }: { href: string; active: boolean; onSelect: () => void }) {
+function SupportLink({ href, active, onSelect, label = "Dúvidas?" }: { href: string; active: boolean; onSelect: () => void; label?: string }) {
   return (
     <a
       href={href}
@@ -109,7 +109,7 @@ function SupportLink({ href, active, onSelect }: { href: string; active: boolean
       className={headerActionClassName(active)}
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
-      Dúvidas?
+      {label}
     </a>
   );
 }
@@ -253,9 +253,19 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
       {(actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-            {actions.map((link) => (
-              <HeaderAction key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
-            ))}
+            {actions.map((link) =>
+              link.action === "supportWhatsapp" ? (
+                <SupportLink
+                  key={`${link.label}-${link.href}`}
+                  href={supportHref}
+                  active={activeHref === link.href}
+                  label={link.label}
+                  onSelect={() => handleSelect(link.href)}
+                />
+              ) : (
+                <HeaderAction key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
+              ),
+            )}
             {sectionLinks.map((link) => (
               <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
             ))}

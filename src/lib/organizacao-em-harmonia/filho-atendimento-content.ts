@@ -12,6 +12,58 @@ export type AtendimentoTopic = {
   checklist: string[];
 };
 
+
+export const topicAnchorBySlug: Record<string, string> = {
+  "regulamento-horarios-grupos": "organizacao",
+  "preparo-vestuario-banho": "antes-de-chegar",
+  "silencio-firmeza-harmonia": "postura",
+  "manual-cambonos": "cambonos",
+  "retornos-atendimento-acolhimento": "cuidados",
+  "comunicacao-presenca-recados": "compromisso",
+};
+
+export const topicNavBySlug: Record<
+  string,
+  { firstSectionLabel: string; firstSectionAnchor: string; secondSectionLabel: string; secondSectionAnchor: string }
+> = {
+  "regulamento-horarios-grupos": {
+    firstSectionLabel: "Regra",
+    firstSectionAnchor: "regra",
+    secondSectionLabel: "Mudança",
+    secondSectionAnchor: "mudanca",
+  },
+  "preparo-vestuario-banho": {
+    firstSectionLabel: "Por que existe",
+    firstSectionAnchor: "por-que-existe",
+    secondSectionLabel: "Dia a dia",
+    secondSectionAnchor: "dia-a-dia",
+  },
+  "silencio-firmeza-harmonia": {
+    firstSectionLabel: "Por que importa",
+    firstSectionAnchor: "por-que-importa",
+    secondSectionLabel: "O que fazer",
+    secondSectionAnchor: "o-que-fazer",
+  },
+  "manual-cambonos": {
+    firstSectionLabel: "Por que existe",
+    firstSectionAnchor: "por-que-existe",
+    secondSectionLabel: "O que preservar",
+    secondSectionAnchor: "o-que-preservar",
+  },
+  "retornos-atendimento-acolhimento": {
+    firstSectionLabel: "Controle de Retorno",
+    firstSectionAnchor: "controle-de-retorno",
+    secondSectionLabel: "Ajuda a casa",
+    secondSectionAnchor: "ajuda-a-casa",
+  },
+  "comunicacao-presenca-recados": {
+    firstSectionLabel: "Cadastro e Comunicação",
+    firstSectionAnchor: "cadastro-e-comunicacao",
+    secondSectionLabel: "Módulo ajuda",
+    secondSectionAnchor: "modulo-ajuda",
+  },
+};
+
 export const atendimentoTopics: AtendimentoTopic[] = [
   {
     slug: "regulamento-horarios-grupos",

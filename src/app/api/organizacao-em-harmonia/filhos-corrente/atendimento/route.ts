@@ -116,7 +116,21 @@ async function loadPayload(context: AuthContext) {
 
   const activeAppointmentEntities = (entitiesResult.data ?? []).filter((entity) => entity.active !== false && entity.appointment_enabled !== false);
 
-  return { settings: settingsResult, entities: activeAppointmentEntities, appointments: appointmentsResult.data ?? [] };
+  const canRegisterWednesday =
+    settingsResult.wednesdayBookingMode !== "coordination" ||
+    !settingsResult.wednesdayAuthorizedPersonIds.length ||
+    (!!context.personId && settingsResult.wednesdayAuthorizedPersonIds.includes(context.personId));
+
+  return {
+    settings: settingsResult,
+    entities: activeAppointmentEntities,
+    appointments: appointmentsResult.data ?? [],
+    permissions: {
+      personId: context.personId,
+      canRegisterGeneral: true,
+      canRegisterWednesday,
+    },
+  };
 }
 
 async function createAppointment(context: AuthContext, body: Record<string, unknown>) {
@@ -141,6 +155,12 @@ async function createAppointment(context: AuthContext, body: Record<string, unkn
   const settings = await loadSettings(context.organizationId);
   const weekday = weekdaySlug(appointmentDate);
   if (weekday === "quarta") {
+    const canRegisterWednesday =
+      settings.wednesdayBookingMode !== "coordination" ||
+      !settings.wednesdayAuthorizedPersonIds.length ||
+      (!!context.personId && settings.wednesdayAuthorizedPersonIds.includes(context.personId));
+
+    if (!canRegisterWednesday) throw new Error("Somente responsáveis definidos na área logada podem registrar agendamentos de quarta-feira.");
     if (!age) throw new Error("Para quarta-feira, informe a idade do consulente.");
     if (!condition) throw new Error("Para quarta-feira, informe a doença ou motivo do atendimento.");
     if (settings.requireRecommendingEntityForWednesday && !recommendedByEntityId) throw new Error("Para quarta-feira, informe a entidade que encaminhou.");

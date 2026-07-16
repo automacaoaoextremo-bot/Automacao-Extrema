@@ -1,31 +1,52 @@
 import Link from "next/link";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FilhoCorrentePanelHeader,
+  filhoPanelBase,
+  filhoSignOutAction,
+  filhoSupportAction,
+  tucxaSiteHref,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+
+const pageHref = `${filhoPanelBase}/atendimento`;
 
 const cards = [
   {
+    id: "orientacoes",
     eyebrow: "Orientações práticas do Tucxa",
     title: "Tudo que ajuda você a chegar preparado e seguro.",
     description:
       "Regulamento, preparo, silêncio, cambonos, presença e acolhimento reunidos em linguagem simples para consultar antes, durante ou depois dos trabalhos.",
     cta: "Abrir orientações",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/orientacoes",
+    href: `${pageHref}/orientacoes`,
   },
   {
+    id: "agendamentos",
     eyebrow: "Acolhimento e agendamentos",
     title: "Recepção com ordem, cuidado e continuidade.",
     description:
-      "Confira ou registre agendamentos de Consulentes, Filhos de Fora e Filhos da Corrente, respeitando entidade, capacidade, dia de atendimento e sequência da fila.",
+      "Confira grupos de atendimento, entidades ativas, vagas disponíveis e registros da recepção, sempre preservando a sequência e o cuidado humano.",
     cta: "Abrir agendamentos",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamentos",
+    href: `${pageHref}/agendamentos`,
   },
 ];
 
 export default function AtendimentoEmHarmoniaPage() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Atendimento em Harmonia" />
+      <FilhoCorrentePanelHeader
+        navLabel="Atendimento em Harmonia"
+        showSupport={false}
+        actions={[
+          { label: "Atendimento em Harmonia", href: pageHref, variant: "primary" },
+          { label: "Orientações", href: "#orientacoes", variant: "secondary" },
+          { label: "Acolhimento e Agendamentos", href: "#agendamentos", variant: "secondary" },
+          { label: "Site Tucxa", href: tucxaSiteHref, variant: "secondary" },
+          filhoSupportAction,
+          filhoSignOutAction,
+        ]}
+      />
 
-      <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
+      <section id="inicio" className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
@@ -37,12 +58,14 @@ export default function AtendimentoEmHarmoniaPage() {
 
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             {cards.map((card) => (
-              <Link key={card.href} href={card.href} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 hover:shadow-xl">
+              <article key={card.href} id={card.id} className="scroll-mt-44 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 hover:shadow-xl">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">{card.eyebrow}</p>
                 <h2 className="mt-2 text-xl font-black leading-tight text-[#123D2C]">{card.title}</h2>
                 <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{card.description}</p>
-                <span className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">{card.cta}</span>
-              </Link>
+                <Link href={card.href} className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">
+                  {card.cta}
+                </Link>
+              </article>
             ))}
           </section>
         </div>

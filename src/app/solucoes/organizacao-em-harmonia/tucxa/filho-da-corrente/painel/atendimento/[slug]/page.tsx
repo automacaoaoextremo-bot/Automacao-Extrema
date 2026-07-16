@@ -1,7 +1,15 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
-import { atendimentoTopics, findAtendimentoTopic } from "@/lib/organizacao-em-harmonia/filho-atendimento-content";
+import {
+  FilhoCorrentePanelHeader,
+  filhoPanelBase,
+  filhoSignOutAction,
+  filhoSupportAction,
+  tucxaSiteHref,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { atendimentoTopics, findAtendimentoTopic, topicNavBySlug } from "@/lib/organizacao-em-harmonia/filho-atendimento-content";
+
+const atendimentoHref = `${filhoPanelBase}/atendimento`;
+const orientacoesHref = `${atendimentoHref}/orientacoes`;
 
 export function generateStaticParams() {
   return atendimentoTopics.map((topic) => ({ slug: topic.slug }));
@@ -13,11 +21,31 @@ export default async function AtendimentoTopicPage({ params }: { params: Promise
 
   if (!topic) notFound();
 
+  const nav = topicNavBySlug[slug] ?? {
+    firstSectionLabel: "Por que existe",
+    firstSectionAnchor: "por-que-existe",
+    secondSectionLabel: "O que fazer",
+    secondSectionAnchor: "o-que-fazer",
+  };
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel={`Atendimento em Harmonia - ${topic.title}`} />
+      <FilhoCorrentePanelHeader
+        navLabel={`Atendimento em Harmonia - ${topic.title}`}
+        showSupport={false}
+        actions={[
+          { label: "Início", href: `${atendimentoHref}/${topic.slug}`, variant: "primary" },
+          { label: nav.firstSectionLabel, href: `#${nav.firstSectionAnchor}`, variant: "secondary" },
+          { label: nav.secondSectionLabel, href: `#${nav.secondSectionAnchor}`, variant: "secondary" },
+          { label: "Checklist", href: "#checklist", variant: "secondary" },
+          { label: "Voltar", href: orientacoesHref, variant: "secondary" },
+          { label: "Site Tucxa", href: tucxaSiteHref, variant: "secondary" },
+          filhoSupportAction,
+          filhoSignOutAction,
+        ]}
+      />
 
-      <section className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      <section id="inicio" className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
         <article className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">{topic.eyebrow}</p>
           <h1 className="mt-2 text-3xl font-black text-[#123D2C]">{topic.title}</h1>
@@ -26,15 +54,19 @@ export default async function AtendimentoTopicPage({ params }: { params: Promise
           <p className="mt-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Fonte de referência: {topic.sourceLabel}</p>
 
           <div className="mt-6 grid gap-4">
-            {topic.sections.map((section) => (
-              <section key={section.title} className="rounded-[1.5rem] bg-[#F7FAF2] p-5 ring-1 ring-[#123D2C]/10">
+            {topic.sections.map((section, index) => (
+              <section
+                key={section.title}
+                id={index === 0 ? nav.firstSectionAnchor : nav.secondSectionAnchor}
+                className="scroll-mt-44 rounded-[1.5rem] bg-[#F7FAF2] p-5 ring-1 ring-[#123D2C]/10"
+              >
                 <h2 className="text-xl font-black text-[#123D2C]">{section.title}</h2>
                 <p className="mt-3 text-sm font-semibold leading-7 text-slate-600">{section.body}</p>
               </section>
             ))}
           </div>
 
-          <section className="mt-6 rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+          <section id="checklist" className="mt-6 scroll-mt-44 rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
             <h2 className="text-xl font-black text-[#123D2C]">Checklist rápido</h2>
             <ul className="mt-4 grid gap-2 text-sm font-semibold leading-6 text-slate-700">
               {topic.checklist.map((item) => (
@@ -42,11 +74,6 @@ export default async function AtendimentoTopicPage({ params }: { params: Promise
               ))}
             </ul>
           </section>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento" className="rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar para Atendimento</Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados" className="rounded-2xl bg-white px-5 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Atualizar cadastro</Link>
-          </div>
         </article>
       </section>
     </main>
