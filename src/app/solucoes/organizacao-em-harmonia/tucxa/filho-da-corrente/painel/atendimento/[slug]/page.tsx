@@ -1,14 +1,23 @@
 import { notFound } from "next/navigation";
-import {
-  FilhoCorrentePanelHeader,
-  filhoPanelBase,
-  filhoSignOutAction,
-  filhoSupportAction,
-  tucxaSiteHref,
-} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { atendimentoTopics, findAtendimentoTopic, topicNavBySlug } from "@/lib/organizacao-em-harmonia/filho-atendimento-content";
 
+const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const atendimentoHref = `${filhoPanelBase}/atendimento`;
+
+const filhoSupportAction = {
+  label: "Dúvidas?",
+  href: "#duvidas",
+  variant: "secondary" as const,
+  action: "supportWhatsapp" as const,
+};
+
+const filhoSignOutAction = {
+  label: "Sair",
+  href: "#sair",
+  variant: "secondary" as const,
+  action: "signOutFilhoCorrente" as const,
+};
 const orientacoesHref = `${atendimentoHref}/orientacoes`;
 
 export function generateStaticParams() {
@@ -39,7 +48,7 @@ export default async function AtendimentoTopicPage({ params }: { params: Promise
           { label: nav.secondSectionLabel, href: `#${nav.secondSectionAnchor}`, variant: "secondary" },
           { label: "Checklist", href: "#checklist", variant: "secondary" },
           { label: "Voltar", href: orientacoesHref, variant: "secondary" },
-          { label: "Site Tucxa", href: tucxaSiteHref, variant: "secondary" },
+          { label: "Atendimento em Harmonia", href: atendimentoHref, variant: "secondary" },
           filhoSupportAction,
           filhoSignOutAction,
         ]}

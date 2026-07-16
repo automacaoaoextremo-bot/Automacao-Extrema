@@ -1,13 +1,22 @@
 import Link from "next/link";
-import {
-  FilhoCorrentePanelHeader,
-  filhoPanelBase,
-  filhoSignOutAction,
-  filhoSupportAction,
-  tucxaSiteHref,
-} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 
+const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const pageHref = `${filhoPanelBase}/atendimento`;
+
+const filhoSupportAction = {
+  label: "Dúvidas?",
+  href: "#duvidas",
+  variant: "secondary" as const,
+  action: "supportWhatsapp" as const,
+};
+
+const filhoSignOutAction = {
+  label: "Sair",
+  href: "#sair",
+  variant: "secondary" as const,
+  action: "signOutFilhoCorrente" as const,
+};
 
 const cards = [
   {
@@ -40,7 +49,6 @@ export default function AtendimentoEmHarmoniaPage() {
           { label: "Atendimento em Harmonia", href: pageHref, variant: "primary" },
           { label: "Orientações", href: "#orientacoes", variant: "secondary" },
           { label: "Acolhimento e Agendamentos", href: "#agendamentos", variant: "secondary" },
-          { label: "Site Tucxa", href: tucxaSiteHref, variant: "secondary" },
           filhoSupportAction,
           filhoSignOutAction,
         ]}

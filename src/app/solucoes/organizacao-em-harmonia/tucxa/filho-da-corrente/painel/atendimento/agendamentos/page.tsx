@@ -1,12 +1,22 @@
 import Link from "next/link";
-import {
-  FilhoCorrentePanelHeader,
-  filhoPanelBase,
-  filhoSignOutAction,
-  filhoSupportAction,
-} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 
+const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const atendimentoHref = `${filhoPanelBase}/atendimento`;
+
+const filhoSupportAction = {
+  label: "Dúvidas?",
+  href: "#duvidas",
+  variant: "secondary" as const,
+  action: "supportWhatsapp" as const,
+};
+
+const filhoSignOutAction = {
+  label: "Sair",
+  href: "#sair",
+  variant: "secondary" as const,
+  action: "signOutFilhoCorrente" as const,
+};
 const agendamentosHref = `${atendimentoHref}/agendamentos`;
 
 const filhosForaGroups = [

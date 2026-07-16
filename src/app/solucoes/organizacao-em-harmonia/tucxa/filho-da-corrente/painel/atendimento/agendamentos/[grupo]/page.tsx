@@ -2,12 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  FilhoCorrentePanelHeader,
-  filhoPanelBase,
-  filhoSignOutAction,
-  filhoSupportAction,
-} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Entity = {
@@ -47,7 +42,22 @@ type Payload = {
   error?: string;
 };
 
+const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const atendimentoHref = `${filhoPanelBase}/atendimento`;
+
+const filhoSupportAction = {
+  label: "Dúvidas?",
+  href: "#duvidas",
+  variant: "secondary" as const,
+  action: "supportWhatsapp" as const,
+};
+
+const filhoSignOutAction = {
+  label: "Sair",
+  href: "#sair",
+  variant: "secondary" as const,
+  action: "signOutFilhoCorrente" as const,
+};
 const agendamentosHref = `${atendimentoHref}/agendamentos`;
 
 const statusLabels: Record<string, string> = {
