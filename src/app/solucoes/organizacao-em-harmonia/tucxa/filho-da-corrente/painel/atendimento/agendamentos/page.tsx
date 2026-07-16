@@ -12,6 +12,8 @@ type Entity = {
   entity_type: string | null;
   usual_days: string[] | null;
   daily_capacity: number | null;
+  appointment_enabled?: boolean | null;
+  active?: boolean | null;
 };
 
 type Appointment = {
@@ -76,6 +78,7 @@ function weekdayLabel(value: string) {
 }
 
 function matchesEntityDay(entity: Entity, day: string) {
+  if (entity.active === false || entity.appointment_enabled === false) return false;
   const days = entity.usual_days ?? [];
   if (days.length === 0) return true;
   return days.includes(day);
@@ -133,7 +136,11 @@ export default function AgendamentosAtendimentoPage() {
 
   const selectedWeekday = weekdaySlug(form.appointmentDate);
   const isWednesday = selectedWeekday === "quarta";
-  const availableEntities = useMemo(() => (payload?.entities ?? []).filter((entity) => matchesEntityDay(entity, selectedWeekday)), [payload?.entities, selectedWeekday]);
+  const availableEntities = useMemo(() => {
+    return (payload?.entities ?? [])
+      .filter((entity) => matchesEntityDay(entity, selectedWeekday))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [payload?.entities, selectedWeekday]);
   const filteredAppointments = useMemo(() => {
     return (payload?.appointments ?? []).filter((item) => {
       if (filterDate && item.appointment_date !== filterDate) return false;
@@ -244,6 +251,8 @@ export default function AgendamentosAtendimentoPage() {
                     <option value="">Escolha a entidade</option>
                     {availableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} • limite {entity.daily_capacity ?? 1}</option>)}
                   </select>
+                  <span className="text-xs font-bold text-slate-500">A lista vem das entidades ativas no cadastro da área logada. Entidades inativas deixam de aparecer aqui automaticamente.</span>
+                  {availableEntities.length === 0 && <span className="rounded-2xl bg-amber-50 p-3 text-xs font-black text-amber-800 ring-1 ring-amber-100">Nenhuma entidade ativa para {weekdayLabel(selectedWeekday)}. Ative ou ajuste os dias da entidade na Base Única.</span>}
                 </label>
                 <label className="flex items-center gap-3 rounded-2xl bg-[#E9F2E7] p-3 text-sm font-black text-[#123D2C] md:col-span-2">
                   <input type="checkbox" checked={form.isRecurring} onChange={(event) => update("isRecurring", event.target.checked)} className="h-5 w-5 accent-[#123D2C]" />
@@ -269,7 +278,7 @@ export default function AgendamentosAtendimentoPage() {
                       Entidade que encaminhou *
                       <select value={form.recommendedByEntityId} onChange={(event) => update("recommendedByEntityId", event.target.value)} required className="rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold outline-none focus:border-[#31C16B]">
                         <option value="">Escolha</option>
-                        {(payload?.entities ?? []).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                        {(payload?.entities ?? []).filter((entity) => entity.active !== false && entity.appointment_enabled !== false).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
                       </select>
                     </label>
                   </>

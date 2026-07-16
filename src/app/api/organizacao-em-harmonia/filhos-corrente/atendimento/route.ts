@@ -100,7 +100,6 @@ async function loadPayload(context: AuthContext) {
       .select("id, name, line, entity_type, usual_days, daily_capacity, appointment_enabled, active")
       .eq("organization_id", context.organizationId)
       .eq("active", true)
-      .eq("appointment_enabled", true)
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("oh_consulente_appointments")
@@ -115,7 +114,9 @@ async function loadPayload(context: AuthContext) {
   if (entitiesResult.error) throw entitiesResult.error;
   if (appointmentsResult.error) throw appointmentsResult.error;
 
-  return { settings: settingsResult, entities: entitiesResult.data ?? [], appointments: appointmentsResult.data ?? [] };
+  const activeAppointmentEntities = (entitiesResult.data ?? []).filter((entity) => entity.active !== false && entity.appointment_enabled !== false);
+
+  return { settings: settingsResult, entities: activeAppointmentEntities, appointments: appointmentsResult.data ?? [] };
 }
 
 async function createAppointment(context: AuthContext, body: Record<string, unknown>) {
@@ -147,13 +148,13 @@ async function createAppointment(context: AuthContext, body: Record<string, unkn
 
   const { data: entity, error: entityError } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .select("id, name, daily_capacity, appointment_enabled")
+    .select("id, name, daily_capacity, appointment_enabled, active")
     .eq("organization_id", context.organizationId)
     .eq("id", entityId)
     .eq("active", true)
     .maybeSingle();
   if (entityError) throw entityError;
-  if (!entity?.id || entity.appointment_enabled === false) throw new Error("Entidade indisponível para agendamento.");
+  if (!entity?.id || entity.active === false || entity.appointment_enabled === false) throw new Error("Entidade indisponível para agendamento. Confira se ela está ativa no cadastro da área logada.");
 
   const { count, error: countError } = await supabaseAdmin
     .from("oh_consulente_appointments")

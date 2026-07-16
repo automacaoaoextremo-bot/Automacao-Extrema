@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Entity = { id: string; name: string; daily_capacity: number | null };
+type Entity = { id: string; name: string; daily_capacity: number | null; active?: boolean | null; appointment_enabled?: boolean | null };
 type Appointment = {
   id: string;
   consulente_name: string;
@@ -57,6 +57,11 @@ export default function AtendimentoAgendamentosClientePage() {
   }, [load]);
 
   const entityMap = useMemo(() => new Map((payload.entities ?? []).map((entity) => [entity.id, entity.name])), [payload.entities]);
+  const activeEntities = useMemo(() => {
+    return (payload.entities ?? [])
+      .filter((entity) => entity.active !== false && entity.appointment_enabled !== false)
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [payload.entities]);
   const filtered = useMemo(() => {
     return (payload.appointments ?? []).filter((item) => {
       if (filterDate && item.appointment_date !== filterDate) return false;
@@ -98,7 +103,7 @@ export default function AtendimentoAgendamentosClientePage() {
             <input type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
             <select value={filterEntity} onChange={(event) => setFilterEntity(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold">
               <option value="">Todas entidades</option>
-              {(payload.entities ?? []).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+              {activeEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
             </select>
             <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold">
               <option value="">Todos status</option>
