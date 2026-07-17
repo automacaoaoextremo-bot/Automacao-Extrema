@@ -1,5 +1,39 @@
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+
+export const dynamic = "force-dynamic";
+
+type AgendaSettings = {
+  maxRecurringAppointmentsPerConsulente: number;
+  recurringEnabled: boolean;
+  autoCancelRecurringOnAbsence: boolean;
+  allowDifferentEntityAfterFirstAppointment: boolean;
+  allowAlternateEntityWhenUnavailable: boolean;
+  wednesdayBookingMode: string;
+  wednesdayAuthorizedPersonIds: string[];
+  requireRecommendingEntityForWednesday: boolean;
+  appointmentReturnGuidance: string;
+};
+
+type EntityRecord = {
+  id: string;
+  name: string | null;
+  line?: string | null;
+  entity_type?: string | null;
+  usual_days?: string[] | null;
+  daily_capacity?: number | null;
+  appointment_enabled?: boolean | null;
+  appointment_notes?: string | null;
+  active?: boolean | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+type AppointmentCount = {
+  entity_id: string | null;
+  appointment_date: string | null;
+  status: string | null;
+};
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -16,19 +50,62 @@ function normalizePhone(value: unknown) {
   return asText(value).replace(/\D/g, "");
 }
 
+function normalize(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function asDateOnly(value: unknown) {
   const text = asText(value);
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] ?? "";
 }
 
-function weekdaySlug(dateText: string) {
-  const date = new Date(`${dateText}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
-  return ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"][date.getDay()] ?? "";
+function dateFromIso(value: string) {
+  const [year = "", month = "", day = ""] = value.split("-");
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
 }
 
-function normalizeSettings(settings: unknown) {
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + amount);
+  return next;
+}
+
+function weekdaySlug(dateText: string) {
+  const date = dateFromIso(dateText);
+  if (Number.isNaN(date.getTime())) return "";
+  return ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"][date.getUTCDay()] ?? "";
+}
+
+function isVacationDate(dateText: string) {
+  const date = dateFromIso(dateText);
+  if (Number.isNaN(date.getTime())) return false;
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return (month === 1 && day <= 28) || (month === 7 && day <= 29) || (month === 12 && day >= 21);
+}
+
+function isPublicBookingDay(dateText: string) {
+  const weekday = weekdaySlug(dateText);
+  return (weekday === "segunda" || weekday === "terca") && !isVacationDate(dateText);
+}
+
+function entityMatchesDate(entity: EntityRecord, dateText: string) {
+  const weekday = weekdaySlug(dateText);
+  const days = Array.isArray(entity.usual_days) ? entity.usual_days.map((day) => normalize(asText(day))) : [];
+  if (!days.length) return weekday === "segunda" || weekday === "terca";
+  if (weekday === "terca") return days.some((day) => day.includes("terca") || day.includes("terça"));
+  return days.some((day) => day.includes(weekday));
+}
+
+function normalizeSettings(settings: unknown): AgendaSettings {
   const current = settings && typeof settings === "object" && !Array.isArray(settings) ? (settings as Record<string, unknown>) : {};
   return {
     maxRecurringAppointmentsPerConsulente: Number(current.maxRecurringAppointmentsPerConsulente ?? 2),
@@ -71,12 +148,12 @@ async function agendaSettings(organizationId: string) {
 async function availableEntities(organizationId: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .select("id, name, slug, line, entity_type, usual_days, daily_capacity, appointment_enabled, appointment_notes, active")
+    .select("id, name, slug, line, entity_type, usual_days, daily_capacity, appointment_enabled, appointment_notes, active, metadata")
     .eq("organization_id", organizationId)
     .eq("active", true)
     .order("name", { ascending: true });
   if (error) throw error;
-  return (data ?? []).filter((entity) => entity.appointment_enabled !== false);
+  return ((data ?? []) as EntityRecord[]).filter((entity) => entity.appointment_enabled !== false);
 }
 
 async function availableEvents(organizationId: string) {
@@ -103,17 +180,146 @@ async function authorizedPeople(organizationId: string, ids: string[]) {
   return data ?? [];
 }
 
+async function appointmentCounts(organizationId: string) {
+  const start = toIsoDate(addDays(new Date(), -45));
+  const end = toIsoDate(addDays(new Date(), 420));
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("entity_id, appointment_date, status")
+    .eq("organization_id", organizationId)
+    .gte("appointment_date", start)
+    .lte("appointment_date", end)
+    .not("status", "in", "(cancelado,cancelamento_solicitado,ausente)");
+  if (error) throw error;
+  return (data ?? []) as AppointmentCount[];
+}
+
+function buildAvailability(entities: EntityRecord[], appointments: AppointmentCount[]) {
+  const counts = new Map<string, number>();
+  appointments.forEach((appointment) => {
+    if (!appointment.entity_id || !appointment.appointment_date) return;
+    const key = `${appointment.entity_id}::${appointment.appointment_date}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+
+  const dates: string[] = [];
+  const start = dateFromIso(toIsoDate(new Date()));
+  for (let index = 0; index < 420; index += 1) {
+    const isoDate = toIsoDate(addDays(start, index));
+    if (isPublicBookingDay(isoDate)) dates.push(isoDate);
+  }
+
+  return entities.flatMap((entity) => {
+    const capacity = Math.max(1, Number(entity.daily_capacity ?? 4));
+    return dates
+      .filter((isoDate) => entityMatchesDate(entity, isoDate))
+      .map((isoDate) => {
+        const booked = counts.get(`${entity.id}::${isoDate}`) ?? 0;
+        const available = Math.max(capacity - booked, 0);
+        return {
+          entityId: entity.id,
+          appointmentDate: isoDate,
+          booked,
+          capacity,
+          available,
+          nextOrder: booked + 1,
+        };
+      });
+  });
+}
+
+function hasSmtpConfig() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+}
+
+async function sendConfirmationEmail(input: { to: string; name: string; entityName: string; appointmentDate: string; order: number; guidance: string }) {
+  if (!input.to || !hasSmtpConfig()) return false;
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false") === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+
+  const formattedDate = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(dateFromIso(input.appointmentDate));
+  await transporter.sendMail({
+    from: `"${process.env.EMAIL_FROM_NAME || "Organização em Harmonia"}" <${process.env.EMAIL_FROM}>`,
+    to: input.to,
+    subject: `Agendamento solicitado no Tucxa - ${input.entityName}`,
+    text: [
+      `Olá, ${input.name}.`,
+      "",
+      `Seu agendamento foi solicitado para ${formattedDate}.`,
+      `Entidade: ${input.entityName}`,
+      `Ordem prevista: ${input.order}`,
+      "",
+      "Ao chegar, informe seu nome completo, WhatsApp/e-mail e a entidade agendada para a recepção confirmar sua ordem de atendimento.",
+      input.guidance,
+      "",
+      "Esta mensagem confirma o recebimento da solicitação. A organização do Tucxa poderá ajustar orientações conforme necessidade da casa.",
+    ].join("\n"),
+  });
+  return true;
+}
+
+async function firstPreviousAppointment(input: { organizationId: string; email: string; whatsapp: string }) {
+  if (!input.email && !input.whatsapp) return null;
+  let query = supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, entity_id, appointment_date, status")
+    .eq("organization_id", input.organizationId)
+    .not("status", "in", "(cancelado,cancelamento_solicitado,ausente)")
+    .order("appointment_date", { ascending: true })
+    .limit(1);
+
+  if (input.email) query = query.eq("email", input.email);
+  else query = query.eq("whatsapp", input.whatsapp);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data as { id: string; entity_id: string | null } | null;
+}
+
+async function countAppointments(organizationId: string, entityId: string, date: string) {
+  const { count, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("entity_id", entityId)
+    .eq("appointment_date", date)
+    .not("status", "in", "(cancelado,cancelamento_solicitado,ausente)");
+  if (error) throw error;
+  return count ?? 0;
+}
+
+function recurrenceDates(startDate: string, count: number) {
+  const dates: string[] = [];
+  const start = dateFromIso(startDate);
+  for (let index = 0; index < count; index += 1) {
+    dates.push(toIsoDate(addDays(start, index * 7)));
+  }
+  return dates;
+}
+
 export async function GET() {
   try {
     const organization = await tucxaOrganization();
     const settings = await agendaSettings(organization.id);
-    const [entities, events, authorizedSchedulers] = await Promise.all([
+    const [entities, events, authorizedSchedulers, appointments] = await Promise.all([
       availableEntities(organization.id),
       availableEvents(organization.id),
       authorizedPeople(organization.id, settings.wednesdayAuthorizedPersonIds),
+      appointmentCounts(organization.id),
     ]);
 
-    return NextResponse.json({ organization, settings, entities, events, authorizedSchedulers });
+    return NextResponse.json({
+      organization,
+      settings,
+      entities,
+      events,
+      availability: buildAvailability(entities, appointments),
+      authorizedSchedulers,
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar agendamentos." }, { status: 500 });
   }
@@ -132,16 +338,17 @@ export async function POST(request: Request) {
     const email = asText(body.email).toLowerCase();
     const isRecurring = asBool(body.isRecurring ?? body.recurring, false);
     const recurrenceCount = Math.max(1, Math.min(12, Number(asText(body.recurrenceCount) || 1)));
-    const age = asText(body.age);
-    const condition = asText(body.condition);
-    const recommendedByEntityId = asText(body.recommendedByEntityId ?? body.recommended_by_entity_id);
-    const scheduledByPersonId = asText(body.scheduledByPersonId ?? body.scheduled_by_person_id);
     const notes = asText(body.notes);
 
     if (!appointmentDate) throw new Error("Informe a data desejada.");
+    if (!isPublicBookingDay(appointmentDate)) throw new Error("Agendamentos de Filhos de Fora/Consulentes estão disponíveis somente em segundas e terças fora dos períodos de férias/recesso.");
     if (!entityId) throw new Error("Escolha a entidade para o atendimento.");
     if (!fullName) throw new Error("Informe seu nome completo.");
     if (!whatsapp && !email) throw new Error("Informe WhatsApp ou e-mail para retorno.");
+    if (isRecurring && !settings.recurringEnabled) throw new Error("Agendamento recorrente não está habilitado para este fluxo.");
+    if (isRecurring && recurrenceCount > settings.maxRecurringAppointmentsPerConsulente) {
+      throw new Error(`O limite configurado é de ${settings.maxRecurringAppointmentsPerConsulente} recorrência(s).`);
+    }
 
     const { data: entity, error: entityError } = await supabaseAdmin
       .from("oh_spiritual_entities")
@@ -151,91 +358,86 @@ export async function POST(request: Request) {
       .eq("active", true)
       .maybeSingle();
     if (entityError) throw entityError;
-    if (!entity?.id || entity.appointment_enabled === false) throw new Error("Entidade indisponível para agendamento.");
+    const selectedEntity = entity as EntityRecord | null;
+    if (!selectedEntity?.id || selectedEntity.appointment_enabled === false) throw new Error("Entidade indisponível para agendamento.");
+    if (!entityMatchesDate(selectedEntity, appointmentDate)) throw new Error("Esta entidade não está configurada para atender neste dia.");
 
-    const dateWeekday = weekdaySlug(appointmentDate);
-    if (dateWeekday === "quarta") {
-      if (settings.requireRecommendingEntityForWednesday && !recommendedByEntityId) {
-        throw new Error("Para quarta-feira, informe qual entidade recomendou o atendimento.");
-      }
-      if (!age) {
-        throw new Error("Para quarta-feira, informe a idade do consulente.");
-      }
-      if (!condition) {
-        throw new Error("Para quarta-feira, informe a doença ou motivo do atendimento.");
-      }
-      if (settings.wednesdayBookingMode === "coordination" && !scheduledByPersonId) {
-        throw new Error("Agendamentos de quarta-feira devem ser registrados por uma pessoa autorizada pela coordenação/diretoria.");
-      }
-      if (scheduledByPersonId && settings.wednesdayAuthorizedPersonIds.length > 0 && !settings.wednesdayAuthorizedPersonIds.includes(scheduledByPersonId)) {
-        throw new Error("Pessoa não autorizada para agendar quarta-feira.");
+    const previous = await firstPreviousAppointment({ organizationId: organization.id, email, whatsapp });
+    if (previous?.entity_id && previous.entity_id !== entityId && !settings.allowDifferentEntityAfterFirstAppointment) {
+      throw new Error("Após o primeiro atendimento, a configuração atual orienta manter a mesma entidade. Procure a recepção para avaliar a troca.");
+    }
+
+    const dates = isRecurring ? recurrenceDates(appointmentDate, recurrenceCount) : [appointmentDate];
+    for (const date of dates) {
+      if (!isPublicBookingDay(date)) throw new Error("Uma das recorrências cai em período sem atendimento público. Escolha outra data ou reduza as recorrências.");
+      const booked = await countAppointments(organization.id, entityId, date);
+      const capacity = Math.max(1, Number(selectedEntity.daily_capacity ?? 4));
+      if (booked >= capacity) {
+        const suffix = settings.allowAlternateEntityWhenUnavailable ? " Escolha outra entidade com vaga neste dia." : "";
+        throw new Error(`Limite de ${capacity} atendimentos para ${selectedEntity.name ?? "a entidade"} em ${date} já foi atingido.${suffix}`);
       }
     }
 
-    const { count, error: countError } = await supabaseAdmin
-      .from("oh_consulente_appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organization.id)
-      .eq("entity_id", entityId)
-      .eq("appointment_date", appointmentDate)
-      .not("status", "in", "(cancelado,cancelamento_solicitado,ausente)");
-    if (countError) throw countError;
-
-    const capacity = Math.max(1, Number(entity.daily_capacity ?? 4));
-    if ((count ?? 0) >= capacity && !settings.allowAlternateEntityWhenUnavailable) {
-      return NextResponse.json({ error: `Limite de ${capacity} atendimentos para ${entity.name} nesta data já foi atingido.` }, { status: 409 });
-    }
-
-    if (isRecurring && !settings.recurringEnabled) {
-      throw new Error("Agendamento recorrente não está habilitado para este fluxo.");
-    }
-
-    if (isRecurring && settings.maxRecurringAppointmentsPerConsulente > 0) {
-      const recurringQuery = supabaseAdmin
-        .from("oh_consulente_appointments")
-        .select("id", { count: "exact", head: true })
-        .eq("organization_id", organization.id)
-        .eq("is_recurring", true)
-        .not("status", "in", "(cancelado,cancelamento_solicitado,ausente)");
-      if (email) recurringQuery.eq("email", email);
-      else recurringQuery.eq("whatsapp", whatsapp);
-      const { count: recurringCount, error: recurringError } = await recurringQuery;
-      if (recurringError) throw recurringError;
-      if ((recurringCount ?? 0) >= settings.maxRecurringAppointmentsPerConsulente) {
-        throw new Error(`Limite de ${settings.maxRecurringAppointmentsPerConsulente} agendamento(s) recorrente(s) por consulente atingido.`);
-      }
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("oh_consulente_appointments")
-      .insert({
+    const insertPayload = await Promise.all(dates.map(async (date, index) => {
+      const booked = await countAppointments(organization.id, entityId, date);
+      return {
         organization_id: organization.id,
         entity_id: entityId,
-        recommended_by_entity_id: recommendedByEntityId || null,
-        scheduled_by_person_id: scheduledByPersonId || null,
+        recommended_by_entity_id: null,
+        scheduled_by_person_id: null,
         consulente_name: fullName,
         whatsapp: whatsapp || null,
         email: email || null,
-        appointment_date: appointmentDate,
-        appointment_time: asText(body.appointmentTime ?? body.time) || null,
+        appointment_date: date,
+        appointment_time: "18:00",
         is_recurring: isRecurring,
         recurrence_count: isRecurring ? recurrenceCount : 1,
         status: "solicitado",
         notes: notes || null,
         metadata: {
-          source: "site_tucxa_consulente",
+          source: "site_tucxa_consulente_popup",
           return_guidance: settings.appointmentReturnGuidance,
-          weekday: dateWeekday,
-          age: age || null,
-          condition: condition || null,
-          recurrence_count: isRecurring ? recurrenceCount : 1,
+          weekday: weekdaySlug(date),
+          recurrence_index: index + 1,
+          recurrence_total: dates.length,
+          order: booked + 1,
+          auto_cancel_recurring_on_absence: settings.autoCancelRecurringOnAbsence,
         },
-      })
-      .select("id, status")
-      .single();
+      };
+    }));
+
+    const { data, error } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .insert(insertPayload)
+      .select("id, status, appointment_date, metadata")
+      .order("appointment_date", { ascending: true });
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, appointment: data, message: "Solicitação registrada. A organização do Tucxa fará a validação e retornará pelo contato informado." });
+    const firstAppointment = Array.isArray(data) ? data[0] : null;
+    const firstOrder = Number((firstAppointment?.metadata as Record<string, unknown> | null)?.order ?? 1);
+    let emailSent = false;
+    try {
+      emailSent = await sendConfirmationEmail({
+        to: email,
+        name: fullName,
+        entityName: selectedEntity.name || "Entidade escolhida",
+        appointmentDate,
+        order: firstOrder,
+        guidance: settings.appointmentReturnGuidance,
+      });
+    } catch {
+      emailSent = false;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      appointment: firstAppointment,
+      recurrenceCount: dates.length,
+      entityName: selectedEntity.name || "Entidade escolhida",
+      order: firstOrder,
+      emailSent,
+      message: "Solicitação registrada. A organização do Tucxa fará a validação e retornará pelo contato informado.",
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao solicitar agendamento." }, { status: 500 });
   }
