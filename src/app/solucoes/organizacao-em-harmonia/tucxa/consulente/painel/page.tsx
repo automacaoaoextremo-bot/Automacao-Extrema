@@ -9,6 +9,7 @@ type Appointment = { id: number; date: string; period: string; type: string; sta
 
 const headerActions = [
   { label: "Atendimento", href: "#atendimento", variant: "primary" as const },
+  { label: "Meus agendamentos", href: "#agendamentos", variant: "secondary" as const },
   { label: "Agenda Viva", href: "#agenda-viva", variant: "secondary" as const },
   { label: "Corrente em Dia", href: "#corrente-em-dia", variant: "secondary" as const },
   { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
@@ -38,7 +39,7 @@ export default function PainelConsulenteTucxaPage() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next: Appointment = {
-      id: Date.now(),
+      id: Math.max(0, ...appointments.map((item) => item.id)) + 1,
       date: preferredDate || "Data a confirmar",
       period: serviceType.includes("quarta") ? "18h30 às 22h" : "18h às 22h",
       type: serviceType,
@@ -76,13 +77,13 @@ export default function PainelConsulenteTucxaPage() {
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <a id="atendimento" href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="rounded-[1.5rem] bg-[#123D2C] p-5 text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#CFE2C7]">Atendimento em Harmonia</p>
-            <h2 className="mt-2 text-xl font-black">Agendar ou alterar atendimento</h2>
-            <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">Solicite atendimento de segunda, terça ou Transformação de quarta quando houver encaminhamento.</p>
+            <h2 className="mt-2 text-xl font-black">Agendar atendimento</h2>
+            <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">Abra o calendário de atendimento para escolher dia, entidade e concluir a solicitação guiada por pop-ups.</p>
           </a>
           <a id="agenda-viva" href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="rounded-[1.5rem] bg-white p-5 text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Agenda Viva</p>
-            <h2 className="mt-2 text-xl font-black">Consultar calendário e filtros</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Veja eventos disponíveis, seus agendamentos e solicitações por tipo ou período.</p>
+            <h2 className="mt-2 text-xl font-black">Consultar Agenda Viva</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Veja eventos disponíveis para Consulentes / Filhos de Fora e use a área logada para acompanhar seus agendamentos.</p>
           </a>
           <a id="corrente-em-dia" href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=identificada" className="rounded-[1.5rem] bg-[#E9F2E7] p-5 text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Corrente em Dia</p>
@@ -123,8 +124,8 @@ export default function PainelConsulenteTucxaPage() {
           <div id="agendamentos" className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h2 className="text-xl font-black text-[#123D2C]">Meus agendamentos</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">Use os filtros para consultar por tipo e solicite alteração, cancelamento ou exclusão.</p>
+                <h2 className="text-xl font-black text-[#123D2C]">Acompanhar meus agendamentos</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Este acompanhamento fica dentro da área logada. Use os filtros para consultar por tipo e solicitar alteração, cancelamento ou exclusão.</p>
               </div>
               <label className="grid gap-1">
                 <span className="text-xs font-black text-[#123D2C]">Filtro</span>

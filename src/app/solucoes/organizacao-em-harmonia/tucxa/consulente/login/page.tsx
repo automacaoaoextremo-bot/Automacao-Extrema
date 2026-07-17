@@ -72,7 +72,7 @@ export default function LoginConsulenteTucxaPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
       setLoading(false);
-      setMessage("Caso seja seu primeiro acesso, faça o cadastro e aguarde a validação da organização do Tucxa.");
+      setMessage("Caso seja seu primeiro acesso, faça o cadastro para liberar sua entrada automaticamente.");
     }
   }
 
@@ -85,7 +85,7 @@ export default function LoginConsulenteTucxaPage() {
           <p className="text-xs font-black tracking-[0.22em] text-[#2F6B43] sm:text-sm">Acesso do consulente</p>
           <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Entre no Atendimento em Harmonia, Agenda Viva ou Corrente em Dia.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-            Use este acesso depois que a organização do Tucxa validar seu cadastro. Ao entrar, você poderá acompanhar orientações de atendimento, informações da Agenda Viva e contribuições no Corrente em Dia.
+            Use o WhatsApp ou e-mail cadastrado e a senha criada no primeiro cadastro. Ao entrar, você poderá acessar a Agenda Viva, Atendimento em Harmonia, seus agendamentos e contribuições quando aplicável.
           </p>
 
           <form onSubmit={submit} className="mt-5 grid gap-4">

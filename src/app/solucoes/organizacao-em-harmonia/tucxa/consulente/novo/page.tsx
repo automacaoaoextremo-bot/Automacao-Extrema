@@ -42,7 +42,7 @@ export default async function NovoConsulenteTucxaPage() {
           <p className="text-xs font-black tracking-[0.22em] text-[#CFE2C7] sm:text-sm">Próximo passo</p>
           <h2 className="mt-2 text-2xl font-black sm:text-3xl">Quer agendar, alterar atendimento ou contribuir de forma identificada?</h2>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
-            Primeiro, faça um cadastro simples com nome completo, WhatsApp, e-mail opcional e senha. A organização do Tucxa valida as informações e retorna pelo WhatsApp informado e também por e-mail, quando preenchido.
+            Primeiro, faça um cadastro simples com nome completo, WhatsApp, e-mail opcional e senha. O acesso de Consulente / Filho de Fora fica liberado logo após o envio, e as orientações aparecem na área logada.
           </p>
           <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">

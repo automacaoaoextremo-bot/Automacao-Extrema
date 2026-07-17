@@ -20,8 +20,8 @@ type StatusPayload = {
 };
 
 const statusLabels: Record<string, string> = {
-  novo: "Recebido para validação",
-  pendente_validacao: "Aguardando validação",
+  novo: "Cadastro recebido",
+  pendente_validacao: "Acesso em organização",
   em_analise: "Em análise pela organização",
   aprovado: "Acesso liberado",
   ativo: "Acesso liberado",
@@ -60,11 +60,11 @@ function formatDate(value?: string | null) {
 function StatusFallback() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} navLabel="Menu de acompanhamento do cadastro" />
+      <TucxaPublicHeader actions={headerActions} navLabel="Menu de status do cadastro" />
       <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acompanhamento</p>
-          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Status da aprovação do cadastro</h1>
+          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Status do cadastro</h1>
           <p className="mt-4 rounded-2xl bg-[#E9F2E7] p-4 text-sm font-bold text-[#123D2C]">Carregando acompanhamento...</p>
         </div>
       </section>
@@ -112,12 +112,12 @@ function StatusCadastroConsulenteTucxaContent() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} navLabel="Menu de acompanhamento do cadastro" />
+      <TucxaPublicHeader actions={headerActions} navLabel="Menu de status do cadastro" />
 
       <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Acompanhamento</p>
-          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Status da aprovação do cadastro</h1>
+          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Status do cadastro</h1>
 
           {effectiveLoading && <p className="mt-4 rounded-2xl bg-[#E9F2E7] p-4 text-sm font-bold text-[#123D2C]">Consultando...</p>}
           {effectivePayload.error && <p className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700 ring-1 ring-red-100">{effectivePayload.error}</p>}
@@ -133,7 +133,7 @@ function StatusCadastroConsulenteTucxaContent() {
               </div>
 
               <div className="rounded-3xl bg-white p-4 ring-1 ring-[#123D2C]/10">
-                <p className="text-sm font-black text-[#123D2C]">Módulos previstos após liberação</p>
+                <p className="text-sm font-black text-[#123D2C]">Módulos disponíveis na área logada</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   {["Atendimento em Harmonia", "Agenda Viva", "Corrente em Dia"].map((item) => (
                     <span key={item} className="rounded-2xl bg-[#F7FAF2] px-3 py-3 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
@@ -145,11 +145,11 @@ function StatusCadastroConsulenteTucxaContent() {
 
               {isApproved ? (
                 <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5">
-                  Entrar nos módulos
+                  Entrar na área do Consulente
                 </Link>
               ) : (
                 <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">
-                  Ainda não precisa refazer o cadastro. Se a organização precisar de ajuste, ela retornará pelo WhatsApp informado e por e-mail, quando preenchido.
+                  Seu cadastro foi recebido. Use o login do Consulente para acessar os módulos liberados. Se a organização precisar de ajuste, ela retornará pelo WhatsApp informado e por e-mail, quando preenchido.
                 </p>
               )}
             </div>

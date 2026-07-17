@@ -55,8 +55,12 @@ function statusUrl(token: string) {
   return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/status?token=${encodeURIComponent(token)}`;
 }
 
-function obrigadoUrl(token: string, whatsappLink: string) {
-  const params = new URLSearchParams({ token });
+function consulenteLoginUrl() {
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/login`;
+}
+
+function obrigadoUrl(whatsappLink: string) {
+  const params = new URLSearchParams({ login: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login" });
   if (whatsappLink) params.set("whatsapp", whatsappLink);
   return `/solucoes/organizacao-em-harmonia/tucxa/consulente/obrigado?${params.toString()}`;
 }
@@ -120,7 +124,7 @@ async function findTucxaOrganizationId() {
 
 
 async function findApprovalResponsible(organizationId: string, requestType: string) {
-  const fallback = { email: internalEmail(), whatsapp: process.env.TUCXA_PUBLIC_WHATSAPP || process.env.AE_INTERNAL_WHATSAPP || "", name: "Responsável pela validação" };
+  const fallback = { email: internalEmail(), whatsapp: process.env.TUCXA_PUBLIC_WHATSAPP || process.env.AE_INTERNAL_WHATSAPP || "", name: "Responsável pelo cadastro" };
 
   const { data } = await supabaseAdmin
     .from("oh_approval_rules")
@@ -211,7 +215,7 @@ async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: s
         whatsapp: input.whatsapp,
         organization_id: input.organizationId,
         oh_profile: "consulente",
-        oh_access_status: "pending_review",
+        oh_access_status: "active",
       },
     });
     if (error) throw error;
@@ -227,7 +231,7 @@ async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: s
       whatsapp: input.whatsapp,
       organization_id: input.organizationId,
       oh_profile: "consulente",
-      oh_access_status: "pending_review",
+      oh_access_status: "active",
     },
   });
 
@@ -245,7 +249,7 @@ async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: s
             whatsapp: input.whatsapp,
             organization_id: input.organizationId,
             oh_profile: "consulente",
-            oh_access_status: "pending_review",
+            oh_access_status: "active",
           },
         });
         if (updateError) throw updateError;
@@ -285,11 +289,13 @@ async function savePublicRequest(body: Required<ConsulenteBody>, options?: { sta
     contribution_mode: body.contributionMode || null,
     preferred_day: body.preferredDay || null,
     notes: body.notes || null,
-    status: "novo",
+    status: body.requestType === "cadastro-consulente" ? "ativo" : "novo",
     status_tracking_token: options?.statusToken || null,
     person_id: options?.personId || null,
     metadata: {
       publicStatusUrl: options?.statusUrl || null,
+      loginUrl: consulenteLoginUrl(),
+      accessStatus: body.requestType === "cadastro-consulente" ? "liberado" : "recebido",
       modules: CONSULENTE_MODULES,
       submittedAt: new Date().toISOString(),
     },
@@ -318,8 +324,8 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
         full_name: body.name,
         email: emailForAuth,
         whatsapp,
-        active: false,
-        notes: "Cadastro de consulente/filho de fora atualizado pelo site do Tucxa. Aguardando validação.",
+        active: true,
+        notes: "Cadastro de consulente/filho de fora atualizado pelo site do Tucxa. Acesso liberado automaticamente.",
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -332,8 +338,8 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
         full_name: body.name,
         email: emailForAuth,
         whatsapp,
-        active: false,
-        notes: "Cadastro de consulente/filho de fora criado pelo site do Tucxa. Aguardando validação.",
+        active: true,
+        notes: "Cadastro de consulente/filho de fora criado pelo site do Tucxa. Acesso liberado automaticamente.",
       })
       .select("id")
       .single();
@@ -352,8 +358,8 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
     person_id: personId,
     role_id: roleId,
     module_slugs: CONSULENTE_MODULES,
-    active: false,
-    status: "pendente_validacao",
+    active: true,
+    status: "ativo",
     is_main_contact: false,
     can_receive_notifications: Boolean(email || whatsapp),
     agenda_viva_profile: {
@@ -361,6 +367,9 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
       canScheduleAttendance: true,
       canContributeIdentified: true,
       preferredContact: email ? "email-whatsapp" : "whatsapp",
+      validationStatus: "ativo",
+      accessReleasedAt: new Date().toISOString(),
+      accessType: "consulente-filho-de-fora",
     },
     updated_at: new Date().toISOString(),
   };
@@ -401,7 +410,7 @@ export async function POST(request: Request) {
       const organizationId = await findTucxaOrganizationId();
       if (!organizationId) return NextResponse.json({ error: "Organização Tucxa não localizada." }, { status: 404 });
       const person = await findPersonByIdentifier(organizationId, body.identifier);
-      if (!person?.email) return NextResponse.json({ error: "Cadastro não localizado. Faça o primeiro cadastro ou aguarde validação." }, { status: 404 });
+      if (!person?.email) return NextResponse.json({ error: "Cadastro não localizado. Faça o primeiro cadastro para liberar seu acesso." }, { status: 404 });
       return NextResponse.json({ ok: true, authEmail: person.email });
     }
 
@@ -414,10 +423,11 @@ export async function POST(request: Request) {
 
       const token = body.statusToken || crypto.randomUUID();
       const publicStatusUrl = statusUrl(token);
+      const publicLoginUrl = consulenteLoginUrl();
       const saved = await submitCadastro(body);
       await savePublicRequest({ ...body, whatsapp }, { statusToken: token, personId: saved.personId, statusUrl: publicStatusUrl }).catch(() => undefined);
 
-      const responsible = await findApprovalResponsible(saved.organizationId, "consulente-cadastro").catch(() => ({ email: internalEmail(), whatsapp: process.env.TUCXA_PUBLIC_WHATSAPP || "", name: "Responsável pela validação" }));
+      const responsible = await findApprovalResponsible(saved.organizationId, "consulente-cadastro").catch(() => ({ email: internalEmail(), whatsapp: process.env.TUCXA_PUBLIC_WHATSAPP || "", name: "Responsável pelo cadastro" }));
       const subject = `[Tucxa] Novo cadastro de consulente - ${body.name}`;
       const text = [
         "Novo cadastro de Consulente / Filho de Fora recebido pelo site do Tucxa.",
@@ -426,11 +436,11 @@ export async function POST(request: Request) {
         `WhatsApp: ${whatsapp}`,
         `E-mail: ${body.email || "não informado"}`,
         "Senha: cadastrada no Supabase Auth e não enviada por e-mail.",
-        "Status: aguardando validação da organização do Tucxa.",
-        `Responsável sugerido: ${responsible.name}`,
+        "Status: acesso liberado automaticamente para Consulente / Filho de Fora.",
+        `Responsável de acompanhamento: ${responsible.name}`,
         "",
-        "Link de acompanhamento do consulente:",
-        publicStatusUrl,
+        "Link de login do consulente:",
+        publicLoginUrl,
         "",
         `Origem: ${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro`,
       ].join("\n");
@@ -438,17 +448,17 @@ export async function POST(request: Request) {
       await sendEmail({ to: responsible.email || internalEmail(), subject, text, cc: internalEmail() });
 
       if (body.email) {
-        const userSubject = "[Tucxa] Recebemos seu cadastro para validação";
+        const userSubject = "[Tucxa] Cadastro recebido - acesso liberado";
         const userText = [
           `Olá, ${body.name}.`,
           "",
           "Recebemos seu cadastro como Consulente / Filho de Fora no site do Tucxa.",
-          "Agora a organização irá conferir seus dados e liberar o acesso aos módulos Atendimento em Harmonia, Agenda Viva e Corrente em Dia.",
+          "Seu acesso já está liberado para entrar com o WhatsApp ou e-mail cadastrado e a senha criada no formulário.",
           "",
-          "Guarde este link para acompanhar a aprovação:",
-          publicStatusUrl,
+          "Link de login:",
+          publicLoginUrl,
           "",
-          "O retorno também será feito pelo WhatsApp informado.",
+          "Dentro da área logada, você poderá acessar Agenda Viva, Atendimento em Harmonia, seus agendamentos e contribuições quando aplicável.",
         ].join("\n");
         await sendEmail({ to: body.email, subject: userSubject, text: userText, cc: internalEmail() });
       }
@@ -456,18 +466,18 @@ export async function POST(request: Request) {
       const waMessage = [
         "Olá. Fiz meu cadastro como Consulente / Filho de Fora pelo site do Tucxa.",
         `Nome: ${body.name}`,
-        "Aguardo a validação e as orientações para acessar meus agendamentos ou contribuições.",
+        "Meu acesso como Consulente / Filho de Fora já foi liberado.",
         "",
-        "Meu link de acompanhamento:",
-        publicStatusUrl,
+        "Link de login:",
+        publicLoginUrl,
       ].join("\n");
       const waUrl = whatsappUrl(process.env.TUCXA_PUBLIC_WHATSAPP || whatsapp, waMessage);
 
       return NextResponse.json({
         ok: true,
-        message: "Cadastro recebido. A organização do Tucxa irá validar seus dados e retornar pelo WhatsApp informado e e-mail, caso tenha sido preenchido.",
-        statusUrl: publicStatusUrl,
-        redirectUrl: obrigadoUrl(token, waUrl),
+        message: "Cadastro recebido. Seu acesso já está liberado para entrar com WhatsApp ou e-mail e a senha cadastrada.",
+        statusUrl: publicLoginUrl,
+        redirectUrl: obrigadoUrl(waUrl),
         whatsappUrl: waUrl,
       });
     }
