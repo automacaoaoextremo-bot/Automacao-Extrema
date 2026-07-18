@@ -21,17 +21,17 @@ export default async function ConsulenteTucxaPage() {
     },
     {
       label: content.atendimentoEmHarmonia.shortLabel,
-      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=atendimento",
+      href: "#atendimento",
       variant: "secondary" as const,
     },
     {
       label: content.agendaViva.shortLabel,
-      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar",
+      href: "#agenda-viva",
       variant: "secondary" as const,
     },
     {
       label: content.correnteEmDia.shortLabel,
-      href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao",
+      href: "#corrente-em-dia",
       variant: "secondary" as const,
     },
     {
@@ -58,39 +58,30 @@ export default async function ConsulenteTucxaPage() {
             <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/novo" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               É novo por aqui
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=atendimento" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+            <Link href="#atendimento" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               {content.atendimentoEmHarmonia.shortLabel}
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+            <Link href="#agenda-viva" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               {content.agendaViva.shortLabel}
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
+            <Link href="#corrente-em-dia" className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base">
               {content.correnteEmDia.shortLabel}
             </Link>
           </div>
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <article className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <article id="atendimento" className="scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{content.atendimentoEmHarmonia.title}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{content.atendimentoEmHarmonia.description}</p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
-              {content.atendimentoEmHarmonia.callToAction}
-            </Link>
           </article>
-          <article className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <article id="agenda-viva" className="scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{content.agendaViva.title}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{content.agendaViva.description}</p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
-              {content.agendaViva.callToAction}
-            </Link>
           </article>
-          <article className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <article id="corrente-em-dia" className="scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <h2 className="text-lg font-black text-[#123D2C] sm:text-xl">{content.correnteEmDia.title}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{content.correnteEmDia.description}</p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
-              {content.correnteEmDia.callToAction}
-            </Link>
           </article>
         </div>
 

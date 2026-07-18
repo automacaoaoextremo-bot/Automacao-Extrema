@@ -33,6 +33,12 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
+    label: "Dúvidas?",
+    href: "#duvidas",
+    variant: "secondary" as const,
+    action: "supportWhatsapp" as const,
+  },
+  {
     label: "Filhos da Corrente",
     href: "#corrente",
     variant: "secondary" as const,
@@ -68,7 +74,7 @@ export default async function TucxaSitePage() {
 
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} />
+      <TucxaPublicHeader actions={headerActions} showSupport={false} />
 
       <section className="scroll-mt-48 mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
@@ -83,12 +89,9 @@ export default async function TucxaSitePage() {
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <Link href="#cadastro" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
-              Sou Filho da Corrente - Primeiro acesso
+              Sou Filho da Corrente
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-white sm:text-base">
-              Sou Filho da Corrente - Acesso Liberado
-            </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
+            <Link href="#consulentes" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
               Sou Consulente / Filho de Fora
             </Link>
           </div>
