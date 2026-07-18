@@ -10,7 +10,7 @@ type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente" | "supportWhatsapp";
+  action?: "signOutFilhoCorrente" | "signOutConsulente" | "supportWhatsapp";
 };
 
 type TucxaPublicHeaderProps = {
@@ -127,6 +127,12 @@ function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; activ
     if (link.action === "signOutFilhoCorrente") {
       await supabaseBrowser.auth.signOut();
       window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+      return;
+    }
+
+    if (link.action === "signOutConsulente") {
+      await supabaseBrowser.auth.signOut();
+      window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/consulente/login");
     }
   }
 

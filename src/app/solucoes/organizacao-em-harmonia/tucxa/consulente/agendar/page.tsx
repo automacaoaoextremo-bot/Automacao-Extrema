@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
 
 type SpiritualEntity = {
   id: string;
@@ -74,12 +74,6 @@ type ModalKind = "agenda" | "entities" | "entityInfo" | "booking" | "thanks" | n
 const todayIso = new Date().toISOString().slice(0, 10);
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
-const headerActions = [
-  { label: "Consulente", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente", variant: "secondary" as const },
-  { label: "Agenda Viva", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar", variant: "primary" as const },
-  { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
-];
-
 const eventTones = [
   { background: "#F5B7B1", border: "#D9827B", text: "#5C211E", soft: "#FCE3E0" },
   { background: "#B8D8F1", border: "#6BAED6", text: "#17445B", soft: "#E4F1FB" },
@@ -375,7 +369,7 @@ export default function AgendarConsulentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} navLabel="Menu de agendamento do consulente" />
+      <ConsulentePanelHeader navLabel="Atendimento em Harmonia - Agendamento" />
       <section className="mx-auto max-w-5xl px-4 py-4 sm:px-6 lg:px-8">
         <div className="rounded-[1.75rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia</p>

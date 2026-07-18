@@ -17,6 +17,13 @@ function initialDestination(): Destination {
   return "atendimento";
 }
 
+function safeReturnTo() {
+  if (typeof window === "undefined") return "";
+  const value = new URLSearchParams(window.location.search).get("returnTo") || "";
+  const allowedBase = "/solucoes/organizacao-em-harmonia/tucxa/consulente/";
+  return value.startsWith(allowedBase) && !value.startsWith("//") ? value : "";
+}
+
 const headerActions = [
   { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#consulentes", variant: "secondary" as const },
 ];
@@ -66,9 +73,12 @@ export default function LoginConsulenteTucxaPage() {
         throw new Error("Não foi possível entrar. Confira WhatsApp/e-mail e senha, ou use 'Esqueci minha senha'.");
       }
 
-      const target = destination === "contribuicao"
+      const requestedReturn = safeReturnTo();
+      const target = requestedReturn || (destination === "contribuicao"
         ? "/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao?tipo=identificada"
-        : "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel";
+        : destination === "agenda"
+          ? "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agenda-viva"
+          : "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel");
       window.location.href = target;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
