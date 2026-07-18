@@ -6,6 +6,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
+import {
+  AdminActionButton,
+  AdminDetailGrid,
+  AdminDetailItem,
+  AdminModal,
+  AdminStatusBadge,
+  CompactAdminRow,
+  ConfirmDialog,
+} from "@/components/organizacao-em-harmonia/admin-list-ui";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Mode = "overview" | "eventos" | "aprovacoes" | "calendario" | "cadastros" | "configuracoes";
@@ -48,6 +57,7 @@ type AgendaEvent = {
   event_type: string;
   event_type_id: string | null;
   status: string;
+  active: boolean;
   starts_at: string | null;
   ends_at: string | null;
   all_day: boolean;
@@ -117,6 +127,18 @@ type Payload = {
   entities?: SpiritualEntity[];
   agendaSettings?: Partial<AgendaSettings>;
 };
+
+type ConfirmationState = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  tone: "primary" | "danger" | "warning";
+  run: () => Promise<void>;
+};
+
+type CatalogKind = "audiences" | "classifications";
+type CatalogEditorState = { kind: CatalogKind; mode: "view" | "edit" | "new"; item: AgendaCatalogItem };
+type EventTypeEditorMode = "view" | "edit" | "new";
 
 type FormState = {
   eventId: string;
@@ -499,6 +521,26 @@ function formatLocalDateTime(value: string | null | undefined) {
   return date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 }
 
+function formatDateOnly(value: string | null | undefined) {
+  const local = parseLocalDateTime(value ?? "");
+  if (local) return `${String(local.day).padStart(2, "0")}/${String(local.month).padStart(2, "0")}/${local.year}`;
+  if (!value) return "Data a definir";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data a definir";
+  return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function formatEventDateRange(event: AgendaEvent) {
+  const start = formatDateOnly(eventLocalStart(event));
+  const end = formatDateOnly(eventLocalEnd(event));
+  if (end === "Data a definir" || end === start) return start;
+  return `${start} até ${end}`;
+}
+
+function eventIsActive(event: AgendaEvent) {
+  return event.active !== false;
+}
+
 function formatLocalTime(value: string | null | undefined) {
   const local = parseLocalDateTime(value ?? "");
   if (local) return local.minute === 0 ? `${local.hour}h` : `${local.hour}h${String(local.minute).padStart(2, "0")}`;
@@ -817,6 +859,7 @@ function sortedEvents(events: AgendaEvent[]) {
 
 function firstAccessSortedEvents(events: AgendaEvent[]) {
   return [...events]
+    .filter((event) => eventIsActive(event))
     .filter((event) => firstAccessEnabledFor(event))
     .filter((event) => ["aprovado", "recorrente", "ativo", "publicado"].includes(event.status))
     .sort((left, right) => {
@@ -1057,53 +1100,102 @@ function AgendaEventForm({
 }
 
 function EventModal({ open, children, onClose, title }: { open: boolean; children: ReactNode; onClose: () => void; title: string }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-3 py-6 backdrop-blur-sm">
-      <section className="w-full max-w-4xl rounded-[2rem] bg-white p-5 shadow-2xl ring-1 ring-white/40 sm:p-7">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div><p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Agenda Viva</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">{title}</h2></div>
-          <button type="button" onClick={onClose} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-[#00334E]">Fechar</button>
+    <AdminModal open={open} title={title} eyebrow="Agenda Viva" onClose={onClose}>
+      {children}
+    </AdminModal>
+  );
+}
+
+function EventDetails({ event, payload }: { event: AgendaEvent; payload: Payload }) {
+  const type = eventTypeFor(event, payload.eventTypes);
+  const responsible = payload.people.find((person) => person.id === event.responsible_person_id);
+  const imageUrl = eventImageUrl(event);
+  return (
+    <div className="grid gap-5">
+      {imageUrl && (
+        <div className="overflow-hidden rounded-3xl bg-slate-100 ring-1 ring-slate-200">
+          <Image src={imageUrl} alt={eventImageAlt(event)} width={1200} height={600} unoptimized className="max-h-72 w-full object-cover" />
         </div>
-        {children}
-      </section>
+      )}
+      <AdminDetailGrid>
+        <AdminDetailItem label="Evento">{eventEmoji(event)} {event.title}</AdminDetailItem>
+        <AdminDetailItem label="Situação">{statusLabels[event.status] ?? event.status} · {eventIsActive(event) ? "Ativo" : "Inativo"}</AdminDetailItem>
+        <AdminDetailItem label="Data inicial">{formatLocalDateTime(eventLocalStart(event))}</AdminDetailItem>
+        <AdminDetailItem label="Data final">{formatLocalDateTime(eventLocalEnd(event))}</AdminDetailItem>
+        <AdminDetailItem label="Tipo de atividade">{type?.name || event.event_type || "Atividade"}</AdminDetailItem>
+        <AdminDetailItem label="Classificação">{eventClassificationLabel(eventClassification(event))}</AdminDetailItem>
+        <AdminDetailItem label="Público">{audienceLabel(eventAudience(event))}</AdminDetailItem>
+        <AdminDetailItem label="Local">{locationLabel(event, payload.locations)}</AdminDetailItem>
+        <AdminDetailItem label="Responsável">{responsible?.full_name || "Não informado"}</AdminDetailItem>
+        <AdminDetailItem label="Recorrência">{recurrenceDisplay(event)}</AdminDetailItem>
+        <AdminDetailItem label="Horário">{agendaTimeLabel(event)}</AdminDetailItem>
+        <AdminDetailItem label="Dia inteiro">{event.all_day ? "Sim" : "Não"}</AdminDetailItem>
+        <AdminDetailItem label="Primeiro Acesso">{firstAccessEnabledFor(event) ? `Exibido · ordem ${firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "automática" : firstAccessOrderFor(event)}` : "Não exibido"}</AdminDetailItem>
+        <AdminDetailItem label="Continua nas férias">{continuesDuringVacation(event) ? "Sim" : "Não"}</AdminDetailItem>
+        <AdminDetailItem label="Código do grupo">{event.group_slug || "Não informado"}</AdminDetailItem>
+        <AdminDetailItem label="Exige aprovação">{event.requires_approval ? "Sim" : "Não"}</AdminDetailItem>
+        <AdminDetailItem label="Texto do Primeiro Acesso" full>{metadataAnyText(event, ["firstAccessSummary", "first_access_summary"]) || "Não informado"}</AdminDetailItem>
+        <AdminDetailItem label="Observações internas" full>{event.notes || "Nenhuma observação cadastrada"}</AdminDetailItem>
+      </AdminDetailGrid>
     </div>
   );
 }
 
-function EventCard({ event, payload, onEdit, onDuplicate, onDelete, compact = false }: { event: AgendaEvent; payload: Payload; onEdit?: (event: AgendaEvent) => void; onDuplicate?: (event: AgendaEvent) => void; onDelete?: (eventId: string) => void; compact?: boolean }) {
-  const type = eventTypeFor(event, payload.eventTypes);
-  const location = locationLabel(event, payload.locations);
+function EventCard({
+  event,
+  payload,
+  onView,
+  onEdit,
+  onDuplicate,
+  onDelete,
+  onToggleApproval,
+  onToggleActive,
+  compact = false,
+}: {
+  event: AgendaEvent;
+  payload: Payload;
+  onView?: (event: AgendaEvent) => void;
+  onEdit?: (event: AgendaEvent) => void;
+  onDuplicate?: (event: AgendaEvent) => void;
+  onDelete?: (event: AgendaEvent) => void;
+  onToggleApproval?: (event: AgendaEvent) => void;
+  onToggleActive?: (event: AgendaEvent) => void;
+  compact?: boolean;
+}) {
+  const canToggleApproval = event.status === "aprovado" || event.status === "reprovado";
+  const approvalLabel = statusLabels[event.status] ?? event.status;
+  const actions = onView || onEdit || onDuplicate || onDelete || onToggleActive || onToggleApproval;
+
   return (
-    <article className={`rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100 ${compact ? "" : "transition hover:-translate-y-0.5 hover:shadow-lg"}`}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-2xl leading-none">{eventEmoji(event)}</span>
-            <h3 className="text-xl font-black text-[#00334E]">{event.title}</h3>
-          </div>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{getEventDateTime(event)}</p>
-          <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">Local: {location}</p>
-          <p className="mt-1 text-xs font-black uppercase tracking-[0.16em] text-slate-500">{type?.name || event.event_type || "Atividade"} · {audienceLabel(eventAudience(event))}</p>
-          <p className="mt-2 inline-flex rounded-full bg-[#F7FAF2] px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{eventClassificationLabel(eventClassification(event))}</p>
+    <CompactAdminRow
+      icon={eventEmoji(event)}
+      title={event.title}
+      subtitle={formatEventDateRange(event)}
+      status={
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {canToggleApproval && onToggleApproval ? (
+            <button type="button" onClick={() => onToggleApproval(event)} className={`inline-flex min-h-8 items-center rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>
+              {approvalLabel}
+            </button>
+          ) : (
+            <span className={`inline-flex min-h-8 items-center rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>{approvalLabel}</span>
+          )}
+          <AdminStatusBadge active={eventIsActive(event)}>{eventIsActive(event) ? "Ativo" : "Inativo"}</AdminStatusBadge>
         </div>
-        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ring-1 ${publicStatusClass(event.status)}`}>{statusLabels[event.status] ?? event.status}</span>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-slate-600">
-        <span className="rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-100">{recurrenceDisplay(event)}</span>
-        <span className="rounded-full bg-slate-50 px-3 py-1 ring-1 ring-slate-100">{agendaTimeLabel(event)}</span>
-        {firstAccessEnabledFor(event) && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-900 ring-1 ring-emerald-100">Primeiro Acesso: ordem {firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "auto" : firstAccessOrderFor(event)}</span>}
-        {continuesDuringVacation(event) && <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-900 ring-1 ring-sky-100">Continua nas férias</span>}
-      </div>
-      {event.notes && <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">{event.notes}</p>}
-      {(onEdit || onDuplicate || onDelete) && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {onEdit && <button type="button" onClick={() => onEdit(event)} className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white">Editar</button>}
-          {onDuplicate && <button type="button" onClick={() => onDuplicate(event)} className="rounded-xl bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-900 ring-1 ring-emerald-100">Duplicar</button>}
-          {onDelete && <button type="button" onClick={() => onDelete(event.id)} className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700">Excluir</button>}
-        </div>
-      )}
-    </article>
+      }
+      actions={actions ? (
+        <>
+          {onView && <AdminActionButton onClick={() => onView(event)}>Visualizar</AdminActionButton>}
+          {onEdit && <AdminActionButton onClick={() => onEdit(event)} tone="primary">Editar</AdminActionButton>}
+          {onDuplicate && <AdminActionButton onClick={() => onDuplicate(event)} tone="success">Duplicar</AdminActionButton>}
+          {onDelete && <AdminActionButton onClick={() => onDelete(event)} tone="danger">Excluir</AdminActionButton>}
+          {onToggleActive && <AdminActionButton onClick={() => onToggleActive(event)} tone={eventIsActive(event) ? "warning" : "success"}>{eventIsActive(event) ? "Inativar" : "Ativar"}</AdminActionButton>}
+        </>
+      ) : compact ? (
+        <div className="text-xs font-bold text-slate-500">{eventTypeFor(event, payload.eventTypes)?.name || event.event_type || "Atividade"}</div>
+      ) : undefined}
+    />
   );
 }
 
@@ -1186,6 +1278,13 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const [approvalWhatsappUrl, setApprovalWhatsappUrl] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("Novo evento");
+  const [viewEvent, setViewEvent] = useState<AgendaEvent | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
+  const [eventSortOrder, setEventSortOrder] = useState<"start" | "alphabetical">("start");
+  const [eventTypeEditorMode, setEventTypeEditorMode] = useState<EventTypeEditorMode | null>(null);
+  const [eventTypeView, setEventTypeView] = useState<EventType | null>(null);
+  const [catalogEditor, setCatalogEditor] = useState<CatalogEditorState | null>(null);
+  const [responsibleView, setResponsibleView] = useState<Person | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [classificationFilter, setClassificationFilter] = useState("todos");
@@ -1277,63 +1376,124 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     reader.readAsDataURL(file);
   }
 
-  function nextCatalogItemId(kind: "audiences" | "classifications", items: AgendaCatalogItem[]) {
+  function nextCatalogItemId(kind: CatalogKind, items: AgendaCatalogItem[]) {
     const prefix = `novo-${kind}-`;
     const usedIds = new Set(items.map((item) => item.id));
     let index = items.length + 1;
     let id = `${prefix}${index}`;
-
     while (usedIds.has(id)) {
       index += 1;
       id = `${prefix}${index}`;
     }
-
     return id;
   }
 
-  function updateCatalogItem(kind: "audiences" | "classifications", id: string, patch: Partial<AgendaCatalogItem>) {
-    setCatalogDraft((current) => ({
-      ...current,
-      [kind]: current[kind].map((item) => item.id === id ? { ...item, ...patch, value: patch.label && !patch.value ? slugifyCatalogValue(patch.label) : item.value } : item),
-    }));
+  function responsibleIdsWithExplicitSelection(current: AgendaCatalogs) {
+    if (current.responsiblePersonIds.length > 0) return current.responsiblePersonIds;
+    return (payload?.people ?? []).filter((person) => person.active !== false).map((person) => person.id);
   }
 
-  function addCatalogItem(kind: "audiences" | "classifications") {
-    setCatalogDraft((current) => {
-      const id = nextCatalogItemId(kind, current[kind]);
-      return {
-        ...current,
-        [kind]: [...current[kind], { id, value: id, label: "Novo item", active: true, archived: false }],
-      };
-    });
-  }
-
-  function removeCatalogItem(kind: "audiences" | "classifications", id: string) {
-    setCatalogDraft((current) => ({ ...current, [kind]: current[kind].filter((item) => item.id !== id) }));
-  }
-
-  function toggleResponsiblePerson(personId: string) {
-    setCatalogDraft((current) => {
-      const ids = current.responsiblePersonIds.includes(personId)
-        ? current.responsiblePersonIds.filter((id) => id !== personId)
-        : [...current.responsiblePersonIds, personId];
-      return { ...current, responsiblePersonIds: ids };
-    });
-  }
-
-  async function saveCatalogs() {
+  async function saveCatalogs(nextCatalogs: AgendaCatalogs = catalogDraft, successMessage = "Cadastros da Agenda Viva salvos.") {
     setSaving(true);
     setMessage("");
     setError("");
     try {
-      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "updateAgendaCatalogs", agendaCatalogs: catalogDraft }) });
+      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "updateAgendaCatalogs", agendaCatalogs: nextCatalogs }) });
       if (result) setPayload(result);
-      setMessage("Cadastros da Agenda Viva salvos.");
+      setCatalogDraft(nextCatalogs);
+      setMessage(successMessage);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar cadastros da Agenda Viva.");
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  function openNewCatalogItem(kind: CatalogKind) {
+    const id = nextCatalogItemId(kind, catalogDraft[kind]);
+    setCatalogEditor({ kind, mode: "new", item: { id, value: id, label: "", description: "", active: true, archived: false } });
+  }
+
+  function openCatalogItem(kind: CatalogKind, item: AgendaCatalogItem, mode: "view" | "edit") {
+    setCatalogEditor({ kind, mode, item: { ...item } });
+  }
+
+  async function saveCatalogEditor() {
+    if (!catalogEditor) return;
+    const label = catalogEditor.item.label.trim();
+    if (!label) {
+      setError("Informe o nome do cadastro.");
+      return;
+    }
+    const item = {
+      ...catalogEditor.item,
+      label,
+      value: slugifyCatalogValue(catalogEditor.item.value || label),
+    };
+    const currentItems = catalogDraft[catalogEditor.kind];
+    const nextItems = catalogEditor.mode === "new"
+      ? [...currentItems, item]
+      : currentItems.map((current) => current.id === item.id ? item : current);
+    const nextCatalogs = { ...catalogDraft, [catalogEditor.kind]: nextItems };
+    const saved = await saveCatalogs(nextCatalogs, "Cadastro salvo.");
+    if (saved) setCatalogEditor(null);
+  }
+
+  function catalogItemInUse(kind: CatalogKind, item: AgendaCatalogItem) {
+    return (payload?.events ?? []).some((event) => kind === "audiences" ? eventAudience(event) === item.value : eventClassification(event) === item.value);
+  }
+
+  function askToggleCatalogItem(kind: CatalogKind, item: AgendaCatalogItem) {
+    const nextActive = item.active === false || item.archived === true;
+    setConfirmation({
+      title: nextActive ? "Ativar cadastro?" : "Inativar cadastro?",
+      message: nextActive
+        ? `Deseja tornar ${item.label} disponível novamente nos eventos e filtros?`
+        : `Deseja inativar ${item.label}? Os eventos já cadastrados continuarão preservados.`,
+      confirmLabel: nextActive ? "Ativar" : "Inativar",
+      tone: nextActive ? "primary" : "warning",
+      run: async () => {
+        const nextItems = catalogDraft[kind].map((current) => current.id === item.id ? { ...current, active: nextActive, archived: false } : current);
+        await saveCatalogs({ ...catalogDraft, [kind]: nextItems }, nextActive ? "Cadastro ativado." : "Cadastro inativado.");
+      },
+    });
+  }
+
+  function askDeleteCatalogItem(kind: CatalogKind, item: AgendaCatalogItem) {
+    const inUse = catalogItemInUse(kind, item);
+    setConfirmation({
+      title: "Excluir cadastro?",
+      message: inUse
+        ? `${item.label} já está em uso. Para preservar os eventos existentes, ele será arquivado e inativado em vez de apagado.`
+        : `Tem certeza que deseja excluir ${item.label}?`,
+      confirmLabel: inUse ? "Arquivar e inativar" : "Excluir",
+      tone: "danger",
+      run: async () => {
+        const nextItems = inUse
+          ? catalogDraft[kind].map((current) => current.id === item.id ? { ...current, active: false, archived: true } : current)
+          : catalogDraft[kind].filter((current) => current.id !== item.id);
+        await saveCatalogs({ ...catalogDraft, [kind]: nextItems }, inUse ? "Cadastro arquivado para preservar o histórico." : "Cadastro excluído.");
+      },
+    });
+  }
+
+  function askToggleResponsiblePerson(person: Person) {
+    const currentIds = responsibleIdsWithExplicitSelection(catalogDraft);
+    const selected = currentIds.includes(person.id);
+    setConfirmation({
+      title: selected ? "Inativar responsável na Agenda Viva?" : "Ativar responsável na Agenda Viva?",
+      message: selected
+        ? `${person.full_name} deixará de aparecer como opção em novos eventos. Os registros anteriores serão preservados.`
+        : `${person.full_name} voltará a aparecer como opção de responsável nos eventos.`,
+      confirmLabel: selected ? "Inativar" : "Ativar",
+      tone: selected ? "warning" : "primary",
+      run: async () => {
+        const nextIds = selected ? currentIds.filter((id) => id !== person.id) : [...currentIds, person.id];
+        await saveCatalogs({ ...catalogDraft, responsiblePersonIds: nextIds }, selected ? "Responsável inativado na Agenda Viva." : "Responsável ativado na Agenda Viva.");
+      },
+    });
   }
 
   async function saveEventTypeDraft() {
@@ -1348,6 +1508,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "upsertEventType", eventType: eventTypeDraft }) });
       if (result) setPayload(result);
       setEventTypeDraft({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" });
+      setEventTypeEditorMode(null);
       setMessage("Tipo de atividade salvo.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar tipo de atividade.");
@@ -1387,7 +1548,6 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   }
 
   async function deleteEventTypeDraft(id: string) {
-    if (!window.confirm("Excluir este tipo de atividade? Se já estiver em uso, ele será apenas inativado.")) return;
     setSaving(true);
     setMessage("");
     setError("");
@@ -1400,6 +1560,45 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function openNewEventType() {
+    setEventTypeDraft({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" });
+    setEventTypeView(null);
+    setEventTypeEditorMode("new");
+  }
+
+  function openEditEventType(item: EventType) {
+    setEventTypeDraft({ id: item.id, name: item.name, slug: item.slug, description: item.description ?? "", requiresApproval: item.requires_approval, active: item.active, sortOrder: String(item.sort_order ?? "") });
+    setEventTypeView(item);
+    setEventTypeEditorMode("edit");
+  }
+
+  function openViewEventType(item: EventType) {
+    setEventTypeView(item);
+    setEventTypeEditorMode("view");
+  }
+
+  function askToggleEventType(item: EventType) {
+    setConfirmation({
+      title: item.active ? "Inativar tipo de atividade?" : "Ativar tipo de atividade?",
+      message: item.active
+        ? `Deseja inativar ${item.name}? Eventos já cadastrados continuarão preservados.`
+        : `Deseja tornar ${item.name} disponível novamente no cadastro de eventos?`,
+      confirmLabel: item.active ? "Inativar" : "Ativar",
+      tone: item.active ? "warning" : "primary",
+      run: () => toggleEventTypeActive(item),
+    });
+  }
+
+  function askDeleteEventType(item: EventType) {
+    setConfirmation({
+      title: "Excluir tipo de atividade?",
+      message: `${item.name} será excluído quando não estiver em uso. Se já estiver vinculado a eventos, será apenas inativado para preservar o histórico.`,
+      confirmLabel: "Excluir",
+      tone: "danger",
+      run: () => deleteEventTypeDraft(item.id),
+    });
   }
 
   async function saveAgendaSettings(event: FormEvent<HTMLFormElement>) {
@@ -1462,8 +1661,8 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     }
   }
 
-  async function deleteEvent(eventId: string) {
-    if (!window.confirm("Excluir esta atividade? Ela será removida da lista, do calendário, do preview e do card público do Primeiro Acesso.")) return;
+  async function deleteEvent(event: AgendaEvent) {
+    const eventId = event.id;
     setSaving(true);
     setMessage("");
     setError("");
@@ -1476,6 +1675,63 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function setEventActive(event: AgendaEvent, active: boolean) {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await authenticatedRequest({ method: "POST", body: JSON.stringify({ action: "setEventActive", eventId: event.id, active }) });
+      if (result) setPayload(result);
+      setMessage(active ? "Evento ativado e novamente disponível nas agendas." : "Evento inativado e retirado das agendas públicas.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao alterar a situação do evento.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function askToggleApproval(event: AgendaEvent) {
+    const approve = event.status === "reprovado";
+    setConfirmation({
+      title: approve ? "Alterar para Aprovado?" : "Alterar para Reprovado?",
+      message: approve
+        ? `Deseja alterar o evento ${event.title} de Reprovado para Aprovado?`
+        : `Deseja alterar o evento ${event.title} de Aprovado para Reprovado?`,
+      confirmLabel: approve ? "Aprovar" : "Reprovar",
+      tone: approve ? "primary" : "warning",
+      run: () => decideEvent(event.id, approve ? "approveEvent" : "rejectEvent"),
+    });
+  }
+
+  function askToggleEventActive(event: AgendaEvent) {
+    const active = !eventIsActive(event);
+    setConfirmation({
+      title: active ? "Ativar evento?" : "Inativar evento?",
+      message: active
+        ? `Deseja tornar ${event.title} ativo e disponível novamente nas agendas?`
+        : `Deseja inativar ${event.title}? O cadastro e o histórico serão preservados, mas ele deixará de ser publicado nas agendas.`,
+      confirmLabel: active ? "Ativar" : "Inativar",
+      tone: active ? "primary" : "warning",
+      run: () => setEventActive(event, active),
+    });
+  }
+
+  function askDeleteEvent(event: AgendaEvent) {
+    setConfirmation({
+      title: "Excluir evento?",
+      message: `Tem certeza que deseja excluir ${event.title}? Ele será removido da lista, do calendário, das aprovações e do card público do Primeiro Acesso. Esta ação não pode ser desfeita.`,
+      confirmLabel: "Excluir definitivamente",
+      tone: "danger",
+      run: () => deleteEvent(event),
+    });
+  }
+
+  async function runConfirmation() {
+    const action = confirmation?.run;
+    setConfirmation(null);
+    if (action) await action();
   }
 
   function eventToForm(event: AgendaEvent, options?: { duplicate?: boolean }): FormState {
@@ -1535,16 +1791,24 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const pendingEvents = useMemo(() => (payload?.events ?? []).filter((event) => event.status === "pendente_aprovacao"), [payload?.events]);
 
   const filteredEvents = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return events.filter((event) => {
+    const normalizedQuery = normalizeText(query.trim());
+    const filtered = events.filter((event) => {
       const classification = eventClassification(event);
-      const text = `${event.title} ${event.location ?? ""} ${event.group_slug ?? ""} ${event.event_type ?? ""} ${eventClassificationLabel(classification)}`.toLowerCase();
+      const text = normalizeText(`${event.title} ${event.location ?? ""} ${event.group_slug ?? ""} ${event.event_type ?? ""} ${eventClassificationLabel(classification)}`);
       if (normalizedQuery && !text.includes(normalizedQuery)) return false;
       if (statusFilter !== "todos" && event.status !== statusFilter) return false;
       if (classificationFilter !== "todos" && classification !== classificationFilter) return false;
       return true;
     });
-  }, [classificationFilter, events, query, statusFilter]);
+
+    return [...filtered].sort((left, right) => {
+      if (eventSortOrder === "alphabetical") return left.title.localeCompare(right.title, "pt-BR", { sensitivity: "base" });
+      const leftDate = toComparableDate(eventLocalStart(left))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const rightDate = toComparableDate(eventLocalStart(right))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (leftDate !== rightDate) return leftDate - rightDate;
+      return left.title.localeCompare(right.title, "pt-BR", { sensitivity: "base" });
+    });
+  }, [classificationFilter, eventSortOrder, events, query, statusFilter]);
 
   const calendarEvents = useMemo(() => {
     const today = new Date();
@@ -1606,19 +1870,42 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
 
           {mode === "eventos" && (
             <div className="grid gap-5">
-              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div><p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Eventos</p><h2 className="mt-2 text-2xl font-black text-[#00334E]">Lista de eventos cadastrados</h2><p className="mt-2 text-sm leading-6 text-slate-600">Edite em uma janela dedicada, sem precisar voltar ao topo da página.</p></div>
-                  <button type="button" onClick={newEvent} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white">Novo evento</button>
+              <section className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Eventos</p>
+                    <h2 className="mt-2 text-2xl font-black text-[#00334E]">Lista de eventos cadastrados</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">A lista mostra somente o essencial. Use Visualizar ou Editar para consultar as demais informações.</p>
+                  </div>
+                  <AdminActionButton onClick={newEvent} tone="primary" className="w-full sm:w-auto">Novo evento</AdminActionButton>
                 </div>
-                <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-                  <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Buscar por nome, local ou tipo" />
+                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-slate-200 p-3 md:col-span-2 xl:col-span-1" placeholder="Buscar por nome, local ou tipo" />
                   <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                  <select value={classificationFilter} onChange={(event) => setClassificationFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option><option value="umbanda">Umbanda</option><option value="outros">Outros</option><option value="sementinha">Sementinha</option><option value="estudos">Estudos</option><option value="social">Social / comunidade</option></select>
+                  <select value={classificationFilter} onChange={(event) => setClassificationFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option>{classificationOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <label className="grid gap-1">
+                    <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Ordenar por</span>
+                    <select value={eventSortOrder} onChange={(event) => setEventSortOrder(event.target.value as "start" | "alphabetical")} className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <option value="start">Data de início</option>
+                      <option value="alphabetical">Ordem alfabética</option>
+                    </select>
+                  </label>
                 </div>
               </section>
-              <section className="grid gap-4 lg:grid-cols-2">
-                {filteredEvents.map((event) => <EventCard key={event.id} event={event} payload={payload} onEdit={editEvent} onDuplicate={duplicateEvent} onDelete={deleteEvent} />)}
+              <section className="grid gap-3">
+                {filteredEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    payload={payload}
+                    onView={setViewEvent}
+                    onEdit={editEvent}
+                    onDuplicate={duplicateEvent}
+                    onDelete={askDeleteEvent}
+                    onToggleApproval={askToggleApproval}
+                    onToggleActive={askToggleEventActive}
+                  />
+                ))}
                 {filteredEvents.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhum evento encontrado.</p>}
               </section>
               <FirstAccessPreview events={firstAccessPreviewEvents} locations={payload.locations} />
@@ -1706,90 +1993,104 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
 
           {mode === "cadastros" && (
             <div className="grid gap-5">
-              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Cadastros auxiliares</p>
-                    <h2 className="mt-2 text-2xl font-black text-[#00334E]">Listas usadas no formulário de eventos</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">Inclua, edite, arquive, ative/inative ou exclua as opções que aparecem nos campos circulados do Novo evento.</p>
-                  </div>
-                  <button type="button" onClick={saveCatalogs} disabled={saving} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{saving ? "Salvando..." : "Salvar cadastros"}</button>
-                </div>
+              <section className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-6">
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43]">Cadastros auxiliares</p>
+                <h2 className="mt-2 text-2xl font-black text-[#00334E]">Listas usadas no formulário de eventos</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Cada lista mostra somente o essencial. Use Visualizar ou Editar para abrir as informações completas.</p>
               </section>
 
-              <section className="grid gap-4 lg:grid-cols-2">
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
-                  <div className="flex items-center justify-between gap-3">
+              <section className="grid gap-4">
+                <article className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <h3 className="text-xl font-black text-[#00334E]">Tipo de atividade</h3>
-                      <p className="mt-1 text-sm text-slate-600">Cadastro gravado na tabela de tipos da Agenda Viva.</p>
+                      <p className="mt-1 text-sm text-slate-600">Tipos disponíveis no cadastro e nos filtros da Agenda Viva.</p>
                     </div>
-                    <button type="button" onClick={() => setEventTypeDraft({ id: "", name: "", slug: "", description: "", requiresApproval: true, active: true, sortOrder: "" })} className="rounded-2xl bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#00334E]">Novo</button>
+                    <AdminActionButton onClick={openNewEventType} tone="primary" className="w-full sm:w-auto">Novo tipo</AdminActionButton>
                   </div>
-                  <div className="mt-4 grid gap-3 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100">
-                    <input value={eventTypeDraft.name} onChange={(event) => setEventTypeDraft((current) => ({ ...current, name: event.target.value, slug: current.slug || slugifyCatalogValue(event.target.value) }))} placeholder="Nome do tipo" className="rounded-2xl border border-slate-200 p-3" />
-                    <input value={eventTypeDraft.slug} onChange={(event) => setEventTypeDraft((current) => ({ ...current, slug: slugifyCatalogValue(event.target.value) }))} placeholder="slug" className="rounded-2xl border border-slate-200 p-3" />
-                    <textarea value={eventTypeDraft.description} onChange={(event) => setEventTypeDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Descrição" className="min-h-20 rounded-2xl border border-slate-200 p-3" />
-                    <label className="flex items-center gap-2 text-sm font-bold text-[#00334E]"><input type="checkbox" checked={eventTypeDraft.requiresApproval} onChange={(event) => setEventTypeDraft((current) => ({ ...current, requiresApproval: event.target.checked }))} /> Exige aprovação</label>
-                    <label className="flex items-center gap-2 text-sm font-bold text-[#00334E]"><input type="checkbox" checked={eventTypeDraft.active} onChange={(event) => setEventTypeDraft((current) => ({ ...current, active: event.target.checked }))} /> Ativo</label>
-                    <button type="button" onClick={saveEventTypeDraft} disabled={saving} className="rounded-2xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-60">Salvar tipo</button>
-                  </div>
-                  <div className="mt-4 grid gap-2">
+                  <div className="mt-4 grid gap-3">
                     {payload.eventTypes.map((item) => (
-                      <div key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div><p className="font-black text-[#00334E]">{item.name}</p><p className="text-xs font-bold text-slate-500">{item.slug} · {item.active ? "ativo" : "inativo/arquivado"}</p></div>
-                          <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => setEventTypeDraft({ id: item.id, name: item.name, slug: item.slug, description: item.description ?? "", requiresApproval: item.requires_approval, active: item.active, sortOrder: String(item.sort_order ?? "") })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">Editar</button>
-                            <button type="button" onClick={() => toggleEventTypeActive(item)} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.active ? "Inativar/arquivar" : "Ativar"}</button>
-                            <button type="button" onClick={() => deleteEventTypeDraft(item.id)} className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700 ring-1 ring-red-100">Excluir</button>
-                          </div>
-                        </div>
-                      </div>
+                      <CompactAdminRow
+                        key={item.id}
+                        icon="🏷️"
+                        title={item.name}
+                        subtitle={item.slug}
+                        status={<AdminStatusBadge active={item.active !== false}>{item.active === false ? "Inativo" : "Ativo"}</AdminStatusBadge>}
+                        actions={
+                          <>
+                            <AdminActionButton onClick={() => openViewEventType(item)}>Visualizar</AdminActionButton>
+                            <AdminActionButton onClick={() => openEditEventType(item)} tone="primary">Editar</AdminActionButton>
+                            <AdminActionButton onClick={() => askToggleEventType(item)} tone={item.active ? "warning" : "success"}>{item.active ? "Inativar" : "Ativar"}</AdminActionButton>
+                            <AdminActionButton onClick={() => askDeleteEventType(item)} tone="danger">Excluir</AdminActionButton>
+                          </>
+                        }
+                      />
                     ))}
+                    {payload.eventTypes.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500">Nenhum tipo de atividade cadastrado.</p>}
                   </div>
                 </article>
 
                 {(["audiences", "classifications"] as const).map((kind) => (
-                  <article key={kind} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
-                    <div className="flex items-center justify-between gap-3">
+                  <article key={kind} className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-6">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                       <div>
                         <h3 className="text-xl font-black text-[#00334E]">{kind === "audiences" ? "Público do evento" : "Classificação do evento"}</h3>
-                        <p className="mt-1 text-sm text-slate-600">Opções usadas nos filtros e no modal de evento.</p>
+                        <p className="mt-1 text-sm text-slate-600">Opções usadas nos eventos, filtros e calendários.</p>
                       </div>
-                      <button type="button" onClick={() => addCatalogItem(kind)} className="rounded-2xl bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#00334E]">Incluir</button>
+                      <AdminActionButton onClick={() => openNewCatalogItem(kind)} tone="primary" className="w-full sm:w-auto">Incluir</AdminActionButton>
                     </div>
                     <div className="mt-4 grid gap-3">
                       {catalogDraft[kind].map((item) => (
-                        <div key={item.id} className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
-                          <input value={item.label} onChange={(event) => updateCatalogItem(kind, item.id, { label: event.target.value, value: slugifyCatalogValue(event.target.value) })} className="rounded-xl border border-slate-200 p-2 font-bold" />
-                          <input value={item.value} onChange={(event) => updateCatalogItem(kind, item.id, { value: slugifyCatalogValue(event.target.value) })} className="rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-600" />
-                          <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => updateCatalogItem(kind, item.id, { active: !item.active })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.active ? "Inativar" : "Ativar"}</button>
-                            <button type="button" onClick={() => updateCatalogItem(kind, item.id, { archived: !item.archived, active: item.archived ? item.active : false })} className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#00334E] ring-1 ring-slate-200">{item.archived ? "Desarquivar" : "Arquivar"}</button>
-                            <button type="button" onClick={() => removeCatalogItem(kind, item.id)} className="rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700 ring-1 ring-red-100">Excluir</button>
-                          </div>
-                        </div>
+                        <CompactAdminRow
+                          key={item.id}
+                          icon={kind === "audiences" ? "👥" : "🗂️"}
+                          title={item.label}
+                          subtitle={item.value}
+                          status={<AdminStatusBadge active={item.active !== false && item.archived !== true}>{item.archived ? "Arquivado" : item.active === false ? "Inativo" : "Ativo"}</AdminStatusBadge>}
+                          actions={
+                            <>
+                              <AdminActionButton onClick={() => openCatalogItem(kind, item, "view")}>Visualizar</AdminActionButton>
+                              <AdminActionButton onClick={() => openCatalogItem(kind, item, "edit")} tone="primary">Editar</AdminActionButton>
+                              <AdminActionButton onClick={() => askToggleCatalogItem(kind, item)} tone={item.active !== false && item.archived !== true ? "warning" : "success"}>{item.active !== false && item.archived !== true ? "Inativar" : "Ativar"}</AdminActionButton>
+                              <AdminActionButton onClick={() => askDeleteCatalogItem(kind, item)} tone="danger">Excluir</AdminActionButton>
+                            </>
+                          }
+                        />
                       ))}
                     </div>
                   </article>
                 ))}
 
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 lg:col-span-2">
-                  <h3 className="text-xl font-black text-[#00334E]">Responsáveis</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">A inclusão e edição dos responsáveis continua na Base Única. Aqui você define quais pessoas ficam ativas no campo Responsável da Agenda Viva.</p>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <article className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-xl font-black text-[#00334E]">Responsáveis</h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">O cadastro completo da pessoa continua na Base Única. Aqui você define se ela aparece como responsável na Agenda Viva.</p>
+                    </div>
+                    <Link href="/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white">Abrir Base Única</Link>
+                  </div>
+                  <div className="mt-4 grid gap-3">
                     {payload.people.filter((person) => person.active !== false).map((person) => {
-                      const selected = catalogDraft.responsiblePersonIds.length === 0 || catalogDraft.responsiblePersonIds.includes(person.id);
+                      const explicitIds = responsibleIdsWithExplicitSelection(catalogDraft);
+                      const selected = explicitIds.includes(person.id);
                       return (
-                        <label key={person.id} className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-slate-100">
-                          <input type="checkbox" checked={selected} onChange={() => toggleResponsiblePerson(person.id)} className="mt-1 h-5 w-5" />
-                          <span><span className="block font-black text-[#00334E]">{person.full_name}</span><span className="block text-xs font-bold text-slate-500">{selected ? "Ativo na Agenda" : "Inativo na Agenda"}</span></span>
-                        </label>
+                        <CompactAdminRow
+                          key={person.id}
+                          icon="🙋"
+                          title={person.full_name}
+                          subtitle={person.email || person.whatsapp || "Sem contato informado"}
+                          status={<AdminStatusBadge active={selected}>{selected ? "Ativo na Agenda" : "Inativo na Agenda"}</AdminStatusBadge>}
+                          actions={
+                            <>
+                              <AdminActionButton onClick={() => setResponsibleView(person)}>Visualizar</AdminActionButton>
+                              <AdminActionButton onClick={() => askToggleResponsiblePerson(person)} tone={selected ? "warning" : "success"}>{selected ? "Inativar" : "Ativar"}</AdminActionButton>
+                              <Link href="/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#00334E] px-3 py-2 text-sm font-black text-white">Editar na Base Única</Link>
+                            </>
+                          }
+                        />
                       );
                     })}
                   </div>
-                  <Link href="/solucoes/organizacao-em-harmonia/cliente/base-unica/envolvidos" className="mt-4 inline-flex rounded-2xl bg-[#00334E] px-4 py-3 font-black text-white">Incluir ou editar pessoa na Base Única</Link>
                 </article>
               </section>
             </div>
@@ -1895,9 +2196,59 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
             </form>
           )}
 
-          <EventModal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
+          <EventModal open={modalOpen} title={modalTitle} onClose={() => !saving && setModalOpen(false)}>
             <AgendaEventForm form={form} payload={payload} saving={saving} onCancel={() => setModalOpen(false)} onImageFile={onImageFile} onSave={saveEvent} update={update} />
           </EventModal>
+
+          <AdminModal open={Boolean(viewEvent)} title={viewEvent?.title ?? "Visualizar evento"} eyebrow="Agenda Viva" onClose={() => setViewEvent(null)}>
+            {viewEvent && <EventDetails event={viewEvent} payload={payload} />}
+          </AdminModal>
+
+          <AdminModal
+            open={eventTypeEditorMode === "new" || eventTypeEditorMode === "edit"}
+            title={eventTypeEditorMode === "edit" ? "Editar tipo de atividade" : "Novo tipo de atividade"}
+            eyebrow="Agenda Viva — Cadastros"
+            onClose={() => !saving && setEventTypeEditorMode(null)}
+          >
+            <div className="grid gap-4">
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome *</span><input value={eventTypeDraft.name} onChange={(event) => setEventTypeDraft((current) => ({ ...current, name: event.target.value, slug: current.slug || slugifyCatalogValue(event.target.value) }))} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Código interno</span><input value={eventTypeDraft.slug} onChange={(event) => setEventTypeDraft((current) => ({ ...current, slug: slugifyCatalogValue(event.target.value) }))} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Descrição</span><textarea value={eventTypeDraft.description} onChange={(event) => setEventTypeDraft((current) => ({ ...current, description: event.target.value }))} className="min-h-28 rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Ordem</span><input value={eventTypeDraft.sortOrder} onChange={(event) => setEventTypeDraft((current) => ({ ...current, sortOrder: event.target.value.replace(/\D/g, "") }))} className="rounded-2xl border border-slate-200 p-3" inputMode="numeric" /></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100"><input type="checkbox" checked={eventTypeDraft.requiresApproval} onChange={(event) => setEventTypeDraft((current) => ({ ...current, requiresApproval: event.target.checked }))} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Exige aprovação</span></label>
+              <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={eventTypeDraft.active} onChange={(event) => setEventTypeDraft((current) => ({ ...current, active: event.target.checked }))} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Ativo</span></label>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><AdminActionButton onClick={() => setEventTypeEditorMode(null)} disabled={saving}>Cancelar</AdminActionButton><AdminActionButton onClick={saveEventTypeDraft} disabled={saving || !eventTypeDraft.name.trim()} tone="primary">{saving ? "Salvando..." : "Salvar tipo"}</AdminActionButton></div>
+            </div>
+          </AdminModal>
+
+          <AdminModal open={eventTypeEditorMode === "view"} title={eventTypeView?.name ?? "Visualizar tipo"} eyebrow="Agenda Viva — Cadastros" onClose={() => setEventTypeEditorMode(null)}>
+            {eventTypeView && <AdminDetailGrid><AdminDetailItem label="Código interno">{eventTypeView.slug}</AdminDetailItem><AdminDetailItem label="Situação">{eventTypeView.active ? "Ativo" : "Inativo"}</AdminDetailItem><AdminDetailItem label="Exige aprovação">{eventTypeView.requires_approval ? "Sim" : "Não"}</AdminDetailItem><AdminDetailItem label="Ordem">{eventTypeView.sort_order}</AdminDetailItem><AdminDetailItem label="Descrição" full>{eventTypeView.description || "Nenhuma descrição cadastrada"}</AdminDetailItem></AdminDetailGrid>}
+          </AdminModal>
+
+          <AdminModal
+            open={Boolean(catalogEditor)}
+            title={catalogEditor ? `${catalogEditor.mode === "view" ? "Visualizar" : catalogEditor.mode === "new" ? "Incluir" : "Editar"} ${catalogEditor.kind === "audiences" ? "público" : "classificação"}` : "Cadastro"}
+            eyebrow="Agenda Viva — Cadastros"
+            onClose={() => !saving && setCatalogEditor(null)}
+          >
+            {catalogEditor && catalogEditor.mode === "view" ? (
+              <AdminDetailGrid><AdminDetailItem label="Nome">{catalogEditor.item.label}</AdminDetailItem><AdminDetailItem label="Código interno">{catalogEditor.item.value}</AdminDetailItem><AdminDetailItem label="Situação">{catalogEditor.item.archived ? "Arquivado" : catalogEditor.item.active ? "Ativo" : "Inativo"}</AdminDetailItem><AdminDetailItem label="Descrição" full>{catalogEditor.item.description || "Nenhuma descrição cadastrada"}</AdminDetailItem></AdminDetailGrid>
+            ) : catalogEditor ? (
+              <div className="grid gap-4">
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome *</span><input value={catalogEditor.item.label} onChange={(event) => setCatalogEditor((current) => current ? { ...current, item: { ...current.item, label: event.target.value, value: current.mode === "new" ? slugifyCatalogValue(event.target.value) : current.item.value } } : current)} className="rounded-2xl border border-slate-200 p-3" /></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Código interno</span><input value={catalogEditor.item.value} onChange={(event) => setCatalogEditor((current) => current ? { ...current, item: { ...current.item, value: slugifyCatalogValue(event.target.value) } } : current)} className="rounded-2xl border border-slate-200 p-3" /></label>
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Descrição</span><textarea value={catalogEditor.item.description ?? ""} onChange={(event) => setCatalogEditor((current) => current ? { ...current, item: { ...current.item, description: event.target.value } } : current)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
+                <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><input type="checkbox" checked={catalogEditor.item.active} onChange={(event) => setCatalogEditor((current) => current ? { ...current, item: { ...current.item, active: event.target.checked, archived: event.target.checked ? false : current.item.archived } } : current)} className="h-5 w-5" /><span className="text-sm font-black text-[#00334E]">Ativo</span></label>
+                <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><AdminActionButton onClick={() => setCatalogEditor(null)} disabled={saving}>Cancelar</AdminActionButton><AdminActionButton onClick={saveCatalogEditor} disabled={saving || !catalogEditor.item.label.trim()} tone="primary">{saving ? "Salvando..." : "Salvar"}</AdminActionButton></div>
+              </div>
+            ) : null}
+          </AdminModal>
+
+          <AdminModal open={Boolean(responsibleView)} title={responsibleView?.full_name ?? "Visualizar responsável"} eyebrow="Agenda Viva — Responsável" onClose={() => setResponsibleView(null)}>
+            {responsibleView && <AdminDetailGrid><AdminDetailItem label="Nome">{responsibleView.full_name}</AdminDetailItem><AdminDetailItem label="Situação na Base Única">{responsibleView.active === false ? "Inativo" : "Ativo"}</AdminDetailItem><AdminDetailItem label="E-mail">{responsibleView.email || "Não informado"}</AdminDetailItem><AdminDetailItem label="WhatsApp">{responsibleView.whatsapp || "Não informado"}</AdminDetailItem></AdminDetailGrid>}
+          </AdminModal>
+
+          <ConfirmDialog open={Boolean(confirmation)} title={confirmation?.title ?? "Confirmar ação"} message={confirmation?.message ?? ""} confirmLabel={confirmation?.confirmLabel} tone={confirmation?.tone} busy={saving} onCancel={() => setConfirmation(null)} onConfirm={runConfirmation} />
         </>
       )}
     </OrganizacaoClientShell>

@@ -9,6 +9,7 @@ type EventRecord = {
   event_type: string | null;
   event_type_id: string | null;
   status: string | null;
+  active: boolean | null;
   starts_at: string | null;
   ends_at: string | null;
   all_day: boolean | null;
@@ -267,6 +268,7 @@ function continuesDuringVacation(event: EventRecord) {
 }
 
 function shouldShowEvent(event: EventRecord) {
+  if (event.active === false) return false;
   const status = normalize(asText(event.status));
   const hidden = new Set(["pendente_aprovacao", "pendente", "reprovado", "ajuste_solicitado", "rascunho", "draft", "cancelado", "cancelled"]);
   return !hidden.has(status);
@@ -626,7 +628,7 @@ export async function GET(request: Request) {
     const [eventsResult, typesResult, locationsResult, peopleResult] = await Promise.all([
       supabaseAdmin
         .from("agv_events")
-        .select("id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
+        .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
         .eq("organization_id", organization.id)
         .order("starts_at", { ascending: true, nullsFirst: false })
         .limit(500),

@@ -268,7 +268,7 @@ async function listPayload(organizationId: string) {
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("agv_events")
-      .select("id, title, event_type, event_type_id, status, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, approved_by_person_id, approved_at, requires_approval, notes, metadata, created_at, updated_at")
+      .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, approved_by_person_id, approved_at, requires_approval, notes, metadata, created_at, updated_at")
       .eq("organization_id", organizationId)
       .order("starts_at", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
@@ -383,16 +383,20 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const firstAccessOrder = Number.isFinite(firstAccessOrderRaw) && firstAccessOrderRaw > 0 ? Math.trunc(firstAccessOrderRaw) : null;
   const firstAccessSummary = asText(body.firstAccessSummary ?? body.first_access_summary);
   const requiresApproval = body.requiresApproval === undefined ? true : asBool(body.requiresApproval, true);
+  const requestedActive = body.active === undefined && body.eventActive === undefined
+    ? null
+    : asBool(body.active ?? body.eventActive, true);
   const status = requiresApproval ? "pendente_aprovacao" : "aprovado";
 
   if (!title) throw new Error("Informe o nome da atividade/evento.");
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     organization_id: organizationId,
     title,
     event_type: eventTypeSlug,
     event_type_id: eventTypeId || null,
     status,
+    active: requestedActive ?? true,
     starts_at: startsAt,
     ends_at: endsAt,
     all_day: allDay,
@@ -453,12 +457,13 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   if (eventId) {
     const { data: current, error: currentError } = await supabaseAdmin
       .from("agv_events")
-      .select("id, status")
+      .select("id, status, active")
       .eq("id", eventId)
       .eq("organization_id", organizationId)
       .maybeSingle();
     if (currentError) throw currentError;
     if (!current) throw new Error("Atividade não encontrada.");
+    payload.active = requestedActive ?? current.active !== false;
 
     const { error } = await supabaseAdmin
       .from("agv_events")
@@ -507,6 +512,19 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   }
 
   return { eventId: savedId, approvalWhatsappUrl };
+}
+
+async function setEventActive(organizationId: string, body: Record<string, unknown>) {
+  const eventId = asText(body.eventId ?? body.id);
+  const active = asBool(body.active, true);
+  if (!eventId) throw new Error("Atividade não informada.");
+
+  const { error } = await supabaseAdmin
+    .from("agv_events")
+    .update({ active, updated_at: new Date().toISOString() })
+    .eq("id", eventId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
 }
 
 async function decideEvent(organizationId: string, personId: string, body: Record<string, unknown>, status: "aprovado" | "reprovado" | "ajuste_solicitado") {
@@ -791,6 +809,8 @@ export async function POST(request: Request) {
       await decideEvent(auth.context.organizationId, currentPerson.id, body, "reprovado");
     } else if (action === "requestAdjustments") {
       await decideEvent(auth.context.organizationId, currentPerson.id, body, "ajuste_solicitado");
+    } else if (action === "setEventActive") {
+      await setEventActive(auth.context.organizationId, body);
     } else if (action === "deleteEvent") {
       await deleteEvent(auth.context.organizationId, body);
     } else if (action === "upsertEventType") {
