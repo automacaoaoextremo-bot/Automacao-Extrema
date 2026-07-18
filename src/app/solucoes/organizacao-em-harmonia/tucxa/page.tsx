@@ -189,6 +189,9 @@ export default async function TucxaSitePage() {
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
                 Fazer cadastro / contribuição
               </Link>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
+                Já tenho cadastro
+              </Link>
             </div>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-3">

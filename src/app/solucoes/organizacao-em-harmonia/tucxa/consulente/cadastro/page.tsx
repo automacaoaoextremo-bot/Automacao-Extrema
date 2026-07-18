@@ -7,9 +7,8 @@ import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-pu
 type ConsulenteResponse = { ok?: boolean; message?: string; error?: string; whatsappUrl?: string; redirectUrl?: string; statusUrl?: string };
 
 const headerActions = [
-  { label: "É novo por aqui", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "primary" as const },
-  { label: "Atendimento em Harmonia", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
-  { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
+  { label: "Início", href: "#inicio", variant: "primary" as const },
+  { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "secondary" as const },
 ];
 
 function onlyDigits(value: string) {
@@ -74,7 +73,7 @@ export default function CadastroConsulenteTucxaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} navLabel="Menu de cadastro de consulentes do Tucxa" />
 
       <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
