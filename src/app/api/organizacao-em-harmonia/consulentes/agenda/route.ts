@@ -73,7 +73,6 @@ type AgendaPreferences = {
   periodMode?: string;
   eventTypes?: string[];
   classification?: string;
-  audience?: string;
   responsible?: string;
   startDate?: string;
   endDate?: string;
@@ -333,28 +332,48 @@ function rawEventAudience(event: EventRecord) {
   return asText(metadata.audience) || asText(metadata.publico) || asText(metadata.targetAudience);
 }
 
+function canonicalAudience(value: string) {
+  return normalize(value).replace(/[^a-z0-9]+/g, "");
+}
+
 function eventAudience(event: EventRecord) {
-  return rawEventAudience(event) || "Público geral";
+  const raw = rawEventAudience(event);
+  const audience = canonicalAudience(raw);
+
+  if (!raw) return "Público geral";
+  if (["todos", "publicogeral", "filhosdacorrenteeconsulentes", "filhoscorrenteeconsulentes"].includes(audience)) {
+    return "Filhos da Corrente e Consulentes";
+  }
+  if (["consulentes", "consulente", "filhosdefora", "filhodefora", "consulentesfilhosdefora"].includes(audience)) {
+    return "Consulentes / Filhos de Fora";
+  }
+
+  return raw;
 }
 
 function isVisibleToConsulente(event: EventRecord) {
-  const audience = normalize(rawEventAudience(event));
+  const audience = canonicalAudience(rawEventAudience(event));
   if (!audience) return true;
 
+  // Regra estrita: bloqueia apenas o valor técnico/legível de
+  // "Somente Filhos da Corrente". Não deduz público por título,
+  // tipo, grupo, classificação, recorrência ou dia da semana.
   const restrictedAudiences = new Set([
-    "somente filhos da corrente",
-    "somente filho da corrente",
-    "filhos da corrente",
-    "filho da corrente",
-    "exclusivo para filhos da corrente",
-    "exclusiva para filhos da corrente",
+    "filhoscorrente",
+    "filhosdacorrente",
+    "filhocorrente",
+    "filhodacorrente",
+    "somentefilhoscorrente",
+    "somentefilhosdacorrente",
+    "somentefilhocorrente",
+    "somentefilhodacorrente",
+    "exclusivoparafilhoscorrente",
+    "exclusivoparafilhosdacorrente",
+    "exclusivaparafilhoscorrente",
+    "exclusivaparafilhosdacorrente",
   ]);
 
-  if (restrictedAudiences.has(audience)) return false;
-  if (audience.includes("somente") && audience.includes("filho") && audience.includes("corrente")) return false;
-  if (audience.includes("exclusiv") && audience.includes("filho") && audience.includes("corrente")) return false;
-
-  return true;
+  return !restrictedAudiences.has(audience);
 }
 
 function mapById<T extends LookupRecord>(items: T[]) {
@@ -528,7 +547,6 @@ function agendaPreferences(profile: Record<string, unknown>): AgendaPreferences 
     periodMode: periodMode === "all" ? "all" : "future",
     eventTypes: Array.isArray(preferences.eventTypes) ? preferences.eventTypes.map((item) => asText(item)).filter(Boolean) : [],
     classification: asText(preferences.classification),
-    audience: asText(preferences.audience),
     responsible: asText(preferences.responsible),
     startDate: asText(preferences.startDate),
     endDate: asText(preferences.endDate),
@@ -545,7 +563,6 @@ function normalizePreferences(value: unknown): AgendaPreferences {
     periodMode: periodMode === "all" ? "all" : "future",
     eventTypes: Array.isArray(record.eventTypes) ? record.eventTypes.map((item) => asText(item)).filter(Boolean) : [],
     classification: asText(record.classification),
-    audience: asText(record.audience),
     responsible: asText(record.responsible),
     startDate: asText(record.startDate),
     endDate: asText(record.endDate),
@@ -652,7 +669,6 @@ export async function GET(request: Request) {
       filters: {
         eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
         classifications: Array.from(new Set(events.map((event) => event.classification).filter(Boolean))),
-        audiences: Array.from(new Set(events.map((event) => event.audience).filter(Boolean))),
         responsiblePeople: Array.from(new Map(events.map((event) => [event.responsiblePersonId || event.responsiblePersonName, { value: event.responsiblePersonId || event.responsiblePersonName, label: event.responsiblePersonName }])).values()).filter((item) => item.label !== "Responsável a definir"),
       },
     });

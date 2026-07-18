@@ -40,7 +40,6 @@ type AgendaPreferences = {
   periodMode?: PeriodMode;
   eventTypes?: string[];
   classification?: string;
-  audience?: string;
   responsible?: string;
   startDate?: string;
   endDate?: string;
@@ -54,7 +53,6 @@ type AgendaPayload = {
   filters?: {
     eventTypes?: FilterOption[];
     classifications?: string[];
-    audiences?: string[];
     responsiblePeople?: FilterOption[];
   };
   currentPerson?: {
@@ -759,7 +757,6 @@ export default function AgendaVivaConsulentePage() {
   const [periodMode, setPeriodMode] = useState<PeriodMode>("future");
   const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [classification, setClassification] = useState("");
-  const [audience, setAudience] = useState("");
   const [responsible, setResponsible] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -781,7 +778,6 @@ export default function AgendaVivaConsulentePage() {
     if (preferences.periodMode === "all" || preferences.periodMode === "future") setPeriodMode(preferences.periodMode);
     setEventTypes(cleanStringArray(preferences.eventTypes));
     setClassification(typeof preferences.classification === "string" ? preferences.classification : "");
-    setAudience(typeof preferences.audience === "string" ? preferences.audience : "");
     setResponsible(typeof preferences.responsible === "string" ? preferences.responsible : "");
     setStartDate(typeof preferences.startDate === "string" ? preferences.startDate : "");
     setEndDate(typeof preferences.endDate === "string" ? preferences.endDate : "");
@@ -842,7 +838,6 @@ export default function AgendaVivaConsulentePage() {
       if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
       if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
       if (classification && event.classification !== classification) return false;
-      if (audience && event.audience !== audience) return false;
       if (responsible) {
         if (responsible === "__associated__" && !event.associatedToCurrentPerson) return false;
         if (responsible !== "__associated__") {
@@ -854,7 +849,12 @@ export default function AgendaVivaConsulentePage() {
       if (endDate && dateOnly && dateOnly > endDate) return false;
       return true;
     });
-  }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+  }, [classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+
+  const annualGuideEvents = useMemo(() => {
+    const year = periodStart.getUTCFullYear();
+    return uniqueSortedEvents(payload?.events ?? []).filter((event) => eventStartDate(event)?.getUTCFullYear() === year);
+  }, [payload?.events, periodStart]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);
@@ -900,18 +900,16 @@ export default function AgendaVivaConsulentePage() {
     }
 
     if (classification) parts.push(classification);
-    if (audience) parts.push(`público: ${audience}`);
     if (responsible === "__associated__") parts.push("minhas atividades");
     else if (responsible) parts.push(`responsável: ${payload?.filters?.responsiblePeople?.find((item) => item.value === responsible)?.label ?? responsible}`);
     if (startDate || endDate) parts.push(`${startDate || "início"} até ${endDate || "fim"}`);
     return `Exibindo ${parts.join(" • ")} • ${visibleEvents.length} evento(s) nesta visão.`;
-  }, [audience, classification, endDate, eventTypeLabels, eventTypes, payload?.filters?.eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate, visibleEvents.length]);
+  }, [classification, endDate, eventTypeLabels, eventTypes, payload?.filters?.eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate, visibleEvents.length]);
 
   function clearFilters() {
     setPeriodMode("future");
     setEventTypes([]);
     setClassification("");
-    setAudience("");
     setResponsible("");
     setStartDate("");
     setEndDate("");
@@ -1000,7 +998,6 @@ export default function AgendaVivaConsulentePage() {
         periodMode,
         eventTypes,
         classification,
-        audience,
         responsible,
         startDate,
         endDate,
@@ -1085,7 +1082,7 @@ export default function AgendaVivaConsulentePage() {
         </div>
       </section>
 
-      {annualGuideOpen && <AnnualGuideModal events={filteredEvents} periodStart={periodStart} onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} onSelectMonth={selectMonth} />}
+      {annualGuideOpen && <AnnualGuideModal events={annualGuideEvents} periodStart={periodStart} onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} onSelectMonth={selectMonth} />}
       {calendarOpen && <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>{modalCalendar}</ModalShell>}
 
       {filtersOpen && (
@@ -1123,13 +1120,6 @@ export default function AgendaVivaConsulentePage() {
                 <select value={classification} onChange={(event) => setClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
                   <option value="">Todos</option>
                   {(payload?.filters?.classifications ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                Público
-                <select value={audience} onChange={(event) => setAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
-                  <option value="">Todos</option>
-                  {(payload?.filters?.audiences ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
