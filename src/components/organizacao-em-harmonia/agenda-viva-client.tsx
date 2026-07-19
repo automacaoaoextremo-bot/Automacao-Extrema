@@ -16,6 +16,7 @@ import {
   ConfirmDialog,
 } from "@/components/organizacao-em-harmonia/admin-list-ui";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { ALL_MONTH_OCCURRENCES, allowedMonthOccurrencesFromMetadata, isMonthOccurrenceAllowed, monthOccurrencesLabel } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 type Mode = "overview" | "eventos" | "aprovacoes" | "calendario" | "cadastros" | "configuracoes";
 
@@ -111,6 +112,7 @@ type AgendaSettings = {
   wednesdayAuthorizedPersonIds: string[];
   requireRecommendingEntityForWednesday: boolean;
   appointmentReturnGuidance: string;
+  appointmentEditCutoffMinutes: number;
   accessValidationReviewerEmails: string;
   accessValidationReviewerPersonIds: string[];
   accessSimulationPersonIds: string[];
@@ -150,6 +152,7 @@ type FormState = {
   isRecurring: boolean;
   recurrenceFrequency: string;
   recurrenceWeekday: string;
+  allowedMonthOccurrences: number[];
   locationId: string;
   location: string;
   audience: string;
@@ -244,6 +247,7 @@ const defaultAgendaSettings: AgendaSettings = {
   requireRecommendingEntityForWednesday: true,
   appointmentReturnGuidance:
     "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+  appointmentEditCutoffMinutes: 1440,
   accessValidationReviewerEmails: "",
   accessValidationReviewerPersonIds: [],
   accessSimulationPersonIds: [],
@@ -256,6 +260,7 @@ function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettin
     ...defaultAgendaSettings,
     ...(value ?? {}),
     maxRecurringAppointmentsPerConsulente: Number(value?.maxRecurringAppointmentsPerConsulente ?? defaultAgendaSettings.maxRecurringAppointmentsPerConsulente),
+    appointmentEditCutoffMinutes: Math.max(0, Math.trunc(Number(value?.appointmentEditCutoffMinutes ?? defaultAgendaSettings.appointmentEditCutoffMinutes) || 0)),
     wednesdayAuthorizedPersonIds: Array.isArray(value?.wednesdayAuthorizedPersonIds) ? value.wednesdayAuthorizedPersonIds : [],
     accessValidationReviewerEmails: typeof value?.accessValidationReviewerEmails === "string" ? value.accessValidationReviewerEmails : defaultAgendaSettings.accessValidationReviewerEmails,
     accessValidationReviewerPersonIds: Array.isArray(value?.accessValidationReviewerPersonIds) ? value.accessValidationReviewerPersonIds : [],
@@ -275,6 +280,7 @@ const emptyForm: FormState = {
   isRecurring: false,
   recurrenceFrequency: "semanal",
   recurrenceWeekday: "",
+  allowedMonthOccurrences: [...ALL_MONTH_OCCURRENCES],
   locationId: "",
   location: "",
   audience: "filhos-corrente",
@@ -450,8 +456,12 @@ function occurrenceKeysForYear(event: AgendaEvent, year: number) {
   if (rule.includes("FREQ=MONTHLY")) {
     const positions = ruleSetPositions(rule);
     for (let month = 0; month < 12; month += 1) {
-      const monthKeys = positions.length ? positions.map((position) => dateForNthWeekday(year, month, weekday, position)) : [dateForNthWeekday(year, month, weekday, 1)];
-      for (const key of monthKeys) if (key && isInEventRange(event, key)) keys.push(key);
+      const monthKeys = positions.length
+        ? positions.map((position) => dateForNthWeekday(year, month, weekday, position))
+        : [dateForNthWeekday(year, month, weekday, 1)];
+      for (const key of monthKeys) {
+        if (key && isInEventRange(event, key) && isMonthOccurrenceAllowed(event.metadata, key)) keys.push(key);
+      }
     }
     return keys;
   }
@@ -462,7 +472,7 @@ function occurrenceKeysForYear(event: AgendaEvent, year: number) {
   while (cursor.getDay() !== weekday) cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
   while (cursor.getFullYear() === year) {
     const key = localDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
-    if (isInEventRange(event, key)) keys.push(key);
+    if (isInEventRange(event, key) && isMonthOccurrenceAllowed(event.metadata, key)) keys.push(key);
     cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + interval);
   }
   return keys;
@@ -1053,6 +1063,33 @@ function AgendaEventForm({
             <option value="sabado">Sábado</option>
           </select>
         </label>
+        <fieldset disabled={!form.isRecurring} className="grid gap-3 rounded-3xl bg-blue-50 p-4 ring-1 ring-blue-100 md:col-span-2 disabled:opacity-60">
+          <div>
+            <legend className="text-sm font-black text-[#00334E]">Ocorrências permitidas no mês</legend>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">Desmarque a 5ª ocorrência quando não houver atendimento na quinta segunda ou terça-feira do mês.</p>
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {ALL_MONTH_OCCURRENCES.map((occurrence) => {
+              const checked = form.allowedMonthOccurrences.includes(occurrence);
+              return (
+                <label key={occurrence} className={`flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-white px-2 text-sm font-black ring-1 ${checked ? "text-[#00334E] ring-blue-300" : "text-slate-400 ring-slate-200"}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      const next = checked
+                        ? form.allowedMonthOccurrences.filter((item) => item !== occurrence)
+                        : [...form.allowedMonthOccurrences, occurrence].sort((left, right) => left - right);
+                      update("allowedMonthOccurrences", next.length > 0 ? next : [occurrence]);
+                    }}
+                    className="h-4 w-4"
+                  />
+                  {occurrence}ª
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Grupo / categoria</span>
           <select value={form.groupSlug} onChange={(event) => update("groupSlug", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1129,6 +1166,7 @@ function EventDetails({ event, payload }: { event: AgendaEvent; payload: Payload
         <AdminDetailItem label="Local">{locationLabel(event, payload.locations)}</AdminDetailItem>
         <AdminDetailItem label="Responsável">{responsible?.full_name || "Não informado"}</AdminDetailItem>
         <AdminDetailItem label="Recorrência">{recurrenceDisplay(event)}</AdminDetailItem>
+        <AdminDetailItem label="Ocorrências no mês">{monthOccurrencesLabel(allowedMonthOccurrencesFromMetadata(event.metadata))}</AdminDetailItem>
         <AdminDetailItem label="Horário">{agendaTimeLabel(event)}</AdminDetailItem>
         <AdminDetailItem label="Dia inteiro">{event.all_day ? "Sim" : "Não"}</AdminDetailItem>
         <AdminDetailItem label="Primeiro Acesso">{firstAccessEnabledFor(event) ? `Exibido · ordem ${firstAccessOrderFor(event) === Number.MAX_SAFE_INTEGER ? "automática" : firstAccessOrderFor(event)}` : "Não exibido"}</AdminDetailItem>
@@ -1746,6 +1784,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       isRecurring: Boolean(event.recurrence_rule) || metadataBoolean(event, "recurring"),
       recurrenceFrequency: metadataText(event, "recurrenceFrequency") || recurrenceFrequencyFromRule(event.recurrence_rule),
       recurrenceWeekday: metadataText(event, "recurrenceWeekday") || recurrenceWeekdayFromRule(event.recurrence_rule),
+      allowedMonthOccurrences: allowedMonthOccurrencesFromMetadata(event.metadata),
       locationId: event.location_id || metadataText(event, "location_id"),
       location: event.location ?? "",
       audience: eventAudience(event),
@@ -2112,6 +2151,20 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                     className="rounded-2xl border border-slate-200 p-3"
                     inputMode="numeric"
                   />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Antecedência mínima para editar agendamento</span>
+                  <div className="grid grid-cols-[1fr_auto] overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                    <input
+                      value={String(Math.round(settingsForm.appointmentEditCutoffMinutes / 60))}
+                      onChange={(event) => updateSetting("appointmentEditCutoffMinutes", Math.max(0, Number(event.target.value.replace(/\D/g, "") || 0)) * 60)}
+                      className="min-w-0 p-3 outline-none"
+                      inputMode="numeric"
+                      aria-label="Antecedência mínima em horas"
+                    />
+                    <span className="flex items-center bg-slate-50 px-4 text-sm font-black text-slate-600">horas</span>
+                  </div>
+                  <span className="text-xs font-semibold leading-5 text-slate-500">Após esse prazo, o Consulente ainda poderá excluir o agendamento, mas não remarcar.</span>
                 </label>
                 <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
                   <input type="checkbox" checked={settingsForm.autoCancelRecurringOnAbsence} onChange={(event) => updateSetting("autoCancelRecurringOnAbsence", event.target.checked)} className="h-5 w-5" />

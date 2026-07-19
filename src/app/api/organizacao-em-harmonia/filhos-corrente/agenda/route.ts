@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isMonthOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 export const dynamic = "force-dynamic";
 
@@ -449,7 +450,10 @@ function expandRecurringEvent(event: EventRecord) {
     while (cursor <= endDate && index < 370) {
       const weekDiff = Math.floor((startOfWeek(cursor).getTime() - startWeek.getTime()) / (7 * 24 * 60 * 60 * 1000));
       if (weekDiff >= 0 && weekDiff % interval === 0 && allowedWeekdays.has(cursor.getUTCDay())) {
-        occurrences.push(buildOccurrence(event, toIsoDate(cursor), occurrences.length));
+        const occurrenceDate = toIsoDate(cursor);
+        if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+          occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
+        }
       }
       cursor = addDays(cursor, 1);
       index += 1;
@@ -468,12 +472,22 @@ function expandRecurringEvent(event: EventRecord) {
             if (weekday === undefined) return;
             const dates = positions.length > 0 ? monthDatesForBySetPos(cursor.getUTCFullYear(), cursor.getUTCMonth(), weekday, positions) : monthDatesForBySetPos(cursor.getUTCFullYear(), cursor.getUTCMonth(), weekday, [1]);
             dates.forEach((date) => {
-              if (date >= startDate && date <= endDate) occurrences.push(buildOccurrence(event, toIsoDate(date), occurrences.length));
+              if (date >= startDate && date <= endDate) {
+                const occurrenceDate = toIsoDate(date);
+                if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+                  occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
+                }
+              }
             });
           });
         } else {
           const date = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), startDate.getUTCDate(), 12));
-          if (date.getUTCMonth() === cursor.getUTCMonth() && date >= startDate && date <= endDate) occurrences.push(buildOccurrence(event, toIsoDate(date), occurrences.length));
+          if (date.getUTCMonth() === cursor.getUTCMonth() && date >= startDate && date <= endDate) {
+            const occurrenceDate = toIsoDate(date);
+            if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+              occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
+            }
+          }
         }
       }
       cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1, 12));

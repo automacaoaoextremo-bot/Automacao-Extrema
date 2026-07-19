@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { sendAgendaVivaApprovalRequestEmail } from "@/lib/mail";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { normalizeAllowedMonthOccurrences } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -117,6 +118,7 @@ function defaultAgendaSettings() {
     requireRecommendingEntityForWednesday: true,
     appointmentReturnGuidance:
       "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure voltar com a mesma entidade para preservar a continuidade do cuidado.",
+    appointmentEditCutoffMinutes: 1440,
     accessValidationReviewerEmails: "",
     accessValidationReviewerPersonIds: [] as string[],
     accessSimulationPersonIds: [] as string[],
@@ -364,6 +366,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const isRecurring = asBool(body.isRecurring ?? body.recurring ?? body.recurrenceEnabled, false);
   const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
   const recurrenceWeekday = asText(body.recurrenceWeekday ?? body.weekday ?? body.diaSemana);
+  const allowedMonthOccurrences = normalizeAllowedMonthOccurrences(body.allowedMonthOccurrences ?? body.allowed_month_occurrences);
   const recurrenceRule = buildRecurrenceRule({ isRecurring, frequency: recurrenceFrequency, weekday: recurrenceWeekday, startsAt });
   const locationId = asText(body.locationId ?? body.location_id);
   const locationName = asText(body.locationName ?? body.location_name);
@@ -446,6 +449,8 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       recurring: isRecurring,
       recurrenceFrequency: isRecurring ? recurrenceFrequency : null,
       recurrenceWeekday: isRecurring ? recurrenceWeekday || null : null,
+      allowedMonthOccurrences: isRecurring ? allowedMonthOccurrences : null,
+      allowed_month_occurrences: isRecurring ? allowedMonthOccurrences : null,
       recurrenceLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
       periodicityLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
     },
@@ -563,6 +568,7 @@ async function updateAgendaSettings(organizationId: string, body: Record<string,
     wednesdayAuthorizedPersonIds: asTextList(body.wednesdayAuthorizedPersonIds ?? current.wednesdayAuthorizedPersonIds),
     requireRecommendingEntityForWednesday: asBool(body.requireRecommendingEntityForWednesday ?? current.requireRecommendingEntityForWednesday, true),
     appointmentReturnGuidance: asText(body.appointmentReturnGuidance ?? current.appointmentReturnGuidance) || defaultAgendaSettings().appointmentReturnGuidance,
+    appointmentEditCutoffMinutes: Math.max(0, Math.trunc(asNumber(body.appointmentEditCutoffMinutes ?? current.appointmentEditCutoffMinutes, 1440))),
     accessValidationReviewerEmails: asText(body.accessValidationReviewerEmails ?? current.accessValidationReviewerEmails),
     accessValidationReviewerPersonIds: asTextList(body.accessValidationReviewerPersonIds ?? current.accessValidationReviewerPersonIds),
     accessSimulationPersonIds: asTextList(body.accessSimulationPersonIds ?? current.accessSimulationPersonIds),

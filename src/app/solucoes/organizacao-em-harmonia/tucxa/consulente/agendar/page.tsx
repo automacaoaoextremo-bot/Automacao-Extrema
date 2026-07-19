@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -11,6 +11,7 @@ type SpiritualEntity = {
   line: string | null;
   entity_type: string | null;
   usual_days: string[] | null;
+  usual_materials: string | null;
   daily_capacity: number | null;
   appointment_enabled: boolean | null;
   appointment_notes: string | null;
@@ -37,6 +38,19 @@ type Availability = {
   nextOrder: number;
 };
 
+type ExistingAppointment = {
+  id: string;
+  periodId: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  entityId: string | null;
+  entityName: string;
+  order: number | null;
+  status: string;
+  canEdit: boolean;
+  editBlockedReason: string;
+};
+
 type Profile = {
   fullName: string;
   whatsapp: string;
@@ -49,8 +63,11 @@ type Payload = {
   entities: SpiritualEntity[];
   periods: BookingPeriod[];
   availability: Availability[];
+  existingAppointments: ExistingAppointment[];
+  editingAppointment: ExistingAppointment | null;
   settings: {
     appointmentReturnGuidance: string;
+    appointmentEditCutoffMinutes: number;
   };
 };
 
@@ -63,23 +80,24 @@ type Confirmation = {
   guidance: string;
   emailSent: boolean;
   email: string;
+  changed: boolean;
 };
 
-type CalendarDay = {
-  isoDate: string;
-  dayNumber: number;
-  outsideMonth: boolean;
-  isToday: boolean;
-  isPast: boolean;
-  periods: BookingPeriod[];
-};
+type ModalKind = "calendar" | "entities" | "entityInfo" | "confirm" | "success" | "existing" | null;
 
-type ModalKind = "calendar" | "entities" | "confirm" | "success" | null;
-
-const weekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
 const SAO_PAULO_TIME_ZONE = "America/Sao_Paulo";
 const LOGIN_PATH = "/solucoes/organizacao-em-harmonia/tucxa/consulente/login";
 const APPOINTMENTS_PATH = "/solucoes/organizacao-em-harmonia/tucxa/consulente/agendamentos";
+const dayLabels: Record<string, string> = {
+  segunda: "Segunda-feira",
+  terca: "Terça-feira",
+  quarta: "Quarta-feira",
+  quinta: "Quinta-feira",
+  sexta: "Sexta-feira",
+  sabado: "Sábado",
+  domingo: "Domingo",
+  eventual: "Eventual",
+};
 
 function todayInSaoPaulo() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -97,16 +115,6 @@ const todayIso = todayInSaoPaulo();
 function dateFromIso(value: string) {
   const [year = "", month = "", day = ""] = value.split("-");
   return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
-}
-
-function toIsoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(date: Date, amount: number) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + amount);
-  return next;
 }
 
 function addMonths(date: Date, amount: number) {
@@ -129,21 +137,13 @@ function longDateLabel(isoDate: string) {
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
 }
 
-function buildMonthDays(month: Date, periods: BookingPeriod[]): CalendarDay[] {
-  const first = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1, 12));
-  const start = addDays(first, -first.getUTCDay());
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = addDays(start, index);
-    const isoDate = toIsoDate(date);
-    return {
-      isoDate,
-      dayNumber: date.getUTCDate(),
-      outsideMonth: date.getUTCMonth() !== month.getUTCMonth(),
-      isToday: isoDate === todayIso,
-      isPast: isoDate < todayIso,
-      periods: periods.filter((period) => period.appointmentDate === isoDate),
-    };
-  });
+function compactDateLabel(isoDate: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(dateFromIso(isoDate)).replace(".", "");
 }
 
 function availabilityKey(periodId: string, entityId: string) {
@@ -156,10 +156,10 @@ function phoneLabel(value: string) {
   return value || "Não informado";
 }
 
-function statusTone(available: number) {
-  return available > 0
-    ? "bg-emerald-50 text-emerald-800 ring-emerald-100"
-    : "bg-red-50 text-red-700 ring-red-100";
+function periodTone(period: BookingPeriod) {
+  return period.tone === "segunda"
+    ? "border-[#D9827B] bg-[#FCE3E0] text-[#5C211E]"
+    : "border-[#6BAED6] bg-[#E4F1FB] text-[#17445B]";
 }
 
 export default function AgendarConsulentePage() {
@@ -170,9 +170,10 @@ export default function AgendarConsulentePage() {
   const [requestCode, setRequestCode] = useState("");
   const [activeModal, setActiveModal] = useState<ModalKind>(null);
   const [month, setMonth] = useState(() => dateFromIso(todayIso));
-  const [selectedDate, setSelectedDate] = useState("");
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState("");
+  const [selectedExisting, setSelectedExisting] = useState<ExistingAppointment | null>(null);
+  const [infoEntity, setInfoEntity] = useState<SpiritualEntity | null>(null);
   const [email, setEmail] = useState("");
   const [communicationsOptIn, setCommunicationsOptIn] = useState(false);
   const [notes, setNotes] = useState("");
@@ -181,6 +182,8 @@ export default function AgendarConsulentePage() {
   const [successOptIn, setSuccessOptIn] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [editingAppointmentId, setEditingAppointmentId] = useState("");
+  const initializedEdit = useRef(false);
 
   const authorizedFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -190,6 +193,7 @@ export default function AgendarConsulentePage() {
       window.location.href = `${LOGIN_PATH}?returnTo=${encodeURIComponent(returnTo)}`;
       throw new Error("Sua sessão expirou.");
     }
+
     const response = await fetch(input, {
       ...init,
       headers: {
@@ -199,6 +203,7 @@ export default function AgendarConsulentePage() {
       },
     });
     const result = await response.json();
+
     if (response.status === 401) {
       const returnTo = `${window.location.pathname}${window.location.search}`;
       window.location.href = `${LOGIN_PATH}?returnTo=${encodeURIComponent(returnTo)}`;
@@ -217,11 +222,22 @@ export default function AgendarConsulentePage() {
     setError("");
     setRequestCode("");
     try {
-      const result = await authorizedFetch("/api/organizacao-em-harmonia/site-tucxa/agendamentos");
+      const editId = new URLSearchParams(window.location.search).get("edit")?.trim() || "";
+      setEditingAppointmentId(editId);
+      const endpoint = editId
+        ? `/api/organizacao-em-harmonia/site-tucxa/agendamentos?edit=${encodeURIComponent(editId)}`
+        : "/api/organizacao-em-harmonia/site-tucxa/agendamentos";
+      const result = await authorizedFetch(endpoint);
       const nextPayload = result as Payload;
       setPayload(nextPayload);
       setEmail(nextPayload.profile.email || "");
       setCommunicationsOptIn(nextPayload.profile.communicationsOptIn === true);
+
+      if (editId && nextPayload.editingAppointment && !initializedEdit.current) {
+        initializedEdit.current = true;
+        setMonth(dateFromIso(nextPayload.editingAppointment.appointmentDate));
+        setActiveModal("calendar");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar os agendamentos.");
       setRequestCode(String((err as { requestId?: string })?.requestId || ""));
@@ -231,22 +247,22 @@ export default function AgendarConsulentePage() {
   }, [authorizedFetch]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void load();
-    }, 0);
+    const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  const calendarDays = useMemo(() => buildMonthDays(month, payload?.periods ?? []), [month, payload?.periods]);
   const availabilityMap = useMemo(() => {
     const map = new Map<string, Availability>();
     (payload?.availability ?? []).forEach((item) => map.set(availabilityKey(item.periodId, item.entityId), item));
     return map;
   }, [payload?.availability]);
-  const periodsForSelectedDate = useMemo(
-    () => (payload?.periods ?? []).filter((period) => period.appointmentDate === selectedDate),
-    [payload?.periods, selectedDate],
-  );
+
+  const existingMap = useMemo(() => {
+    const map = new Map<string, ExistingAppointment>();
+    (payload?.existingAppointments ?? []).forEach((item) => map.set(item.periodId, item));
+    return map;
+  }, [payload?.existingAppointments]);
+
   const selectedPeriod = useMemo(
     () => (payload?.periods ?? []).find((period) => period.id === selectedPeriodId) ?? null,
     [payload?.periods, selectedPeriodId],
@@ -259,6 +275,23 @@ export default function AgendarConsulentePage() {
     ? availabilityMap.get(availabilityKey(selectedPeriod.id, selectedEntity.id))
     : undefined;
 
+  const monthDates = useMemo(() => {
+    const grouped = new Map<string, BookingPeriod[]>();
+    (payload?.periods ?? [])
+      .filter((period) => {
+        const date = dateFromIso(period.appointmentDate);
+        if (date.getUTCFullYear() !== month.getUTCFullYear() || date.getUTCMonth() !== month.getUTCMonth()) return false;
+        const existing = existingMap.has(period.id);
+        const hasVacancy = (payload?.entities ?? []).some((entity) => (availabilityMap.get(availabilityKey(period.id, entity.id))?.available ?? 0) > 0);
+        return existing || hasVacancy;
+      })
+      .forEach((period) => grouped.set(period.appointmentDate, [...(grouped.get(period.appointmentDate) ?? []), period]));
+
+    return [...grouped.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, periods]) => ({ date, periods: periods.sort((left, right) => left.startTime.localeCompare(right.startTime)) }));
+  }, [availabilityMap, existingMap, month, payload?.entities, payload?.periods]);
+
   function entitiesForPeriod(period: BookingPeriod) {
     return (payload?.entities ?? [])
       .map((entity) => ({ entity, availability: availabilityMap.get(availabilityKey(period.id, entity.id)) }))
@@ -268,24 +301,25 @@ export default function AgendarConsulentePage() {
 
   function openCalendar() {
     setError("");
-    setSelectedDate("");
     setSelectedPeriodId("");
     setSelectedEntityId("");
     setActiveModal("calendar");
   }
 
-  function openDate(isoDate: string) {
-    const periods = (payload?.periods ?? []).filter((period) => period.appointmentDate === isoDate);
-    if (!periods.length || isoDate < todayIso) return;
-    setSelectedDate(isoDate);
-    setSelectedPeriodId(periods.length === 1 ? periods[0].id : "");
+  function openPeriod(period: BookingPeriod) {
+    const existing = existingMap.get(period.id);
+    if (existing) {
+      setSelectedExisting(existing);
+      setActiveModal("existing");
+      return;
+    }
+    setSelectedPeriodId(period.id);
     setSelectedEntityId("");
     setActiveModal("entities");
   }
 
-  function chooseEntity(period: BookingPeriod, entity: SpiritualEntity, availability: Availability) {
+  function chooseEntity(entity: SpiritualEntity, availability: Availability) {
     if (availability.available <= 0) return;
-    setSelectedPeriodId(period.id);
     setSelectedEntityId(entity.id);
     setEmail(payload?.profile.email || "");
     setCommunicationsOptIn(payload?.profile.communicationsOptIn === true);
@@ -302,10 +336,12 @@ export default function AgendarConsulentePage() {
     setError("");
     setRequestCode("");
     try {
+      const changing = Boolean(editingAppointmentId);
       const result = await authorizedFetch("/api/organizacao-em-harmonia/site-tucxa/agendamentos", {
         method: "POST",
         body: JSON.stringify({
-          action: "book",
+          action: changing ? "reschedule" : "book",
+          appointmentId: changing ? editingAppointmentId : undefined,
           periodId: selectedPeriod.id,
           entityId: selectedEntity.id,
           email,
@@ -331,13 +367,15 @@ export default function AgendarConsulentePage() {
         guidance: appointment.guidance,
         emailSent: result.emailSent === true,
         email: String(result.email || email || ""),
+        changed: changing,
       };
       setConfirmation(nextConfirmation);
       setSuccessEmail(nextConfirmation.email);
       setSuccessOptIn(communicationsOptIn);
       setEmailMessage("");
       setActiveModal("success");
-      await load();
+      if (changing) window.history.replaceState({}, "", window.location.pathname);
+      setEditingAppointmentId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao confirmar o agendamento.");
       setRequestCode(String((err as { requestId?: string })?.requestId || ""));
@@ -372,135 +410,152 @@ export default function AgendarConsulentePage() {
   const currentMonthStart = dateFromIso(todayIso);
   const canGoPrevious = month.getUTCFullYear() > currentMonthStart.getUTCFullYear()
     || month.getUTCMonth() > currentMonthStart.getUTCMonth();
+  const isEditing = Boolean(editingAppointmentId && payload?.editingAppointment);
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C]">
       <ConsulentePanelHeader navLabel="Atendimento em Harmonia - Agendamento" />
-      <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
-        <article className="rounded-[1.75rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <section className="flex min-h-0 flex-1 items-center justify-center px-3 py-2 sm:px-6 sm:py-4 lg:px-8">
+        <article className="w-full max-w-4xl rounded-[1.6rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-7">
+          <p className="text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia</p>
+          <h1 className="mt-2 text-2xl font-black leading-tight sm:text-4xl">Seu atendimento começa com uma escolha simples.</h1>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:text-base sm:leading-6">Veja somente os próximos dias com atendimento, escolha uma entidade com vaga e confirme em poucos passos.</p>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[0.65rem] font-black leading-4 text-[#123D2C] sm:text-xs">
+            <span className="rounded-xl bg-white/95 px-2 py-2">Horários disponíveis</span>
+            <span className="rounded-xl bg-white/95 px-2 py-2">Vaga e ordem confirmadas</span>
+            <span className="rounded-xl bg-white/95 px-2 py-2">Consulte ou ajuste depois</span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={openCalendar}
               disabled={loading || !payload}
-              className="min-h-16 rounded-2xl bg-white px-5 py-4 text-lg font-black text-[#123D2C] shadow transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-14 rounded-2xl bg-white px-4 py-3 text-base font-black text-[#123D2C] shadow transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-16 sm:text-lg"
             >
-              Agendar
+              {isEditing ? "Alterar" : "Agendar"}
             </button>
-            <Link
-              href={APPOINTMENTS_PATH}
-              className="flex min-h-16 items-center justify-center rounded-2xl border border-white/35 bg-[#1B563F] px-5 py-4 text-center text-lg font-black text-white shadow transition hover:-translate-y-0.5 hover:bg-[#246D50]"
-            >
+            <Link href={APPOINTMENTS_PATH} className="flex min-h-14 items-center justify-center rounded-2xl border border-white/35 bg-[#1B563F] px-4 py-3 text-center text-base font-black text-white shadow transition hover:-translate-y-0.5 hover:bg-[#246D50] sm:min-h-16 sm:text-lg">
               Agendamentos
             </Link>
           </div>
+
+          <p className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-[0.7rem] font-semibold leading-4 text-[#EEF7EA] sm:text-xs">Você confere todos os dados antes de reservar. {payload?.settings.appointmentReturnGuidance ?? ""}</p>
+
+          {loading && <p className="mt-2 text-center text-xs font-bold text-[#CFE2C7]">Carregando períodos e vagas...</p>}
+          {error && !activeModal && (
+            <div className="mt-2 rounded-xl bg-red-50 p-2 text-xs font-bold text-red-700">
+              <p>{error}</p>
+              {requestCode && <p>Código para suporte: {requestCode}</p>}
+              <button type="button" onClick={() => void load()} className="mt-1 rounded-lg bg-white px-3 py-1.5 font-black ring-1 ring-red-200">Tentar novamente</button>
+            </div>
+          )}
         </article>
-
-        {loading && <p className="mt-4 rounded-2xl bg-white p-4 font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando períodos e disponibilidades...</p>}
-        {error && !activeModal && (
-          <div className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">
-            <p>{error}</p>
-            {requestCode && <p className="mt-1 text-xs">Código para suporte: {requestCode}</p>}
-            <button type="button" onClick={() => void load()} className="mt-3 rounded-xl bg-white px-4 py-2 text-sm font-black ring-1 ring-red-200">Tentar novamente</button>
-          </div>
-        )}
-
-        {!loading && payload && (
-          <p className="mt-4 rounded-[1.5rem] bg-[#E9F2E7] p-4 text-sm font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-            {payload.settings.appointmentReturnGuidance}
-          </p>
-        )}
       </section>
 
       {activeModal === "calendar" && (
-        <Modal title="Agendar atendimento" onClose={() => setActiveModal(null)} fullScreenMobile bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5">
+        <Modal title={isEditing ? "Escolha o novo período" : "Agendar atendimento"} onClose={() => setActiveModal(null)} fullScreenMobile bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5">
+          {isEditing && payload?.editingAppointment && (
+            <p className="mb-2 shrink-0 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Alterando: {longDateLabel(payload.editingAppointment.appointmentDate)} · {payload.editingAppointment.appointmentTime}</p>
+          )}
           <div className="flex shrink-0 items-center justify-between gap-2">
             <button type="button" disabled={!canGoPrevious} onClick={() => setMonth((current) => addMonths(current, -1))} className="min-h-11 rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-30">←</button>
             <div className="min-w-0 text-center">
-              <p className="text-[0.65rem] font-black uppercase tracking-[0.18em] text-[#2F6B43]">Períodos disponíveis</p>
+              <p className="text-[0.65rem] font-black uppercase tracking-[0.18em] text-[#2F6B43]">Somente opções agendáveis</p>
               <h2 className="truncate text-lg font-black text-[#123D2C] sm:text-2xl">{monthTitle(month)}</h2>
             </div>
             <button type="button" onClick={() => setMonth((current) => addMonths(current, 1))} className="min-h-11 rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">→</button>
           </div>
-          <div className="mt-2 grid shrink-0 grid-cols-2 gap-2 text-[0.68rem] font-black">
-            <span className="rounded-xl bg-[#FCE3E0] px-2 py-1 text-center text-[#5C211E] ring-1 ring-[#D9827B]">Segunda-feira</span>
-            <span className="rounded-xl bg-[#E4F1FB] px-2 py-1 text-center text-[#17445B] ring-1 ring-[#6BAED6]">Terça-feira</span>
+
+          <div className="mt-3 grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 sm:gap-3">
+            {monthDates.map(({ date, periods }) => (
+              <section key={date} className="flex min-h-0 flex-col rounded-2xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black capitalize text-[#123D2C]">{compactDateLabel(date)}</p>
+                <div className="mt-2 grid gap-1.5">
+                  {periods.map((period) => {
+                    const existing = existingMap.get(period.id);
+                    return (
+                      <button
+                        key={period.id}
+                        type="button"
+                        onClick={() => openPeriod(period)}
+                        className={`min-h-12 rounded-xl border px-2 py-2 text-left text-xs font-black leading-4 transition hover:-translate-y-0.5 ${existing ? "border-emerald-300 bg-emerald-50 text-emerald-900" : periodTone(period)}`}
+                      >
+                        <span className="block">{period.label}</span>
+                        <span className="mt-0.5 block text-[0.62rem] font-bold">{existing ? "✓ Você já está agendado" : period.weekday === "segunda" ? "Segunda-feira" : "Terça-feira"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            {!monthDates.length && (
+              <p className="col-span-2 self-start rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800 ring-1 ring-amber-100 sm:col-span-3">Não há períodos com vaga disponíveis neste mês.</p>
+            )}
           </div>
-          <div className="mt-2 grid shrink-0 grid-cols-7 bg-[#F7FAF2] text-center text-[0.65rem] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
-            {weekDayLabels.map((label, index) => <div key={`${label}-${index}`} className="py-1.5">{label}</div>)}
-          </div>
-          <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6 overflow-hidden rounded-b-2xl ring-1 ring-[#123D2C]/10">
-            {calendarDays.map((day) => {
-              const enabled = !day.outsideMonth && !day.isPast && day.periods.length > 0;
-              const tone = day.periods[0]?.tone;
-              return (
-                <button
-                  key={day.isoDate}
-                  type="button"
-                  disabled={!enabled}
-                  onClick={() => openDate(day.isoDate)}
-                  className={`relative min-h-0 border-b border-r border-[#123D2C]/10 p-1 text-left ${day.outsideMonth ? "bg-slate-50 text-slate-300" : "bg-white text-[#123D2C]"} ${enabled ? "hover:bg-[#E9F2E7]" : "cursor-default"}`}
-                >
-                  <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${day.isToday ? "bg-[#123D2C] text-white" : ""}`}>{day.dayNumber}</span>
-                  {enabled && (
-                    <span className={`absolute inset-x-1 bottom-1 block h-2 rounded-full ${tone === "segunda" ? "bg-[#D9827B]" : "bg-[#6BAED6]"}`} title={`${day.periods.length} período(s)`} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-2 shrink-0 text-center text-[0.68rem] font-bold text-slate-500">Toque em um dia marcado para ver períodos, entidades e vagas.</p>
+          <p className="mt-2 shrink-0 text-center text-[0.68rem] font-bold text-slate-500">Férias, recessos, datas passadas e dias sem atendimento já foram retirados.</p>
         </Modal>
       )}
 
-      {activeModal === "entities" && (
-        <Modal title="Entidades e disponibilidade" onClose={() => setActiveModal("calendar")}>
-          <p className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-black text-[#123D2C]">{longDateLabel(selectedDate)}</p>
-          <div className="mt-4 grid gap-4">
-            {periodsForSelectedDate.map((period) => {
-              const entities = entitiesForPeriod(period);
+      {activeModal === "entities" && selectedPeriod && (
+        <Modal title="Escolha uma entidade" onClose={() => setActiveModal("calendar")}>
+          <div className={`rounded-2xl border p-3 ${periodTone(selectedPeriod)}`}>
+            <p className="text-xs font-black">{longDateLabel(selectedPeriod.appointmentDate)}</p>
+            <p className="mt-1 text-lg font-black">{selectedPeriod.label}</p>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {entitiesForPeriod(selectedPeriod).map(({ entity, availability }) => {
+              const hasVacancy = availability.available > 0;
               return (
-                <section key={period.id} className="overflow-hidden rounded-[1.4rem] bg-white ring-1 ring-[#123D2C]/10">
-                  <header className={`p-3 ${period.tone === "segunda" ? "bg-[#FCE3E0] text-[#5C211E]" : "bg-[#E4F1FB] text-[#17445B]"}`}>
-                    <p className="text-xs font-black uppercase tracking-[0.16em]">Período</p>
-                    <h3 className="mt-1 text-lg font-black">{period.label}</h3>
-                  </header>
-                  <div className="grid gap-2 p-3">
-                    {entities.map(({ entity, availability }) => (
-                      <article key={`${period.id}-${entity.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{entity.name}</h4>
-                            <p className="mt-1 text-xs font-semibold text-slate-600">{entity.line || entity.entity_type || "Linha/tipo não informado"}</p>
-                            <div className="mt-2 flex flex-wrap gap-2 text-[0.7rem] font-black">
-                              <span className="rounded-full bg-white px-2 py-1 ring-1 ring-slate-200">Previstos: {availability.capacity}</span>
-                              <span className="rounded-full bg-white px-2 py-1 ring-1 ring-slate-200">Agendados: {availability.booked}</span>
-                              <span className={`rounded-full px-2 py-1 ring-1 ${statusTone(availability.available)}`}>Disponíveis: {availability.available}</span>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            disabled={availability.available <= 0}
-                            onClick={() => chooseEntity(period, entity, availability)}
-                            className="min-h-12 shrink-0 rounded-2xl bg-[#123D2C] px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                          >
-                            {availability.available > 0 ? "Escolher" : "Sem vagas"}
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    {!entities.length && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">Nenhuma entidade está habilitada para este período.</p>}
+                <article key={`${selectedPeriod.id}-${entity.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-black text-[#123D2C]">{entity.name}</h3>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[0.68rem] font-black ring-1 ${hasVacancy ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-red-50 text-red-700 ring-red-100"}`}>{hasVacancy ? "Vaga disponível" : "Sem vaga disponível"}</span>
+                    </div>
+                    <div className="grid shrink-0 grid-cols-2 gap-2">
+                      <button type="button" onClick={() => { setInfoEntity(entity); setActiveModal("entityInfo"); }} className="min-h-11 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">+ Infos</button>
+                      <button type="button" disabled={!hasVacancy} onClick={() => chooseEntity(entity, availability)} className="min-h-11 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">Escolher</button>
+                    </div>
                   </div>
-                </section>
+                </article>
               );
             })}
+            {!entitiesForPeriod(selectedPeriod).length && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">Nenhuma entidade está habilitada para este período.</p>}
           </div>
+        </Modal>
+      )}
+
+      {activeModal === "entityInfo" && infoEntity && (
+        <Modal title={infoEntity.name} onClose={() => setActiveModal("entities")}>
+          <div className="grid gap-3 text-sm font-semibold leading-6 text-slate-700">
+            <Info label="Linha de trabalho">{infoEntity.line || "Não informada"}</Info>
+            <Info label="Tipo">{infoEntity.entity_type || "Não informado"}</Info>
+            <Info label="Dias em que costuma atender">{(infoEntity.usual_days ?? []).map((day) => dayLabels[day] ?? day).join(", ") || "Não definidos"}</Info>
+            <Info label="Materiais/apetrechos usuais">{infoEntity.usual_materials || "Não informados"}</Info>
+            <Info label="Capacidade prevista por período">{Math.max(1, Number(infoEntity.daily_capacity ?? 1))} atendimento(s)</Info>
+            <Info label="Agendamento pelo sistema">{infoEntity.appointment_enabled === false ? "Não habilitado" : "Habilitado"}</Info>
+            <Info label="Orientações para o agendamento">{infoEntity.appointment_notes || "Siga as orientações apresentadas na confirmação e pela recepção."}</Info>
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "existing" && selectedExisting && (
+        <Modal title="Você já está agendado" onClose={() => setActiveModal("calendar")}>
+          <p className="rounded-2xl bg-emerald-50 p-4 font-black text-emerald-900 ring-1 ring-emerald-100">Já consta um agendamento ativo para este dia e período.</p>
+          <div className="mt-3 grid gap-2 text-sm font-semibold leading-6 text-slate-700">
+            <Info label="Data">{longDateLabel(selectedExisting.appointmentDate)}</Info>
+            <Info label="Período">{selectedExisting.appointmentTime}</Info>
+            <Info label="Entidade">{selectedExisting.entityName}</Info>
+            <Info label="Ordem">{selectedExisting.order ?? "A confirmar"}</Info>
+          </div>
+          <Link href={APPOINTMENTS_PATH} className="mt-4 flex min-h-13 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Ver meus agendamentos</Link>
         </Modal>
       )}
 
       {activeModal === "confirm" && selectedPeriod && selectedEntity && selectedAvailability && payload && (
-        <Modal title="Confirmar agendamento" onClose={() => setActiveModal("entities")}>
+        <Modal title={isEditing ? "Confirmar alteração" : "Confirmar agendamento"} onClose={() => setActiveModal("entities")}>
           <form onSubmit={submitBooking} className="grid gap-4">
             <section className="rounded-[1.4rem] bg-[#E9F2E7] p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
               <p><strong>Consulente:</strong> {payload.profile.fullName}</p>
@@ -508,42 +563,44 @@ export default function AgendarConsulentePage() {
               <p><strong>Data:</strong> {longDateLabel(selectedPeriod.appointmentDate)}</p>
               <p><strong>Período:</strong> {selectedPeriod.label}</p>
               <p><strong>Entidade:</strong> {selectedEntity.name}</p>
-              <p><strong>Previstos:</strong> {selectedAvailability.capacity} · <strong>Agendados:</strong> {selectedAvailability.booked} · <strong>Disponíveis:</strong> {selectedAvailability.available}</p>
               <p className="mt-2 rounded-xl bg-white p-3 font-black">Ordem prevista: {selectedAvailability.nextOrder}</p>
             </section>
 
             {selectedEntity.appointment_notes && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">{selectedEntity.appointment_notes}</p>}
 
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">E-mail para receber a confirmação</span>
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional" />
-            </label>
-            <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <input type="checkbox" checked={communicationsOptIn} onChange={(event) => setCommunicationsOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />
-              <span className="text-sm font-semibold leading-5 text-[#123D2C]">Aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail. Esta opção é separada da confirmação deste agendamento e pode ser revogada.</span>
-            </label>
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">Observação para a recepção</span>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional. Escreva apenas o necessário." />
-            </label>
+            {!isEditing && (
+              <>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#123D2C]">E-mail para receber a confirmação</span>
+                  <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional" />
+                </label>
+                <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                  <input type="checkbox" checked={communicationsOptIn} onChange={(event) => setCommunicationsOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />
+                  <span className="text-sm font-semibold leading-5 text-[#123D2C]">Aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail. Esta opção é separada da confirmação deste agendamento e pode ser revogada.</span>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#123D2C]">Observação para a recepção</span>
+                  <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional. Escreva apenas o necessário." />
+                </label>
+              </>
+            )}
+
             {error && (
               <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">
                 <p>{error}</p>
                 {requestCode && <p className="mt-1 text-xs">Código para suporte: {requestCode}</p>}
               </div>
             )}
-            <button type="submit" disabled={saving || selectedAvailability.available <= 0} className="min-h-14 rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60">
-              {saving ? "Confirmando..." : "Confirmar agendamento"}
-            </button>
+            <button type="submit" disabled={saving || selectedAvailability.available <= 0} className="min-h-14 rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Confirmando..." : isEditing ? "Confirmar alteração" : "Confirmar agendamento"}</button>
             <p className="text-center text-xs font-semibold text-slate-500">A vaga e a ordem são validadas novamente no servidor no momento da confirmação.</p>
           </form>
         </Modal>
       )}
 
       {activeModal === "success" && confirmation && (
-        <Modal title="Agendamento confirmado" onClose={() => setActiveModal(null)}>
+        <Modal title={confirmation.changed ? "Agendamento alterado" : "Agendamento confirmado"} onClose={() => setActiveModal(null)}>
           <div className="grid gap-3 text-sm font-bold leading-6 text-[#123D2C]">
-            <p className="rounded-2xl bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-100">Obrigado. Seu agendamento foi confirmado.</p>
+            <p className="rounded-2xl bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-100">{confirmation.changed ? "A alteração foi confirmada." : "Obrigado. Seu agendamento foi confirmado."}</p>
             <section className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
               <p><strong>Entidade:</strong> {confirmation.entityName}</p>
               <p><strong>Data:</strong> {longDateLabel(confirmation.date)}</p>
@@ -552,24 +609,16 @@ export default function AgendarConsulentePage() {
             </section>
             <p className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">{confirmation.guidance}</p>
             {confirmation.email ? (
-              <p className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-100">
-                {confirmation.emailSent ? `As informações também foram enviadas para ${confirmation.email}.` : `O e-mail ${confirmation.email} foi salvo. O agendamento está confirmado, mas o envio da mensagem não pôde ser concluído agora.`}
-              </p>
-            ) : (
+              <p className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-100">{confirmation.emailSent ? `As informações também foram enviadas para ${confirmation.email}.` : `O agendamento está confirmado, mas o envio para ${confirmation.email} não pôde ser concluído agora.`}</p>
+            ) : !confirmation.changed ? (
               <section className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
                 <p>Você pode incluir um e-mail para receber esta confirmação e facilitar futuros contatos sobre seus agendamentos.</p>
-                <label className="mt-3 grid gap-1">
-                  <span className="text-xs font-black uppercase tracking-[0.12em]">E-mail</span>
-                  <input value={successEmail} onChange={(event) => setSuccessEmail(event.target.value)} type="email" className="rounded-2xl border border-amber-200 bg-white p-3" placeholder="seu@email.com" />
-                </label>
-                <label className="mt-3 flex items-start gap-3">
-                  <input type="checkbox" checked={successOptIn} onChange={(event) => setSuccessOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span className="text-xs font-semibold leading-5">Também aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail.</span>
-                </label>
+                <label className="mt-3 grid gap-1"><span className="text-xs font-black uppercase tracking-[0.12em]">E-mail</span><input value={successEmail} onChange={(event) => setSuccessEmail(event.target.value)} type="email" className="rounded-2xl border border-amber-200 bg-white p-3" placeholder="seu@email.com" /></label>
+                <label className="mt-3 flex items-start gap-3"><input type="checkbox" checked={successOptIn} onChange={(event) => setSuccessOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" /><span className="text-xs font-semibold leading-5">Também aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail.</span></label>
                 <button type="button" disabled={saving || !successEmail.trim()} onClick={() => void saveSuccessEmail()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar e enviar confirmação"}</button>
                 {emailMessage && <p className="mt-2 text-xs font-black">{emailMessage}</p>}
               </section>
-            )}
+            ) : null}
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <Link href={APPOINTMENTS_PATH} className="flex min-h-13 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Ver meus agendamentos</Link>
@@ -579,6 +628,10 @@ export default function AgendarConsulentePage() {
       )}
     </main>
   );
+}
+
+function Info({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><p className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p><div className="mt-1">{children}</div></div>;
 }
 
 function Modal({

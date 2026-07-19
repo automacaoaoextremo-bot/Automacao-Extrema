@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isMonthOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ type AgendaSettings = {
   allowDifferentEntityAfterFirstAppointment: boolean;
   allowAlternateEntityWhenUnavailable: boolean;
   appointmentReturnGuidance: string;
+  appointmentEditCutoffMinutes: number;
 };
 
 type AuthUser = {
@@ -35,6 +37,7 @@ type EntityRecord = {
   line: string | null;
   entity_type: string | null;
   usual_days: string[] | null;
+  usual_materials: string | null;
   daily_capacity: number | null;
   appointment_enabled: boolean | null;
   appointment_notes: string | null;
@@ -56,6 +59,7 @@ type AgendaEvent = {
 };
 
 type AppointmentCount = {
+  id: string;
   entity_id: string | null;
   appointment_date: string | null;
   appointment_time: string | null;
@@ -80,6 +84,19 @@ type ReserveResult = {
   confirmed_time: string;
   confirmed_status: string;
   confirmed_order: number;
+};
+
+type ExistingAppointment = {
+  id: string;
+  periodId: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  entityId: string | null;
+  entityName: string;
+  order: number | null;
+  status: string;
+  canEdit: boolean;
+  editBlockedReason: string;
 };
 
 function asText(value: unknown) {
@@ -244,12 +261,17 @@ function eventMatchesDate(event: AgendaEvent, dateText: string) {
   const startDate = dateOnlyFromTimestamp(event.starts_at);
   if (!startDate || dateText < startDate) return false;
 
+  // Em eventos recorrentes, uma data final posterior ao início representa
+  // o limite de vigência cadastrado para a série (por exemplo, fevereiro a dezembro).
+  const configuredEndDate = dateOnlyFromTimestamp(event.ends_at);
+  if (configuredEndDate && configuredEndDate > startDate && dateText > configuredEndDate) return false;
+
   const recurrence = normalize(event.recurrence_rule).toUpperCase();
   if (!recurrence) return dateText === startDate;
 
   const weekday = weekdaySlug(dateText);
-  if (recurrence.includes("BYDAY=MO")) return weekday === "segunda";
-  if (recurrence.includes("BYDAY=TU")) return weekday === "terca";
+  if (recurrence.includes("BYDAY=MO")) return weekday === "segunda" && isMonthOccurrenceAllowed(event.metadata, dateText);
+  if (recurrence.includes("BYDAY=TU")) return weekday === "terca" && isMonthOccurrenceAllowed(event.metadata, dateText);
   return dateText === startDate;
 }
 
@@ -348,6 +370,7 @@ function normalizeSettings(settings: unknown): AgendaSettings {
     allowDifferentEntityAfterFirstAppointment: current.allowDifferentEntityAfterFirstAppointment !== false,
     allowAlternateEntityWhenUnavailable: current.allowAlternateEntityWhenUnavailable !== false,
     appointmentReturnGuidance: asText(current.appointmentReturnGuidance) || "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure manter a continuidade com a mesma entidade sempre que possível.",
+    appointmentEditCutoffMinutes: Math.max(0, Math.trunc(Number(current.appointmentEditCutoffMinutes ?? 1440) || 0)),
   };
 }
 
@@ -397,14 +420,18 @@ async function agendaSettings(organizationId: string) {
     .in("module_slug", ["atendimento-em-harmonia", "agenda-viva"]);
   if (error) throw error;
   const rows = data ?? [];
-  const preferred = rows.find((item) => item.module_slug === "atendimento-em-harmonia") ?? rows.find((item) => item.module_slug === "agenda-viva");
-  return normalizeSettings(preferred?.settings);
+  const agendaSettingsRow = rows.find((item) => item.module_slug === "agenda-viva");
+  const atendimentoSettingsRow = rows.find((item) => item.module_slug === "atendimento-em-harmonia");
+  return normalizeSettings({
+    ...asRecord(agendaSettingsRow?.settings),
+    ...asRecord(atendimentoSettingsRow?.settings),
+  });
 }
 
 async function availableEntities(organizationId: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .select("id, name, line, entity_type, usual_days, daily_capacity, appointment_enabled, appointment_notes, active")
+    .select("id, name, line, entity_type, usual_days, usual_materials, daily_capacity, appointment_enabled, appointment_notes, active")
     .eq("organization_id", organizationId)
     .eq("active", true)
     .order("name", { ascending: true });
@@ -424,46 +451,167 @@ async function availableEvents(organizationId: string) {
   return (data ?? []) as AgendaEvent[];
 }
 
-async function appointmentCounts(organizationId: string, start: string, end: string) {
-  const { data, error } = await supabaseAdmin
+function appointmentStartInstant(appointmentDate: string, appointmentTime: string) {
+  const timeMatch = appointmentTime.match(/(\d{1,2}):(\d{2})/);
+  const time = timeMatch ? `${String(timeMatch[1]).padStart(2, "0")}:${timeMatch[2]}` : "23:59";
+  const date = new Date(`${appointmentDate}T${time}:00-03:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function editEligibility(appointmentDate: string, appointmentTime: string, cutoffMinutes: number) {
+  const start = appointmentStartInstant(appointmentDate, appointmentTime);
+  if (!start) {
+    return {
+      canEdit: false,
+      editDeadline: null,
+      editBlockedReason: "O horário deste agendamento precisa ser confirmado pela organização antes de uma alteração.",
+    };
+  }
+
+  const deadline = new Date(start.getTime() - Math.max(0, cutoffMinutes) * 60_000);
+  const canEdit = Date.now() < deadline.getTime();
+  return {
+    canEdit,
+    editDeadline: deadline.toISOString(),
+    editBlockedReason: canEdit
+      ? ""
+      : "O prazo de edição definido pelo TUCXA terminou. Você ainda pode excluir este agendamento.",
+  };
+}
+
+async function appointmentCounts(organizationId: string, start: string, end: string, excludedAppointmentId = "") {
+  let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("entity_id, appointment_date, appointment_time, status")
+    .select("id, entity_id, appointment_date, appointment_time, status")
     .eq("organization_id", organizationId)
     .gte("appointment_date", start)
     .lte("appointment_date", end)
     .not("status", "in", CANCELED_APPOINTMENT_FILTER);
+
+  if (excludedAppointmentId) query = query.neq("id", excludedAppointmentId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as AppointmentCount[];
 }
 
-async function appointmentBundle(context: ConsulenteContext) {
+async function activeAppointmentsForPerson(context: ConsulenteContext, start: string, end: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, entity_id, event_id, appointment_date, appointment_time, status, metadata")
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .gte("appointment_date", start)
+    .lte("appointment_date", end)
+    .not("status", "in", CANCELED_APPOINTMENT_FILTER)
+    .order("appointment_date", { ascending: true })
+    .order("appointment_time", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function ownedAppointment(context: ConsulenteContext, appointmentId: string) {
+  if (!appointmentId) return null;
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, entity_id, event_id, appointment_date, appointment_time, status, notes, metadata, created_at")
+    .eq("id", appointmentId)
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function existingAppointmentsForPeriods(
+  rows: Array<Record<string, unknown>>,
+  periods: BookingPeriod[],
+  entities: EntityRecord[],
+  settings: AgendaSettings,
+  excludedAppointmentId = "",
+): ExistingAppointment[] {
+  const entityMap = new Map(entities.map((entity) => [entity.id, entity]));
+  return rows
+    .filter((row) => asText(row.id) !== excludedAppointmentId)
+    .flatMap((row) => {
+      const appointmentDate = asText(row.appointment_date);
+      const appointmentTime = asText(row.appointment_time) || "18:00";
+      const eventId = asText(row.event_id);
+      const period = periods.find((item) =>
+        item.appointmentDate === appointmentDate
+        && item.startTime === appointmentTime
+        && (!eventId || item.eventId === eventId)
+      );
+      if (!period) return [];
+
+      const entityId = asText(row.entity_id);
+      const entity = entityMap.get(entityId);
+      const metadata = asRecord(row.metadata);
+      const eligibility = editEligibility(appointmentDate, appointmentTime, settings.appointmentEditCutoffMinutes);
+      return [{
+        id: asText(row.id),
+        periodId: period.id,
+        appointmentDate,
+        appointmentTime: period.label,
+        entityId: entityId || null,
+        entityName: entity?.name || "Entidade a confirmar",
+        order: Number(metadata.order ?? 0) || null,
+        status: asText(row.status),
+        canEdit: eligibility.canEdit,
+        editBlockedReason: eligibility.editBlockedReason,
+      }];
+    });
+}
+
+async function appointmentBundle(context: ConsulenteContext, editingAppointmentId = "") {
   const today = todayInSaoPaulo();
   const horizonEnd = toIsoDate(addDays(dateFromIso(today), 420));
-  const [settings, entities, events, counts] = await Promise.all([
+  const [settings, entities, events, counts, personAppointments] = await Promise.all([
     agendaSettings(context.organizationId),
     availableEntities(context.organizationId),
     availableEvents(context.organizationId),
-    appointmentCounts(context.organizationId, today, horizonEnd),
+    appointmentCounts(context.organizationId, today, horizonEnd, editingAppointmentId),
+    activeAppointmentsForPerson(context, today, horizonEnd),
   ]);
   const periods = buildBookingPeriods(events, today);
+  const existingAppointments = existingAppointmentsForPeriods(
+    personAppointments as Array<Record<string, unknown>>,
+    periods,
+    entities,
+    settings,
+    editingAppointmentId,
+  );
+
+  const editingRow = editingAppointmentId
+    ? (personAppointments as Array<Record<string, unknown>>).find((row) => asText(row.id) === editingAppointmentId)
+    : null;
+  const editingAppointment = editingRow
+    ? existingAppointmentsForPeriods([editingRow], periods, entities, settings)[0] ?? null
+    : null;
+
   return {
     settings,
     entities,
     periods,
     availability: buildAvailability(periods, entities, counts),
+    existingAppointments,
+    editingAppointment,
   };
 }
 
-async function previousAppointment(context: ConsulenteContext) {
-  const { data, error } = await supabaseAdmin
+async function previousAppointment(context: ConsulenteContext, excludedAppointmentId = "") {
+  let query = supabaseAdmin
     .from("oh_consulente_appointments")
     .select("id, entity_id")
     .eq("organization_id", context.organizationId)
     .eq("person_id", context.personId)
     .not("status", "in", CANCELED_APPOINTMENT_FILTER)
     .order("appointment_date", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  if (excludedAppointmentId) query = query.neq("id", excludedAppointmentId);
+
+  const { data, error } = await query.maybeSingle();
   if (error) throw error;
   return data as { id: string; entity_id: string | null } | null;
 }
@@ -542,17 +690,20 @@ async function updateContactPreferences(context: ConsulenteContext, email: strin
 }
 
 async function myAppointments(context: ConsulenteContext) {
+  const settings = await agendaSettings(context.organizationId);
   const { data, error } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, entity_id, event_id, appointment_date, appointment_time, status, notes, metadata, created_at")
+    .select("id, entity_id, event_id, appointment_date, appointment_time, status, notes, metadata, created_at, updated_at, cancelled_at, cancellation_reason")
     .eq("organization_id", context.organizationId)
     .eq("person_id", context.personId)
     .order("appointment_date", { ascending: true })
     .order("appointment_time", { ascending: true });
   if (error) throw error;
+
   const appointments = data ?? [];
   const entityIds = [...new Set(appointments.map((item) => asText(item.entity_id)).filter(Boolean))];
   const entities = new Map<string, EntityRecord>();
+
   if (entityIds.length) {
     const { data: entityRows, error: entityError } = await supabaseAdmin
       .from("oh_spiritual_entities")
@@ -561,16 +712,33 @@ async function myAppointments(context: ConsulenteContext) {
     if (entityError) throw entityError;
     (entityRows ?? []).forEach((entity) => entities.set(entity.id as string, entity as EntityRecord));
   }
+
   return appointments.map((appointment) => {
     const entity = entities.get(asText(appointment.entity_id));
     const metadata = asRecord(appointment.metadata);
+    const status = asText(appointment.status);
+    const canceled = ["cancelado", "cancelamento_solicitado", "ausente"].includes(status);
+    const eligibility = editEligibility(
+      appointment.appointment_date,
+      appointment.appointment_time || "23:59",
+      settings.appointmentEditCutoffMinutes,
+    );
+
     return {
       id: appointment.id,
+      eventId: appointment.event_id,
       appointmentDate: appointment.appointment_date,
-      appointmentTime: appointment.appointment_time || "Horário a confirmar",
-      status: appointment.status,
+      appointmentTime: asText(metadata.period_label) || appointment.appointment_time || "Horário a confirmar",
+      appointmentStartTime: appointment.appointment_time || "",
+      status,
       notes: appointment.notes,
       order: Number(metadata.order ?? 0) || null,
+      canEdit: !canceled && eligibility.canEdit,
+      canDelete: !canceled,
+      editDeadline: eligibility.editDeadline,
+      editBlockedReason: canceled ? "Este agendamento já foi cancelado." : eligibility.editBlockedReason,
+      cancelledAt: appointment.cancelled_at,
+      cancellationReason: appointment.cancellation_reason,
       entity: {
         id: entity?.id || null,
         name: entity?.name || "Entidade a confirmar",
@@ -579,6 +747,7 @@ async function myAppointments(context: ConsulenteContext) {
         guidance: entity?.appointment_notes || null,
       },
       createdAt: appointment.created_at,
+      updatedAt: appointment.updated_at,
     };
   });
 }
@@ -596,6 +765,8 @@ function reservationErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : asText((error as Record<string, unknown> | null)?.message);
   if (message.includes("NO_AVAILABILITY")) return { message: "A última vaga deste período acabou de ser preenchida. Escolha outra entidade ou outro dia.", status: 409 };
   if (message.includes("DUPLICATE_APPOINTMENT")) return { message: "Você já possui um agendamento neste mesmo dia e período.", status: 409 };
+  if (message.includes("APPOINTMENT_NOT_FOUND")) return { message: "Agendamento não localizado.", status: 404 };
+  if (message.includes("APPOINTMENT_NOT_EDITABLE")) return { message: "Este agendamento não pode mais ser alterado.", status: 409 };
   if (message.includes("INVALID_APPOINTMENT")) return { message: "Não foi possível confirmar este período. Atualize a agenda e tente novamente.", status: 400 };
   return { message: "Não foi possível confirmar o agendamento agora.", status: 500 };
 }
@@ -605,11 +776,36 @@ export async function GET(request: Request) {
   try {
     const context = await authenticatedConsulente(request);
     if (!context) return jsonError("Sua sessão expirou. Entre novamente para continuar.", 401, id);
+
     const url = new URL(request.url);
     if (url.searchParams.get("view") === "mine") {
-      return NextResponse.json({ profile: publicProfile(context), appointments: await myAppointments(context) });
+      return NextResponse.json({
+        profile: publicProfile(context),
+        appointments: await myAppointments(context),
+        settings: await agendaSettings(context.organizationId),
+      });
     }
-    const bundle = await appointmentBundle(context);
+
+    const editingAppointmentId = asText(url.searchParams.get("edit"));
+    if (editingAppointmentId) {
+      const [appointment, settings] = await Promise.all([
+        ownedAppointment(context, editingAppointmentId),
+        agendaSettings(context.organizationId),
+      ]);
+      if (!appointment?.id) return jsonError("Agendamento não localizado.", 404, id);
+      if (["cancelado", "cancelamento_solicitado", "ausente"].includes(asText(appointment.status))) {
+        return jsonError("Este agendamento não pode mais ser alterado.", 409, id);
+      }
+
+      const eligibility = editEligibility(
+        appointment.appointment_date,
+        appointment.appointment_time || "23:59",
+        settings.appointmentEditCutoffMinutes,
+      );
+      if (!eligibility.canEdit) return jsonError(eligibility.editBlockedReason, 409, id);
+    }
+
+    const bundle = await appointmentBundle(context, editingAppointmentId);
     return NextResponse.json({ profile: publicProfile(context), ...bundle });
   } catch (error) {
     logRouteError(id, "GET", error);
@@ -657,6 +853,155 @@ export async function POST(request: Request) {
         logRouteError(id, "update-email/send", emailError);
       }
       return NextResponse.json({ ok: true, emailSent, message: emailSent ? "E-mail salvo e confirmação enviada." : "E-mail salvo. O agendamento permanece confirmado, mas o envio não pôde ser concluído agora." });
+    }
+
+    if (action === "cancel") {
+      const appointmentId = asText(body.appointmentId);
+      const reason = asText(body.reason) || "Cancelado pelo Consulente";
+      if (!appointmentId) return jsonError("Agendamento não localizado.", 400, id);
+
+      const appointment = await ownedAppointment(context, appointmentId);
+      if (!appointment?.id) return jsonError("Agendamento não localizado.", 404, id);
+      if (["cancelado", "cancelamento_solicitado"].includes(asText(appointment.status))) {
+        return NextResponse.json({ ok: true, message: "Este agendamento já estava excluído." });
+      }
+
+      const cancelledAt = new Date().toISOString();
+      const metadata = {
+        ...asRecord(appointment.metadata),
+        cancelled_at: cancelledAt,
+        cancellation_source: "consulente",
+        cancellation_reason: reason,
+      };
+      const { error: cancelError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .update({
+          status: "cancelado",
+          cancelled_at: cancelledAt,
+          cancelled_by_person_id: context.personId,
+          cancellation_reason: reason,
+          metadata,
+          updated_at: cancelledAt,
+        })
+        .eq("id", appointmentId)
+        .eq("organization_id", context.organizationId)
+        .eq("person_id", context.personId);
+      if (cancelError) throw cancelError;
+
+      return NextResponse.json({
+        ok: true,
+        message: "Agendamento excluído. O histórico foi preservado para segurança e organização.",
+      });
+    }
+
+    if (action === "reschedule") {
+      const appointmentId = asText(body.appointmentId);
+      const periodId = asText(body.periodId);
+      const entityId = asText(body.entityId);
+      const idempotencyKey = asText(body.idempotencyKey) || crypto.randomUUID();
+      if (!appointmentId || !periodId || !entityId) {
+        return jsonError("Escolha o novo dia, período e entidade.", 400, id);
+      }
+
+      const [appointment, settings] = await Promise.all([
+        ownedAppointment(context, appointmentId),
+        agendaSettings(context.organizationId),
+      ]);
+      if (!appointment?.id) return jsonError("Agendamento não localizado.", 404, id);
+      if (["cancelado", "cancelamento_solicitado", "ausente"].includes(asText(appointment.status))) {
+        return jsonError("Este agendamento não pode mais ser alterado.", 409, id);
+      }
+
+      const eligibility = editEligibility(
+        appointment.appointment_date,
+        appointment.appointment_time || "23:59",
+        settings.appointmentEditCutoffMinutes,
+      );
+      if (!eligibility.canEdit) return jsonError(eligibility.editBlockedReason, 409, id);
+
+      const bundle = await appointmentBundle(context, appointmentId);
+      const period = bundle.periods.find((item) => item.id === periodId);
+      if (!period) return jsonError("Este período não está mais disponível. Atualize o calendário.", 409, id);
+      const entity = bundle.entities.find((item) => item.id === entityId && entityMatchesPeriod(item, period));
+      if (!entity || entity.appointment_enabled === false) {
+        return jsonError("Esta entidade não está disponível neste período.", 409, id);
+      }
+
+      const availability = bundle.availability.find((item) => item.periodId === period.id && item.entityId === entity.id);
+      if (!availability || availability.available <= 0) {
+        return jsonError("Não há mais vagas para esta entidade neste período.", 409, id);
+      }
+
+      const previous = await previousAppointment(context, appointmentId);
+      if (previous?.entity_id && previous.entity_id !== entityId && !bundle.settings.allowDifferentEntityAfterFirstAppointment) {
+        return jsonError("A configuração atual orienta manter a mesma entidade após o primeiro atendimento. Procure a recepção para avaliar uma troca.", 409, id);
+      }
+
+      const rpcPayload = {
+        p_appointment_id: appointmentId,
+        p_organization_id: context.organizationId,
+        p_person_id: context.personId,
+        p_entity_id: entity.id,
+        p_event_id: period.eventId,
+        p_appointment_date: period.appointmentDate,
+        p_appointment_time: period.startTime,
+        p_capacity: Math.max(1, Number(entity.daily_capacity ?? 4)),
+        p_idempotency_key: idempotencyKey,
+        p_metadata: {
+          source: "site_tucxa_consulente_reschedule",
+          period_id: period.id,
+          period_label: period.label,
+          period_end_time: period.endTime,
+          event_id: period.eventId,
+          return_guidance: bundle.settings.appointmentReturnGuidance,
+        },
+      };
+
+      const { data: rescheduled, error: rescheduleError } = await supabaseAdmin.rpc(
+        "oh_reschedule_consulente_appointment",
+        rpcPayload,
+      );
+      if (rescheduleError) {
+        const friendly = reservationErrorMessage(rescheduleError);
+        if (friendly.status >= 500) logRouteError(id, "POST/reschedule-rpc", rescheduleError);
+        return jsonError(friendly.message, friendly.status, id);
+      }
+
+      const reservation = (Array.isArray(rescheduled) ? rescheduled[0] : rescheduled) as ReserveResult | null;
+      if (!reservation?.appointment_id) throw new Error("Alteração não retornou identificador.");
+
+      let emailSent = false;
+      if (context.email) {
+        try {
+          emailSent = await sendConfirmationEmail({
+            to: context.email,
+            name: context.fullName,
+            entityName: asText(entity.name) || "Entidade escolhida",
+            appointmentDate: reservation.confirmed_date,
+            appointmentTime: period.label,
+            order: Number(reservation.confirmed_order),
+            guidance: bundle.settings.appointmentReturnGuidance,
+          });
+        } catch (emailError) {
+          logRouteError(id, "POST/reschedule-send", emailError);
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        appointment: {
+          id: reservation.appointment_id,
+          appointmentDate: reservation.confirmed_date,
+          appointmentTime: period.label,
+          status: reservation.confirmed_status,
+          order: Number(reservation.confirmed_order),
+          entityName: entity.name || "Entidade escolhida",
+          guidance: entity.appointment_notes || bundle.settings.appointmentReturnGuidance,
+        },
+        emailSent,
+        email: context.email,
+        message: "Agendamento alterado.",
+      });
     }
 
     const periodId = asText(body.periodId);
