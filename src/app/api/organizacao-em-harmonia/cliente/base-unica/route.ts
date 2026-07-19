@@ -373,6 +373,18 @@ async function upsertEntity(organizationId: string, body: Record<string, unknown
   const entityId = asText(body.entityId ?? body.id);
   const name = asText(body.name);
   if (!name) throw new Error("Informe o nome da entidade.");
+
+  const usualDays = normalizeModules(body.usualDays ?? body.usual_days);
+  const active = asBool(body.active, false);
+  const requestedAppointmentEnabled = asBool(body.appointmentEnabled ?? body.appointment_enabled, false);
+
+  if (active && usualDays.length === 0) {
+    throw new Error("Para manter a entidade ativa, defina pelo menos um dia em que ela costuma atender.");
+  }
+  if (requestedAppointmentEnabled && (!active || usualDays.length === 0)) {
+    throw new Error("O agendamento só pode ser habilitado para uma entidade ativa e com pelo menos um dia de atendimento.");
+  }
+
   const payload = {
     organization_id: organizationId,
     name,
@@ -380,17 +392,21 @@ async function upsertEntity(organizationId: string, body: Record<string, unknown
     line: asText(body.line) || null,
     entity_type: asText(body.entityType ?? body.entity_type) || null,
     usual_materials: asText(body.usualMaterials ?? body.usual_materials) || null,
-    usual_days: normalizeModules(body.usualDays ?? body.usual_days),
+    usual_days: usualDays,
     daily_capacity: Math.max(1, Math.trunc(asNumber(body.dailyCapacity ?? body.daily_capacity, 4))),
-    appointment_enabled: asBool(body.appointmentEnabled ?? body.appointment_enabled, true),
+    appointment_enabled: active && usualDays.length > 0 && requestedAppointmentEnabled,
     appointment_notes: asText(body.appointmentNotes ?? body.appointment_notes) || null,
     notes: asText(body.notes) || null,
-    active: asBool(body.active, true),
+    active,
     updated_at: new Date().toISOString(),
   };
 
   if (entityId) {
-    const { error } = await supabaseAdmin.from("oh_spiritual_entities").update(payload).eq("id", entityId).eq("organization_id", organizationId);
+    const { error } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .update(payload)
+      .eq("id", entityId)
+      .eq("organization_id", organizationId);
     if (error) throw error;
     return;
   }
@@ -403,9 +419,28 @@ async function toggleEntity(organizationId: string, body: Record<string, unknown
   const entityId = asText(body.entityId);
   const active = asBool(body.active, true);
   if (!entityId) throw new Error("Entidade não informada.");
+
+  const { data: entity, error: entityError } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .select("id, usual_days")
+    .eq("id", entityId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (entityError) throw entityError;
+  if (!entity?.id) throw new Error("Entidade não localizada.");
+
+  const usualDays = normalizeModules(entity.usual_days);
+  if (active && usualDays.length === 0) {
+    throw new Error("Defina pelo menos um dia de atendimento antes de ativar esta entidade.");
+  }
+
   const { error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .update({ active, updated_at: new Date().toISOString() })
+    .update({
+      active,
+      appointment_enabled: active && usualDays.length > 0,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", entityId)
     .eq("organization_id", organizationId);
   if (error) throw error;
@@ -416,7 +451,7 @@ async function deleteEntity(organizationId: string, body: Record<string, unknown
   if (!entityId) throw new Error("Entidade não informada.");
   const { error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .update({ active: false, updated_at: new Date().toISOString() })
+    .update({ active: false, appointment_enabled: false, updated_at: new Date().toISOString() })
     .eq("id", entityId)
     .eq("organization_id", organizationId);
   if (error) throw error;

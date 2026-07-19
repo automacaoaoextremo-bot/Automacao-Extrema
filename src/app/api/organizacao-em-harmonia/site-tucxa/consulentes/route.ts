@@ -19,6 +19,9 @@ type ConsulenteBody = {
   preferredDay?: string;
   notes?: string;
   statusToken?: string;
+  privacyNoticeAccepted?: boolean;
+  privacyNoticeVersion?: string;
+  communicationsOptIn?: boolean;
 };
 
 type PersonRow = {
@@ -29,6 +32,7 @@ type PersonRow = {
   active: boolean | null;
   notes: string | null;
   auth_user_id?: string | null;
+  communications_opt_in?: boolean | null;
 };
 
 function asText(value: unknown) {
@@ -169,7 +173,7 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
   if (value.includes("@")) {
     const { data, error } = await supabaseAdmin
       .from("oh_people")
-      .select("id, full_name, email, whatsapp, active, notes, auth_user_id")
+      .select("id, full_name, email, whatsapp, active, notes, auth_user_id, communications_opt_in")
       .eq("organization_id", organizationId)
       .ilike("email", value.toLowerCase())
       .order("updated_at", { ascending: false })
@@ -184,7 +188,7 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
 
   const { data, error } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, email, whatsapp, active, notes, auth_user_id")
+    .select("id, full_name, email, whatsapp, active, notes, auth_user_id, communications_opt_in")
     .eq("organization_id", organizationId)
     .in("whatsapp", phones)
     .order("updated_at", { ascending: false })
@@ -297,6 +301,9 @@ async function savePublicRequest(body: Required<ConsulenteBody>, options?: { sta
       loginUrl: consulenteLoginUrl(),
       accessStatus: body.requestType === "cadastro-consulente" ? "liberado" : "recebido",
       modules: CONSULENTE_MODULES,
+      privacyNoticeAccepted: body.privacyNoticeAccepted === true,
+      privacyNoticeVersion: body.privacyNoticeVersion || null,
+      communicationsOptIn: body.communicationsOptIn === true,
       submittedAt: new Date().toISOString(),
     },
   };
@@ -315,6 +322,18 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
   const existingByPhone = await findPersonByIdentifier(organizationId, whatsapp);
   const existingByEmail = email ? await findPersonByIdentifier(organizationId, email) : null;
   const existing = existingByPhone ?? existingByEmail;
+  const now = new Date().toISOString();
+  const communicationsOptIn = body.communicationsOptIn === true;
+  const privacyPayload = {
+    notification_email: email || null,
+    privacy_notice_accepted_at: now,
+    privacy_notice_version: body.privacyNoticeVersion || "2026-07-19",
+    privacy_notice_source: "cadastro-consulente-tucxa",
+    communications_opt_in: communicationsOptIn,
+    communications_opt_in_at: communicationsOptIn ? now : null,
+    communications_opt_in_source: communicationsOptIn ? "cadastro-consulente-tucxa" : null,
+    communications_opt_out_at: !communicationsOptIn && existing?.communications_opt_in === true ? now : null,
+  };
 
   let personId = existing?.id ?? "";
   if (existing?.id) {
@@ -325,8 +344,9 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
         email: emailForAuth,
         whatsapp,
         active: true,
+        ...privacyPayload,
         notes: "Cadastro de consulente/filho de fora atualizado pelo site do Tucxa. Acesso liberado automaticamente.",
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq("id", existing.id);
     if (error) throw error;
@@ -339,6 +359,7 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
         email: emailForAuth,
         whatsapp,
         active: true,
+        ...privacyPayload,
         notes: "Cadastro de consulente/filho de fora criado pelo site do Tucxa. Acesso liberado automaticamente.",
       })
       .select("id")
@@ -404,6 +425,9 @@ export async function POST(request: Request) {
       preferredDay: asText(raw.preferredDay),
       notes: asText(raw.notes),
       statusToken: asText(raw.statusToken),
+      privacyNoticeAccepted: raw.privacyNoticeAccepted === true,
+      privacyNoticeVersion: asText(raw.privacyNoticeVersion) || "2026-07-19",
+      communicationsOptIn: raw.communicationsOptIn === true,
     };
 
     if (body.action === "resolve-login") {
@@ -420,6 +444,9 @@ export async function POST(request: Request) {
       if (whatsapp.length < 10) return NextResponse.json({ error: "Informe o celular com WhatsApp e DDD." }, { status: 400 });
       if (body.email && !body.email.includes("@")) return NextResponse.json({ error: "Confira o e-mail informado ou deixe em branco." }, { status: 400 });
       if (body.password.length < 8) return NextResponse.json({ error: "Crie uma senha com pelo menos 8 caracteres." }, { status: 400 });
+      if (!body.privacyNoticeAccepted) {
+        return NextResponse.json({ error: "Leia o Aviso de Privacidade e confirme que está ciente do tratamento dos seus dados." }, { status: 400 });
+      }
 
       const token = body.statusToken || crypto.randomUUID();
       const publicStatusUrl = statusUrl(token);
@@ -435,6 +462,8 @@ export async function POST(request: Request) {
         `Nome: ${body.name}`,
         `WhatsApp: ${whatsapp}`,
         `E-mail: ${body.email || "não informado"}`,
+        `Aviso de Privacidade: ciência registrada na versão ${body.privacyNoticeVersion}`,
+        `Comunicações futuras por e-mail: ${body.communicationsOptIn ? "autorizadas" : "não autorizadas"}`,
         "Senha: cadastrada no Supabase Auth e não enviada por e-mail.",
         "Status: acesso liberado automaticamente para Consulente / Filho de Fora.",
         `Responsável de acompanhamento: ${responsible.name}`,

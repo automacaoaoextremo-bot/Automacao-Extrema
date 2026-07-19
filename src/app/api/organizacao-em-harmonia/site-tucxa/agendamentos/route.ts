@@ -114,6 +114,28 @@ function normalize(value: unknown) {
     .toLowerCase();
 }
 
+function publicAppointmentNotes(value: unknown) {
+  const text = asText(value);
+  const normalized = normalize(text);
+  if (!text) return null;
+  if (normalized.includes("cadastro inicial generico")) return null;
+  if (normalized.includes("edite nome, linha e capacidade")) return null;
+  return text;
+}
+
+function normalizedEntityDays(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map(normalize)
+    .map((day) => day.replace(/\s+/g, "-"))
+    .map((day) => {
+      if (day === "segunda-feira") return "segunda";
+      if (day === "terca-feira" || day === "terça-feira") return "terca";
+      return day;
+    })
+    .filter(Boolean))];
+}
+
 function normalizePhone(value: unknown) {
   return asText(value).replace(/\D/g, "");
 }
@@ -331,9 +353,8 @@ function buildBookingPeriods(events: AgendaEvent[], startDate: string, horizonDa
 }
 
 function entityMatchesPeriod(entity: EntityRecord, period: BookingPeriod) {
-  const days = Array.isArray(entity.usual_days) ? entity.usual_days.map(normalize) : [];
-  if (!days.length) return period.weekday === "segunda" || period.weekday === "terca";
-  return days.some((day) => day.includes(period.weekday));
+  if (entity.active !== true || entity.appointment_enabled !== true) return false;
+  return normalizedEntityDays(entity.usual_days).includes(period.weekday);
 }
 
 function availabilityKey(entityId: string, date: string, time: string) {
@@ -434,9 +455,16 @@ async function availableEntities(organizationId: string) {
     .select("id, name, line, entity_type, usual_days, usual_materials, daily_capacity, appointment_enabled, appointment_notes, active")
     .eq("organization_id", organizationId)
     .eq("active", true)
+    .eq("appointment_enabled", true)
     .order("name", { ascending: true });
   if (error) throw error;
-  return ((data ?? []) as EntityRecord[]).filter((entity) => entity.appointment_enabled !== false);
+
+  return ((data ?? []) as EntityRecord[])
+    .filter((entity) => normalizedEntityDays(entity.usual_days).length > 0)
+    .map((entity) => ({
+      ...entity,
+      appointment_notes: publicAppointmentNotes(entity.appointment_notes),
+    }));
 }
 
 async function availableEvents(organizationId: string) {
@@ -669,23 +697,15 @@ async function sendConfirmationEmail(input: {
   return true;
 }
 
-async function updateContactPreferences(context: ConsulenteContext, email: string, communicationsOptIn: boolean) {
-  const now = new Date().toISOString();
-  const payload: Record<string, unknown> = {
-    communications_opt_in: communicationsOptIn,
-    updated_at: now,
-  };
-
-  if (communicationsOptIn) {
-    payload.communications_opt_in_at = now;
-    payload.communications_opt_in_source = "agendamento-consulente-tucxa";
-    payload.communications_opt_out_at = null;
-  } else if (context.communicationsOptIn) {
-    payload.communications_opt_out_at = now;
-  }
-
-  if (email) payload.notification_email = email;
-  const { error } = await supabaseAdmin.from("oh_people").update(payload).eq("id", context.personId);
+async function updateNotificationEmail(context: ConsulenteContext, email: string) {
+  if (!email) return;
+  const { error } = await supabaseAdmin
+    .from("oh_people")
+    .update({
+      notification_email: email,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", context.personId);
   if (error) throw error;
 }
 
@@ -744,7 +764,7 @@ async function myAppointments(context: ConsulenteContext) {
         name: entity?.name || "Entidade a confirmar",
         line: entity?.line || null,
         entityType: entity?.entity_type || null,
-        guidance: entity?.appointment_notes || null,
+        guidance: publicAppointmentNotes(entity?.appointment_notes),
       },
       createdAt: appointment.created_at,
       updatedAt: appointment.updated_at,
@@ -824,7 +844,6 @@ export async function POST(request: Request) {
     if (action === "update-email") {
       const appointmentId = asText(body.appointmentId);
       const email = normalizeEmail(body.email);
-      const communicationsOptIn = body.communicationsOptIn === true;
       if (!appointmentId) return jsonError("Agendamento não localizado.", 400, id);
       if (!isRealEmail(email)) return jsonError("Informe um e-mail válido.", 400, id);
       const { data: appointment, error: appointmentError } = await supabaseAdmin
@@ -836,7 +855,7 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (appointmentError) throw appointmentError;
       if (!appointment?.id) return jsonError("Agendamento não localizado.", 404, id);
-      await updateContactPreferences(context, email, communicationsOptIn);
+      await updateNotificationEmail(context, email);
       const { data: entity } = await supabaseAdmin.from("oh_spiritual_entities").select("name").eq("id", appointment.entity_id).maybeSingle();
       let emailSent = false;
       try {
@@ -996,7 +1015,7 @@ export async function POST(request: Request) {
           status: reservation.confirmed_status,
           order: Number(reservation.confirmed_order),
           entityName: entity.name || "Entidade escolhida",
-          guidance: entity.appointment_notes || bundle.settings.appointmentReturnGuidance,
+          guidance: publicAppointmentNotes(entity.appointment_notes) || bundle.settings.appointmentReturnGuidance,
         },
         emailSent,
         email: context.email,
@@ -1007,7 +1026,6 @@ export async function POST(request: Request) {
     const periodId = asText(body.periodId);
     const entityId = asText(body.entityId);
     const email = normalizeEmail(body.email);
-    const communicationsOptIn = body.communicationsOptIn === true;
     const notes = asText(body.notes);
     const idempotencyKey = asText(body.idempotencyKey) || crypto.randomUUID();
     if (!periodId || !entityId) return jsonError("Escolha o dia, o período e a entidade.", 400, id);
@@ -1057,7 +1075,7 @@ export async function POST(request: Request) {
     const reservation = (Array.isArray(reserved) ? reserved[0] : reserved) as ReserveResult | null;
     if (!reservation?.appointment_id) throw new Error("Reserva não retornou identificador.");
 
-    await updateContactPreferences(context, email || context.email, communicationsOptIn);
+    if (email && email !== context.email) await updateNotificationEmail(context, email);
     let emailSent = false;
     const confirmationEmail = email || context.email;
     if (confirmationEmail) {
@@ -1085,7 +1103,7 @@ export async function POST(request: Request) {
         status: reservation.confirmed_status,
         order: Number(reservation.confirmed_order),
         entityName: entity.name || "Entidade escolhida",
-        guidance: entity.appointment_notes || bundle.settings.appointmentReturnGuidance,
+        guidance: publicAppointmentNotes(entity.appointment_notes) || bundle.settings.appointmentReturnGuidance,
       },
       emailSent,
       email: confirmationEmail,

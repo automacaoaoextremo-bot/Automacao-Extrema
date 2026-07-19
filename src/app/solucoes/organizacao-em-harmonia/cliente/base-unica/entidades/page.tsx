@@ -65,10 +65,10 @@ const emptyForm: EntityForm = {
   usualMaterials: "",
   usualDays: [],
   dailyCapacity: "4",
-  appointmentEnabled: true,
+  appointmentEnabled: false,
   appointmentNotes: "",
   notes: "",
-  active: true,
+  active: false,
 };
 
 const dayOptions = [
@@ -153,7 +153,8 @@ function EntityFormFields({ form, update, toggleDay }: {
       </div>
 
       <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-        <p className="text-sm font-black text-[#00334E]">Dias em que costuma atender</p>
+        <p className="text-sm font-black text-[#00334E]">Dias em que costuma atender *</p>
+        <p className="mt-1 text-xs font-semibold leading-5 text-[#315A49]">Ao escolher um dia, a entidade será marcada como ativa e habilitada para agendamento. Sem dia definido, ela não pode permanecer ativa.</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 md:grid-cols-3">
           {dayOptions.map((item) => (
             <label key={item.slug} className="flex min-h-12 items-center gap-2 rounded-2xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-emerald-100">
@@ -171,7 +172,13 @@ function EntityFormFields({ form, update, toggleDay }: {
           <span className="text-xs font-semibold text-slate-500">Quando o limite é atingido, novos agendamentos para esta entidade ficam bloqueados.</span>
         </label>
         <label className="flex items-center gap-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
-          <input type="checkbox" checked={form.appointmentEnabled} onChange={(event) => update("appointmentEnabled", event.target.checked)} className="h-5 w-5" />
+          <input
+            type="checkbox"
+            checked={form.appointmentEnabled}
+            disabled={!form.active || form.usualDays.length === 0}
+            onChange={(event) => update("appointmentEnabled", event.target.checked)}
+            className="h-5 w-5 disabled:opacity-40"
+          />
           <span className="text-sm font-black text-[#00334E]">Permitir agendamento com esta entidade</span>
         </label>
       </div>
@@ -185,7 +192,16 @@ function EntityFormFields({ form, update, toggleDay }: {
         <textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" />
       </label>
       <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-        <input type="checkbox" checked={form.active} onChange={(event) => update("active", event.target.checked)} className="h-5 w-5" />
+        <input
+          type="checkbox"
+          checked={form.active}
+          onChange={(event) => {
+            const active = event.target.checked;
+            update("active", active);
+            if (!active) update("appointmentEnabled", false);
+          }}
+          className="h-5 w-5"
+        />
         <span className="text-sm font-black text-[#00334E]">Entidade ativa</span>
       </label>
     </div>
@@ -340,12 +356,20 @@ export default function EntidadesPage() {
   }
 
   function toggleDay(slug: string) {
-    setForm((current) => ({
-      ...current,
-      usualDays: current.usualDays.includes(slug)
+    setForm((current) => {
+      const removing = current.usualDays.includes(slug);
+      const usualDays = removing
         ? current.usualDays.filter((item) => item !== slug)
-        : [...current.usualDays, slug],
-    }));
+        : [...current.usualDays, slug];
+      const hasDays = usualDays.length > 0;
+
+      return {
+        ...current,
+        usualDays,
+        active: hasDays,
+        appointmentEnabled: hasDays ? true : false,
+      };
+    });
   }
 
   function openNewEntity() {
@@ -359,9 +383,19 @@ export default function EntidadesPage() {
   }
 
   async function saveEntity() {
-    setSaving(true);
     setMessage("");
     setError("");
+
+    if (form.active && form.usualDays.length === 0) {
+      setError("Para manter a entidade ativa, escolha pelo menos um dia em que ela costuma atender.");
+      return;
+    }
+    if (form.appointmentEnabled && (!form.active || form.usualDays.length === 0)) {
+      setError("O agendamento só pode ser habilitado para uma entidade ativa e com pelo menos um dia de atendimento.");
+      return;
+    }
+
+    setSaving(true);
     try {
       const result = await request({
         method: "POST",
@@ -393,9 +427,16 @@ export default function EntidadesPage() {
   }
 
   async function changeEntityActive(entity: Entity, active: boolean) {
-    setSaving(true);
     setMessage("");
     setError("");
+
+    if (active && normalizedEntityDays(entity).length === 0) {
+      setError(`Defina pelo menos um dia de atendimento antes de ativar ${entity.name}.`);
+      editEntity(entity);
+      return;
+    }
+
+    setSaving(true);
     try {
       const result = await request({ method: "POST", body: JSON.stringify({ action: "toggleEntity", entityId: entity.id, active }) });
       if (result) setPayload(result);

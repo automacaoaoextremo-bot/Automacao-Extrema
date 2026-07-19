@@ -117,8 +117,25 @@ function dateFromIso(value: string) {
   return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
 }
 
-function addMonths(date: Date, amount: number) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1, 12));
+function monthKeyFromDate(date: Date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthDateFromKey(key: string) {
+  return dateFromIso(`${key}-01`);
+}
+
+function eligibleMonthKeysForPayload(payload: Payload) {
+  const availabilityByPeriod = new Set(
+    payload.availability.filter((item) => item.available > 0).map((item) => item.periodId),
+  );
+  const existingPeriodIds = new Set(payload.existingAppointments.map((item) => item.periodId));
+
+  return [...new Set(
+    payload.periods
+      .filter((period) => existingPeriodIds.has(period.id) || availabilityByPeriod.has(period.id))
+      .map((period) => period.appointmentDate.slice(0, 7)),
+  )].sort();
 }
 
 function monthTitle(date: Date) {
@@ -175,11 +192,9 @@ export default function AgendarConsulentePage() {
   const [selectedExisting, setSelectedExisting] = useState<ExistingAppointment | null>(null);
   const [infoEntity, setInfoEntity] = useState<SpiritualEntity | null>(null);
   const [email, setEmail] = useState("");
-  const [communicationsOptIn, setCommunicationsOptIn] = useState(false);
   const [notes, setNotes] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [successEmail, setSuccessEmail] = useState("");
-  const [successOptIn, setSuccessOptIn] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [editingAppointmentId, setEditingAppointmentId] = useState("");
@@ -231,12 +246,16 @@ export default function AgendarConsulentePage() {
       const nextPayload = result as Payload;
       setPayload(nextPayload);
       setEmail(nextPayload.profile.email || "");
-      setCommunicationsOptIn(nextPayload.profile.communicationsOptIn === true);
 
       if (editId && nextPayload.editingAppointment && !initializedEdit.current) {
         initializedEdit.current = true;
-        setMonth(dateFromIso(nextPayload.editingAppointment.appointmentDate));
+        const editMonthKey = nextPayload.editingAppointment.appointmentDate.slice(0, 7);
+        const eligibleMonths = eligibleMonthKeysForPayload(nextPayload);
+        setMonth(monthDateFromKey(eligibleMonths.includes(editMonthKey) ? editMonthKey : (eligibleMonths[0] || editMonthKey)));
         setActiveModal("calendar");
+      } else if (!editId) {
+        const eligibleMonths = eligibleMonthKeysForPayload(nextPayload);
+        if (eligibleMonths[0]) setMonth(monthDateFromKey(eligibleMonths[0]));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar os agendamentos.");
@@ -303,6 +322,10 @@ export default function AgendarConsulentePage() {
     setError("");
     setSelectedPeriodId("");
     setSelectedEntityId("");
+    const eligibleMonths = payload ? eligibleMonthKeysForPayload(payload) : [];
+    if (eligibleMonths.length && !eligibleMonths.includes(monthKeyFromDate(month))) {
+      setMonth(monthDateFromKey(eligibleMonths[0]));
+    }
     setActiveModal("calendar");
   }
 
@@ -322,7 +345,6 @@ export default function AgendarConsulentePage() {
     if (availability.available <= 0) return;
     setSelectedEntityId(entity.id);
     setEmail(payload?.profile.email || "");
-    setCommunicationsOptIn(payload?.profile.communicationsOptIn === true);
     setNotes("");
     setIdempotencyKey(crypto.randomUUID());
     setError("");
@@ -345,7 +367,6 @@ export default function AgendarConsulentePage() {
           periodId: selectedPeriod.id,
           entityId: selectedEntity.id,
           email,
-          communicationsOptIn,
           notes,
           idempotencyKey,
         }),
@@ -371,7 +392,6 @@ export default function AgendarConsulentePage() {
       };
       setConfirmation(nextConfirmation);
       setSuccessEmail(nextConfirmation.email);
-      setSuccessOptIn(communicationsOptIn);
       setEmailMessage("");
       setActiveModal("success");
       if (changing) window.history.replaceState({}, "", window.location.pathname);
@@ -395,7 +415,6 @@ export default function AgendarConsulentePage() {
           action: "update-email",
           appointmentId: confirmation.id,
           email: successEmail,
-          communicationsOptIn: successOptIn,
         }),
       });
       setEmailMessage(result.message || "E-mail salvo.");
@@ -407,10 +426,42 @@ export default function AgendarConsulentePage() {
     }
   }
 
-  const currentMonthStart = dateFromIso(todayIso);
-  const canGoPrevious = month.getUTCFullYear() > currentMonthStart.getUTCFullYear()
-    || month.getUTCMonth() > currentMonthStart.getUTCMonth();
+  const eligibleMonthKeys = useMemo(
+    () => payload ? eligibleMonthKeysForPayload(payload) : [],
+    [payload],
+  );
+  const currentMonthKey = monthKeyFromDate(month);
+  const currentMonthIndex = eligibleMonthKeys.indexOf(currentMonthKey);
+  const previousMonthKey = currentMonthIndex > 0 ? eligibleMonthKeys[currentMonthIndex - 1] : "";
+  const nextMonthKey = currentMonthIndex >= 0 && currentMonthIndex < eligibleMonthKeys.length - 1
+    ? eligibleMonthKeys[currentMonthIndex + 1]
+    : "";
   const isEditing = Boolean(editingAppointmentId && payload?.editingAppointment);
+
+  async function editExistingInFlow() {
+    if (!selectedExisting?.canEdit) return;
+    setSaving(true);
+    setError("");
+    setRequestCode("");
+    try {
+      const result = await authorizedFetch(
+        `/api/organizacao-em-harmonia/site-tucxa/agendamentos?edit=${encodeURIComponent(selectedExisting.id)}`,
+      );
+      const nextPayload = result as Payload;
+      setPayload(nextPayload);
+      setEditingAppointmentId(selectedExisting.id);
+      const eligibleMonths = eligibleMonthKeysForPayload(nextPayload);
+      const currentKey = selectedExisting.appointmentDate.slice(0, 7);
+      setMonth(monthDateFromKey(eligibleMonths.includes(currentKey) ? currentKey : (eligibleMonths[0] || currentKey)));
+      setSelectedExisting(null);
+      setActiveModal("calendar");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível iniciar a alteração.");
+      setRequestCode(String((err as { requestId?: string })?.requestId || ""));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C]">
@@ -459,13 +510,27 @@ export default function AgendarConsulentePage() {
           {isEditing && payload?.editingAppointment && (
             <p className="mb-2 shrink-0 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Alterando: {longDateLabel(payload.editingAppointment.appointmentDate)} · {payload.editingAppointment.appointmentTime}</p>
           )}
-          <div className="flex shrink-0 items-center justify-between gap-2">
-            <button type="button" disabled={!canGoPrevious} onClick={() => setMonth((current) => addMonths(current, -1))} className="min-h-11 rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-30">←</button>
+          <div className="grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-2">
+            <button
+              type="button"
+              disabled={!previousMonthKey}
+              onClick={() => previousMonthKey && setMonth(monthDateFromKey(previousMonthKey))}
+              className="min-h-11 rounded-xl bg-white px-3 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-30 sm:px-4 sm:text-sm"
+            >
+              ← Anterior
+            </button>
             <div className="min-w-0 text-center">
-              <p className="text-[0.65rem] font-black uppercase tracking-[0.18em] text-[#2F6B43]">Somente opções agendáveis</p>
+              <p className="text-[0.62rem] font-black uppercase tracking-[0.16em] text-[#2F6B43]">Somente opções agendáveis</p>
               <h2 className="truncate text-lg font-black text-[#123D2C] sm:text-2xl">{monthTitle(month)}</h2>
             </div>
-            <button type="button" onClick={() => setMonth((current) => addMonths(current, 1))} className="min-h-11 rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">→</button>
+            <button
+              type="button"
+              disabled={!nextMonthKey}
+              onClick={() => nextMonthKey && setMonth(monthDateFromKey(nextMonthKey))}
+              className="min-h-11 rounded-xl bg-white px-3 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-30 sm:px-4 sm:text-sm"
+            >
+              Próximo →
+            </button>
           </div>
 
           <div className="mt-3 grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 sm:gap-3">
@@ -491,10 +556,9 @@ export default function AgendarConsulentePage() {
               </section>
             ))}
             {!monthDates.length && (
-              <p className="col-span-2 self-start rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800 ring-1 ring-amber-100 sm:col-span-3">Não há períodos com vaga disponíveis neste mês.</p>
+              <p className="col-span-2 self-start rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800 ring-1 ring-amber-100 sm:col-span-3">No momento não há novos períodos disponíveis para agendamento.</p>
             )}
           </div>
-          <p className="mt-2 shrink-0 text-center text-[0.68rem] font-bold text-slate-500">Férias, recessos, datas passadas e dias sem atendimento já foram retirados.</p>
         </Modal>
       )}
 
@@ -550,7 +614,21 @@ export default function AgendarConsulentePage() {
             <Info label="Entidade">{selectedExisting.entityName}</Info>
             <Info label="Ordem">{selectedExisting.order ?? "A confirmar"}</Info>
           </div>
-          <Link href={APPOINTMENTS_PATH} className="mt-4 flex min-h-13 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Ver meus agendamentos</Link>
+          {selectedExisting.canEdit ? (
+            <button
+              type="button"
+              onClick={() => void editExistingInFlow()}
+              disabled={saving}
+              className="mt-4 min-h-13 w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white disabled:opacity-60"
+            >
+              {saving ? "Preparando alteração..." : "Editar este agendamento"}
+            </button>
+          ) : (
+            <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">
+              {selectedExisting.editBlockedReason || "Este agendamento não pode mais ser editado. Você ainda pode excluí-lo em Meus Agendamentos."}
+            </p>
+          )}
+          <Link href={APPOINTMENTS_PATH} className="mt-3 flex min-h-13 items-center justify-center rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Ver meus agendamentos</Link>
         </Modal>
       )}
 
@@ -570,14 +648,16 @@ export default function AgendarConsulentePage() {
 
             {!isEditing && (
               <>
-                <label className="grid gap-1">
-                  <span className="text-sm font-black text-[#123D2C]">E-mail para receber a confirmação</span>
-                  <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional" />
-                </label>
-                <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                  <input type="checkbox" checked={communicationsOptIn} onChange={(event) => setCommunicationsOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span className="text-sm font-semibold leading-5 text-[#123D2C]">Aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail. Esta opção é separada da confirmação deste agendamento e pode ser revogada.</span>
-                </label>
+                {payload.profile.email ? (
+                  <p className="rounded-2xl bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900 ring-1 ring-blue-100">
+                    A confirmação também será enviada para <strong>{payload.profile.email}</strong>.
+                  </p>
+                ) : (
+                  <label className="grid gap-1">
+                    <span className="text-sm font-black text-[#123D2C]">E-mail para receber a confirmação</span>
+                    <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional" />
+                  </label>
+                )}
                 <label className="grid gap-1">
                   <span className="text-sm font-black text-[#123D2C]">Observação para a recepção</span>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-2xl border border-[#123D2C]/15 p-4" placeholder="Opcional. Escreva apenas o necessário." />
@@ -592,7 +672,6 @@ export default function AgendarConsulentePage() {
               </div>
             )}
             <button type="submit" disabled={saving || selectedAvailability.available <= 0} className="min-h-14 rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Confirmando..." : isEditing ? "Confirmar alteração" : "Confirmar agendamento"}</button>
-            <p className="text-center text-xs font-semibold text-slate-500">A vaga e a ordem são validadas novamente no servidor no momento da confirmação.</p>
           </form>
         </Modal>
       )}
@@ -612,9 +691,8 @@ export default function AgendarConsulentePage() {
               <p className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-100">{confirmation.emailSent ? `As informações também foram enviadas para ${confirmation.email}.` : `O agendamento está confirmado, mas o envio para ${confirmation.email} não pôde ser concluído agora.`}</p>
             ) : !confirmation.changed ? (
               <section className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
-                <p>Você pode incluir um e-mail para receber esta confirmação e facilitar futuros contatos sobre seus agendamentos.</p>
+                <p>Você pode incluir um e-mail para receber esta confirmação.</p>
                 <label className="mt-3 grid gap-1"><span className="text-xs font-black uppercase tracking-[0.12em]">E-mail</span><input value={successEmail} onChange={(event) => setSuccessEmail(event.target.value)} type="email" className="rounded-2xl border border-amber-200 bg-white p-3" placeholder="seu@email.com" /></label>
-                <label className="mt-3 flex items-start gap-3"><input type="checkbox" checked={successOptIn} onChange={(event) => setSuccessOptIn(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" /><span className="text-xs font-semibold leading-5">Também aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail.</span></label>
                 <button type="button" disabled={saving || !successEmail.trim()} onClick={() => void saveSuccessEmail()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar e enviar confirmação"}</button>
                 {emailMessage && <p className="mt-2 text-xs font-black">{emailMessage}</p>}
               </section>

@@ -21,6 +21,8 @@ export default function CadastroConsulenteTucxaPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [privacyNoticeAccepted, setPrivacyNoticeAccepted] = useState(false);
+  const [communicationsOptIn, setCommunicationsOptIn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -48,13 +50,27 @@ export default function CadastroConsulenteTucxaPage() {
       setError("Crie uma senha com pelo menos 8 caracteres para os próximos acessos.");
       return;
     }
+    if (!privacyNoticeAccepted) {
+      setError("Leia o Aviso de Privacidade e confirme que está ciente do tratamento dos seus dados.");
+      return;
+    }
 
     setLoading(true);
     try {
       const response = await fetch("/api/organizacao-em-harmonia/site-tucxa/consulentes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "submit-cadastro", requestType: "cadastro-consulente", name, whatsapp, email, password }),
+        body: JSON.stringify({
+          action: "submit-cadastro",
+          requestType: "cadastro-consulente",
+          name,
+          whatsapp,
+          email,
+          password,
+          privacyNoticeAccepted,
+          privacyNoticeVersion: "2026-07-19",
+          communicationsOptIn,
+        }),
       });
       const result = (await response.json()) as ConsulenteResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar suas informações.");
@@ -134,6 +150,40 @@ export default function CadastroConsulenteTucxaPage() {
                 </button>
               </div>
             </label>
+
+            <section className="grid gap-3 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={privacyNoticeAccepted}
+                  onChange={(event) => setPrivacyNoticeAccepted(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span className="text-sm font-semibold leading-6 text-[#123D2C]">
+                  Li o{" "}
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/tucxa/consulente/privacidade"
+                    target="_blank"
+                    className="font-black underline underline-offset-4"
+                  >
+                    Aviso de Privacidade
+                  </Link>{" "}
+                  e estou ciente do tratamento dos meus dados para cadastro, acesso e agendamento no TUCXA. *
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 border-t border-[#123D2C]/10 pt-3">
+                <input
+                  type="checkbox"
+                  checked={communicationsOptIn}
+                  onChange={(event) => setCommunicationsOptIn(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span className="text-sm font-semibold leading-6 text-[#123D2C]">
+                  Aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail. Esta opção é facultativa e pode ser revogada.
+                </span>
+              </label>
+            </section>
 
             <div className="rounded-3xl bg-[#E9F2E7] p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
               <p className="font-black">Depois de enviar</p>
