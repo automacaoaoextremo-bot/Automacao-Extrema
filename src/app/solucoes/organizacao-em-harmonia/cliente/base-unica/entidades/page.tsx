@@ -46,6 +46,8 @@ type EntityForm = {
   active: boolean;
 };
 
+type GroupBy = "none" | "days" | "line" | "type" | "status" | "appointments";
+
 type Confirmation = {
   title: string;
   message: string;
@@ -79,6 +81,37 @@ const dayOptions = [
 ];
 
 const dayLabels = new Map(dayOptions.map((item) => [item.slug, item.label]));
+
+const groupOptions: Array<{ value: GroupBy; label: string }> = [
+  { value: "days", label: "Dias em que costuma atender" },
+  { value: "line", label: "Linha de trabalho" },
+  { value: "type", label: "Tipo da entidade" },
+  { value: "status", label: "Situação: Ativa/Inativa" },
+  { value: "appointments", label: "Agendamento: Permitido/Bloqueado" },
+  { value: "none", label: "Sem agrupamento" },
+];
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
+function normalizedEntityDays(entity: Entity) {
+  const knownDays = new Set(dayOptions.map((item) => item.slug));
+  const result = (entity.usual_days ?? [])
+    .map((day) => normalizeText(day).replace(/\s+/g, "-"))
+    .map((day) => {
+      if (day === "terça" || day === "terca-feira" || day === "terça-feira") return "terca";
+      if (day === "segunda-feira") return "segunda";
+      if (day === "quarta-feira") return "quarta";
+      if (day === "quinta" || day === "quinta-feira") return "quinta-grupo-1";
+      return day;
+    })
+    .filter((day) => knownDays.has(day));
+  return [...new Set(result)];
+}
 
 function slugFromName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -169,6 +202,8 @@ export default function EntidadesPage() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"alphabetical" | "status">("alphabetical");
+  const [groupBy, setGroupBy] = useState<GroupBy>("days");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [viewEntity, setViewEntity] = useState<Entity | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -225,6 +260,80 @@ export default function EntidadesPage() {
       return left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" });
     });
   }, [payload?.entities, query, sortOrder]);
+
+  const groupedEntities = useMemo(() => {
+    type Group = { key: string; label: string; entities: Entity[] };
+    if (groupBy === "none") {
+      return [{ key: "all", label: "Todas as entidades", entities: visibleEntities }];
+    }
+
+    const groups = new Map<string, Group>();
+    const add = (key: string, label: string, entity: Entity) => {
+      const current = groups.get(key) ?? { key, label, entities: [] };
+      if (!current.entities.some((item) => item.id === entity.id)) current.entities.push(entity);
+      groups.set(key, current);
+    };
+
+    visibleEntities.forEach((entity) => {
+      if (groupBy === "days") {
+        const days = normalizedEntityDays(entity);
+        if (!days.length) add("day-sem-dia", "Sem dia definido", entity);
+        days.forEach((day) => add(`day-${day}`, dayLabels.get(day) ?? day, entity));
+        return;
+      }
+      if (groupBy === "line") {
+        const label = entity.line?.trim() || "Sem linha informada";
+        add(`line-${normalizeText(label)}`, label, entity);
+        return;
+      }
+      if (groupBy === "type") {
+        const label = entity.entity_type?.trim() || "Sem tipo informado";
+        add(`type-${normalizeText(label)}`, label, entity);
+        return;
+      }
+      if (groupBy === "status") {
+        const active = entity.active !== false;
+        add(active ? "status-active" : "status-inactive", active ? "Ativas" : "Inativas", entity);
+        return;
+      }
+      const enabled = entity.appointment_enabled !== false;
+      add(enabled ? "appointment-enabled" : "appointment-disabled", enabled ? "Agendamento permitido" : "Agendamento bloqueado", entity);
+    });
+
+    const dayOrder = new Map([
+      ["day-segunda", 10],
+      ["day-terca", 20],
+      ["day-quarta", 30],
+      ["day-quinta-grupo-1", 40],
+      ["day-quinta-grupo-2", 50],
+      ["day-eventual", 60],
+      ["day-sem-dia", 70],
+    ]);
+
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        entities: [...group.entities].sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" })),
+      }))
+      .sort((left, right) => {
+        if (groupBy === "days") return (dayOrder.get(left.key) ?? 999) - (dayOrder.get(right.key) ?? 999);
+        return left.label.localeCompare(right.label, "pt-BR", { sensitivity: "base" });
+      });
+  }, [groupBy, visibleEntities]);
+
+  function changeGroupBy(value: GroupBy) {
+    setGroupBy(value);
+    setCollapsedGroups(new Set());
+  }
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function update<K extends keyof EntityForm>(key: K, value: EntityForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -360,7 +469,7 @@ export default function EntidadesPage() {
               </div>
               <AdminActionButton onClick={openNewEntity} tone="primary" className="w-full sm:w-auto">Nova entidade</AdminActionButton>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_16rem]">
+            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_15rem_18rem]">
               <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="Buscar por nome, linha, tipo ou código" />
               <label className="grid gap-1">
                 <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Ordenar por</span>
@@ -369,27 +478,61 @@ export default function EntidadesPage() {
                   <option value="status">Ativas primeiro</option>
                 </select>
               </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Agrupar por</span>
+                <select value={groupBy} onChange={(event) => changeGroupBy(event.target.value as GroupBy)} className="rounded-2xl border border-slate-200 bg-white p-3">
+                  {groupOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
             </div>
+            {groupBy === "days" && (
+              <p className="mt-3 rounded-2xl bg-blue-50 p-3 text-xs font-bold leading-5 text-blue-800 ring-1 ring-blue-100">
+                Uma entidade cadastrada em mais de um dia aparece em cada grupo correspondente. Os totais são calculados após a busca.
+              </p>
+            )}
           </section>
 
-          <section className="grid gap-3">
-            {visibleEntities.map((entity) => (
-              <CompactAdminRow
-                key={entity.id}
-                icon="✨"
-                title={entity.name}
-                subtitle={[entity.line, entity.entity_type].filter(Boolean).join(" · ") || entity.slug}
-                status={<AdminStatusBadge active={entity.active !== false}>{entity.active === false ? "Inativa" : "Ativa"}</AdminStatusBadge>}
-                actions={
-                  <>
-                    <AdminActionButton onClick={() => setViewEntity(entity)}>Visualizar</AdminActionButton>
-                    <AdminActionButton onClick={() => editEntity(entity)} tone="primary">Editar</AdminActionButton>
-                    <AdminActionButton onClick={() => askToggle(entity)} tone={entity.active === false ? "success" : "warning"}>{entity.active === false ? "Ativar" : "Inativar"}</AdminActionButton>
-                    <AdminActionButton onClick={() => askDelete(entity)} tone="danger">Excluir</AdminActionButton>
-                  </>
-                }
-              />
-            ))}
+          <section className="grid gap-4">
+            {groupedEntities.map((group) => {
+              const collapsed = collapsedGroups.has(group.key);
+              return (
+                <section key={group.key} className="overflow-hidden rounded-[1.65rem] bg-white shadow ring-1 ring-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.key)}
+                    className="flex min-h-14 w-full items-center justify-between gap-3 bg-emerald-50 px-4 py-3 text-left text-[#00334E] transition hover:bg-emerald-100 sm:px-5"
+                    aria-expanded={!collapsed}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-base font-black">{group.label}</span>
+                      <span className="mt-0.5 block text-xs font-bold text-[#2F6B43]">{group.entities.length} {group.entities.length === 1 ? "entidade" : "entidades"}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-white px-3 py-1 text-sm font-black ring-1 ring-emerald-200">{collapsed ? "Abrir" : "Recolher"}</span>
+                  </button>
+                  {!collapsed && (
+                    <div className="grid gap-3 p-3 sm:p-4">
+                      {group.entities.map((entity) => (
+                        <CompactAdminRow
+                          key={`${group.key}-${entity.id}`}
+                          icon="✨"
+                          title={entity.name}
+                          subtitle={[entity.line, entity.entity_type].filter(Boolean).join(" · ") || entity.slug}
+                          status={<AdminStatusBadge active={entity.active !== false}>{entity.active === false ? "Inativa" : "Ativa"}</AdminStatusBadge>}
+                          actions={
+                            <>
+                              <AdminActionButton onClick={() => setViewEntity(entity)}>Visualizar</AdminActionButton>
+                              <AdminActionButton onClick={() => editEntity(entity)} tone="primary">Editar</AdminActionButton>
+                              <AdminActionButton onClick={() => askToggle(entity)} tone={entity.active === false ? "success" : "warning"}>{entity.active === false ? "Ativar" : "Inativar"}</AdminActionButton>
+                              <AdminActionButton onClick={() => askDelete(entity)} tone="danger">Excluir</AdminActionButton>
+                            </>
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
             {visibleEntities.length === 0 && <p className="rounded-3xl bg-white p-5 font-bold text-slate-500 shadow ring-1 ring-slate-100">Nenhuma entidade encontrada.</p>}
           </section>
         </div>
