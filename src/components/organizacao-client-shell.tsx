@@ -71,6 +71,7 @@ const sidebarGroups: NavGroup[] = [
       { label: "Eventos", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/eventos", description: "Cadastro, edição, localidade, público e recorrência." },
       { label: "Aprovações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/aprovacoes", description: "Validação pela organização antes de publicar." },
       { label: "Calendário", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/calendario", description: "Filtros por período, evento, pessoa e público." },
+      { label: "Presenças", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/presencas", description: "Confirmações, pendentes e check-in dos Filhos da Corrente." },
       { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/agenda-viva/configuracoes", description: "Regras de recorrência, ausências e quarta-feira." },
     ],
   },

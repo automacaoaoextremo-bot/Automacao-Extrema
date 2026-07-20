@@ -153,6 +153,10 @@ type FormState = {
   recurrenceFrequency: string;
   recurrenceWeekday: string;
   allowedMonthOccurrences: number[];
+  thursdayGroupScope: string[];
+  attendanceConfirmationRequired: boolean;
+  allowOptionalEntityAppointment: boolean;
+  overrideRegularGroupSchedule: boolean;
   locationId: string;
   location: string;
   audience: string;
@@ -281,6 +285,10 @@ const emptyForm: FormState = {
   recurrenceFrequency: "semanal",
   recurrenceWeekday: "",
   allowedMonthOccurrences: [...ALL_MONTH_OCCURRENCES],
+  thursdayGroupScope: [],
+  attendanceConfirmationRequired: false,
+  allowOptionalEntityAppointment: false,
+  overrideRegularGroupSchedule: false,
   locationId: "",
   location: "",
   audience: "filhos-corrente",
@@ -486,6 +494,14 @@ function metadataText(event: AgendaEvent, key: string) {
 function metadataBoolean(event: AgendaEvent, key: string) {
   const value = event.metadata?.[key];
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function metadataStringArray(event: AgendaEvent, keys: string[]) {
+  for (const key of keys) {
+    const value = event.metadata?.[key];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  }
+  return [];
 }
 
 function metadataAnyText(event: AgendaEvent, keys: string[]) {
@@ -1089,6 +1105,23 @@ function AgendaEventForm({
               );
             })}
           </div>
+        </fieldset>
+        <fieldset className="grid gap-3 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100 md:col-span-2">
+          <div>
+            <legend className="text-sm font-black text-[#00334E]">Regras para os grupos de quinta-feira</legend>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">Use para encontros regulares ou eventos especiais destinados a todos os Filhos da Corrente.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[{ value: "grupo-1", label: "Grupo 1" }, { value: "grupo-2", label: "Grupo 2" }].map((item) => (
+              <label key={item.value} className="flex min-h-12 items-center gap-3 rounded-2xl bg-white px-3 font-black text-[#00334E] ring-1 ring-emerald-200">
+                <input type="checkbox" checked={form.thursdayGroupScope.includes(item.value)} onChange={(event) => update("thursdayGroupScope", event.target.checked ? [...form.thursdayGroupScope, item.value] : form.thursdayGroupScope.filter((value) => value !== item.value))} className="h-5 w-5" />
+                {item.label}
+              </label>
+            ))}
+          </div>
+          <label className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-emerald-200"><input type="checkbox" checked={form.attendanceConfirmationRequired} onChange={(event) => update("attendanceConfirmationRequired", event.target.checked)} className="mt-0.5 h-5 w-5" /><span><strong className="block text-sm text-[#00334E]">Exigir confirmação de presença</strong><span className="text-xs font-semibold text-slate-600">Substitui o nome no caderno e permite controle de pendentes e check-in.</span></span></label>
+          <label className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-emerald-200"><input type="checkbox" checked={form.allowOptionalEntityAppointment} onChange={(event) => update("allowOptionalEntityAppointment", event.target.checked)} className="mt-0.5 h-5 w-5" /><span><strong className="block text-sm text-[#00334E]">Permitir atendimento opcional com entidade</strong><span className="text-xs font-semibold text-slate-600">A presença pode ser confirmada sem obrigar o agendamento com uma entidade.</span></span></label>
+          <label className="flex items-start gap-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200"><input type="checkbox" checked={form.overrideRegularGroupSchedule} onChange={(event) => update("overrideRegularGroupSchedule", event.target.checked)} className="mt-0.5 h-5 w-5" /><span><strong className="block text-sm text-amber-900">Evento especial fora da escala regular</strong><span className="text-xs font-semibold text-amber-800">Permite exibir, por exemplo, uma 5ª quinta para os dois grupos.</span></span></label>
         </fieldset>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Grupo / categoria</span>
@@ -1785,6 +1818,10 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       recurrenceFrequency: metadataText(event, "recurrenceFrequency") || recurrenceFrequencyFromRule(event.recurrence_rule),
       recurrenceWeekday: metadataText(event, "recurrenceWeekday") || recurrenceWeekdayFromRule(event.recurrence_rule),
       allowedMonthOccurrences: allowedMonthOccurrencesFromMetadata(event.metadata),
+      thursdayGroupScope: metadataStringArray(event, ["thursdayGroupScope", "thursday_group_scope"]),
+      attendanceConfirmationRequired: metadataBoolean(event, "attendanceConfirmationRequired") || metadataBoolean(event, "attendance_confirmation_required"),
+      allowOptionalEntityAppointment: metadataBoolean(event, "allowOptionalEntityAppointment") || metadataBoolean(event, "allow_optional_entity_appointment"),
+      overrideRegularGroupSchedule: metadataBoolean(event, "overrideRegularGroupSchedule") || metadataBoolean(event, "override_regular_group_schedule"),
       locationId: event.location_id || metadataText(event, "location_id"),
       location: event.location ?? "",
       audience: eventAudience(event),

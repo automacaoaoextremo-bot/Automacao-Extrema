@@ -367,6 +367,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
   const recurrenceWeekday = asText(body.recurrenceWeekday ?? body.weekday ?? body.diaSemana);
   const allowedMonthOccurrences = normalizeAllowedMonthOccurrences(body.allowedMonthOccurrences ?? body.allowed_month_occurrences);
+  const thursdayGroupScope = asTextList(body.thursdayGroupScope ?? body.thursday_group_scope).filter((item) => ["grupo-1", "grupo-2"].includes(item));
+  const attendanceConfirmationRequired = asBool(body.attendanceConfirmationRequired ?? body.attendance_confirmation_required, false);
+  const allowOptionalEntityAppointment = asBool(body.allowOptionalEntityAppointment ?? body.allow_optional_entity_appointment, false);
+  const overrideRegularGroupSchedule = asBool(body.overrideRegularGroupSchedule ?? body.override_regular_group_schedule, false);
   const recurrenceRule = buildRecurrenceRule({ isRecurring, frequency: recurrenceFrequency, weekday: recurrenceWeekday, startsAt });
   const locationId = asText(body.locationId ?? body.location_id);
   const locationName = asText(body.locationName ?? body.location_name);
@@ -451,6 +455,16 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       recurrenceWeekday: isRecurring ? recurrenceWeekday || null : null,
       allowedMonthOccurrences: isRecurring ? allowedMonthOccurrences : null,
       allowed_month_occurrences: isRecurring ? allowedMonthOccurrences : null,
+      thursdayGroupScope,
+      thursday_group_scope: thursdayGroupScope,
+      allThursdayGroups: thursdayGroupScope.includes("grupo-1") && thursdayGroupScope.includes("grupo-2"),
+      all_thursday_groups: thursdayGroupScope.includes("grupo-1") && thursdayGroupScope.includes("grupo-2"),
+      attendanceConfirmationRequired,
+      attendance_confirmation_required: attendanceConfirmationRequired,
+      allowOptionalEntityAppointment,
+      allow_optional_entity_appointment: allowOptionalEntityAppointment,
+      overrideRegularGroupSchedule,
+      override_regular_group_schedule: overrideRegularGroupSchedule,
       recurrenceLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
       periodicityLabel: isRecurring ? recurrenceLabel(recurrenceFrequency) : "Evento pontual",
     },

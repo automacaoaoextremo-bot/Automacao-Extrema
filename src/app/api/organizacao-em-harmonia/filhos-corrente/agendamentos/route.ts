@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isMonthOccurrenceAllowed, monthOccurrenceIndex } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
+import {
+  eventAllowsOptionalEntityAppointment,
+  eventAllowsPersonGroups,
+  eventAllowsThursdayOccurrence,
+  eventOverridesRegularThursdaySchedule,
+  eventRequiresAttendanceConfirmation,
+  eventTargetsAllThursdayGroups,
+  eventThursdayGroups,
+  isWednesdayTreatmentEvent,
+  normalizeBrazilPhone,
+  whatsappShareUrl,
+} from "@/lib/organizacao-em-harmonia/tucxa-scheduling";
 
 export const dynamic = "force-dynamic";
 
@@ -53,9 +66,13 @@ type Period = {
   startTime: string;
   endTime: string;
   label: string;
-  weekday: "segunda" | "terca" | "quinta";
+  weekday: "segunda" | "terca" | "quarta" | "quinta";
   audience: "self" | "reception";
   group: "grupo-1" | "grupo-2" | null;
+  eventTitle: string;
+  eventKind: "regular-thursday" | "special-all-groups" | "reception-regular" | "reception-wednesday";
+  attendanceRequired: boolean;
+  allowEntityAppointment: boolean;
 };
 
 type AppointmentRow = {
@@ -67,6 +84,26 @@ type AppointmentRow = {
   appointment_time: string | null;
   status: string;
   metadata: Record<string, unknown> | null;
+};
+
+
+type AttendanceRow = {
+  id: string;
+  event_id: string;
+  occurrence_date: string;
+  person_id: string;
+  status: "confirmed" | "cannot_attend";
+  responded_at: string | null;
+  checked_in_at: string | null;
+};
+
+type ReceptionAccountAccess = {
+  login: string;
+  authEmail: string;
+  temporaryPassword: string;
+  loginUrl: string;
+  whatsappUrl: string;
+  emailSent: boolean;
 };
 
 type ReservationResult = {
@@ -95,9 +132,7 @@ function normalize(value: unknown) {
 }
 
 function normalizePhone(value: unknown) {
-  const digits = asText(value).replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length >= 12) return digits.slice(2);
-  return digits;
+  return normalizeBrazilPhone(value);
 }
 
 function normalizeEmail(value: unknown) {
@@ -256,12 +291,6 @@ function eventMatchesDate(event: AgendaEvent, appointmentDate: string) {
   return isMonthOccurrenceAllowed(event.metadata, appointmentDate);
 }
 
-function eventGroup(event: AgendaEvent): "grupo-1" | "grupo-2" | null {
-  const search = eventText(event);
-  if (search.includes("grupo-1") || search.includes("grupo 1") || search.includes("grupo-i")) return "grupo-1";
-  if (search.includes("grupo-2") || search.includes("grupo 2") || search.includes("grupo-ii")) return "grupo-2";
-  return null;
-}
 
 function isReceptionSchedule(event: AgendaEvent) {
   if (!isActiveEvent(event)) return false;
@@ -273,10 +302,15 @@ function isReceptionSchedule(event: AgendaEvent) {
     || (search.includes("filhos de fora") && (search.includes("segunda") || search.includes("terca")));
 }
 
+function isWednesdaySchedule(event: AgendaEvent) {
+  if (!isActiveEvent(event)) return false;
+  const recurrence = asText(event.recurrence_rule).toUpperCase();
+  return recurrence.includes("BYDAY=WE") || isWednesdayTreatmentEvent(event);
+}
+
 function isThursdaySchedule(event: AgendaEvent, groups: CurrentFilho["groups"]) {
   if (!isActiveEvent(event)) return false;
-  const group = eventGroup(event);
-  return group !== null && groups.includes(group);
+  return eventAllowsPersonGroups(event, groups);
 }
 
 function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays = 420) {
@@ -284,23 +318,42 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
   const start = dateFromIso(today);
   const blockers = events.filter(eventIsBlocker);
   const receptionSchedules = context.canReception ? events.filter(isReceptionSchedule) : [];
+  const wednesdaySchedules = context.canReception ? events.filter(isWednesdaySchedule) : [];
   const ownSchedules = events.filter((event) => isThursdaySchedule(event, context.groups));
   const periods = new Map<string, Period>();
 
   for (let index = 0; index < horizonDays; index += 1) {
     const appointmentDate = toIsoDate(addDays(start, index));
     const weekday = weekdaySlug(appointmentDate);
-    if (!["segunda", "terca", "quinta"].includes(weekday)) continue;
+    if (!["segunda", "terca", "quarta", "quinta"].includes(weekday)) continue;
     if (blockers.some((event) => eventBlocksDate(event, appointmentDate))) continue;
 
-    const candidates = weekday === "quinta" ? ownSchedules : receptionSchedules;
+    const candidates = weekday === "quinta"
+      ? ownSchedules
+      : weekday === "quarta"
+        ? wednesdaySchedules
+        : receptionSchedules;
+
     candidates
       .filter((event) => eventMatchesDate(event, appointmentDate))
+      .filter((event) => {
+        if (weekday !== "quinta") return true;
+        if (eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)) return true;
+        return eventAllowsThursdayOccurrence(event, monthOccurrenceIndex(appointmentDate));
+      })
       .forEach((event) => {
-        const group = weekday === "quinta" ? eventGroup(event) : null;
+        const eventGroups = eventThursdayGroups(event);
+        const group = weekday === "quinta" && eventGroups.length === 1 ? eventGroups[0] : null;
         const startTime = localTime(event, "start") || timeFromTimestamp(event.starts_at, "18:00");
         const endTime = localTime(event, "end") || timeFromTimestamp(event.ends_at, "22:00");
         const audience = weekday === "quinta" ? "self" : "reception";
+        const eventKind: Period["eventKind"] = weekday === "quinta"
+          ? eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)
+            ? "special-all-groups"
+            : "regular-thursday"
+          : weekday === "quarta"
+            ? "reception-wednesday"
+            : "reception-regular";
         const key = `${audience}::${event.id}::${appointmentDate}::${startTime}`;
         periods.set(key, {
           id: key,
@@ -312,6 +365,10 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
           weekday: weekday as Period["weekday"],
           audience,
           group,
+          eventTitle: asText(event.title) || "Atendimento em Harmonia",
+          eventKind,
+          attendanceRequired: audience === "self" ? eventRequiresAttendanceConfirmation(event, true) : false,
+          allowEntityAppointment: audience === "self" ? eventAllowsOptionalEntityAppointment(event, true) : true,
         });
       });
   }
@@ -502,6 +559,18 @@ async function appointmentRows(organizationId: string, start: string, end: strin
   return (data ?? []) as AppointmentRow[];
 }
 
+async function attendanceRows(organizationId: string, personId: string, start: string, end: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_event_attendance_confirmations")
+    .select("id, event_id, occurrence_date, person_id, status, responded_at, checked_in_at")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .gte("occurrence_date", start)
+    .lte("occurrence_date", end);
+  if (error) throw error;
+  return (data ?? []) as AttendanceRow[];
+}
+
 function editEligibility(date: string, time: string, cutoffMinutes: number) {
   const match = time.match(/(\d{1,2}):(\d{2})/);
   const normalizedTime = match ? `${String(match[1]).padStart(2, "0")}:${match[2]}` : "23:59";
@@ -540,13 +609,15 @@ function existingAppointments(periods: Period[], entities: EntityRecord[], rows:
 async function bundle(context: CurrentFilho) {
   const today = todayInSaoPaulo();
   const horizon = toIsoDate(addDays(dateFromIso(today), 420));
-  const [eventRows, entityRows, appointments, settingRows] = await Promise.all([
+  const [eventRows, entityRows, appointments, settingRows, attendance] = await Promise.all([
     loadEvents(context.organizationId),
     loadEntities(context.organizationId),
     appointmentRows(context.organizationId, today, horizon),
     settings(context.organizationId),
+    attendanceRows(context.organizationId, context.personId, today, horizon),
   ]);
   const periods = buildPeriods(eventRows, context);
+  const periodIdsByAttendanceKey = new Map(periods.map((period) => [`${period.eventId}::${period.appointmentDate}`, period.id]));
   return {
     profile: {
       fullName: context.fullName,
@@ -560,6 +631,10 @@ async function bundle(context: CurrentFilho) {
     entities: entityRows,
     availability: buildAvailability(periods, entityRows, appointments),
     existingAppointments: existingAppointments(periods, entityRows, appointments, context.personId, settingRows.appointmentEditCutoffMinutes),
+    attendanceConfirmations: attendance.flatMap((item) => {
+      const periodId = periodIdsByAttendanceKey.get(`${item.event_id}::${item.occurrence_date}`);
+      return periodId ? [{ ...item, periodId }] : [];
+    }),
   };
 }
 
@@ -575,12 +650,74 @@ function reservationError(error: unknown) {
   return { status: 500, message: "Não foi possível confirmar o agendamento agora." };
 }
 
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
+}
+
+function consulenteLoginUrl() {
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/login`;
+}
+
+function syntheticEmailFromPhone(phone: string) {
+  return `tucxa-consulente-${phone}@organizacao-em-harmonia.local`;
+}
+
+function hasSmtpConfig() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+}
+
+async function sendReceptionAccessEmail(input: {
+  to: string;
+  fullName: string;
+  login: string;
+  temporaryPassword?: string;
+  appointment?: { date: string; period: string; entity: string };
+}) {
+  if (!input.to || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  const appointmentLines = input.appointment
+    ? ["", "Agendamento:", `Data: ${input.appointment.date}`, `Período: ${input.appointment.period}`, `Entidade: ${input.appointment.entity}`]
+    : [];
+  await transporter.sendMail({
+    from: `"${process.env.EMAIL_FROM_NAME || "Automação Extrema"}" <${process.env.EMAIL_FROM}>`,
+    to: input.to,
+    subject: "[TUCXA] Acesso ao Organização em Harmonia",
+    text: [
+      `Olá, ${input.fullName}.`,
+      "",
+      "Seu acesso como Consulente / Filho de Fora foi criado pela Recepção do TUCXA.",
+      `Link: ${consulenteLoginUrl()}`,
+      `Login: ${input.login}`,
+      ...(input.temporaryPassword ? [`Senha temporária: ${input.temporaryPassword}`, "", "Troque a senha após o primeiro acesso e não compartilhe estes dados."] : []),
+      ...appointmentLines,
+    ].join("\n"),
+  });
+  return true;
+}
+
 async function findPersonByPhone(organizationId: string, phone: string) {
   const normalized = normalizePhone(phone);
   if (normalized.length < 10) return null;
+
+  const { data: direct, error: directError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .eq("normalized_whatsapp", normalized)
+    .limit(1)
+    .maybeSingle();
+  if (directError && !String(directError.message || "").includes("normalized_whatsapp")) throw directError;
+  if (direct?.id) return direct;
+
   const { data, error } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, whatsapp, email, notification_email, active")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id")
     .eq("organization_id", organizationId)
     .eq("active", true)
     .not("whatsapp", "is", null)
@@ -598,8 +735,112 @@ function maskPhone(value: unknown) {
 function maskEmail(value: unknown) {
   const email = normalizeEmail(value);
   const [local, domain] = email.split("@");
-  if (!local || !domain) return "Não informado";
+  if (!local || !domain || domain.endsWith(".local")) return "Não informado";
   return `${local.slice(0, 2)}${"*".repeat(Math.max(3, local.length - 2))}@${domain}`;
+}
+
+async function defaultConsulenteRoleId(organizationId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .in("slug", ["consulente", "filho-de-fora", "visitante", "membro"])
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id || null;
+}
+
+async function ensureReceptionConsulenteAccount(input: {
+  context: CurrentFilho;
+  person: { id: string; auth_user_id?: string | null };
+  fullName: string;
+  whatsapp: string;
+  email: string;
+  password: string;
+}) {
+  const authEmail = input.email || syntheticEmailFromPhone(input.whatsapp);
+  let authUserId = input.person.auth_user_id || "";
+  const metadata = {
+    full_name: input.fullName,
+    whatsapp: input.whatsapp,
+    organization_id: input.context.organizationId,
+    oh_profile: "consulente",
+    oh_access_status: "active",
+    must_change_password: true,
+    created_by_reception: input.context.personId,
+  };
+
+  if (authUserId) {
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+      email: authEmail,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (error) throw error;
+  } else {
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: authEmail,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (error) throw error;
+    authUserId = data.user.id;
+  }
+
+  const { error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .update({
+      auth_user_id: authUserId,
+      email: authEmail,
+      notification_email: input.email || null,
+      normalized_whatsapp: input.whatsapp,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.person.id)
+    .eq("organization_id", input.context.organizationId);
+  if (personError) throw personError;
+
+  const roleId = await defaultConsulenteRoleId(input.context.organizationId);
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id")
+    .eq("organization_id", input.context.organizationId)
+    .eq("person_id", input.person.id)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+
+  const membershipPayload = {
+    organization_id: input.context.organizationId,
+    person_id: input.person.id,
+    role_id: roleId,
+    module_slugs: ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"],
+    active: true,
+    status: "ativo",
+    is_main_contact: false,
+    can_receive_notifications: Boolean(input.email || input.whatsapp),
+    agenda_viva_profile: {
+      publico: "consulente-filho-de-fora",
+      canScheduleAttendance: true,
+      validationStatus: "ativo",
+      accessReleasedAt: new Date().toISOString(),
+      accessType: "consulente-filho-de-fora",
+      registrationSource: "recepcao",
+    },
+    updated_at: new Date().toISOString(),
+  };
+  const membershipWrite = membership?.id
+    ? supabaseAdmin.from("oh_memberships").update(membershipPayload).eq("id", membership.id)
+    : supabaseAdmin.from("oh_memberships").insert(membershipPayload);
+  const { error: membershipWriteError } = await membershipWrite;
+  if (membershipWriteError) throw membershipWriteError;
+
+  return { authEmail, authUserId };
 }
 
 async function createReceptionPerson(context: CurrentFilho, body: Record<string, unknown>) {
@@ -607,35 +848,73 @@ async function createReceptionPerson(context: CurrentFilho, body: Record<string,
   const fullName = asText(body.fullName);
   const whatsapp = normalizePhone(body.whatsapp);
   const email = normalizeEmail(body.email);
+  const password = asText(body.password);
   const privacyAccepted = body.privacyAccepted === true;
   if (!fullName) throw new Error("Informe o nome completo do Consulente.");
   if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");
   if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+  if (password.length < 8) throw new Error("Defina uma senha temporária com pelo menos 8 caracteres.");
   if (!privacyAccepted) throw new Error("Confirme a ciência do Aviso de Privacidade.");
 
   const existing = await findPersonByPhone(context.organizationId, whatsapp);
-  if (existing?.id) return existing;
+  if (existing?.id) {
+    return { person: existing, access: null as ReceptionAccountAccess | null };
+  }
 
   const now = new Date().toISOString();
+  const authEmail = email || syntheticEmailFromPhone(whatsapp);
   const { data, error } = await supabaseAdmin
     .from("oh_people")
     .insert({
       organization_id: context.organizationId,
       full_name: fullName,
       whatsapp,
-      email: email || null,
+      normalized_whatsapp: whatsapp,
+      email: authEmail,
       notification_email: email || null,
       active: true,
       privacy_notice_accepted_at: now,
-      privacy_notice_version: "2026-07",
+      privacy_notice_version: "2026-07-20",
       privacy_notice_source: "recepcao",
       registration_source: "recepcao",
       created_by_person_id: context.personId,
     })
-    .select("id, full_name, whatsapp, email, notification_email, active")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id")
     .single();
   if (error) throw error;
-  return data;
+
+  const account = await ensureReceptionConsulenteAccount({
+    context,
+    person: data,
+    fullName,
+    whatsapp,
+    email,
+    password,
+  });
+  const login = whatsapp;
+  const message = [
+    `Olá, ${fullName}.`,
+    "Seu cadastro como Consulente / Filho de Fora do TUCXA foi criado.",
+    `Acesso: ${consulenteLoginUrl()}`,
+    `Login: ${login}`,
+    `Senha temporária: ${password}`,
+    "Troque a senha após o primeiro acesso.",
+  ].join("\n");
+  const emailSent = email
+    ? await sendReceptionAccessEmail({ to: email, fullName, login, temporaryPassword: password }).catch(() => false)
+    : false;
+
+  return {
+    person: { ...data, auth_user_id: account.authUserId },
+    access: {
+      login,
+      authEmail: account.authEmail,
+      temporaryPassword: password,
+      loginUrl: consulenteLoginUrl(),
+      whatsappUrl: whatsappShareUrl(whatsapp, message),
+      emailSent,
+    } satisfies ReceptionAccountAccess,
+  };
 }
 
 async function reserveOnBehalf(
@@ -649,7 +928,7 @@ async function reserveOnBehalf(
   const idempotencyKey = asText(body.idempotencyKey) || crypto.randomUUID();
   const notes = asText(body.notes);
   const email = normalizeEmail(target.notification_email || target.email);
-  const rpcPayload = {
+  const basePayload = {
     p_organization_id: context.organizationId,
     p_person_id: target.id,
     p_entity_id: entity.id,
@@ -670,10 +949,21 @@ async function reserveOnBehalf(
       period_label: period.label,
       period_end_time: period.endTime,
       group: period.group,
+      event_kind: period.eventKind,
       scheduled_by_name: context.fullName,
     },
   };
-  const { data, error } = await supabaseAdmin.rpc("oh_reserve_appointment_on_behalf", rpcPayload);
+
+  const rpcName = channel === "recepcao" ? "oh_reserve_reception_appointment" : "oh_reserve_appointment_on_behalf";
+  const rpcPayload = channel === "recepcao"
+    ? {
+        ...basePayload,
+        p_recommended_by_entity_id: asText(body.recommendedByEntityId) || null,
+        p_age_at_appointment: Number(body.ageAtAppointment || 0) || null,
+        p_treatment_need: asText(body.treatmentNeed) || null,
+      }
+    : basePayload;
+  const { data, error } = await supabaseAdmin.rpc(rpcName, rpcPayload);
   if (error) throw error;
   return (Array.isArray(data) ? data[0] : data) as ReservationResult | null;
 }
@@ -715,16 +1005,47 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-consulente") {
-      const person = await createReceptionPerson(context, body);
+      const created = await createReceptionPerson(context, body);
       return NextResponse.json({
         ok: true,
         person: {
-          id: person.id,
-          fullName: person.full_name,
-          whatsapp: maskPhone(person.whatsapp),
-          email: maskEmail(person.notification_email || person.email),
+          id: created.person.id,
+          fullName: created.person.full_name,
+          whatsapp: maskPhone(created.person.whatsapp),
+          email: maskEmail(created.person.notification_email || created.person.email),
         },
+        access: created.access,
       });
+    }
+
+    if (action === "set-attendance") {
+      const periodId = asText(body.periodId);
+      const status = asText(body.status) as "confirmed" | "cannot_attend";
+      if (!periodId || !["confirmed", "cannot_attend"].includes(status)) {
+        return jsonError("Escolha uma resposta de presença válida.", 400, code);
+      }
+      const currentBundle = await bundle(context);
+      const period = currentBundle.periods.find((item) => item.id === periodId && item.audience === "self");
+      if (!period) return jsonError("Este encontro não está disponível para o seu grupo.", 403, code);
+      const now = new Date().toISOString();
+      const { data, error } = await supabaseAdmin
+        .from("oh_event_attendance_confirmations")
+        .upsert({
+          organization_id: context.organizationId,
+          event_id: period.eventId,
+          occurrence_date: period.appointmentDate,
+          person_id: context.personId,
+          group_slug: period.group,
+          status,
+          response_source: "painel_filho_corrente",
+          responded_at: now,
+          updated_at: now,
+          metadata: { event_title: period.eventTitle, event_kind: period.eventKind },
+        }, { onConflict: "organization_id,event_id,occurrence_date,person_id" })
+        .select("id, event_id, occurrence_date, person_id, status, responded_at, checked_in_at")
+        .single();
+      if (error) throw error;
+      return NextResponse.json({ ok: true, attendance: { ...data, periodId } });
     }
 
     if (action === "cancel-self") {
@@ -827,6 +1148,7 @@ export async function POST(request: Request) {
 
     if (action === "book-self") {
       if (period.audience !== "self") return jsonError("Escolha uma quinta-feira correspondente ao seu grupo.", 403, code);
+      if (!period.allowEntityAppointment) return jsonError("Este encontro aceita confirmação de presença, mas não possui agendamento com entidade.", 409, code);
       const reservation = await reserveOnBehalf(
         context,
         { id: context.personId, full_name: context.fullName, whatsapp: context.whatsapp, email: context.email },
@@ -851,7 +1173,7 @@ export async function POST(request: Request) {
 
     if (action === "book-reception") {
       if (!context.canReception || period.audience !== "reception") {
-        return jsonError("Somente a Recepção pode agendar Consulentes nas segundas e terças.", 403, code);
+        return jsonError("Somente a Recepção pode agendar Consulentes nas segundas, terças e quartas autorizadas.", 403, code);
       }
       const targetPersonId = asText(body.targetPersonId);
       if (!targetPersonId) return jsonError("Confirme ou cadastre o Consulente antes de continuar.", 400, code);
@@ -864,8 +1186,45 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (targetError) throw targetError;
       if (!target?.id) return jsonError("Cadastro do Consulente não localizado.", 404, code);
+
+      if (period.weekday === "quarta") {
+        const recommendedByEntityId = asText(body.recommendedByEntityId);
+        const ageAtAppointment = Number(body.ageAtAppointment || 0);
+        const treatmentNeed = asText(body.treatmentNeed);
+        if (!recommendedByEntityId) return jsonError("Informe qual entidade recomendou o atendimento de quarta-feira.", 400, code);
+        if (!Number.isInteger(ageAtAppointment) || ageAtAppointment < 0 || ageAtAppointment > 120) {
+          return jsonError("Informe uma idade válida.", 400, code);
+        }
+        if (treatmentNeed.length < 5) return jsonError("Descreva brevemente a necessidade do atendimento de quarta-feira.", 400, code);
+        const referringEntity = currentBundle.entities.find((item) => item.id === recommendedByEntityId && item.active === true);
+        if (!referringEntity) return jsonError("A entidade que recomendou não foi localizada.", 404, code);
+      }
+
       const reservation = await reserveOnBehalf(context, target, period, entity, body, "recepcao");
       if (!reservation?.appointment_id) throw new Error("Reserva sem identificador.");
+
+      const actualEmail = normalizeEmail(target.notification_email || target.email);
+      const login = normalizePhone(target.whatsapp);
+      const appointmentMessage = [
+        `Olá, ${asText(target.full_name) || "Consulente"}.`,
+        "Seu agendamento no TUCXA foi confirmado.",
+        `Data: ${reservation.confirmed_date}`,
+        `Período: ${period.label}`,
+        `Entidade: ${entity.name || "Entidade escolhida"}`,
+        `Ordem: ${reservation.confirmed_order}`,
+        `Acesso: ${consulenteLoginUrl()}`,
+        `Login: ${login || actualEmail}`,
+      ].join("\n");
+      const emailSent = actualEmail && !actualEmail.endsWith(".local")
+        ? await sendReceptionAccessEmail({
+            to: actualEmail,
+            fullName: asText(target.full_name) || "Consulente",
+            login: login || actualEmail,
+            temporaryPassword: asText(body.temporaryPassword) || undefined,
+            appointment: { date: reservation.confirmed_date, period: period.label, entity: entity.name || "Entidade escolhida" },
+          }).catch(() => false)
+        : false;
+
       return NextResponse.json({
         ok: true,
         appointment: {
@@ -876,6 +1235,13 @@ export async function POST(request: Request) {
           order: reservation.confirmed_order,
           status: reservation.confirmed_status,
           personName: target.full_name,
+          weekday: period.weekday,
+        },
+        delivery: {
+          emailSent,
+          whatsappUrl: whatsappShareUrl(target.whatsapp, appointmentMessage),
+          login: login || actualEmail,
+          loginUrl: consulenteLoginUrl(),
         },
       });
     }

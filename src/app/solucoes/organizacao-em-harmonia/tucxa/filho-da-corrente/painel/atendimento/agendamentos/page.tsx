@@ -5,7 +5,7 @@ import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/f
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Mode = "self" | "reception";
-type ModalKind = "calendar" | "entities" | "entityInfo" | "existing" | "confirmSelf" | "lookup" | "confirmReception" | "success" | null;
+type ModalKind = "calendar" | "attendance" | "entities" | "entityInfo" | "existing" | "confirmSelf" | "lookup" | "confirmReception" | "success" | null;
 
 type Profile = {
   fullName: string;
@@ -22,9 +22,13 @@ type Period = {
   startTime: string;
   endTime: string;
   label: string;
-  weekday: "segunda" | "terca" | "quinta";
+  weekday: "segunda" | "terca" | "quarta" | "quinta";
   audience: Mode;
   group: "grupo-1" | "grupo-2" | null;
+  eventTitle: string;
+  eventKind: "regular-thursday" | "special-all-groups" | "reception-regular" | "reception-wednesday";
+  attendanceRequired: boolean;
+  allowEntityAppointment: boolean;
 };
 
 type Entity = {
@@ -61,6 +65,14 @@ type ExistingAppointment = {
   editBlockedReason: string;
 };
 
+type AttendanceConfirmation = {
+  id: string;
+  periodId: string;
+  status: "confirmed" | "cannot_attend";
+  responded_at: string | null;
+  checked_in_at: string | null;
+};
+
 type Payload = {
   profile: Profile;
   settings: {
@@ -71,6 +83,7 @@ type Payload = {
   entities: Entity[];
   availability: Availability[];
   existingAppointments: ExistingAppointment[];
+  attendanceConfirmations: AttendanceConfirmation[];
 };
 
 type FoundPerson = {
@@ -87,6 +100,16 @@ type Confirmation = {
   order: number;
   personName?: string;
   changed?: boolean;
+  weekday?: string;
+};
+
+type AccessDelivery = {
+  login: string;
+  authEmail?: string;
+  temporaryPassword?: string;
+  loginUrl: string;
+  whatsappUrl: string;
+  emailSent: boolean;
 };
 
 const LOGIN_PATH = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
@@ -138,6 +161,7 @@ function availabilityKey(periodId: string, entityId: string) {
 function tone(period: Period) {
   if (period.weekday === "segunda") return "border-[#D9827B] bg-[#FCE3E0] text-[#5C211E]";
   if (period.weekday === "terca") return "border-[#6BAED6] bg-[#E4F1FB] text-[#17445B]";
+  if (period.weekday === "quarta") return "border-[#C69A45] bg-[#FFF4D6] text-[#654311]";
   return period.group === "grupo-1"
     ? "border-[#73A978] bg-[#E5F2DF] text-[#234D2C]"
     : "border-[#4D9BC3] bg-[#DDF0FA] text-[#17445B]";
@@ -169,7 +193,12 @@ export default function AgendamentosFilhoCorrentePage() {
   const [lookupWhatsapp, setLookupWhatsapp] = useState("");
   const [lookupDone, setLookupDone] = useState(false);
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
-  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", privacyAccepted: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "", confirmPassword: "", privacyAccepted: false });
+  const [createdAccess, setCreatedAccess] = useState<AccessDelivery | null>(null);
+  const [delivery, setDelivery] = useState<AccessDelivery | null>(null);
+  const [recommendedByEntityId, setRecommendedByEntityId] = useState("");
+  const [ageAtAppointment, setAgeAtAppointment] = useState("");
+  const [treatmentNeed, setTreatmentNeed] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
   const authorizedFetch = useCallback(async (init?: RequestInit) => {
@@ -239,6 +268,12 @@ export default function AgendamentosFilhoCorrentePage() {
     return map;
   }, [payload?.existingAppointments]);
 
+  const attendanceMap = useMemo(() => {
+    const map = new Map<string, AttendanceConfirmation>();
+    (payload?.attendanceConfirmations ?? []).forEach((item) => map.set(item.periodId, item));
+    return map;
+  }, [payload?.attendanceConfirmations]);
+
   const periodsForMode = useMemo(
     () => (payload?.periods ?? []).filter((period) => period.audience === mode),
     [mode, payload?.periods],
@@ -247,29 +282,36 @@ export default function AgendamentosFilhoCorrentePage() {
   const eligibleMonthKeys = useMemo(() => {
     const values = periodsForMode
       .filter((period) => {
-        if (mode === "self" && existingMap.has(period.id)) return true;
+        if (mode === "self") return true;
         return (payload?.entities ?? []).some((entity) => (availabilityMap.get(availabilityKey(period.id, entity.id))?.available ?? 0) > 0);
       })
       .map((period) => period.appointmentDate.slice(0, 7));
     return [...new Set(values)].sort();
-  }, [availabilityMap, existingMap, mode, payload?.entities, periodsForMode]);
+  }, [availabilityMap, mode, payload?.entities, periodsForMode]);
 
   const currentMonthKey = monthKey(month);
-  const currentMonthIndex = eligibleMonthKeys.indexOf(currentMonthKey);
-  const previousMonth = currentMonthIndex > 0 ? eligibleMonthKeys[currentMonthIndex - 1] : "";
-  const nextMonth = currentMonthIndex >= 0 && currentMonthIndex < eligibleMonthKeys.length - 1 ? eligibleMonthKeys[currentMonthIndex + 1] : "";
+  const currentMonthIndex = Math.max(0, eligibleMonthKeys.indexOf(currentMonthKey));
+  const visibleMonthKeys = eligibleMonthKeys.slice(currentMonthIndex, currentMonthIndex + (mode === "self" ? 2 : 1));
+  const previousMonth = currentMonthIndex > 0 ? eligibleMonthKeys[Math.max(0, currentMonthIndex - (mode === "self" ? 2 : 1))] : "";
+  const nextMonth = currentMonthIndex + visibleMonthKeys.length < eligibleMonthKeys.length
+    ? eligibleMonthKeys[currentMonthIndex + visibleMonthKeys.length]
+    : "";
 
-  const monthDates = useMemo(() => {
+  const visibleMonthSections = useMemo(() => visibleMonthKeys.map((key) => {
     const grouped = new Map<string, Period[]>();
     periodsForMode
-      .filter((period) => period.appointmentDate.startsWith(currentMonthKey))
+      .filter((period) => period.appointmentDate.startsWith(key))
       .filter((period) => {
-        if (mode === "self" && existingMap.has(period.id)) return true;
+        if (mode === "self") return true;
         return (payload?.entities ?? []).some((entity) => (availabilityMap.get(availabilityKey(period.id, entity.id))?.available ?? 0) > 0);
       })
       .forEach((period) => grouped.set(period.appointmentDate, [...(grouped.get(period.appointmentDate) ?? []), period]));
-    return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [availabilityMap, currentMonthKey, existingMap, mode, payload?.entities, periodsForMode]);
+    return {
+      key,
+      title: monthTitle(monthDateFromKey(key)),
+      dates: [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    };
+  }), [availabilityMap, mode, payload?.entities, periodsForMode, visibleMonthKeys]);
 
   const selectedPeriod = periodsForMode.find((period) => period.id === selectedPeriodId) ?? null;
   const selectedEntity = (payload?.entities ?? []).find((entity) => entity.id === selectedEntityId) ?? null;
@@ -302,6 +344,10 @@ export default function AgendamentosFilhoCorrentePage() {
     }
     setSelectedPeriodId(period.id);
     setSelectedEntityId("");
+    if (mode === "self" && !editingAppointmentId) {
+      setModal("attendance");
+      return;
+    }
     setModal("entities");
   }
 
@@ -315,7 +361,12 @@ export default function AgendamentosFilhoCorrentePage() {
       setLookupDone(false);
       setFoundPerson(null);
       setLookupWhatsapp("");
-      setNewPerson({ fullName: "", email: "", privacyAccepted: false });
+      setCreatedAccess(null);
+      setDelivery(null);
+      setRecommendedByEntityId("");
+      setAgeAtAppointment("");
+      setTreatmentNeed("");
+      setNewPerson({ fullName: "", email: "", password: "", confirmPassword: "", privacyAccepted: false });
       setModal("lookup");
     }
   }
@@ -340,6 +391,21 @@ export default function AgendamentosFilhoCorrentePage() {
       throw err;
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function setAttendance(status: "confirmed" | "cannot_attend") {
+    if (!selectedPeriod) return;
+    try {
+      await post({ action: "set-attendance", periodId: selectedPeriod.id, status });
+      await load();
+      if (status === "confirmed" && selectedPeriod.allowEntityAppointment) {
+        setModal("entities");
+      } else {
+        setModal("calendar");
+      }
+    } catch {
+      // Mensagem exibida no modal.
     }
   }
 
@@ -379,15 +445,21 @@ export default function AgendamentosFilhoCorrentePage() {
 
   async function createConsulente(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (newPerson.password !== newPerson.confirmPassword) {
+      setError("As senhas temporárias não conferem.");
+      return;
+    }
     try {
       const result = await post({
         action: "create-consulente",
         whatsapp: lookupWhatsapp,
         fullName: newPerson.fullName,
         email: newPerson.email,
+        password: newPerson.password,
         privacyAccepted: newPerson.privacyAccepted,
       });
       setFoundPerson(result.person as FoundPerson);
+      setCreatedAccess((result.access || null) as AccessDelivery | null);
       setModal("confirmReception");
     } catch {
       // Mensagem exibida no modal.
@@ -404,8 +476,13 @@ export default function AgendamentosFilhoCorrentePage() {
         targetPersonId: foundPerson.id,
         notes,
         idempotencyKey,
+        temporaryPassword: createdAccess?.temporaryPassword || undefined,
+        recommendedByEntityId: selectedPeriod.weekday === "quarta" ? recommendedByEntityId : undefined,
+        ageAtAppointment: selectedPeriod.weekday === "quarta" ? Number(ageAtAppointment) : undefined,
+        treatmentNeed: selectedPeriod.weekday === "quarta" ? treatmentNeed : undefined,
       });
       setConfirmation(result.appointment as Confirmation);
+      setDelivery((result.delivery || createdAccess || null) as AccessDelivery | null);
       setModal("success");
       await load();
     } catch {
@@ -490,29 +567,74 @@ export default function AgendamentosFilhoCorrentePage() {
             <button type="button" disabled={!previousMonth} onClick={() => previousMonth && setMonth(monthDateFromKey(previousMonth))} className="min-h-11 rounded-xl bg-white px-2 text-xs font-black ring-1 ring-[#123D2C]/15 disabled:opacity-30">← Anterior</button>
             <div className="min-w-0 text-center">
               <p className="text-[0.6rem] font-black uppercase tracking-[0.15em] text-[#2F6B43]">Somente opções permitidas</p>
-              <h2 className="truncate text-lg font-black text-[#123D2C] sm:text-2xl">{monthTitle(month)}</h2>
+              <h2 className="text-sm font-black text-[#123D2C] sm:text-lg">{mode === "self" ? "Dois meses por vez" : visibleMonthSections[0]?.title || "Próximos períodos"}</h2>
             </div>
             <button type="button" disabled={!nextMonth} onClick={() => nextMonth && setMonth(monthDateFromKey(nextMonth))} className="min-h-11 rounded-xl bg-white px-2 text-xs font-black ring-1 ring-[#123D2C]/15 disabled:opacity-30">Próximo →</button>
           </div>
-          <div className="mt-3 grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
-            {monthDates.map(([date, periods]) => (
-              <section key={date} className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black capitalize text-[#123D2C]">{compactDate(date)}</p>
-                <div className="mt-1.5 grid gap-1.5">
-                  {periods.map((period) => {
-                    const existing = mode === "self" ? existingMap.get(period.id) : undefined;
-                    return (
-                      <button key={period.id} type="button" onClick={() => openPeriod(period)} className={`min-h-12 rounded-xl border px-2 py-2 text-left text-xs font-black leading-4 ${existing ? "border-emerald-300 bg-emerald-50 text-emerald-900" : tone(period)}`}>
-                        <span className="block">{period.label}</span>
-                        <span className="mt-0.5 block text-[0.62rem] font-bold">{existing ? "✓ Você já está agendado" : period.group === "grupo-1" ? "Grupo 1" : period.group === "grupo-2" ? "Grupo 2" : period.weekday === "segunda" ? "Segunda-feira" : "Terça-feira"}</span>
-                      </button>
-                    );
-                  })}
+          <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {visibleMonthSections.map((section) => (
+              <section key={section.key} className="rounded-2xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                <h3 className="px-1 pb-2 text-center text-base font-black text-[#123D2C]">{section.title}</h3>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {section.dates.map(([date, periods]) => (
+                    <div key={date} className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                      <p className="text-xs font-black capitalize text-[#123D2C]">{compactDate(date)}</p>
+                      <div className="mt-1.5 grid gap-1.5">
+                        {periods.map((period) => {
+                          const existing = mode === "self" ? existingMap.get(period.id) : undefined;
+                          const attendance = attendanceMap.get(period.id);
+                          const subtitle = existing
+                            ? "✓ Você já está agendado"
+                            : mode === "self" && attendance?.status === "confirmed"
+                              ? "✓ Presença confirmada"
+                              : mode === "self" && attendance?.status === "cannot_attend"
+                                ? "Não poderei comparecer"
+                                : period.eventKind === "special-all-groups"
+                                  ? "Todos os grupos"
+                                  : period.group === "grupo-1"
+                                    ? "Grupo 1"
+                                    : period.group === "grupo-2"
+                                      ? "Grupo 2"
+                                      : period.weekday === "quarta"
+                                        ? "Quarta-feira · Recepção"
+                                        : period.weekday === "segunda"
+                                          ? "Segunda-feira"
+                                          : "Terça-feira";
+                          return (
+                            <button key={period.id} type="button" onClick={() => openPeriod(period)} className={`min-h-12 rounded-xl border px-2 py-2 text-left text-xs font-black leading-4 ${existing || attendance?.status === "confirmed" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : attendance?.status === "cannot_attend" ? "border-slate-300 bg-slate-100 text-slate-600" : tone(period)}`}>
+                              {period.eventKind === "special-all-groups" && <span className="mb-0.5 block truncate text-[0.58rem] uppercase tracking-wide">Evento especial</span>}
+                              <span className="block">{period.label}</span>
+                              <span className="mt-0.5 block text-[0.62rem] font-bold">{subtitle}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </section>
             ))}
-            {!monthDates.length && <p className="col-span-2 rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900 sm:col-span-3">Não há períodos disponíveis neste mês.</p>}
+            {!visibleMonthSections.length && <p className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Não há períodos disponíveis.</p>}
           </div>
+        </Modal>
+      )}
+
+      {modal === "attendance" && selectedPeriod && (
+        <Modal title="Confirmar presença" onClose={() => setModal("calendar")}>
+          <div className={`rounded-xl border px-3 py-2 ${tone(selectedPeriod)}`}>
+            <p className="text-sm font-black">{selectedPeriod.eventTitle}</p>
+            <p className="mt-1 text-xs font-bold">{longDate(selectedPeriod.appointmentDate)} · {selectedPeriod.label}</p>
+            {selectedPeriod.eventKind === "special-all-groups" && <p className="mt-1 text-xs font-black">Evento para todos os Filhos da Corrente</p>}
+          </div>
+          <p className="mt-3 text-sm font-semibold text-slate-700">Confirme sua presença para substituir o registro no caderno da recepção.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button type="button" disabled={saving} onClick={() => void setAttendance("confirmed")} className="min-h-12 rounded-xl bg-[#123D2C] px-4 font-black text-white disabled:opacity-60">Confirmar presença</button>
+            <button type="button" disabled={saving} onClick={() => void setAttendance("cannot_attend")} className="min-h-12 rounded-xl bg-slate-100 px-4 font-black text-slate-700 ring-1 ring-slate-200 disabled:opacity-60">Não poderei comparecer</button>
+          </div>
+          {selectedPeriod.allowEntityAppointment && (
+            <button type="button" onClick={() => setModal("entities")} className="mt-2 min-h-12 w-full rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/20">Quero atendimento com uma entidade</button>
+          )}
+          {error && <div className="mt-3"><ErrorBox message={error} requestId={requestId} /></div>}
         </Modal>
       )}
 
@@ -600,6 +722,11 @@ export default function AgendamentosFilhoCorrentePage() {
               <p className="text-sm font-black text-amber-900">Cadastro não encontrado. Preencha os dados mínimos.</p>
               <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Nome completo" required />
               <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 bg-white p-3" placeholder="E-mail opcional" />
+              <div className="grid grid-cols-2 gap-2">
+                <input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} type="password" minLength={8} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Senha temporária" required />
+                <input value={newPerson.confirmPassword} onChange={(event) => setNewPerson((current) => ({ ...current, confirmPassword: event.target.value }))} type="password" minLength={8} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Confirmar senha" required />
+              </div>
+              <p className="text-xs font-semibold text-amber-900">A senha será enviada com o link de acesso. Oriente a pessoa a trocá-la no primeiro acesso.</p>
               <label className="flex items-start gap-2 rounded-xl bg-white p-3 text-xs font-semibold leading-5 text-slate-700 ring-1 ring-amber-200">
                 <input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} className="mt-1 h-4 w-4" required />
                 <span>A pessoa está ciente do tratamento dos dados para cadastro e agendamento, conforme o <a href={PRIVACY_PATH} target="_blank" className="font-black underline">Aviso de Privacidade</a>.</span>
@@ -617,6 +744,14 @@ export default function AgendamentosFilhoCorrentePage() {
             <CompactPair leftLabel="Consulente" leftValue={foundPerson.fullName} rightLabel="WhatsApp" rightValue={foundPerson.whatsapp} />
             <CompactPair leftLabel="Data" leftValue={longDate(selectedPeriod.appointmentDate)} rightLabel="Período" rightValue={selectedPeriod.label} />
             <CompactPair leftLabel="Entidade" leftValue={selectedEntity.name || "Entidade"} rightLabel="Ordem prevista" rightValue={selectedAvailability.nextOrder} />
+            {selectedPeriod.weekday === "quarta" && (
+              <div className="grid gap-2 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-100">
+                <p className="text-sm font-black text-amber-900">Dados obrigatórios do atendimento de quarta-feira</p>
+                <label className="grid gap-1"><span className="text-xs font-black text-[#123D2C]">Entidade que recomendou/encaminhou</span><select value={recommendedByEntityId} onChange={(event) => setRecommendedByEntityId(event.target.value)} className="rounded-xl border border-amber-200 bg-white p-3" required><option value="">Escolha</option>{(payload?.entities ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                <label className="grid gap-1"><span className="text-xs font-black text-[#123D2C]">Idade da pessoa</span><input value={ageAtAppointment} onChange={(event) => setAgeAtAppointment(event.target.value)} type="number" min={0} max={120} className="rounded-xl border border-amber-200 bg-white p-3" required /></label>
+                <label className="grid gap-1"><span className="text-xs font-black text-[#123D2C]">Necessidade do atendimento</span><textarea value={treatmentNeed} onChange={(event) => setTreatmentNeed(event.target.value)} className="min-h-24 rounded-xl border border-amber-200 bg-white p-3" placeholder="Descreva apenas o necessário para organizar o atendimento." required /></label>
+              </div>
+            )}
             <label className="grid gap-1"><span className="text-sm font-black text-[#123D2C]">Observação opcional</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-xl border border-[#123D2C]/15 p-3" /></label>
           </div>
           {error && <div className="mt-3"><ErrorBox message={error} requestId={requestId} /></div>}
@@ -632,6 +767,10 @@ export default function AgendamentosFilhoCorrentePage() {
             <CompactPair leftLabel="Data" leftValue={longDate(confirmation.appointmentDate)} rightLabel="Período" rightValue={confirmation.appointmentTime} />
             <CompactPair leftLabel="Entidade" leftValue={confirmation.entityName} rightLabel="Ordem" rightValue={confirmation.order} />
           </div>
+          {delivery?.whatsappUrl && (
+            <a href={delivery.whatsappUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#25D366] px-4 text-center font-black text-[#073B1D]">Enviar acesso e agendamento pelo WhatsApp</a>
+          )}
+          {delivery?.emailSent && <p className="mt-2 rounded-xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">As informações também foram enviadas por e-mail.</p>}
           <button type="button" onClick={() => setModal(null)} className="mt-3 min-h-12 w-full rounded-xl bg-[#123D2C] px-4 font-black text-white">Fechar</button>
         </Modal>
       )}
