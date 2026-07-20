@@ -438,6 +438,19 @@ export default function AgendarConsulentePage() {
     : "";
   const isEditing = Boolean(editingAppointmentId && payload?.editingAppointment);
 
+  function cancelEditing() {
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    initializedEdit.current = false;
+    setEditingAppointmentId("");
+    setSelectedPeriodId("");
+    setSelectedEntityId("");
+    setSelectedExisting(null);
+    setActiveModal(null);
+    void load();
+  }
+
   async function editExistingInFlow() {
     if (!selectedExisting?.canEdit) return;
     setSaving(true);
@@ -506,9 +519,25 @@ export default function AgendarConsulentePage() {
       </section>
 
       {activeModal === "calendar" && (
-        <Modal title={isEditing ? "Escolha o novo período" : "Agendar atendimento"} onClose={() => setActiveModal(null)} fullScreenMobile bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5">
+        <Modal
+          title={isEditing ? "Escolha o novo período" : "Agendar atendimento"}
+          onClose={() => isEditing ? cancelEditing() : setActiveModal(null)}
+          fullScreenMobile
+          bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5"
+        >
           {isEditing && payload?.editingAppointment && (
-            <p className="mb-2 shrink-0 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Alterando: {longDateLabel(payload.editingAppointment.appointmentDate)} · {payload.editingAppointment.appointmentTime}</p>
+            <div className="mb-2 grid shrink-0 grid-cols-[1fr_auto] items-center gap-2">
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black leading-5 text-amber-900 ring-1 ring-amber-100">
+                Alterando: {longDateLabel(payload.editingAppointment.appointmentDate)} · {payload.editingAppointment.appointmentTime}
+              </p>
+              <button
+                type="button"
+                onClick={cancelEditing}
+                className="min-h-10 rounded-xl bg-white px-3 text-xs font-black text-red-700 ring-1 ring-red-200"
+              >
+                Cancelar edição
+              </button>
+            </div>
           )}
           <div className="grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-2">
             <button
@@ -564,23 +593,39 @@ export default function AgendarConsulentePage() {
 
       {activeModal === "entities" && selectedPeriod && (
         <Modal title="Escolha uma entidade" onClose={() => setActiveModal("calendar")}>
-          <div className={`rounded-2xl border p-3 ${periodTone(selectedPeriod)}`}>
-            <p className="text-xs font-black">{longDateLabel(selectedPeriod.appointmentDate)}</p>
-            <p className="mt-1 text-lg font-black">{selectedPeriod.label}</p>
+          <div className={`rounded-xl border px-3 py-2 ${periodTone(selectedPeriod)}`}>
+            <p className="text-xs font-black leading-5 sm:text-sm">
+              {longDateLabel(selectedPeriod.appointmentDate)} · <span className="whitespace-nowrap">{selectedPeriod.label}</span>
+            </p>
           </div>
-          <div className="mt-3 grid gap-2">
+          <div className="mt-2 grid gap-1.5">
             {entitiesForPeriod(selectedPeriod).map(({ entity, availability }) => {
               const hasVacancy = availability.available > 0;
               return (
-                <article key={`${selectedPeriod.id}-${entity.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-black text-[#123D2C]">{entity.name}</h3>
-                      <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[0.68rem] font-black ring-1 ${hasVacancy ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-red-50 text-red-700 ring-red-100"}`}>{hasVacancy ? "Vaga disponível" : "Sem vaga disponível"}</span>
+                <article key={`${selectedPeriod.id}-${entity.id}`} className="rounded-xl bg-[#F7FAF2] px-2.5 py-2 ring-1 ring-[#123D2C]/10">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                    <div className="min-w-0">
+                      <h3 className="break-words text-sm font-black leading-4 text-[#123D2C] sm:text-base sm:leading-5">{entity.name}</h3>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[0.62rem] font-black ring-1 ${hasVacancy ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-red-50 text-red-700 ring-red-100"}`}>
+                        {hasVacancy ? "Vaga disponível" : "Sem vaga disponível"}
+                      </span>
                     </div>
-                    <div className="grid shrink-0 grid-cols-2 gap-2">
-                      <button type="button" onClick={() => { setInfoEntity(entity); setActiveModal("entityInfo"); }} className="min-h-11 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">+ Infos</button>
-                      <button type="button" disabled={!hasVacancy} onClick={() => chooseEntity(entity, availability)} className="min-h-11 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">Escolher</button>
+                    <div className="grid shrink-0 grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => { setInfoEntity(entity); setActiveModal("entityInfo"); }}
+                        className="min-h-10 rounded-lg bg-white px-2.5 py-1.5 text-[0.7rem] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 sm:px-3 sm:text-xs"
+                      >
+                        + Infos
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!hasVacancy}
+                        onClick={() => chooseEntity(entity, availability)}
+                        className="min-h-10 rounded-lg bg-[#123D2C] px-2.5 py-1.5 text-[0.7rem] font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300 sm:px-3 sm:text-xs"
+                      >
+                        Escolher
+                      </button>
                     </div>
                   </div>
                 </article>
@@ -607,12 +652,20 @@ export default function AgendarConsulentePage() {
 
       {activeModal === "existing" && selectedExisting && (
         <Modal title="Você já está agendado" onClose={() => setActiveModal("calendar")}>
-          <p className="rounded-2xl bg-emerald-50 p-4 font-black text-emerald-900 ring-1 ring-emerald-100">Já consta um agendamento ativo para este dia e período.</p>
-          <div className="mt-3 grid gap-2 text-sm font-semibold leading-6 text-slate-700">
-            <Info label="Data">{longDateLabel(selectedExisting.appointmentDate)}</Info>
-            <Info label="Período">{selectedExisting.appointmentTime}</Info>
-            <Info label="Entidade">{selectedExisting.entityName}</Info>
-            <Info label="Ordem">{selectedExisting.order ?? "A confirmar"}</Info>
+          <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black leading-5 text-emerald-900 ring-1 ring-emerald-100">Já consta um agendamento ativo para este dia e período.</p>
+          <div className="mt-2 grid gap-2 text-sm font-semibold leading-5 text-slate-700">
+            <CompactPair
+              leftLabel="Data"
+              leftValue={longDateLabel(selectedExisting.appointmentDate)}
+              rightLabel="Período"
+              rightValue={selectedExisting.appointmentTime}
+            />
+            <CompactPair
+              leftLabel="Entidade"
+              leftValue={selectedExisting.entityName}
+              rightLabel="Ordem"
+              rightValue={selectedExisting.order ?? "A confirmar"}
+            />
           </div>
           {selectedExisting.canEdit ? (
             <button
@@ -708,6 +761,31 @@ export default function AgendarConsulentePage() {
   );
 }
 
+function CompactPair({
+  leftLabel,
+  leftValue,
+  rightLabel,
+  rightValue,
+}: {
+  leftLabel: string;
+  leftValue: ReactNode;
+  rightLabel: string;
+  rightValue: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+      <div className="min-w-0">
+        <p className="text-[0.62rem] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{leftLabel}</p>
+        <div className="mt-0.5 break-words font-bold">{leftValue}</div>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[0.62rem] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{rightLabel}</p>
+        <div className="mt-0.5 break-words font-bold">{rightValue}</div>
+      </div>
+    </div>
+  );
+}
+
 function Info({ label, children }: { label: string; children: ReactNode }) {
   return <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><p className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p><div className="mt-1">{children}</div></div>;
 }
@@ -717,7 +795,7 @@ function Modal({
   children,
   onClose,
   fullScreenMobile = false,
-  bodyClassName = "overflow-y-auto p-4 sm:p-5",
+  bodyClassName = "overflow-y-auto p-3 sm:p-4",
 }: {
   title: string;
   children: ReactNode;

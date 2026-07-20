@@ -240,15 +240,32 @@ export default function AgendamentosConsulentePage() {
 
       {selected && (
         <Modal title="Detalhes do agendamento" onClose={() => setSelected(null)}>
-          <div className="grid gap-3 text-sm font-semibold leading-6 text-slate-700">
-            <Detail label="Data">{longDateLabel(selected.appointmentDate)}</Detail>
-            <Detail label="Período/horário">{selected.appointmentTime}</Detail>
-            <Detail label="Entidade">{selected.entity.name}</Detail>
-            <Detail label="Linha/tipo">{selected.entity.line || selected.entity.entityType || "Não informado"}</Detail>
-            <Detail label="Ordem">{selected.order ?? "A confirmar"}</Detail>
-            <Detail label="Status"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ring-1 ${statusClasses(selected.status)}`}>{statusLabel(selected.status)}</span></Detail>
-            <Detail label="Orientações">{selected.entity.guidance || "Siga as orientações da recepção no dia do atendimento."}</Detail>
-            {selected.notes && <Detail label="Observação informada">{selected.notes}</Detail>}
+          <div className="grid gap-2 text-sm font-semibold leading-5 text-slate-700">
+            <CompactDetailRow
+              leftLabel="Data"
+              leftValue={longDateLabel(selected.appointmentDate)}
+              rightLabel="Período"
+              rightValue={selected.appointmentTime}
+            />
+            <CompactDetailRow
+              leftLabel="Entidade"
+              leftValue={selected.entity.name}
+              rightLabel="Ordem"
+              rightValue={selected.order ?? "A confirmar"}
+            />
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-[#F7FAF2] px-3 py-2 ring-1 ring-[#123D2C]/10">
+              <p className="text-[0.62rem] font-black uppercase tracking-[0.1em] text-[#2F6B43]">Status</p>
+              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ring-1 ${statusClasses(selected.status)}`}>{statusLabel(selected.status)}</span>
+            </div>
+            {(selected.entity.guidance || selected.notes) && (
+              <details className="rounded-xl bg-[#F7FAF2] px-3 py-2 ring-1 ring-[#123D2C]/10">
+                <summary className="cursor-pointer text-xs font-black text-[#123D2C]">Ver orientações</summary>
+                <div className="mt-2 grid gap-2 text-sm leading-5">
+                  <p>{selected.entity.guidance || "Siga as orientações da recepção no dia do atendimento."}</p>
+                  {selected.notes && <p><strong>Observação:</strong> {selected.notes}</p>}
+                </div>
+              </details>
+            )}
             {!selected.canEdit && selected.editBlockedReason && <Detail label="Edição">{selected.editBlockedReason}</Detail>}
             {selected.cancelledAt && <Detail label="Excluído em">{dateTimeLabel(selected.cancelledAt)}</Detail>}
           </div>
@@ -346,6 +363,31 @@ function AppointmentActions({
   );
 }
 
+function CompactDetailRow({
+  leftLabel,
+  leftValue,
+  rightLabel,
+  rightValue,
+}: {
+  leftLabel: string;
+  leftValue: ReactNode;
+  rightLabel: string;
+  rightValue: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+      <div className="min-w-0">
+        <p className="text-[0.62rem] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{leftLabel}</p>
+        <div className="mt-0.5 break-words font-bold">{leftValue}</div>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[0.62rem] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{rightLabel}</p>
+        <div className="mt-0.5 break-words font-bold">{rightValue}</div>
+      </div>
+    </div>
+  );
+}
+
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><p className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p><div className="mt-1">{children}</div></div>;
 }
@@ -366,7 +408,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
           <h2 className="min-w-0 truncate text-base font-black uppercase tracking-[0.13em] text-[#123D2C] sm:text-xl">{title}</h2>
           <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-2xl bg-[#123D2C] px-4 text-sm font-black text-white">Fechar</button>
         </header>
-        <div className="overflow-y-auto p-4 sm:p-5">{children}</div>
+        <div className="overflow-y-auto p-3 sm:p-4">{children}</div>
       </section>
     </div>
   );

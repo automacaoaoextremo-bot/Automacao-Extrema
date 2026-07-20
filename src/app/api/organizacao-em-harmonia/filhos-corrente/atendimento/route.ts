@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { monthOccurrenceIndex } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 type AuthContext = {
   organizationId: string;
   personId: string | null;
   fullName: string;
+  canReception: boolean;
+  groups: Array<"grupo-1" | "grupo-2">;
 };
 
 function asText(value: unknown) {
@@ -14,6 +17,39 @@ function asText(value: unknown) {
 function asNumber(value: unknown, fallback = 0) {
   const parsed = Number(asText(value) || value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function normalize(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/_/g, "-")
+    .trim();
+}
+
+function permissionsFromProfile(value: unknown) {
+  const profile = asRecord(value);
+  const functionValues = [
+    ...(Array.isArray(profile.functionSlugs) ? profile.functionSlugs : []),
+    ...(Array.isArray(profile.selectedFunctions) ? profile.selectedFunctions.map((item) => `${asText(asRecord(item).slug)} ${asText(asRecord(item).label)}`) : []),
+  ].map(normalize);
+  const agendaValues = [
+    normalize(profile.thursdayGroup),
+    ...(Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map(normalize) : []),
+    ...(Array.isArray(profile.selectedAgenda) ? profile.selectedAgenda.map((item) => normalize(`${asText(asRecord(item).slug)} ${asText(asRecord(item).label)}`)) : []),
+  ].join(" ");
+  const groups: Array<"grupo-1" | "grupo-2"> = [];
+  if (/grupo-?1|grupo i\b/.test(agendaValues)) groups.push("grupo-1");
+  if (/grupo-?2|grupo ii\b/.test(agendaValues)) groups.push("grupo-2");
+  return {
+    canReception: profile.supportsReception === true || functionValues.some((item) => item.includes("recepcao") || item.includes("recepcionista")),
+    groups,
+  };
 }
 
 function asBool(value: unknown, fallback = false) {
@@ -74,10 +110,35 @@ async function getAuthContext(request: Request): Promise<AuthContext> {
     .eq("auth_user_id", userData.user.id)
     .maybeSingle();
 
+  const { data: membership } = person?.id
+    ? await supabaseAdmin
+        .from("oh_memberships")
+        .select("role_id, agenda_viva_profile")
+        .eq("organization_id", organization.id)
+        .eq("person_id", person.id)
+        .eq("active", true)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const permissions = permissionsFromProfile(membership?.agenda_viva_profile);
+  let roleCanReception = false;
+  if (membership?.role_id) {
+    const { data: role } = await supabaseAdmin
+      .from("oh_roles")
+      .select("name, slug, active")
+      .eq("organization_id", organization.id)
+      .eq("id", membership.role_id)
+      .maybeSingle();
+    roleCanReception = role?.active === true && normalize(`${role.slug ?? ""} ${role.name ?? ""}`).includes("recepc");
+  }
+
   return {
     organizationId: organization.id,
     personId: person?.id ?? null,
     fullName: person?.full_name || userData.user.email || "Filho da Corrente",
+    canReception: permissions.canReception || roleCanReception,
+    groups: permissions.groups,
   };
 }
 
@@ -154,6 +215,19 @@ async function createAppointment(context: AuthContext, body: Record<string, unkn
 
   const settings = await loadSettings(context.organizationId);
   const weekday = weekdaySlug(appointmentDate);
+
+  if (["segunda", "terca"].includes(weekday) && !context.canReception) {
+    throw new Error("Somente quem possui a função ativa de Recepção pode agendar Consulentes nas segundas e terças.");
+  }
+
+  if (weekday === "quinta") {
+    if (!context.personId) throw new Error("Cadastro do Filho da Corrente não localizado.");
+    const occurrence = monthOccurrenceIndex(appointmentDate);
+    const allowed = (context.groups.includes("grupo-1") && [1, 3].includes(occurrence))
+      || (context.groups.includes("grupo-2") && [2, 4].includes(occurrence));
+    if (!allowed) throw new Error("Esta quinta-feira não corresponde ao seu grupo cadastrado.");
+  }
+
   if (weekday === "quarta") {
     const canRegisterWednesday =
       settings.wednesdayBookingMode !== "coordination" ||
@@ -204,6 +278,7 @@ async function createAppointment(context: AuthContext, body: Record<string, unkn
     .from("oh_consulente_appointments")
     .insert({
       organization_id: context.organizationId,
+      person_id: weekday === "quinta" ? context.personId : null,
       entity_id: entityId,
       recommended_by_entity_id: recommendedByEntityId || null,
       scheduled_by_person_id: context.personId,
@@ -216,6 +291,8 @@ async function createAppointment(context: AuthContext, body: Record<string, unkn
       recurrence_count: isRecurring ? recurrenceCount : 1,
       status: "confirmado",
       notes: notes || null,
+      booking_channel: weekday === "quinta" ? "filho_corrente" : "recepcao",
+      created_by_function: weekday === "quinta" ? "filho_corrente" : "recepcao",
       metadata,
     })
     .select("id")
