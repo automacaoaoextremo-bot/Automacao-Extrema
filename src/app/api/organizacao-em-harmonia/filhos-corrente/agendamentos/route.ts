@@ -139,6 +139,12 @@ function normalizeEmail(value: unknown) {
   return asText(value).toLowerCase();
 }
 
+
+function formatDateForMessage(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
+}
+
 function tokenFromRequest(request: Request) {
   const authorization = request.headers.get("authorization") || request.headers.get("Authorization") || "";
   return authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
@@ -647,6 +653,7 @@ function reservationError(error: unknown) {
   if (message.includes("NO_AVAILABILITY")) return { status: 409, message: "A última vaga deste período acabou de ser preenchida." };
   if (message.includes("DUPLICATE_APPOINTMENT")) return { status: 409, message: "Já existe um agendamento ativo para esta pessoa neste dia e período." };
   if (message.includes("APPOINTMENT_NOT_FOUND")) return { status: 404, message: "Agendamento não localizado." };
+  if (message.includes("PHONE_DDD_REQUIRED")) return { status: 409, message: "Encontramos mais de um cadastro com esse número sem DDD. Informe também o DDD." };
   return { status: 500, message: "Não foi possível confirmar o agendamento agora." };
 }
 
@@ -681,7 +688,7 @@ async function sendReceptionAccessEmail(input: {
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
   const appointmentLines = input.appointment
-    ? ["", "Agendamento:", `Data: ${input.appointment.date}`, `Período: ${input.appointment.period}`, `Entidade: ${input.appointment.entity}`]
+    ? ["", "Agendamento:", `Data: ${formatDateForMessage(input.appointment.date)}`, `Período: ${input.appointment.period}`, `Entidade: ${input.appointment.entity}`]
     : [];
   await transporter.sendMail({
     from: `"${process.env.EMAIL_FROM_NAME || "Automação Extrema"}" <${process.env.EMAIL_FROM}>`,
@@ -702,28 +709,39 @@ async function sendReceptionAccessEmail(input: {
 
 async function findPersonByPhone(organizationId: string, phone: string) {
   const normalized = normalizePhone(phone);
-  if (normalized.length < 10) return null;
+  if (normalized.length < 8) return { person: null, ambiguous: false };
 
-  const { data: direct, error: directError } = await supabaseAdmin
-    .from("oh_people")
-    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp")
-    .eq("organization_id", organizationId)
-    .eq("active", true)
-    .eq("normalized_whatsapp", normalized)
-    .limit(1)
-    .maybeSingle();
-  if (directError && !String(directError.message || "").includes("normalized_whatsapp")) throw directError;
-  if (direct?.id) return direct;
+  const selectFields = "id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp";
+
+  if (normalized.length >= 10) {
+    const { data: direct, error: directError } = await supabaseAdmin
+      .from("oh_people")
+      .select(selectFields)
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .eq("normalized_whatsapp", normalized)
+      .limit(1)
+      .maybeSingle();
+    if (directError && !String(directError.message || "").includes("normalized_whatsapp")) throw directError;
+    if (direct?.id) return { person: direct, ambiguous: false };
+  }
 
   const { data, error } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id")
+    .select(selectFields)
     .eq("organization_id", organizationId)
     .eq("active", true)
     .not("whatsapp", "is", null)
     .limit(1500);
   if (error) throw error;
-  return (data ?? []).find((person) => normalizePhone(person.whatsapp) === normalized) || null;
+
+  const matches = (data ?? []).filter((person) => {
+    const candidate = normalizePhone(person.normalized_whatsapp || person.whatsapp);
+    return normalized.length >= 10 ? candidate === normalized : candidate.endsWith(normalized);
+  });
+
+  if (matches.length === 1) return { person: matches[0], ambiguous: false };
+  return { person: null, ambiguous: matches.length > 1 };
 }
 
 function maskPhone(value: unknown) {
@@ -856,9 +874,10 @@ async function createReceptionPerson(context: CurrentFilho, body: Record<string,
   if (password.length < 8) throw new Error("Defina uma senha temporária com pelo menos 8 caracteres.");
   if (!privacyAccepted) throw new Error("Confirme a ciência do Aviso de Privacidade.");
 
-  const existing = await findPersonByPhone(context.organizationId, whatsapp);
-  if (existing?.id) {
-    return { person: existing, access: null as ReceptionAccountAccess | null };
+  const existingLookup = await findPersonByPhone(context.organizationId, whatsapp);
+  if (existingLookup.ambiguous) throw new Error("PHONE_DDD_REQUIRED");
+  if (existingLookup.person?.id) {
+    return { person: existingLookup.person, access: null as ReceptionAccountAccess | null };
   }
 
   const now = new Date().toISOString();
@@ -990,16 +1009,19 @@ export async function POST(request: Request) {
 
     if (action === "search-consulente") {
       if (!context.canReception) return jsonError("Somente a Recepção pode pesquisar Consulentes para agendamento.", 403, code);
-      const person = await findPersonByPhone(context.organizationId, asText(body.whatsapp));
-      if (!person) return NextResponse.json({ ok: true, found: false });
+      const lookup = await findPersonByPhone(context.organizationId, asText(body.whatsapp));
+      if (lookup.ambiguous) {
+        return jsonError("Encontramos mais de um cadastro com esse número sem DDD. Informe também o DDD.", 409, code);
+      }
+      if (!lookup.person) return NextResponse.json({ ok: true, found: false });
       return NextResponse.json({
         ok: true,
         found: true,
         person: {
-          id: person.id,
-          fullName: person.full_name,
-          whatsapp: maskPhone(person.whatsapp),
-          email: maskEmail(person.notification_email || person.email),
+          id: lookup.person.id,
+          fullName: lookup.person.full_name,
+          whatsapp: maskPhone(lookup.person.whatsapp),
+          email: maskEmail(lookup.person.notification_email || lookup.person.email),
         },
       });
     }
@@ -1208,7 +1230,7 @@ export async function POST(request: Request) {
       const appointmentMessage = [
         `Olá, ${asText(target.full_name) || "Consulente"}.`,
         "Seu agendamento no TUCXA foi confirmado.",
-        `Data: ${reservation.confirmed_date}`,
+        `Data: ${formatDateForMessage(reservation.confirmed_date)}`,
         `Período: ${period.label}`,
         `Entidade: ${entity.name || "Entidade escolhida"}`,
         `Ordem: ${reservation.confirmed_order}`,

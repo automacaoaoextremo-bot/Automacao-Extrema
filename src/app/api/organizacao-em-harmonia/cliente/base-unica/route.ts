@@ -113,6 +113,19 @@ function normalizeModules(value: unknown) {
     .filter(Boolean);
 }
 
+
+async function filhoDaCorrenteRoleId(organizationId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("slug", "filho-da-corrente")
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.id as string | undefined) ?? null;
+}
+
 function asTextList(value: unknown) {
   if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
   return asText(value)
@@ -625,10 +638,20 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     reviewedAt: new Date().toISOString(),
     reviewNotes: reviewNotes || "",
   });
+  const primaryRoleId = await filhoDaCorrenteRoleId(organizationId);
+
+  const membershipUpdate = {
+    active: approved,
+    status: nextStatus,
+    ...(primaryRoleId ? { role_id: primaryRoleId } : {}),
+    module_slugs: DEFAULT_MODULE_SLUGS,
+    agenda_viva_profile: mergedProfile,
+    updated_at: new Date().toISOString(),
+  };
 
   const { error: membershipError } = await supabaseAdmin
     .from("oh_memberships")
-    .update({ active: approved, status: nextStatus, module_slugs: DEFAULT_MODULE_SLUGS, agenda_viva_profile: mergedProfile, updated_at: new Date().toISOString() })
+    .update(membershipUpdate)
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
   if (membershipError) throw membershipError;

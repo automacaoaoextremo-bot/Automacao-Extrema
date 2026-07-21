@@ -209,14 +209,25 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
 }
 
 async function roleIdForFilhoDaCorrente(organizationId: string) {
-  const { data } = await supabaseAdmin
+  const { data: exact, error: exactError } = await supabaseAdmin
     .from("oh_roles")
     .select("id")
     .eq("organization_id", organizationId)
-    .in("slug", ["filho-da-corrente", "cavalinho", "membro"])
-    .limit(1)
+    .eq("slug", "filho-da-corrente")
+    .eq("active", true)
     .maybeSingle();
-  return data?.id ?? null;
+  if (exactError) throw exactError;
+  if (exact?.id) return exact.id as string;
+
+  const { data: fallback, error: fallbackError } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("slug", "membro")
+    .eq("active", true)
+    .maybeSingle();
+  if (fallbackError) throw fallbackError;
+  return (fallback?.id as string | undefined) ?? null;
 }
 
 async function loadAgendaSettings(organizationId: string) {
@@ -517,22 +528,19 @@ function buildWhatsappPersonMessage(input: {
   selectedAgenda: DraftItem[];
   statusUrl: string;
 }) {
-  // A mensagem enviada ao WhatsApp da AE precisa ser a versão segura do Filho da Corrente.
-  // Não incluir links internos de validação/simulação nem links de logos, porque o WhatsApp
-  // exibe esses links como texto solto em vez de renderizar as imagens como no e-mail.
   return [
-    `Olá, ${firstName(input.fullName)}.`,
+    `Olá, sou o ${firstName(input.fullName)}.`,
     "",
-    "Recebemos sua solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.",
+    "Segue minha solicitação de Primeiro Acesso na Organização em Harmonia do Tucxa.",
     "",
     commonSummaryText(input),
     "",
-    "Agora o Tucxa irá conferir as informações, validar seus vínculos e liberar o acesso quando tudo estiver correto.",
+    "Aguardo o Tucxa conferir as informações, validar meus vínculos e liberar meu acesso quando tudo estiver correto.",
     "",
-    "Você pode acompanhar por aqui:",
+    "Vou acompanhar o andamento do meu pedido por aqui:",
     input.statusUrl,
     "",
-    footerText({ includeLogoLinks: false }),
+    input.fullName,
   ].join("\n");
 }
 

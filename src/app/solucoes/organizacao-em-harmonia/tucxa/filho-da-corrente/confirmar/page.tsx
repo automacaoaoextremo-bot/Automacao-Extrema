@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
 type DraftItem = {
@@ -32,6 +33,8 @@ type SubmitResponse = {
 
 const FIRST_ACCESS_DRAFT_KEY = "oh_tucxa_filho_corrente_primeiro_acesso";
 const FORM_URL = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente?modo=primeiro-acesso&ajuste=1";
+const THANK_YOU_URL = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/obrigado";
+const THANK_YOU_STORAGE_KEY = "oh_tucxa_filho_corrente_obrigado";
 
 function asDraft(value: unknown): FirstAccessDraft | null {
   if (!value || typeof value !== "object") return null;
@@ -72,6 +75,7 @@ function SectionCard({ title, emptyText, items }: { title: string; emptyText: st
 }
 
 export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
+  const router = useRouter();
   const [draft, setDraft] = useState<FirstAccessDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -101,10 +105,19 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
 
   async function confirmSubmit() {
     if (!draft) return;
+
+    const whatsappWindow = window.open("", "_blank");
+    if (whatsappWindow) {
+      whatsappWindow.document.title = "Abrindo WhatsApp";
+      whatsappWindow.document.body.innerHTML =
+        '<p style="font-family:Arial,sans-serif;padding:24px">Preparando a mensagem para o WhatsApp...</p>';
+    }
+
     setSubmitting(true);
     setMessage("");
     setError("");
     setStatusUrl("");
+
     try {
       const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/acesso", {
         method: "POST",
@@ -113,16 +126,28 @@ export default function ConfirmarPrimeiroAcessoFilhoDaCorrentePage() {
       });
       const result = (await response.json()) as SubmitResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível confirmar o envio.");
+
       window.sessionStorage.removeItem(FIRST_ACCESS_DRAFT_KEY);
-      setMessage(result.message || "Cadastro enviado para validação do Tucxa.");
-      setStatusUrl(result.statusUrl || "");
-      if (result.whatsappUrl) {
-        window.setTimeout(() => {
-          const opened = window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
-          if (!opened) window.location.href = result.whatsappUrl || "";
-        }, 250);
+      window.sessionStorage.setItem(
+        THANK_YOU_STORAGE_KEY,
+        JSON.stringify({
+          message: result.message || "Cadastro enviado para validação do Tucxa.",
+          statusUrl: result.statusUrl || "",
+          whatsappUrl: result.whatsappUrl || "",
+          whatsappOpened: Boolean(whatsappWindow && result.whatsappUrl),
+        }),
+      );
+
+      if (result.whatsappUrl && whatsappWindow) {
+        whatsappWindow.location.replace(result.whatsappUrl);
+      } else if (whatsappWindow) {
+        whatsappWindow.close();
       }
+
+      const query = result.statusUrl ? `?status=${encodeURIComponent(result.statusUrl)}` : "";
+      router.replace(`${THANK_YOU_URL}${query}`);
     } catch (err) {
+      whatsappWindow?.close();
       setError(err instanceof Error ? err.message : "Erro ao enviar para validação.");
     } finally {
       setSubmitting(false);

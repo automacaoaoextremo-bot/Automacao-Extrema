@@ -200,6 +200,7 @@ export default function AgendamentosFilhoCorrentePage() {
   const [ageAtAppointment, setAgeAtAppointment] = useState("");
   const [treatmentNeed, setTreatmentNeed] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [attendanceThanks, setAttendanceThanks] = useState<"confirmed" | "cannot_attend" | null>(null);
 
   const authorizedFetch = useCallback(async (init?: RequestInit) => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -291,8 +292,8 @@ export default function AgendamentosFilhoCorrentePage() {
 
   const currentMonthKey = monthKey(month);
   const currentMonthIndex = Math.max(0, eligibleMonthKeys.indexOf(currentMonthKey));
-  const visibleMonthKeys = eligibleMonthKeys.slice(currentMonthIndex, currentMonthIndex + (mode === "self" ? 2 : 1));
-  const previousMonth = currentMonthIndex > 0 ? eligibleMonthKeys[Math.max(0, currentMonthIndex - (mode === "self" ? 2 : 1))] : "";
+  const visibleMonthKeys = eligibleMonthKeys.slice(currentMonthIndex, currentMonthIndex + (mode === "self" ? 3 : 1));
+  const previousMonth = currentMonthIndex > 0 ? eligibleMonthKeys[Math.max(0, currentMonthIndex - (mode === "self" ? 3 : 1))] : "";
   const nextMonth = currentMonthIndex + visibleMonthKeys.length < eligibleMonthKeys.length
     ? eligibleMonthKeys[currentMonthIndex + visibleMonthKeys.length]
     : "";
@@ -319,6 +320,14 @@ export default function AgendamentosFilhoCorrentePage() {
     ? availabilityMap.get(availabilityKey(selectedPeriod.id, selectedEntity.id))
     : undefined;
 
+
+  const specialReturnPeriod = useMemo(
+    () => (payload?.periods ?? []).find(
+      (period) => period.audience === "self" && period.eventKind === "special-all-groups",
+    ) ?? null,
+    [payload?.periods],
+  );
+
   function entitiesForPeriod(period: Period) {
     return (payload?.entities ?? [])
       .map((entity) => ({ entity, availability: availabilityMap.get(availabilityKey(period.id, entity.id)) }))
@@ -336,6 +345,7 @@ export default function AgendamentosFilhoCorrentePage() {
   }
 
   function openPeriod(period: Period) {
+    setAttendanceThanks(null);
     const existing = mode === "self" ? existingMap.get(period.id) : undefined;
     if (existing && !editingAppointmentId) {
       setSelectedExisting(existing);
@@ -398,12 +408,9 @@ export default function AgendamentosFilhoCorrentePage() {
     if (!selectedPeriod) return;
     try {
       await post({ action: "set-attendance", periodId: selectedPeriod.id, status });
+      setAttendanceThanks(status);
       await load();
-      if (status === "confirmed" && selectedPeriod.allowEntityAppointment) {
-        setModal("entities");
-      } else {
-        setModal("calendar");
-      }
+      setModal("attendance");
     } catch {
       // Mensagem exibida no modal.
     }
@@ -536,6 +543,20 @@ export default function AgendamentosFilhoCorrentePage() {
             >
               Meu atendimento de quinta
             </button>
+            {specialReturnPeriod && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("self");
+                  setSelectedPeriodId(specialReturnPeriod.id);
+                  setAttendanceThanks(null);
+                  setModal("attendance");
+                }}
+                className="min-h-14 rounded-2xl bg-[#F5D88A] px-4 py-3 font-black text-[#5D3B00] ring-1 ring-amber-200"
+              >
+                Atendimento Retorno Férias
+              </button>
+            )}
             {payload?.profile.canReception && (
               <button type="button" onClick={() => openMode("reception")} className="min-h-14 rounded-2xl bg-[#1B563F] px-4 py-3 font-black text-white ring-1 ring-white/30">
                 Agendar Consulente
@@ -567,7 +588,7 @@ export default function AgendamentosFilhoCorrentePage() {
             <button type="button" disabled={!previousMonth} onClick={() => previousMonth && setMonth(monthDateFromKey(previousMonth))} className="min-h-11 rounded-xl bg-white px-2 text-xs font-black ring-1 ring-[#123D2C]/15 disabled:opacity-30">← Anterior</button>
             <div className="min-w-0 text-center">
               <p className="text-[0.6rem] font-black uppercase tracking-[0.15em] text-[#2F6B43]">Somente opções permitidas</p>
-              <h2 className="text-sm font-black text-[#123D2C] sm:text-lg">{mode === "self" ? "Dois meses por vez" : visibleMonthSections[0]?.title || "Próximos períodos"}</h2>
+              <h2 className="text-sm font-black text-[#123D2C] sm:text-lg">{mode === "self" ? "Três meses por vez" : visibleMonthSections[0]?.title || "Próximos períodos"}</h2>
             </div>
             <button type="button" disabled={!nextMonth} onClick={() => nextMonth && setMonth(monthDateFromKey(nextMonth))} className="min-h-11 rounded-xl bg-white px-2 text-xs font-black ring-1 ring-[#123D2C]/15 disabled:opacity-30">Próximo →</button>
           </div>
@@ -588,7 +609,7 @@ export default function AgendamentosFilhoCorrentePage() {
                             : mode === "self" && attendance?.status === "confirmed"
                               ? "✓ Presença confirmada"
                               : mode === "self" && attendance?.status === "cannot_attend"
-                                ? "Não poderei comparecer"
+                                ? "Não poderei/pude comparecer"
                                 : period.eventKind === "special-all-groups"
                                   ? "Todos os grupos"
                                   : period.group === "grupo-1"
@@ -620,19 +641,32 @@ export default function AgendamentosFilhoCorrentePage() {
       )}
 
       {modal === "attendance" && selectedPeriod && (
-        <Modal title="Confirmar presença" onClose={() => setModal("calendar")}>
+        <Modal title="Confirmar presença" onClose={() => { setAttendanceThanks(null); setModal("calendar"); }}>
           <div className={`rounded-xl border px-3 py-2 ${tone(selectedPeriod)}`}>
             <p className="text-sm font-black">{selectedPeriod.eventTitle}</p>
             <p className="mt-1 text-xs font-bold">{longDate(selectedPeriod.appointmentDate)} · {selectedPeriod.label}</p>
             {selectedPeriod.eventKind === "special-all-groups" && <p className="mt-1 text-xs font-black">Evento para todos os Filhos da Corrente</p>}
           </div>
-          <p className="mt-3 text-sm font-semibold text-slate-700">Confirme sua presença para substituir o registro no caderno da recepção.</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <button type="button" disabled={saving} onClick={() => void setAttendance("confirmed")} className="min-h-12 rounded-xl bg-[#123D2C] px-4 font-black text-white disabled:opacity-60">Confirmar presença</button>
-            <button type="button" disabled={saving} onClick={() => void setAttendance("cannot_attend")} className="min-h-12 rounded-xl bg-slate-100 px-4 font-black text-slate-700 ring-1 ring-slate-200 disabled:opacity-60">Não poderei comparecer</button>
-          </div>
+
+          {attendanceThanks ? (
+            <div className="mt-3 rounded-xl bg-emerald-50 p-4 text-emerald-900 ring-1 ring-emerald-100">
+              <p className="text-lg font-black">Obrigado!</p>
+              <p className="mt-1 text-sm font-semibold leading-6">
+                Sua resposta foi registrada como: {attendanceThanks === "confirmed" ? "Estarei/Estou/Estive Presente" : "Não poderei/pude comparecer"}.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button type="button" disabled={saving} onClick={() => void setAttendance("confirmed")} className="min-h-12 rounded-xl bg-[#123D2C] px-4 font-black text-white disabled:opacity-60">Estarei/Estou/Estive Presente</button>
+              <button type="button" disabled={saving} onClick={() => void setAttendance("cannot_attend")} className="min-h-12 rounded-xl bg-slate-100 px-4 font-black text-slate-700 ring-1 ring-slate-200 disabled:opacity-60">Não poderei/pude comparecer</button>
+            </div>
+          )}
+
           {selectedPeriod.allowEntityAppointment && (
-            <button type="button" onClick={() => setModal("entities")} className="mt-2 min-h-12 w-full rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/20">Quero atendimento com uma entidade</button>
+            <button type="button" onClick={() => { setAttendanceThanks(null); setModal("entities"); }} className="mt-2 min-h-12 w-full rounded-xl bg-white px-4 font-black text-[#123D2C] ring-1 ring-[#123D2C]/20">Quero atendimento com uma entidade</button>
+          )}
+          {attendanceThanks && (
+            <button type="button" onClick={() => { setAttendanceThanks(null); setModal("calendar"); }} className="mt-2 min-h-12 w-full rounded-xl bg-[#123D2C] px-4 font-black text-white">Voltar aos encontros</button>
           )}
           {error && <div className="mt-3"><ErrorBox message={error} requestId={requestId} /></div>}
         </Modal>

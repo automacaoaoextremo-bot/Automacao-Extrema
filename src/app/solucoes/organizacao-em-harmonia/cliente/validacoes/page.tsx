@@ -71,6 +71,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [pendingWhatsappUrl, setPendingWhatsappUrl] = useState("");
 
   const load = useCallback(async () => {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
@@ -155,10 +156,23 @@ export default function ValidacoesPrimeiroAcessoPage() {
       const confirmed = window.confirm("Excluir este pedido de validação? Isso remove o cadastro pendente para que o teste possa ser repetido.");
       if (!confirmed) return;
     }
-    const reviewNotes = action === "requestAccessAdjustment" ? window.prompt("Informe o ajuste/reprovação ao Filho da Corrente:") || "" : "";
+
+    const reviewNotes = action === "requestAccessAdjustment"
+      ? window.prompt("Informe o ajuste/reprovação ao Filho da Corrente:") || ""
+      : "";
+
+    const whatsappWindow = action === "deleteAccessValidation" ? null : window.open("", "_blank");
+    if (whatsappWindow) {
+      whatsappWindow.document.title = "Abrindo WhatsApp";
+      whatsappWindow.document.body.innerHTML =
+        '<p style="font-family:Arial,sans-serif;padding:24px">Preparando a mensagem para o WhatsApp...</p>';
+    }
+
     setSaving(true);
     setError("");
     setMessage("");
+    setPendingWhatsappUrl("");
+
     try {
       const { data: sessionData } = await supabaseBrowser.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -170,15 +184,28 @@ export default function ValidacoesPrimeiroAcessoPage() {
       });
       const result = (await response.json()) as Payload & { error?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar a validação.");
+
       setPayload(result);
+
       if (result.whatsappUrl && action !== "deleteAccessValidation") {
-        window.setTimeout(() => {
-          const opened = window.open(result.whatsappUrl, "_blank", "noopener,noreferrer");
-          if (!opened) window.location.href = result.whatsappUrl || "";
-        }, 150);
+        if (whatsappWindow) {
+          whatsappWindow.location.replace(result.whatsappUrl);
+        } else {
+          setPendingWhatsappUrl(result.whatsappUrl);
+        }
+      } else {
+        whatsappWindow?.close();
       }
-      setMessage(action === "approveAccess" ? "Acesso liberado. O WhatsApp do Filho da Corrente foi aberto com a mensagem de confirmação." : action === "deleteAccessValidation" ? "Pedido de validação excluído." : "Ajuste solicitado. O WhatsApp do Filho da Corrente foi aberto com a orientação.");
+
+      setMessage(
+        action === "approveAccess"
+          ? "Acesso liberado. A página de Validações permanece aberta e a mensagem do WhatsApp foi preparada em outra aba."
+          : action === "deleteAccessValidation"
+            ? "Pedido de validação excluído."
+            : "Ajuste solicitado. A página de Validações permanece aberta e a orientação foi preparada em outra aba.",
+      );
     } catch (err) {
+      whatsappWindow?.close();
       setError(err instanceof Error ? err.message : "Erro ao atualizar validação.");
     } finally {
       setSaving(false);
@@ -190,6 +217,16 @@ export default function ValidacoesPrimeiroAcessoPage() {
       {loading && <p className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">Carregando validações...</p>}
       {error && <p className="rounded-3xl bg-red-50 p-5 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
       {message && <p className="rounded-3xl bg-emerald-50 p-5 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
+      {pendingWhatsappUrl && (
+        <a
+          href={pendingWhatsappUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex rounded-2xl bg-[#25D366] px-5 py-3 font-black text-[#073B1D]"
+        >
+          Abrir mensagem no WhatsApp
+        </a>
+      )}
 
       {!loading && (
         <section className="grid gap-4">
