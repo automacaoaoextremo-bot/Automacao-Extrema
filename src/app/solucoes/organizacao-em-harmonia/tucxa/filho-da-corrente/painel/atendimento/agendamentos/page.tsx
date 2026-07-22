@@ -595,7 +595,7 @@ export default function AgendamentosFilhoCorrentePage() {
           <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
             {visibleMonthSections.map((section) => (
               <section key={section.key} className="rounded-2xl bg-white p-2 ring-1 ring-[#123D2C]/10">
-                <h3 className="px-1 pb-2 text-center text-base font-black text-[#123D2C]">{section.title}</h3>
+                {mode === "self" && <h3 className="px-1 pb-2 text-center text-base font-black text-[#123D2C]">{section.title}</h3>}
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {section.dates.map(([date, periods]) => (
                     <div key={date} className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
@@ -747,7 +747,11 @@ export default function AgendamentosFilhoCorrentePage() {
           {lookupDone && foundPerson && (
             <section className="mt-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-100">
               <p className="font-black text-emerald-900">Cadastro localizado</p>
-              <p className="mt-1 text-sm font-semibold text-emerald-900">{foundPerson.fullName}<br />{foundPerson.whatsapp}<br />{foundPerson.email}</p>
+              <p className="mt-1 text-sm font-semibold text-emerald-900">
+                {foundPerson.fullName}<br />
+                {foundPerson.whatsapp}<br />
+                {foundPerson.email || "E-mail não informado"}
+              </p>
               <button type="button" onClick={() => setModal("confirmReception")} className="mt-3 min-h-11 w-full rounded-xl bg-[#123D2C] px-4 font-black text-white">Confirmar pessoa</button>
             </section>
           )}

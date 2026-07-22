@@ -21,11 +21,14 @@ type Entity = {
   slug: string;
   line: string | null;
   entity_type: string | null;
+  description?: string | null;
   usual_materials: string | null;
   usual_days: string[] | null;
   daily_capacity?: number | null;
   appointment_enabled?: boolean | null;
   appointment_notes?: string | null;
+  attends_consulentes?: boolean | null;
+  primary_medium_person_id?: string | null;
   notes: string | null;
   active: boolean;
 };
@@ -37,11 +40,13 @@ type EntityForm = {
   slug: string;
   line: string;
   entityType: string;
+  description: string;
   usualMaterials: string;
   usualDays: string[];
   dailyCapacity: string;
   appointmentEnabled: boolean;
   appointmentNotes: string;
+  attendsConsulentes: boolean;
   notes: string;
   active: boolean;
 };
@@ -62,11 +67,13 @@ const emptyForm: EntityForm = {
   slug: "",
   line: "",
   entityType: "",
+  description: "",
   usualMaterials: "",
   usualDays: [],
   dailyCapacity: "4",
   appointmentEnabled: false,
   appointmentNotes: "",
+  attendsConsulentes: false,
   notes: "",
   active: false,
 };
@@ -124,11 +131,13 @@ function entityToForm(entity: Entity): EntityForm {
     slug: entity.slug,
     line: entity.line ?? "",
     entityType: entity.entity_type ?? "",
+    description: entity.description ?? "",
     usualMaterials: entity.usual_materials ?? "",
     usualDays: entity.usual_days ?? [],
     dailyCapacity: String(entity.daily_capacity ?? 4),
     appointmentEnabled: entity.appointment_enabled !== false,
     appointmentNotes: entity.appointment_notes ?? "",
+    attendsConsulentes: entity.attends_consulentes === true,
     notes: entity.notes ?? "",
     active: entity.active !== false,
   };
@@ -146,6 +155,10 @@ function EntityFormFields({ form, update, toggleDay }: {
         <Input label="Código interno" value={form.slug} onChange={(value) => update("slug", value)} placeholder={slugFromName(form.name) || "codigo-da-entidade"} />
         <Input label="Linha de trabalho" value={form.line} onChange={(value) => update("line", value)} placeholder="Ex.: Oxóssi, Ogum, Xangô, Preto Velho" />
         <Input label="Tipo" value={form.entityType} onChange={(value) => update("entityType", value)} placeholder="Ex.: Caboclo, Preto Velho, Criança" />
+        <label className="grid gap-1 md:col-span-2">
+          <span className="text-sm font-black text-[#00334E]">Descrição pública</span>
+          <textarea value={form.description} onChange={(event) => update("description", event.target.value)} className="min-h-20 rounded-2xl border border-slate-200 p-3" placeholder="Descrição breve que pode aparecer para perfis autorizados." />
+        </label>
         <label className="grid gap-1 md:col-span-2">
           <span className="text-sm font-black text-[#00334E]">Materiais/apetrechos habituais</span>
           <textarea value={form.usualMaterials} onChange={(event) => update("usualMaterials", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: velas, pembas, ervas, flores, pedras." />
@@ -170,6 +183,15 @@ function EntityFormFields({ form, update, toggleDay }: {
           <span className="text-sm font-black text-[#00334E]">Capacidade de atendimento por dia</span>
           <input value={form.dailyCapacity} onChange={(event) => update("dailyCapacity", event.target.value.replace(/\D/g, ""))} className="rounded-2xl border border-slate-200 p-3" inputMode="numeric" placeholder="4" />
           <span className="text-xs font-semibold text-slate-500">Quando o limite é atingido, novos agendamentos para esta entidade ficam bloqueados.</span>
+        </label>
+        <label className="flex items-center gap-3 rounded-2xl bg-rose-50 p-4 ring-1 ring-rose-100">
+          <input
+            type="checkbox"
+            checked={form.attendsConsulentes}
+            onChange={(event) => update("attendsConsulentes", event.target.checked)}
+            className="h-5 w-5"
+          />
+          <span className="text-sm font-black text-[#00334E]">Atende Consulentes / Filhos de Fora</span>
         </label>
         <label className="flex items-center gap-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
           <input
@@ -406,11 +428,13 @@ export default function EntidadesPage() {
           slug: form.slug || slugFromName(form.name),
           line: form.line,
           entityType: form.entityType,
+          description: form.description,
           usualMaterials: form.usualMaterials,
           usualDays: form.usualDays,
           dailyCapacity: form.dailyCapacity,
           appointmentEnabled: form.appointmentEnabled,
           appointmentNotes: form.appointmentNotes,
+          attendsConsulentes: form.attendsConsulentes,
           notes: form.notes,
           active: form.active,
         }),
@@ -596,6 +620,8 @@ export default function EntidadesPage() {
             <AdminDetailItem label="Situação">{viewEntity.active === false ? "Inativa" : "Ativa"}</AdminDetailItem>
             <AdminDetailItem label="Linha de trabalho">{viewEntity.line || "Não informada"}</AdminDetailItem>
             <AdminDetailItem label="Tipo">{viewEntity.entity_type || "Não informado"}</AdminDetailItem>
+            <AdminDetailItem label="Atende Consulentes">{viewEntity.attends_consulentes === true ? "Sim" : "Não"}</AdminDetailItem>
+            {viewEntity.description && <AdminDetailItem label="Descrição pública" full>{viewEntity.description}</AdminDetailItem>}
             <AdminDetailItem label="Dias usuais" full>{(viewEntity.usual_days ?? []).map((day) => dayLabels.get(day) ?? day).join(", ") || "Não definidos"}</AdminDetailItem>
             <AdminDetailItem label="Materiais/apetrechos" full>{viewEntity.usual_materials || "Não informados"}</AdminDetailItem>
             <AdminDetailItem label="Capacidade diária">{viewEntity.daily_capacity ?? 4} consulentes</AdminDetailItem>

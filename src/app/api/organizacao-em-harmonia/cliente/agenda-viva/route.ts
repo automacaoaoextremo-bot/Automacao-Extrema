@@ -367,16 +367,26 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const recurrenceFrequency = asText(body.recurrenceFrequency ?? body.periodicity ?? body.periodicidade) || "semanal";
   const recurrenceWeekday = asText(body.recurrenceWeekday ?? body.weekday ?? body.diaSemana);
   const allowedMonthOccurrences = normalizeAllowedMonthOccurrences(body.allowedMonthOccurrences ?? body.allowed_month_occurrences);
-  const thursdayGroupScope = asTextList(body.thursdayGroupScope ?? body.thursday_group_scope).filter((item) => ["grupo-1", "grupo-2"].includes(item));
-  const attendanceConfirmationRequired = asBool(body.attendanceConfirmationRequired ?? body.attendance_confirmation_required, false);
-  const allowOptionalEntityAppointment = asBool(body.allowOptionalEntityAppointment ?? body.allow_optional_entity_appointment, false);
-  const overrideRegularGroupSchedule = asBool(body.overrideRegularGroupSchedule ?? body.override_regular_group_schedule, false);
+  let thursdayGroupScope = asTextList(body.thursdayGroupScope ?? body.thursday_group_scope).filter((item) => ["grupo-1", "grupo-2"].includes(item));
+  let attendanceConfirmationRequired = asBool(body.attendanceConfirmationRequired ?? body.attendance_confirmation_required, false);
+  let allowOptionalEntityAppointment = asBool(body.allowOptionalEntityAppointment ?? body.allow_optional_entity_appointment, false);
+  let overrideRegularGroupSchedule = asBool(body.overrideRegularGroupSchedule ?? body.override_regular_group_schedule, false);
   const recurrenceRule = buildRecurrenceRule({ isRecurring, frequency: recurrenceFrequency, weekday: recurrenceWeekday, startsAt });
   const locationId = asText(body.locationId ?? body.location_id);
   const locationName = asText(body.locationName ?? body.location_name);
   const location = asText(body.location) || locationName;
   const audience = asText(body.audience ?? body.publico ?? body.targetAudience) || "filhos-corrente";
   const eventClassification = asText(body.eventClassification ?? body.event_classification ?? body.classification ?? body.classificacao) || "umbanda";
+  const eventCollection = asText(body.eventCollection ?? body.event_collection) || "";
+  const calendarColorKey = asText(body.calendarColorKey ?? body.calendar_color_key) || (eventCollection === "eventos-tucxa" ? "eventos-tucxa" : "");
+  const specialEventType = asText(body.specialEventType ?? body.special_event_type) || "";
+  const specialPanelLabel = specialEventType === "retorno-ferias" ? "Atendimento Retorno Férias" : "";
+  if (specialEventType === "retorno-ferias") {
+    thursdayGroupScope = ["grupo-1", "grupo-2"];
+    attendanceConfirmationRequired = true;
+    allowOptionalEntityAppointment = true;
+    overrideRegularGroupSchedule = true;
+  }
   const groupSlug = asText(body.groupSlug ?? body.group_slug);
   const responsiblePersonId = asText(body.responsiblePersonId ?? body.responsible_person_id);
   const notes = asText(body.notes);
@@ -425,6 +435,14 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       event_classification: eventClassification,
       classification: eventClassification,
       classificacao: eventClassification,
+      eventCollection: eventCollection || null,
+      event_collection: eventCollection || null,
+      calendarColorKey: calendarColorKey || null,
+      calendar_color_key: calendarColorKey || null,
+      specialEventType: specialEventType || null,
+      special_event_type: specialEventType || null,
+      specialPanelLabel: specialPanelLabel || null,
+      special_panel_label: specialPanelLabel || null,
       location_id: locationId || null,
       location_name: location || null,
       locationLabel: location || null,

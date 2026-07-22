@@ -161,8 +161,14 @@ export default function ValidacoesPrimeiroAcessoPage() {
       ? window.prompt("Informe o ajuste/reprovação ao Filho da Corrente:") || ""
       : "";
 
-    const whatsappWindow = action === "deleteAccessValidation" ? null : window.open("", "_blank");
+    const candidateWindow = action === "deleteAccessValidation" ? null : window.open("", "_blank");
+    const whatsappWindow = candidateWindow && candidateWindow !== window ? candidateWindow : null;
     if (whatsappWindow) {
+      try {
+        whatsappWindow.opener = null;
+      } catch {
+        // Alguns navegadores não permitem alterar opener; a aba atual continua preservada.
+      }
       whatsappWindow.document.title = "Abrindo WhatsApp";
       whatsappWindow.document.body.innerHTML =
         '<p style="font-family:Arial,sans-serif;padding:24px">Preparando a mensagem para o WhatsApp...</p>';
@@ -189,7 +195,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
 
       if (result.whatsappUrl && action !== "deleteAccessValidation") {
         if (whatsappWindow) {
-          whatsappWindow.location.replace(result.whatsappUrl);
+          whatsappWindow.location.href = result.whatsappUrl;
         } else {
           setPendingWhatsappUrl(result.whatsappUrl);
         }

@@ -161,6 +161,8 @@ type FormState = {
   location: string;
   audience: string;
   eventClassification: string;
+  eventCollection: string;
+  specialEventType: string;
   groupSlug: string;
   responsiblePersonId: string;
   notes: string;
@@ -293,6 +295,8 @@ const emptyForm: FormState = {
   location: "",
   audience: "filhos-corrente",
   eventClassification: "umbanda",
+  eventCollection: "",
+  specialEventType: "",
   groupSlug: "",
   responsiblePersonId: "",
   notes: "",
@@ -628,6 +632,22 @@ function eventClassificationLabel(value: string) {
   return "Umbanda";
 }
 
+function eventCollection(event: AgendaEvent) {
+  const metadata = event.metadata ?? {};
+  const value = metadata.eventCollection ?? metadata.event_collection;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function eventCollectionLabel(value: string) {
+  return value === "eventos-tucxa" ? "Eventos do TUCXA" : "Sem coleção específica";
+}
+
+function specialEventType(event: AgendaEvent) {
+  const metadata = event.metadata ?? {};
+  const value = metadata.specialEventType ?? metadata.special_event_type;
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function audienceLabel(value: string) {
   const option = activeCatalogItems(defaultAgendaCatalogs.audiences).find((item) => item.value === value);
   if (option) return option.label;
@@ -821,6 +841,9 @@ function eventTypeFor(event: AgendaEvent, types: EventType[]) {
 }
 
 function colorFor(event: AgendaEvent, types: EventType[]) {
+  if (eventCollection(event) === "eventos-tucxa") {
+    return "bg-rose-100 text-rose-950 ring-rose-300";
+  }
   const type = eventTypeFor(event, types);
   return eventColorClasses[type?.slug ?? event.event_type] ?? "bg-white text-[#00334E] ring-slate-200";
 }
@@ -833,6 +856,7 @@ function TucxaCalendarLegend() {
     { label: "Grupo 1", className: "bg-green-100 text-green-950 ring-green-200" },
     { label: "Grupo 2", className: "bg-blue-100 text-blue-950 ring-blue-200" },
     { label: "Férias/recesso", className: "bg-yellow-100 text-yellow-950 ring-yellow-200" },
+    { label: "Eventos do TUCXA", className: "bg-rose-100 text-rose-950 ring-rose-300" },
   ];
 
   return (
@@ -1018,6 +1042,21 @@ function AgendaEventForm({
           </select>
         </label>
         <label className="grid gap-1">
+          <span className="text-sm font-black text-[#00334E]">Coleção/calendário</span>
+          <select value={form.eventCollection} onChange={(event) => update("eventCollection", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+            <option value="">Sem coleção específica</option>
+            <option value="eventos-tucxa">Eventos do TUCXA</option>
+          </select>
+          <span className="text-xs font-semibold text-slate-500">Use Eventos do TUCXA para Pizza, Feijoada, Festa Junina e demais datas do calendário físico.</span>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-sm font-black text-[#00334E]">Tratamento especial</span>
+          <select value={form.specialEventType} onChange={(event) => update("specialEventType", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+            <option value="">Evento regular</option>
+            <option value="retorno-ferias">Retorno das férias — todos os grupos</option>
+          </select>
+        </label>
+        <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Responsável</span>
           <select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
             <option value="">A definir</option>
@@ -1195,6 +1234,8 @@ function EventDetails({ event, payload }: { event: AgendaEvent; payload: Payload
         <AdminDetailItem label="Data final">{formatLocalDateTime(eventLocalEnd(event))}</AdminDetailItem>
         <AdminDetailItem label="Tipo de atividade">{type?.name || event.event_type || "Atividade"}</AdminDetailItem>
         <AdminDetailItem label="Classificação">{eventClassificationLabel(eventClassification(event))}</AdminDetailItem>
+        <AdminDetailItem label="Coleção/calendário">{eventCollectionLabel(eventCollection(event))}</AdminDetailItem>
+        {specialEventType(event) && <AdminDetailItem label="Tratamento especial">{specialEventType(event) === "retorno-ferias" ? "Retorno das férias — todos os grupos" : specialEventType(event)}</AdminDetailItem>}
         <AdminDetailItem label="Público">{audienceLabel(eventAudience(event))}</AdminDetailItem>
         <AdminDetailItem label="Local">{locationLabel(event, payload.locations)}</AdminDetailItem>
         <AdminDetailItem label="Responsável">{responsible?.full_name || "Não informado"}</AdminDetailItem>
@@ -1359,10 +1400,12 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [classificationFilter, setClassificationFilter] = useState("todos");
+  const [collectionFilter, setCollectionFilter] = useState("todos");
   const [calendarRange, setCalendarRange] = useState("completo");
   const [calendarEventType, setCalendarEventType] = useState("todos");
   const [calendarAudience, setCalendarAudience] = useState("all");
   const [calendarClassification, setCalendarClassification] = useState("todos");
+  const [calendarCollection, setCalendarCollection] = useState("todos");
   const [calendarPersonId, setCalendarPersonId] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -1826,6 +1869,8 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       location: event.location ?? "",
       audience: eventAudience(event),
       eventClassification: eventClassification(event),
+      eventCollection: eventCollection(event),
+      specialEventType: specialEventType(event),
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
       notes: event.notes ?? "",
@@ -1874,6 +1919,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       if (normalizedQuery && !text.includes(normalizedQuery)) return false;
       if (statusFilter !== "todos" && event.status !== statusFilter) return false;
       if (classificationFilter !== "todos" && classification !== classificationFilter) return false;
+      if (collectionFilter !== "todos" && eventCollection(event) !== collectionFilter) return false;
       return true;
     });
 
@@ -1884,7 +1930,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       if (leftDate !== rightDate) return leftDate - rightDate;
       return left.title.localeCompare(right.title, "pt-BR", { sensitivity: "base" });
     });
-  }, [classificationFilter, eventSortOrder, events, query, statusFilter]);
+  }, [classificationFilter, collectionFilter, eventSortOrder, events, query, statusFilter]);
 
   const calendarEvents = useMemo(() => {
     const today = new Date();
@@ -1901,10 +1947,11 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       if (calendarEventType !== "todos" && event.event_type_id !== calendarEventType && event.event_type !== calendarEventType) return false;
       if (calendarAudience !== "all" && eventAudience(event) !== calendarAudience) return false;
       if (calendarClassification !== "todos" && eventClassification(event) !== calendarClassification) return false;
+      if (calendarCollection !== "todos" && eventCollection(event) !== calendarCollection) return false;
       if (calendarPersonId && event.responsible_person_id !== calendarPersonId && event.created_by_person_id !== calendarPersonId) return false;
       return true;
     });
-  }, [calendarAudience, calendarClassification, calendarEventType, calendarPersonId, calendarRange, events, periodEnd, periodStart]);
+  }, [calendarAudience, calendarClassification, calendarCollection, calendarEventType, calendarPersonId, calendarRange, events, periodEnd, periodStart]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, AgendaEvent[]>();
@@ -1959,6 +2006,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-slate-200 p-3 md:col-span-2 xl:col-span-1" placeholder="Buscar por nome, local ou tipo" />
                   <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
                   <select value={classificationFilter} onChange={(event) => setClassificationFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option>{classificationOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <select value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as coleções</option><option value="eventos-tucxa">Somente Eventos do TUCXA</option></select>
                   <label className="grid gap-1">
                     <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Ordenar por</span>
                     <select value={eventSortOrder} onChange={(event) => setEventSortOrder(event.target.value as "start" | "alphabetical")} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -2014,6 +2062,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <select value={calendarEventType} onChange={(event) => setCalendarEventType(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todos os eventos/tipos</option>{payload.eventTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                   <select value={calendarAudience} onChange={(event) => setCalendarAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="all">Todos os públicos</option>{audienceOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
                   <select value={calendarClassification} onChange={(event) => setCalendarClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as classificações</option>{classificationOptions(payload).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <select value={calendarCollection} onChange={(event) => setCalendarCollection(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="todos">Todas as coleções</option><option value="eventos-tucxa">Somente Eventos do TUCXA</option></select>
                   <select value={calendarPersonId} onChange={(event) => setCalendarPersonId(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Sem filtro por pessoa</option>{responsiblePeople(payload).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}</select>
                   <input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />
                   <input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="rounded-2xl border border-slate-200 p-3" />

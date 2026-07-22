@@ -7,9 +7,11 @@ import {
   eventAllowsPersonGroups,
   eventAllowsThursdayOccurrence,
   eventOverridesRegularThursdaySchedule,
+  eventPanelLabel,
   eventRequiresAttendanceConfirmation,
   eventTargetsAllThursdayGroups,
   eventThursdayGroups,
+  isReturnFromVacationEvent,
   isWednesdayTreatmentEvent,
   normalizeBrazilPhone,
   whatsappShareUrl,
@@ -316,6 +318,7 @@ function isWednesdaySchedule(event: AgendaEvent) {
 
 function isThursdaySchedule(event: AgendaEvent, groups: CurrentFilho["groups"]) {
   if (!isActiveEvent(event)) return false;
+  if (isReturnFromVacationEvent(event)) return groups.length > 0;
   return eventAllowsPersonGroups(event, groups);
 }
 
@@ -354,7 +357,7 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
         const endTime = localTime(event, "end") || timeFromTimestamp(event.ends_at, "22:00");
         const audience = weekday === "quinta" ? "self" : "reception";
         const eventKind: Period["eventKind"] = weekday === "quinta"
-          ? eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)
+          ? (isReturnFromVacationEvent(event) || (eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)))
             ? "special-all-groups"
             : "regular-thursday"
           : weekday === "quarta"
@@ -371,7 +374,7 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
           weekday: weekday as Period["weekday"],
           audience,
           group,
-          eventTitle: asText(event.title) || "Atendimento em Harmonia",
+          eventTitle: eventPanelLabel(event) || asText(event.title) || "Atendimento em Harmonia",
           eventKind,
           attendanceRequired: audience === "self" ? eventRequiresAttendanceConfirmation(event, true) : false,
           allowEntityAppointment: audience === "self" ? eventAllowsOptionalEntityAppointment(event, true) : true,
@@ -691,7 +694,7 @@ async function sendReceptionAccessEmail(input: {
     ? ["", "Agendamento:", `Data: ${formatDateForMessage(input.appointment.date)}`, `Período: ${input.appointment.period}`, `Entidade: ${input.appointment.entity}`]
     : [];
   await transporter.sendMail({
-    from: `"${process.env.EMAIL_FROM_NAME || "Automação Extrema"}" <${process.env.EMAIL_FROM}>`,
+    from: `"${process.env.OH_TUCXA_EMAIL_FROM_NAME || process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
     to: input.to,
     subject: "[TUCXA] Acesso ao Organização em Harmonia",
     text: [
@@ -753,7 +756,7 @@ function maskPhone(value: unknown) {
 function maskEmail(value: unknown) {
   const email = normalizeEmail(value);
   const [local, domain] = email.split("@");
-  if (!local || !domain || domain.endsWith(".local")) return "Não informado";
+  if (!local || !domain || domain.endsWith(".local")) return "";
   return `${local.slice(0, 2)}${"*".repeat(Math.max(3, local.length - 2))}@${domain}`;
 }
 
@@ -912,6 +915,8 @@ async function createReceptionPerson(context: CurrentFilho, body: Record<string,
   });
   const login = whatsapp;
   const message = [
+    "Tucxa em Harmonia",
+    "",
     `Olá, ${fullName}.`,
     "Seu cadastro como Consulente / Filho de Fora do TUCXA foi criado.",
     `Acesso: ${consulenteLoginUrl()}`,
@@ -1228,6 +1233,8 @@ export async function POST(request: Request) {
       const actualEmail = normalizeEmail(target.notification_email || target.email);
       const login = normalizePhone(target.whatsapp);
       const appointmentMessage = [
+        "Tucxa em Harmonia",
+        "",
         `Olá, ${asText(target.full_name) || "Consulente"}.`,
         "Seu agendamento no TUCXA foi confirmado.",
         `Data: ${formatDateForMessage(reservation.confirmed_date)}`,

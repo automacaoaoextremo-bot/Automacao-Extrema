@@ -164,7 +164,7 @@ function mergeProfile(current: unknown, patch: Record<string, unknown>) {
 }
 
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult, validationRequestsResult] = await Promise.all([
+  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult, entityLinksResult, validationRequestsResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, organization_type, email, whatsapp, enabled_modules, status")
@@ -197,9 +197,14 @@ async function listPayload(organizationId: string) {
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, slug, line, entity_type, usual_materials, usual_days, daily_capacity, appointment_enabled, appointment_notes, notes, active")
+      .select("id, name, slug, line, entity_type, description, usual_materials, usual_days, daily_capacity, appointment_enabled, appointment_notes, attends_consulentes, primary_medium_person_id, notes, active")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
+    supabaseAdmin
+      .from("oh_person_entity_links")
+      .select("id, person_id, entity_id, relationship_type, is_primary_for_attendance, active, notes")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
     supabaseAdmin
       .from("oh_first_access_validation_requests")
       .select("id, person_id, status, summary, created_at, updated_at")
@@ -219,13 +224,42 @@ async function listPayload(organizationId: string) {
     modules: moduleSettingsResult.data ?? [],
     locations: locationsResult.status === 200 && !locationsResult.error ? locationsResult.data ?? [] : [],
     entities: entitiesResult.status === 200 && !entitiesResult.error ? entitiesResult.data ?? [] : [],
+    entityLinks: entityLinksResult.status === 200 && !entityLinksResult.error ? entityLinksResult.data ?? [] : [],
     validationRequests: validationRequestsResult.status === 200 && !validationRequestsResult.error ? validationRequestsResult.data ?? [] : [],
     warnings: [
       locationsResult.error ? `Localidades: ${locationsResult.error.message}` : "",
       entitiesResult.error ? `Entidades: ${entitiesResult.error.message}` : "",
+      entityLinksResult.error ? `Vínculos pessoa-entidade: ${entityLinksResult.error.message}` : "",
       validationRequestsResult.error ? `Validações: ${validationRequestsResult.error.message}` : "",
     ].filter(Boolean),
   };
+}
+
+type EntityLinkInput = {
+  entityId: string;
+  relationshipType: string;
+  isPrimaryForAttendance: boolean;
+};
+
+function entityLinksFromBody(value: unknown): EntityLinkInput[] {
+  if (!Array.isArray(value)) return [];
+  const links = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const entityId = asText(record.entityId ?? record.entity_id);
+    if (!entityId) return [];
+    return [{
+      entityId,
+      relationshipType: asText(record.relationshipType ?? record.relationship_type) || "recebe",
+      isPrimaryForAttendance: asBool(record.isPrimaryForAttendance ?? record.is_primary_for_attendance, false),
+    }];
+  });
+  let primaryFound = false;
+  return links.map((link) => {
+    const isPrimary = link.isPrimaryForAttendance && !primaryFound;
+    if (isPrimary) primaryFound = true;
+    return { ...link, isPrimaryForAttendance: isPrimary };
+  });
 }
 
 async function upsertPerson(organizationId: string, body: Record<string, unknown>) {
@@ -330,6 +364,32 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
     }
   }
 
+  if (selectedPersonId && Object.prototype.hasOwnProperty.call(body, "entityLinks")) {
+    const links = entityLinksFromBody(body.entityLinks);
+    const { error: deleteLinksError } = await supabaseAdmin
+      .from("oh_person_entity_links")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("person_id", selectedPersonId)
+      .eq("relationship_type", "recebe");
+    if (deleteLinksError) throw deleteLinksError;
+
+    if (links.length > 0) {
+      const { error: linksError } = await supabaseAdmin
+        .from("oh_person_entity_links")
+        .insert(links.map((link) => ({
+          organization_id: organizationId,
+          person_id: selectedPersonId,
+          entity_id: link.entityId,
+          relationship_type: "recebe",
+          is_primary_for_attendance: link.isPrimaryForAttendance,
+          active: true,
+          updated_at: new Date().toISOString(),
+        })));
+      if (linksError) throw linksError;
+    }
+  }
+
   return selectedPersonId;
 }
 
@@ -404,11 +464,14 @@ async function upsertEntity(organizationId: string, body: Record<string, unknown
     slug: slugify(asText(body.slug) || name),
     line: asText(body.line) || null,
     entity_type: asText(body.entityType ?? body.entity_type) || null,
+    description: asText(body.description) || null,
     usual_materials: asText(body.usualMaterials ?? body.usual_materials) || null,
     usual_days: usualDays,
     daily_capacity: Math.max(1, Math.trunc(asNumber(body.dailyCapacity ?? body.daily_capacity, 4))),
     appointment_enabled: active && usualDays.length > 0 && requestedAppointmentEnabled,
     appointment_notes: asText(body.appointmentNotes ?? body.appointment_notes) || null,
+    attends_consulentes: asBool(body.attendsConsulentes ?? body.attends_consulentes, false),
+    primary_medium_person_id: nullableText(body.primaryMediumPersonId ?? body.primary_medium_person_id),
     notes: asText(body.notes) || null,
     active,
     updated_at: new Date().toISOString(),

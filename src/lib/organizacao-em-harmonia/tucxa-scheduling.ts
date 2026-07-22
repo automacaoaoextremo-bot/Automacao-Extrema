@@ -87,15 +87,36 @@ export function eventThursdayGroups(event: EventLike): ThursdayGroup[] {
   return groups;
 }
 
+export function eventSpecialType(event: EventLike) {
+  const metadata = asRecord(event.metadata);
+  return normalizeText(metadata.specialEventType ?? metadata.special_event_type);
+}
+
+export function eventPanelLabel(event: EventLike) {
+  const metadata = asRecord(event.metadata);
+  return asText(metadata.specialPanelLabel ?? metadata.special_panel_label);
+}
+
+export function isReturnFromVacationEvent(event: EventLike) {
+  const specialType = eventSpecialType(event);
+  if (specialType === "retorno-ferias" || specialType === "retorno-das-ferias") return true;
+
+  // Compatibilidade com eventos antigos que ainda não receberam os metadados.
+  const text = normalizeText(`${event.title ?? ""} ${event.event_type ?? ""} ${event.group_slug ?? ""}`);
+  return text.includes("retorno ferias") && (text.includes("cavalinho") || text.includes("cambono"));
+}
+
 export function eventTargetsAllThursdayGroups(event: EventLike) {
   const metadata = asRecord(event.metadata);
   if (metadataBoolean(metadata, false, "allThursdayGroups", "all_thursday_groups")) return true;
+  if (isReturnFromVacationEvent(event)) return true;
   const groups = eventThursdayGroups(event);
   return groups.includes("grupo-1") && groups.includes("grupo-2");
 }
 
 export function eventOverridesRegularThursdaySchedule(event: EventLike) {
   const metadata = asRecord(event.metadata);
+  if (isReturnFromVacationEvent(event)) return true;
   return metadataBoolean(
     metadata,
     false,
