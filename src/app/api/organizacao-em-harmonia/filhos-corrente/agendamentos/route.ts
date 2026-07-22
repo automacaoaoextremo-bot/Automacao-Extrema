@@ -335,7 +335,7 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
     const appointmentDate = toIsoDate(addDays(start, index));
     const weekday = weekdaySlug(appointmentDate);
     if (!["segunda", "terca", "quarta", "quinta"].includes(weekday)) continue;
-    if (blockers.some((event) => eventBlocksDate(event, appointmentDate))) continue;
+    const dateBlocked = blockers.some((event) => eventBlocksDate(event, appointmentDate));
 
     const candidates = weekday === "quinta"
       ? ownSchedules
@@ -345,6 +345,12 @@ function buildPeriods(events: AgendaEvent[], context: CurrentFilho, horizonDays 
 
     candidates
       .filter((event) => eventMatchesDate(event, appointmentDate))
+      .filter((event) => {
+        if (!dateBlocked) return true;
+        return weekday === "quinta"
+          && (isReturnFromVacationEvent(event)
+            || (eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)));
+      })
       .filter((event) => {
         if (weekday !== "quinta") return true;
         if (eventTargetsAllThursdayGroups(event) && eventOverridesRegularThursdaySchedule(event)) return true;
@@ -393,8 +399,11 @@ function entityMatchesPeriod(entity: EntityRecord, period: Period) {
   if (entity.active !== true || entity.appointment_enabled !== true) return false;
   const days = normalizedDays(entity);
   if (period.weekday === "quinta") {
-    const groupDay = period.group === "grupo-1" ? "quinta-grupo-1" : "quinta-grupo-2";
     const hasSpecificThursday = days.some((day) => day.startsWith("quinta-grupo"));
+    if (period.eventKind === "special-all-groups") {
+      return days.includes("quinta") || hasSpecificThursday;
+    }
+    const groupDay = period.group === "grupo-1" ? "quinta-grupo-1" : "quinta-grupo-2";
     return hasSpecificThursday ? days.includes(groupDay) : days.includes("quinta");
   }
   return days.includes(period.weekday);
@@ -703,7 +712,7 @@ async function sendReceptionAccessEmail(input: {
       "Seu acesso como Consulente / Filho de Fora foi criado pela Recepção do TUCXA.",
       `Link: ${consulenteLoginUrl()}`,
       `Login: ${input.login}`,
-      ...(input.temporaryPassword ? [`Senha temporária: ${input.temporaryPassword}`, "", "Troque a senha após o primeiro acesso e não compartilhe estes dados."] : []),
+      ...(input.temporaryPassword ? [`Senha temporária: ${input.temporaryPassword}`, "", "Troque esta senha no primeiro acesso e não compartilhe estes dados."] : []),
       ...appointmentLines,
     ].join("\n"),
   });
@@ -922,7 +931,7 @@ async function createReceptionPerson(context: CurrentFilho, body: Record<string,
     `Acesso: ${consulenteLoginUrl()}`,
     `Login: ${login}`,
     `Senha temporária: ${password}`,
-    "Troque a senha após o primeiro acesso.",
+    "Troque esta senha no primeiro acesso.",
   ].join("\n");
   const emailSent = email
     ? await sendReceptionAccessEmail({ to: email, fullName, login, temporaryPassword: password }).catch(() => false)
@@ -1232,6 +1241,7 @@ export async function POST(request: Request) {
 
       const actualEmail = normalizeEmail(target.notification_email || target.email);
       const login = normalizePhone(target.whatsapp);
+      const temporaryPassword = asText(body.temporaryPassword);
       const appointmentMessage = [
         "Tucxa em Harmonia",
         "",
@@ -1243,6 +1253,9 @@ export async function POST(request: Request) {
         `Ordem: ${reservation.confirmed_order}`,
         `Acesso: ${consulenteLoginUrl()}`,
         `Login: ${login || actualEmail}`,
+        ...(temporaryPassword
+          ? [`Senha temporária: ${temporaryPassword}`, "Troque esta senha no primeiro acesso."]
+          : []),
       ].join("\n");
       const emailSent = actualEmail && !actualEmail.endsWith(".local")
         ? await sendReceptionAccessEmail({
@@ -1271,6 +1284,7 @@ export async function POST(request: Request) {
           whatsappUrl: whatsappShareUrl(target.whatsapp, appointmentMessage),
           login: login || actualEmail,
           loginUrl: consulenteLoginUrl(),
+          temporaryPassword: temporaryPassword || undefined,
         },
       });
     }

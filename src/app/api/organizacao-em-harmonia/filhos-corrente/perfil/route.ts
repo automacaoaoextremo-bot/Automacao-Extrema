@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,8 @@ type MembershipRecord = {
 };
 
 const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
+const DEFAULT_COPY_EMAIL = "automacao.ao.extremo@gmail.com";
+const DEFAULT_WHATSAPP_PHONE = "5519989848246";
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -53,45 +56,116 @@ function displayEmail(email: string | null | undefined) {
 
 function bearerToken(request: Request) {
   const header = request.headers.get("authorization") || request.headers.get("Authorization") || "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || "";
+  return header.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
 }
 
 function asTextList(value: unknown) {
   if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
-  return asText(value)
-    .split(/[;,|]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return asText(value).split(/[;,|]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function asDraftItems(value: unknown): DraftItem[] {
   if (!Array.isArray(value)) return [];
-
   return value.flatMap<DraftItem>((item) => {
     if (!item || typeof item !== "object") return [];
-
     const record = item as Record<string, unknown>;
     const slug = asText(record.slug);
     const label = asText(record.label);
     const description = asText(record.description);
-
     if (!slug || !label) return [];
-
-    return [
-      {
-        slug,
-        label,
-        ...(description ? { description } : {}),
-      },
-    ];
+    return [{ slug, label, ...(description ? { description } : {}) }];
   });
+}
+
+function requestCode() {
+  return crypto.randomUUID().slice(0, 8);
+}
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
+}
+
+function reviewCopyEmail() {
+  return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || DEFAULT_COPY_EMAIL;
+}
+
+function whatsappSupportPhone() {
+  return onlyDigits(process.env.OH_ACCESS_WHATSAPP || process.env.TUCXA_PUBLIC_WHATSAPP || DEFAULT_WHATSAPP_PHONE);
+}
+
+function whatsappUrl(phone: string, message: string) {
+  const digits = onlyDigits(phone);
+  if (!digits) return "";
+  const normalized = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
+function hasSmtpConfig() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+}
+
+async function sendEmail(input: { to: string; subject: string; text: string; cc?: string; replyTo?: string }) {
+  if (process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig() || !input.to) return { skipped: true };
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  await transporter.sendMail({
+    from: `"${process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
+    to: input.to,
+    cc: input.cc || undefined,
+    replyTo: input.replyTo || undefined,
+    subject: input.subject,
+    text: input.text,
+  });
+  return { skipped: false };
+}
+
+async function reviewerEmails(organizationId: string) {
+  const { data } = await supabaseAdmin
+    .from("oh_module_settings")
+    .select("settings")
+    .eq("organization_id", organizationId)
+    .eq("module_slug", "agenda-viva")
+    .maybeSingle();
+  const settings = asRecord(data?.settings);
+  const configuredEmails = asTextList(settings.accessValidationReviewerEmails);
+  const reviewerPersonIds = asTextList(settings.accessValidationReviewerPersonIds);
+  const emails = [...configuredEmails];
+
+  if (reviewerPersonIds.length) {
+    const { data: people, error } = await supabaseAdmin
+      .from("oh_people")
+      .select("email, notification_email")
+      .eq("organization_id", organizationId)
+      .in("id", reviewerPersonIds);
+    if (error) throw error;
+    for (const person of people ?? []) {
+      const record = person as { email?: string | null; notification_email?: string | null };
+      const email = displayEmail(record.notification_email || record.email);
+      if (email) emails.push(email);
+    }
+  }
+
+  emails.push(reviewCopyEmail());
+  return Array.from(new Set(emails.map((item) => normalizeEmail(item)).filter(Boolean)));
+}
+
+function itemLines(items: DraftItem[], emptyText: string) {
+  return items.length
+    ? items.map((item) => `- ${item.label}${item.description ? ` — ${item.description}` : ""}`)
+    : [`- ${emptyText}`];
+}
+
+function firstName(value: string) {
+  return value.split(/\s+/)[0] || "Filho da Corrente";
 }
 
 async function findTucxaOrganizationId() {
   const { data: bySlug } = await supabaseAdmin.from("oh_organizations").select("id, name").eq("slug", "tucxa").maybeSingle();
   if (bySlug?.id) return { id: bySlug.id as string, name: asText(bySlug.name) || "Tucxa" };
-
   const { data: byName } = await supabaseAdmin
     .from("oh_organizations")
     .select("id, name")
@@ -99,38 +173,32 @@ async function findTucxaOrganizationId() {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-
   return byName?.id ? { id: byName.id as string, name: asText(byName.name) || "Tucxa" } : null;
 }
 
 async function currentFilho(request: Request, organizationId: string) {
   const token = bearerToken(request);
   if (!token) throw new Error("Sessão expirada. Entre novamente no painel do Filho da Corrente.");
-
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
   if (userError || !userData.user) throw new Error("Sessão inválida. Entre novamente no painel do Filho da Corrente.");
 
   const user = userData.user;
-  const email = user.email || "";
-
   let person: PersonRecord | null = null;
-
   const byAuth = await supabaseAdmin
     .from("oh_people")
     .select("id, full_name, email, whatsapp, notes, active, auth_user_id")
     .eq("organization_id", organizationId)
     .eq("auth_user_id", user.id)
     .maybeSingle();
-
   if (byAuth.error) throw byAuth.error;
   if (byAuth.data?.id) person = byAuth.data as PersonRecord;
 
-  if (!person && email) {
+  if (!person && user.email) {
     const byEmail = await supabaseAdmin
       .from("oh_people")
       .select("id, full_name, email, whatsapp, notes, active, auth_user_id")
       .eq("organization_id", organizationId)
-      .eq("email", email)
+      .eq("email", user.email)
       .maybeSingle();
     if (byEmail.error) throw byEmail.error;
     if (byEmail.data?.id) person = byEmail.data as PersonRecord;
@@ -146,7 +214,6 @@ async function currentFilho(request: Request, organizationId: string) {
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-
   if (membershipError) throw membershipError;
   if (!membership?.id || membership.active !== true || membership.status !== "ativo") {
     throw new Error("Seu acesso ainda não está liberado para atualização de dados.");
@@ -178,8 +245,7 @@ function profilePayload(person: PersonRecord, membership: MembershipRecord) {
 }
 
 function statusToken() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return crypto.randomUUID();
 }
 
 export async function GET(request: Request) {
@@ -189,12 +255,12 @@ export async function GET(request: Request) {
     const current = await currentFilho(request, organization.id);
     return NextResponse.json({ ok: true, organization, ...profilePayload(current.person, current.membership) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro ao carregar dados do Filho da Corrente.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao carregar dados do Filho da Corrente." }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const code = requestCode();
   try {
     const organization = await findTucxaOrganizationId();
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
@@ -217,6 +283,16 @@ export async function POST(request: Request) {
     const previousProfile = asRecord(current.membership.agenda_viva_profile);
     const now = new Date().toISOString();
     const updateToken = statusToken();
+    const requestSummary = {
+      requestType: "profile_update",
+      statusToken: updateToken,
+      notes,
+      selectedFunctions,
+      selectedAgenda,
+      requestedAt: now,
+      previousFunctionSlugs: Array.isArray(previousProfile.functionSlugs) ? previousProfile.functionSlugs : [],
+      previousAgendaSlugs: Array.isArray(previousProfile.agendaSlugs) ? previousProfile.agendaSlugs : [],
+    };
 
     const nextProfile = {
       ...previousProfile,
@@ -266,24 +342,100 @@ export async function POST(request: Request) {
       email: displayEmail(email || current.person.email) || null,
       function_slugs: functionSlugs,
       agenda_slugs: agendaSlugs,
-      summary: {
-        requestType: "profile_update",
-        statusToken: updateToken,
-        notes,
-        selectedFunctions,
-        selectedAgenda,
-        requestedAt: now,
-      },
+      summary: requestSummary,
     });
     if (validationError) throw validationError;
 
+    const absoluteStatusUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/status?token=${encodeURIComponent(updateToken)}`;
+    const validationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/validacoes?personId=${encodeURIComponent(current.person.id)}`;
+    const functionText = itemLines(selectedFunctions, "Somente Filho da Corrente").join("\n");
+    const agendaText = itemLines(selectedAgenda, "Nenhuma agenda selecionada").join("\n");
+    const reviewerMessage = [
+      "Tucxa em Harmonia",
+      "",
+      "Nova atualização cadastral aguardando validação.",
+      `Nome: ${fullName}`,
+      `WhatsApp: ${whatsapp}`,
+      `E-mail: ${displayEmail(email || current.person.email) || "não informado"}`,
+      "",
+      "Funções solicitadas:",
+      functionText,
+      "",
+      "Agenda solicitada:",
+      agendaText,
+      "",
+      notes ? `Observação: ${notes}` : "Observação: não informada",
+      "",
+      `Validar: ${validationUrl}`,
+      `Acompanhamento: ${absoluteStatusUrl}`,
+      `Código de referência: ${code}`,
+    ].join("\n");
+
+    const reviewers = await reviewerEmails(organization.id);
+    await sendEmail({
+      to: reviewers.join(", "),
+      cc: reviewCopyEmail(),
+      replyTo: displayEmail(email || current.person.email) || undefined,
+      subject: "[Tucxa em Harmonia] Atualização cadastral aguardando validação",
+      text: reviewerMessage,
+    }).catch((mailError) => console.error("[OH/TUCXA perfil] falha ao avisar revisores", code, mailError));
+
+    const personEmail = displayEmail(email || current.person.email);
+    if (personEmail) {
+      await sendEmail({
+        to: personEmail,
+        cc: reviewCopyEmail(),
+        subject: "[Tucxa em Harmonia] Atualização enviada para validação",
+        text: [
+          `Olá, ${firstName(fullName)}.`,
+          "",
+          "Sua atualização cadastral foi enviada para validação do TUCXA.",
+          "Seu acesso atual continua disponível enquanto a atualização é conferida.",
+          "",
+          "Acompanhe o andamento:",
+          absoluteStatusUrl,
+          "",
+          `Código de referência: ${code}`,
+        ].join("\n"),
+      }).catch((mailError) => console.error("[OH/TUCXA perfil] falha ao avisar solicitante", code, mailError));
+    }
+
+    const whatsappMessage = [
+      `Olá, sou o ${firstName(fullName)}.`,
+      "",
+      "Enviei uma atualização dos meus dados, funções e agenda no Tucxa em Harmonia.",
+      "",
+      `Nome: ${fullName}`,
+      `WhatsApp: ${whatsapp}`,
+      `E-mail: ${personEmail || "não informado"}`,
+      "",
+      "Funções solicitadas:",
+      functionText,
+      "",
+      "Agenda solicitada:",
+      agendaText,
+      "",
+      notes ? `Observação: ${notes}` : "Observação: não informada",
+      "",
+      "Aguardo a validação do TUCXA.",
+      "Vou acompanhar o andamento por aqui:",
+      absoluteStatusUrl,
+      "",
+      fullName,
+    ].join("\n");
+    const waUrl = whatsappUrl(whatsappSupportPhone(), whatsappMessage);
+
     return NextResponse.json({
       ok: true,
-      message: "Atualização enviada para validação do Tucxa.",
-      statusUrl: `/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/status?token=${encodeURIComponent(updateToken)}`,
+      message: "Atualização enviada para validação do TUCXA.",
+      statusUrl: absoluteStatusUrl,
+      whatsappUrl: waUrl,
+      whatsappPhone: whatsappSupportPhone(),
+      requestId: code,
     });
   } catch (error) {
+    console.error("[OH/TUCXA perfil]", { requestId: code, error });
     const message = error instanceof Error ? error.message : "Erro ao salvar atualização de dados.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, requestId: code }, { status: 500 });
   }
 }

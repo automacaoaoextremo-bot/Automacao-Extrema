@@ -194,6 +194,7 @@ export default function AgendamentosFilhoCorrentePage() {
   const [lookupDone, setLookupDone] = useState(false);
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "", confirmPassword: "", privacyAccepted: false });
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [createdAccess, setCreatedAccess] = useState<AccessDelivery | null>(null);
   const [delivery, setDelivery] = useState<AccessDelivery | null>(null);
   const [recommendedByEntityId, setRecommendedByEntityId] = useState("");
@@ -377,6 +378,7 @@ export default function AgendamentosFilhoCorrentePage() {
       setAgeAtAppointment("");
       setTreatmentNeed("");
       setNewPerson({ fullName: "", email: "", password: "", confirmPassword: "", privacyAccepted: false });
+      setShowNewPassword(false);
       setModal("lookup");
     }
   }
@@ -489,7 +491,10 @@ export default function AgendamentosFilhoCorrentePage() {
         treatmentNeed: selectedPeriod.weekday === "quarta" ? treatmentNeed : undefined,
       });
       setConfirmation(result.appointment as Confirmation);
-      setDelivery((result.delivery || createdAccess || null) as AccessDelivery | null);
+      const resultDelivery = (result.delivery || null) as AccessDelivery | null;
+      setDelivery(resultDelivery
+        ? { ...createdAccess, ...resultDelivery, temporaryPassword: resultDelivery.temporaryPassword || createdAccess?.temporaryPassword }
+        : createdAccess);
       setModal("success");
       await load();
     } catch {
@@ -761,9 +766,12 @@ export default function AgendamentosFilhoCorrentePage() {
               <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Nome completo" required />
               <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 bg-white p-3" placeholder="E-mail opcional" />
               <div className="grid grid-cols-2 gap-2">
-                <input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} type="password" minLength={8} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Senha temporária" required />
-                <input value={newPerson.confirmPassword} onChange={(event) => setNewPerson((current) => ({ ...current, confirmPassword: event.target.value }))} type="password" minLength={8} className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Confirmar senha" required />
+                <input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} type={showNewPassword ? "text" : "password"} minLength={8} autoComplete="new-password" className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Senha temporária" required />
+                <input value={newPerson.confirmPassword} onChange={(event) => setNewPerson((current) => ({ ...current, confirmPassword: event.target.value }))} type={showNewPassword ? "text" : "password"} minLength={8} autoComplete="new-password" className="rounded-xl border border-amber-200 bg-white p-3" placeholder="Confirmar senha" required />
               </div>
+              <button type="button" onClick={() => setShowNewPassword((current) => !current)} className="min-h-10 rounded-xl border border-amber-200 bg-white px-3 text-sm font-black text-amber-900">
+                {showNewPassword ? "Ocultar senhas" : "Mostrar senhas"}
+              </button>
               <p className="text-xs font-semibold text-amber-900">A senha será enviada com o link de acesso. Oriente a pessoa a trocá-la no primeiro acesso.</p>
               <label className="flex items-start gap-2 rounded-xl bg-white p-3 text-xs font-semibold leading-5 text-slate-700 ring-1 ring-amber-200">
                 <input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} className="mt-1 h-4 w-4" required />

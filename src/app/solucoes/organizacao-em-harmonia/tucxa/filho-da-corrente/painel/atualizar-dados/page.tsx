@@ -46,6 +46,9 @@ type SubmitResponse = {
   ok?: boolean;
   message?: string;
   statusUrl?: string;
+  whatsappUrl?: string;
+  whatsappPhone?: string;
+  requestId?: string;
   error?: string;
 };
 
@@ -96,6 +99,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [statusUrl, setStatusUrl] = useState("");
+  const [pendingWhatsappUrl, setPendingWhatsappUrl] = useState("");
+  const [requestId, setRequestId] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -183,6 +188,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setError("");
     setMessage("");
     setStatusUrl("");
+    setPendingWhatsappUrl("");
+    setRequestId("");
 
     if (!fullName.trim()) {
       setError("Informe seu nome completo.");
@@ -191,6 +198,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     if (whatsapp.replace(/\D/g, "").length < 10) {
       setError("Informe seu WhatsApp com DDD.");
       return;
+    }
+
+    const candidateWindow = window.open("", "_blank");
+    const whatsappWindow = candidateWindow && candidateWindow !== window ? candidateWindow : null;
+    if (whatsappWindow) {
+      try {
+        whatsappWindow.opener = null;
+      } catch {
+        // Alguns navegadores não permitem alterar opener.
+      }
+      whatsappWindow.document.title = "Abrindo WhatsApp";
+      whatsappWindow.document.body.innerHTML =
+        '<p style="font-family:Arial,sans-serif;padding:24px">Preparando a atualização para o WhatsApp...</p>';
     }
 
     setSaving(true);
@@ -205,12 +225,32 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
         body: JSON.stringify({ fullName, whatsapp, email, notes, functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda }),
       });
       const result = (await response.json()) as SubmitResponse;
-      if (!response.ok) throw new Error(result.error || "Não foi possível enviar a atualização.");
-      setMessage(result.message || "Atualização enviada para validação do Tucxa.");
+      if (!response.ok) {
+        const failure = new Error(result.error || "Não foi possível enviar a atualização.") as Error & { requestId?: string };
+        failure.requestId = result.requestId;
+        throw failure;
+      }
+
+      setMessage(result.message || "Atualização enviada para validação do TUCXA.");
       setStatusUrl(result.statusUrl || "");
+      setRequestId(result.requestId || "");
       setOriginalFunctionSlugs(functionSlugs);
       setOriginalAgendaSlugs(agendaSlugs);
+
+      if (result.whatsappUrl) {
+        if (whatsappWindow) {
+          whatsappWindow.location.replace(result.whatsappUrl);
+        } else {
+          setPendingWhatsappUrl(result.whatsappUrl);
+        }
+      } else {
+        whatsappWindow?.close();
+      }
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
+      whatsappWindow?.close();
+      setRequestId((err as { requestId?: string })?.requestId || "");
       setError(err instanceof Error ? err.message : "Erro ao enviar atualização.");
     } finally {
       setSaving(false);
@@ -230,15 +270,28 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
           </p>
 
           {loading && <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando dados...</p>}
-          {error && <p className="mt-5 rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+          {error && (
+            <div className="mt-5 rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">
+              <p>{error}</p>
+              {requestId && <p className="mt-1 text-xs">Código para suporte: {requestId}</p>}
+            </div>
+          )}
           {message && (
-            <div className="mt-5 rounded-3xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">
-              <p>{message}</p>
-              {statusUrl && <Link href={statusUrl} className="mt-3 inline-flex rounded-2xl bg-[#123D2C] px-5 py-3 text-white">Acompanhar validação</Link>}
+            <div className="mt-5 rounded-[1.75rem] bg-emerald-50 p-5 text-emerald-900 ring-1 ring-emerald-100">
+              <p className="text-xs font-black uppercase tracking-[0.2em]">Atualização enviada</p>
+              <h2 className="mt-2 text-2xl font-black">Obrigado!</h2>
+              <p className="mt-2 font-bold">{message}</p>
+              <p className="mt-2 text-sm font-semibold leading-6">Seu acesso atual continua disponível enquanto o TUCXA confere as alterações.</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {statusUrl && <Link href={statusUrl} className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">Acompanhar validação</Link>}
+                {pendingWhatsappUrl && <a href={pendingWhatsappUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#25D366] px-5 py-3 text-center font-black text-[#073B1D]">Abrir mensagem no WhatsApp</a>}
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Voltar ao painel</Link>
+              </div>
+              {requestId && <p className="mt-3 text-xs font-semibold">Código de referência: {requestId}</p>}
             </div>
           )}
 
-          {!loading && !error && (
+          {!loading && !error && !message && (
             <form onSubmit={submit} className="mt-6 grid gap-5">
               <section className="grid gap-3 md:grid-cols-3">
                 <label className="grid gap-2 text-sm font-black text-[#123D2C] md:col-span-3">

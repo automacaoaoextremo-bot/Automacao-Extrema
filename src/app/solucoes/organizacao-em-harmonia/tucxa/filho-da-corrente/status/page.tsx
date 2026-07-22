@@ -16,6 +16,7 @@ type StatusRequest = {
   whatsapp: string | null;
   email: string | null;
   summary: {
+    requestType?: string;
     selectedFunctions?: DraftItem[];
     selectedAgenda?: DraftItem[];
     notes?: string;
@@ -76,6 +77,7 @@ export default function StatusPrimeiroAcessoFilhoDaCorrentePage() {
 
   const functions = useMemo(() => validItems(request?.summary?.selectedFunctions), [request?.summary?.selectedFunctions]);
   const agenda = useMemo(() => validItems(request?.summary?.selectedAgenda), [request?.summary?.selectedAgenda]);
+  const isProfileUpdate = request?.summary?.requestType === "profile_update";
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -84,14 +86,14 @@ export default function StatusPrimeiroAcessoFilhoDaCorrentePage() {
           { label: "Primeiro acesso", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente?modo=primeiro-acesso", variant: "primary" },
           { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
         ]}
-        navLabel="Status do Primeiro Acesso"
+        navLabel={isProfileUpdate ? "Status da atualização cadastral" : "Status do Primeiro Acesso"}
       />
 
       <section className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
-          <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">Primeiro acesso</p>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-[#2F6B43]">{isProfileUpdate ? "Atualização cadastral" : "Primeiro acesso"}</p>
           <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Status da solicitação</h1>
-          <p className="mt-3 leading-7 text-slate-700">Acompanhe aqui se o Tucxa já validou seus vínculos, funções e agenda.</p>
+          <p className="mt-3 leading-7 text-slate-700">{isProfileUpdate ? "Acompanhe a validação das alterações enviadas. Seu acesso atual continua liberado durante a conferência." : "Acompanhe aqui se o Tucxa já validou seus vínculos, funções e agenda."}</p>
 
           {loading && <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Consultando status...</p>}
           {error && <p className="mt-5 rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}

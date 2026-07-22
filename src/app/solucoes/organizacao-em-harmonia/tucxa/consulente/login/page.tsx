@@ -68,8 +68,8 @@ export default function LoginConsulenteTucxaPage() {
     setLoading(true);
     try {
       const authEmail = await resolveAuthEmail();
-      const { error: authError } = await supabaseBrowser.auth.signInWithPassword({ email: authEmail, password });
-      if (authError) {
+      const { data: authData, error: authError } = await supabaseBrowser.auth.signInWithPassword({ email: authEmail, password });
+      if (authError || !authData.user) {
         throw new Error("Não foi possível entrar. Confira WhatsApp/e-mail e senha, ou use 'Esqueci minha senha'.");
       }
 
@@ -79,7 +79,10 @@ export default function LoginConsulenteTucxaPage() {
         : destination === "agenda"
           ? "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agenda-viva"
           : "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel");
-      window.location.href = target;
+      const mustChangePassword = authData.user.user_metadata?.must_change_password === true;
+      window.location.href = mustChangePassword
+        ? `/solucoes/organizacao-em-harmonia/tucxa/consulente/trocar-senha?returnTo=${encodeURIComponent(target)}`
+        : target;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar agora.");
       setLoading(false);

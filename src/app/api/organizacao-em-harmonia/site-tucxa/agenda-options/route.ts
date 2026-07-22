@@ -341,17 +341,42 @@ function isRecurringEvent(event: AgendaEventRecord) {
   );
 }
 
-function hasEnded(event: AgendaEventRecord, today: Date) {
+function isoDateInSaoPaulo(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function todayIsoInSaoPaulo() {
+  return isoDateInSaoPaulo(new Date());
+}
+
+function hasEnded(event: AgendaEventRecord, todayIso: string) {
   const endDate = endsAt(event);
   const startDate = startsAt(event);
   if (!endDate && isRecurringEvent(event)) return false;
 
   const comparisonDate = endDate ?? startDate;
-
   if (!comparisonDate) return false;
-  const normalized = new Date(comparisonDate);
-  normalized.setHours(23, 59, 59, 999);
-  return normalized < today;
+
+  return isoDateInSaoPaulo(comparisonDate) < todayIso;
+}
+
+function fallbackOptionHasEnded(option: AgendaOption, todayIso: string) {
+  if (normalize(option.recurrenceLabel).includes("recorrencia")) return false;
+  const match = option.dateLabel.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!match) return false;
+  const [, day, month, year] = match;
+  return `${year}-${month}-${day}` < todayIso;
+}
+
+function availableFallbackOptions(todayIso: string) {
+  return fallbackOptions.filter((option) => !fallbackOptionHasEnded(option, todayIso));
 }
 
 function isVacationOrRecess(event: AgendaEventRecord) {
@@ -608,10 +633,8 @@ async function findTucxaOrganizationId() {
 export async function GET() {
   try {
     const organizationId = await findTucxaOrganizationId();
-    if (!organizationId) return NextResponse.json({ options: fallbackOptions, source: "fallback" });
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayIso = todayIsoInSaoPaulo();
+    if (!organizationId) return NextResponse.json({ options: availableFallbackOptions(todayIso), source: "fallback" });
 
     const [{ data, error }, { data: locationsData, error: locationsError }] = await Promise.all([
       supabaseAdmin
@@ -635,7 +658,7 @@ export async function GET() {
     const generated = dedupeOptions(
       rawEvents
         .filter((event) => !isDisabledForFirstAccess(event))
-        .filter((event) => !hasEnded(event, today) || isRecurringEvent(event))
+        .filter((event) => !hasEnded(event, todayIso))
         .filter((event) => hasExplicitFirstAccessEnabled(event) || !isVacationOrRecess(event))
         .filter((event) => hasExplicitFirstAccessEnabled(event) || !isMandatoryForAllFilhos(event))
         .sort((a, b) => {
@@ -651,8 +674,8 @@ export async function GET() {
         .filter((item) => item.slug && item.label),
     );
 
-    return NextResponse.json({ options: generated.length ? generated : fallbackOptions, source: generated.length ? "agenda-viva" : "fallback" });
+    return NextResponse.json({ options: generated.length ? generated : availableFallbackOptions(todayIso), source: generated.length ? "agenda-viva" : "fallback" });
   } catch {
-    return NextResponse.json({ options: fallbackOptions, source: "fallback" });
+    return NextResponse.json({ options: availableFallbackOptions(todayIsoInSaoPaulo()), source: "fallback" });
   }
 }
