@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { ReceptionAppointmentsCard } from "@/components/organizacao-em-harmonia/reception-appointments-card";
 
 const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const pageHref = `${filhoPanelBase}/atendimento`;
@@ -47,6 +48,7 @@ export default function AtendimentoEmHarmoniaPage() {
         showSupport={false}
         actions={[
           { label: "Atendimento em Harmonia", href: pageHref, variant: "primary" },
+          { label: "Voltar", href: `${pageHref}/orientacoes`, variant: "secondary" },
           { label: "Orientações", href: "#orientacoes", variant: "secondary" },
           { label: "Acolhimento e Agendamentos", href: "#agendamentos", variant: "secondary" },
           filhoSupportAction,
@@ -75,6 +77,7 @@ export default function AtendimentoEmHarmoniaPage() {
                 </Link>
               </article>
             ))}
+            <ReceptionAppointmentsCard />
           </section>
         </div>
       </section>

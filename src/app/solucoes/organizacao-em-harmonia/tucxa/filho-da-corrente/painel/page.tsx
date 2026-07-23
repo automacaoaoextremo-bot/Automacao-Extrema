@@ -7,6 +7,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type UserInfo = {
   fullName: string;
+  profileUpdateStatus: string;
 };
 
 const moduleCards = [
@@ -38,8 +39,9 @@ export default function PainelFilhoDaCorrentePage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      supabaseBrowser.auth.getUser().then(async ({ data }) => {
-        const user = data.user;
+      supabaseBrowser.auth.getSession().then(async ({ data }) => {
+        const session = data.session;
+        const user = session?.user;
         if (!user) {
           window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
           return;
@@ -52,8 +54,18 @@ export default function PainelFilhoDaCorrentePage() {
           return;
         }
 
+        let profileUpdateStatus = typeof metadata.profile_update_status === "string" ? metadata.profile_update_status : "";
+        if (session.access_token) {
+          const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const payload = (await response.json().catch(() => ({}))) as { profileUpdateStatus?: string };
+          if (response.ok) profileUpdateStatus = payload.profileUpdateStatus || profileUpdateStatus;
+        }
+
         setUserInfo({
           fullName: typeof metadata.full_name === "string" ? metadata.full_name : user.email || "Filho da Corrente",
+          profileUpdateStatus,
         });
         setLoading(false);
       });
@@ -78,6 +90,20 @@ export default function PainelFilhoDaCorrentePage() {
                 Este é o seu espaço de consulta e orientação. Acesse os módulos do Organização em Harmonia do Tucxa, acompanhe e mantenha seus dados, funções e agendas sempre atualizados.
               </p>
             </section>
+
+            {userInfo.profileUpdateStatus === "pendente_validacao" && (
+              <section className="rounded-[1.75rem] bg-blue-50 p-4 text-blue-950 ring-1 ring-blue-100">
+                <p className="font-black">Atualização cadastral aguardando validação.</p>
+                <p className="mt-1 text-sm font-semibold leading-6">Seu perfil aprovado continua disponível. As novas funções e agendas serão liberadas somente depois da aprovação do TUCXA.</p>
+              </section>
+            )}
+
+            {userInfo.profileUpdateStatus === "ajuste_solicitado" && (
+              <section className="rounded-[1.75rem] bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-100">
+                <p className="font-black">Sua atualização cadastral precisa de ajustes.</p>
+                <p className="mt-1 text-sm font-semibold leading-6">O perfil anteriormente aprovado continua ativo. Abra Cadastro para revisar e enviar novamente.</p>
+              </section>
+            )}
 
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {moduleCards.map((card) => (

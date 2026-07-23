@@ -101,6 +101,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [statusUrl, setStatusUrl] = useState("");
   const [pendingWhatsappUrl, setPendingWhatsappUrl] = useState("");
   const [requestId, setRequestId] = useState("");
+  const [profileUpdateStatus, setProfileUpdateStatus] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -132,6 +133,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setAgendaSlugs(profile.agendaSlugs ?? []);
     setOriginalFunctionSlugs(profile.functionSlugs ?? []);
     setOriginalAgendaSlugs(profile.agendaSlugs ?? []);
+    setProfileUpdateStatus(profile.profileUpdateStatus || "");
     setAgendaOptions(options);
   }, []);
 
@@ -234,8 +236,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       setMessage(result.message || "Atualização enviada para validação do TUCXA.");
       setStatusUrl(result.statusUrl || "");
       setRequestId(result.requestId || "");
-      setOriginalFunctionSlugs(functionSlugs);
-      setOriginalAgendaSlugs(agendaSlugs);
+      setProfileUpdateStatus("pendente_validacao");
 
       if (result.whatsappUrl) {
         if (whatsappWindow) {
@@ -268,6 +269,20 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
           <p className="mt-3 max-w-3xl leading-7 text-slate-700">
             Veja o que já está selecionado, marque o que mudou e envie a atualização para validação do Tucxa. Novas atividades disponíveis aparecem destacadas.
           </p>
+
+          {profileUpdateStatus === "pendente_validacao" && !message && (
+            <div className="mt-5 rounded-3xl bg-blue-50 p-4 text-blue-950 ring-1 ring-blue-100">
+              <p className="font-black">Atualização cadastral aguardando validação.</p>
+              <p className="mt-1 text-sm font-semibold leading-6">Seu acesso e as informações anteriormente aprovadas continuam ativos. As novas funções e agendas somente serão aplicadas depois da aprovação.</p>
+            </div>
+          )}
+
+          {profileUpdateStatus === "ajuste_solicitado" && !message && (
+            <div className="mt-5 rounded-3xl bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-100">
+              <p className="font-black">A atualização anterior precisa de ajustes.</p>
+              <p className="mt-1 text-sm font-semibold leading-6">O perfil aprovado continua ativo. Revise as informações e envie uma nova solicitação.</p>
+            </div>
+          )}
 
           {loading && <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando dados...</p>}
           {error && (

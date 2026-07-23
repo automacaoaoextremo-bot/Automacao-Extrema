@@ -7,6 +7,10 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 function asBool(value: unknown, fallback = true) {
   if (typeof value === "boolean") return value;
   const text = asText(value).toLowerCase();
@@ -665,13 +669,195 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
   const { data: person, error: personError } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, email, whatsapp, auth_user_id")
+    .select("id, full_name, email, whatsapp, notes, auth_user_id, active")
     .eq("id", personId)
     .eq("organization_id", organizationId)
     .maybeSingle();
-
   if (personError) throw personError;
   if (!person?.id) throw new Error("Envolvido não localizado na Base Única.");
+
+  const { data: currentMembership, error: currentMembershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id, agenda_viva_profile, active, status, module_slugs")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentMembershipError) throw currentMembershipError;
+  if (!currentMembership?.id) throw new Error("Vínculo do envolvido não localizado.");
+
+  const { data: validationRequest, error: validationRequestError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .select("id, status, summary, full_name, whatsapp, email, function_slugs, agenda_slugs")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (validationRequestError) throw validationRequestError;
+
+  const requestSummary = asRecord(validationRequest?.summary);
+  const requestType = asText(requestSummary.requestType);
+  const now = new Date().toISOString();
+
+  if (requestType === "profile_update") {
+    if (!validationRequest?.id) throw new Error("Solicitação de atualização cadastral não localizada.");
+    const currentProfile = asRecord(currentMembership.agenda_viva_profile);
+    const requestedPerson = asRecord(requestSummary.requestedPerson);
+    const requestedProfile = asRecord(requestSummary.requestedProfile);
+    const requestedFunctionSlugs = asTextList(requestedProfile.functionSlugs ?? validationRequest?.function_slugs);
+    const requestedAgendaSlugs = asTextList(requestedProfile.agendaSlugs ?? validationRequest?.agenda_slugs);
+    const requestedSelectedFunctions = Array.isArray(requestedProfile.selectedFunctions)
+      ? requestedProfile.selectedFunctions
+      : Array.isArray(requestSummary.selectedFunctions)
+        ? requestSummary.selectedFunctions
+        : [];
+    const requestedSelectedAgenda = Array.isArray(requestedProfile.selectedAgenda)
+      ? requestedProfile.selectedAgenda
+      : Array.isArray(requestSummary.selectedAgenda)
+        ? requestSummary.selectedAgenda
+        : [];
+    const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
+    const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
+    const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
+    const requestedNotes = asText(requestedPerson.notes ?? requestSummary.notes);
+
+    if (approved) {
+      const { error: approvedPersonError } = await supabaseAdmin
+        .from("oh_people")
+        .update({
+          full_name: requestedFullName,
+          whatsapp: requestedWhatsapp,
+          email: requestedEmail || person.email,
+          notes: requestedNotes || null,
+          active: true,
+          updated_at: now,
+        })
+        .eq("id", personId)
+        .eq("organization_id", organizationId);
+      if (approvedPersonError) throw approvedPersonError;
+
+      const approvedSnapshot = {
+        person: {
+          fullName: requestedFullName,
+          whatsapp: requestedWhatsapp,
+          email: requestedEmail,
+          notes: requestedNotes,
+        },
+        profile: {
+          functionSlugs: requestedFunctionSlugs,
+          agendaSlugs: requestedAgendaSlugs,
+          selectedFunctions: requestedSelectedFunctions,
+          selectedAgenda: requestedSelectedAgenda,
+        },
+        approvedAt: now,
+      };
+      const nextProfile = mergeProfile(currentProfile, {
+        functionSlugs: requestedFunctionSlugs,
+        agendaSlugs: requestedAgendaSlugs,
+        selectedFunctions: requestedSelectedFunctions,
+        selectedAgenda: requestedSelectedAgenda,
+        validationStatus: "ativo",
+        profileUpdateStatus: "aprovado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+        approvedProfileSnapshot: approvedSnapshot,
+        lastProfileUpdateAt: now,
+        reviewedAt: now,
+        reviewNotes: reviewNotes || "",
+      });
+
+      const { error: approvedMembershipError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({
+          active: true,
+          status: "ativo",
+          module_slugs: Array.isArray(currentMembership.module_slugs) && currentMembership.module_slugs.length
+            ? currentMembership.module_slugs
+            : DEFAULT_MODULE_SLUGS,
+          agenda_viva_profile: nextProfile,
+          updated_at: now,
+        })
+        .eq("id", currentMembership.id);
+      if (approvedMembershipError) throw approvedMembershipError;
+    } else {
+      const nextProfile = mergeProfile(currentProfile, {
+        validationStatus: "ativo",
+        profileUpdateStatus: "ajuste_solicitado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+        lastRejectedProfileUpdate: requestSummary,
+        reviewedAt: now,
+        reviewNotes: reviewNotes || "",
+      });
+      const { error: rejectedMembershipError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({
+          active: true,
+          status: "ativo",
+          agenda_viva_profile: nextProfile,
+          updated_at: now,
+        })
+        .eq("id", currentMembership.id);
+      if (rejectedMembershipError) throw rejectedMembershipError;
+    }
+
+    await supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .update({ status: approved ? "ativo" : "ajuste_solicitado", updated_at: now })
+      .eq("id", validationRequest.id);
+
+    if (person.auth_user_id) {
+      const metadataPatch: Record<string, unknown> = {
+        full_name: approved ? requestedFullName : person.full_name,
+        whatsapp: approved ? requestedWhatsapp : person.whatsapp,
+        organization_id: organizationId,
+        oh_profile: "filho-da-corrente",
+        oh_access_status: "ativo",
+        profile_update_status: approved ? "aprovado" : "ajuste_solicitado",
+      };
+      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
+        user_metadata: metadataPatch,
+      });
+      if (authError) throw authError;
+    }
+
+    const currentEmail = displayEmail(approved ? requestedEmail || person.email : person.email);
+    const updateMessage = approved
+      ? [
+          `Olá, ${firstName(approved ? requestedFullName : person.full_name)}.`,
+          "",
+          "Sua atualização cadastral no Tucxa em Harmonia foi aprovada.",
+          "As funções, agendas e dados aprovados já estão disponíveis no seu acesso.",
+          "",
+          reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Acesse seu painel para conferir as informações atualizadas.",
+        ].join("\n")
+      : [
+          `Olá, ${firstName(person.full_name)}.`,
+          "",
+          "Sua atualização cadastral no Tucxa em Harmonia precisa de ajustes.",
+          "Seu acesso anterior continua ativo e as alterações solicitadas não foram aplicadas.",
+          "",
+          reviewNotes || "Revise os dados, funções e agendas e envie uma nova atualização para validação.",
+        ].join("\n");
+
+    if (currentEmail) {
+      await sendAccessEmail({
+        to: currentEmail,
+        cc: internalReviewEmail(),
+        subject: approved ? "Atualização cadastral aprovada - Tucxa em Harmonia" : "Ajuste solicitado na atualização cadastral - Tucxa em Harmonia",
+        text: updateMessage,
+      });
+    }
+
+    return {
+      whatsappUrl: whatsappUrl(approved ? requestedWhatsapp : person.whatsapp, updateMessage),
+      emailSent: Boolean(currentEmail),
+      emailTo: currentEmail,
+      profileUpdateDecision: approved ? "approved" : "adjustment_requested",
+    };
+  }
 
   const nextStatus = approved ? "ativo" : "ajuste_solicitado";
   const { error: personUpdateError } = await supabaseAdmin
@@ -679,26 +865,16 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .update({
       active: approved,
       notes: reviewNotes || null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq("id", personId)
     .eq("organization_id", organizationId);
   if (personUpdateError) throw personUpdateError;
 
-  const { data: currentMembership, error: currentMembershipError } = await supabaseAdmin
-    .from("oh_memberships")
-    .select("id, agenda_viva_profile")
-    .eq("organization_id", organizationId)
-    .eq("person_id", personId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (currentMembershipError) throw currentMembershipError;
-
-  const mergedProfile = mergeProfile(currentMembership?.agenda_viva_profile, {
+  const mergedProfile = mergeProfile(currentMembership.agenda_viva_profile, {
     source: "primeiro_acesso_filho_corrente",
     validationStatus: nextStatus,
-    reviewedAt: new Date().toISOString(),
+    reviewedAt: now,
     reviewNotes: reviewNotes || "",
   });
   const primaryRoleId = await filhoDaCorrenteRoleId(organizationId);
@@ -709,7 +885,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     ...(primaryRoleId ? { role_id: primaryRoleId } : {}),
     module_slugs: DEFAULT_MODULE_SLUGS,
     agenda_viva_profile: mergedProfile,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   };
 
   const { error: membershipError } = await supabaseAdmin
@@ -721,7 +897,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
   await supabaseAdmin
     .from("oh_first_access_validation_requests")
-    .update({ status: nextStatus, updated_at: new Date().toISOString() })
+    .update({ status: nextStatus, updated_at: now })
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
 
@@ -740,7 +916,6 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
   const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login`;
   const email = displayEmail(person.email);
-
   const emailMessage = approved
     ? [
         `Olá, ${firstName(person.full_name)}.`,
@@ -750,9 +925,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         "Acesse pelo link abaixo usando seu e-mail ou WhatsApp e a senha cadastrada no primeiro acesso:",
         loginUrl,
         "",
-        "Com a Base Única atualizada, o Tucxa consegue organizar Agenda Viva, Atendimento em Harmonia e Corrente em Dia com menos retrabalho e mais clareza para todos.",
-        "",
-        reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, responda esta mensagem ou fale com o responsável do Tucxa.",
+        reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, fale com o responsável do Tucxa.",
       ].join("\n")
     : [
         `Olá, ${firstName(person.full_name)}.`,
@@ -774,30 +947,57 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     });
   }
 
-  const waMessage = approved
-    ? [
-        `Olá, ${firstName(person.full_name)}. Seu acesso à Organização em Harmonia do Tucxa foi liberado.`,
-        "",
-        "Use seu WhatsApp ou e-mail e a senha cadastrada no primeiro acesso:",
-        loginUrl,
-        "",
-        reviewNotes ? `Orientação: ${reviewNotes}` : "Qualquer dúvida, fale com o responsável do Tucxa.",
-      ].join("\n")
-    : [
-        `Olá, ${firstName(person.full_name)}. Conferimos seu cadastro na Organização em Harmonia do Tucxa e precisamos ajustar algumas informações antes de liberar o acesso.`,
-        "",
-        reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
-        "",
-        "Você pode atualizar seus dados pelo primeiro acesso:",
-        loginUrl,
-      ].join("\n");
-
-  return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(email), emailTo: email };
+  return { whatsappUrl: whatsappUrl(person.whatsapp, emailMessage), emailSent: Boolean(email), emailTo: email };
 }
 
 async function deleteAccessValidation(organizationId: string, body: Record<string, unknown>) {
   const personId = asText(body.personId);
   if (!personId) throw new Error("Pessoa não informada para excluir o pedido de validação.");
+
+  const { data: latestRequest, error: requestLookupError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .select("id, summary")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (requestLookupError) throw requestLookupError;
+
+  if (asText(asRecord(latestRequest?.summary).requestType) === "profile_update") {
+    const { data: membership, error: membershipLookupError } = await supabaseAdmin
+      .from("oh_memberships")
+      .select("id, agenda_viva_profile")
+      .eq("organization_id", organizationId)
+      .eq("person_id", personId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (membershipLookupError) throw membershipLookupError;
+
+    if (membership?.id) {
+      const profile = mergeProfile(membership.agenda_viva_profile, {
+        profileUpdateStatus: "cancelado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+      });
+      const { error: clearError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({ agenda_viva_profile: profile, updated_at: new Date().toISOString() })
+        .eq("id", membership.id);
+      if (clearError) throw clearError;
+    }
+
+    if (latestRequest?.id) {
+      const { error: deleteRequestError } = await supabaseAdmin
+        .from("oh_first_access_validation_requests")
+        .delete()
+        .eq("id", latestRequest.id);
+      if (deleteRequestError) throw deleteRequestError;
+    }
+
+    return { deletedValidation: true, preservedExistingAccess: true };
+  }
 
   const { data: person, error: personError } = await supabaseAdmin
     .from("oh_people")

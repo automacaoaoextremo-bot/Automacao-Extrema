@@ -18,6 +18,8 @@ type TucxaPublicHeaderProps = {
   sectionLinks?: TucxaHeaderLink[];
   navLabel?: string;
   showSupport?: boolean;
+  authenticatedName?: string;
+  showSessionName?: boolean;
 };
 
 function getLocationMatchKey(href: string) {
@@ -186,10 +188,24 @@ function SectionLink({ link, active, onSelect }: { link: TucxaHeaderLink; active
   );
 }
 
-export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = "Menu do site do Tucxa", showSupport = true }: TucxaPublicHeaderProps) {
+function authenticatedNameFromUser(user: { user_metadata?: Record<string, unknown> } | null | undefined) {
+  const metadata = user?.user_metadata ?? {};
+  const candidates = [metadata.full_name, metadata.fullName, metadata.name];
+  return candidates.find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim() ?? "";
+}
+
+export function TucxaPublicHeader({
+  actions = [],
+  sectionLinks = [],
+  navLabel = "Menu do site do Tucxa",
+  showSupport = true,
+  authenticatedName = "",
+  showSessionName = false,
+}: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
   const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
   const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
+  const [sessionAuthenticatedName, setSessionAuthenticatedName] = useState("");
 
   useEffect(() => {
     const updateActiveHref = () => {
@@ -209,6 +225,24 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
     };
   }, [allLinks]);
 
+  useEffect(() => {
+    if (!showSessionName) return;
+
+    let active = true;
+    void supabaseBrowser.auth.getSession().then(({ data }) => {
+      if (active) setSessionAuthenticatedName(authenticatedNameFromUser(data.session?.user));
+    });
+    const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
+      if (active) setSessionAuthenticatedName(authenticatedNameFromUser(session?.user));
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [showSessionName]);
+
+  const effectiveAuthenticatedName = authenticatedName || (showSessionName ? sessionAuthenticatedName : "");
+
   const handleSelect = (href: string) => {
     setActiveHref(href);
   };
@@ -224,9 +258,20 @@ export function TucxaPublicHeader({ actions = [], sectionLinks = [], navLabel = 
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
             <Image src={tucxaTheme.logoSrc} alt="Logo do Tucxa" width={72} height={72} className="h-full w-full object-contain" priority />
           </span>
-          <span className="min-w-0">
-            <span className="block whitespace-nowrap text-[1.05rem] font-black leading-[1.05] text-[#173323] sm:text-[1.45rem]">
-              {tucxaTheme.organizationName}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-baseline gap-2 leading-[1.05] text-[#173323]">
+              <span className="shrink-0 whitespace-nowrap text-[1.05rem] font-black sm:text-[1.45rem]">
+                {tucxaTheme.organizationName}
+              </span>
+              {effectiveAuthenticatedName && (
+                <span
+                  className="min-w-0 truncate whitespace-nowrap text-[0.72rem] font-bold text-[#2F6B43] sm:text-[0.95rem]"
+                  title={effectiveAuthenticatedName}
+                  aria-label={`Pessoa logada: ${effectiveAuthenticatedName}`}
+                >
+                  {effectiveAuthenticatedName}
+                </span>
+              )}
             </span>
             <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
               {tucxaTheme.fullName}

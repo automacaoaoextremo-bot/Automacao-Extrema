@@ -43,6 +43,7 @@ export default function TrocarSenhaFilhoDaCorrentePage() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
+        showSessionName
         actions={[
           { label: "Voltar ao login", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "primary" },
           { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },

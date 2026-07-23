@@ -56,7 +56,18 @@ export default function TrocarSenhaConsulenteTucxaPage() {
     });
 
     if (updateError) {
-      setError("Não foi possível trocar a senha. Tente novamente.");
+      const normalizedMessage = updateError.message.toLowerCase();
+      const samePassword =
+        normalizedMessage.includes("different from the old password") ||
+        normalizedMessage.includes("different from old password") ||
+        normalizedMessage.includes("same password") ||
+        normalizedMessage.includes("password should be different");
+
+      setError(
+        samePassword
+          ? "A nova senha deve ser diferente da senha temporária recebida no cadastro. Escolha outra senha para continuar."
+          : "Não foi possível trocar a senha. Confira os dados e tente novamente.",
+      );
       setLoading(false);
       return;
     }
@@ -66,7 +77,7 @@ export default function TrocarSenhaConsulenteTucxaPage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={[]} navLabel="Troca obrigatória de senha" />
+      <TucxaPublicHeader actions={[]} navLabel="Troca obrigatória de senha" showSessionName />
       <section className="mx-auto max-w-xl px-4 py-6 sm:px-6 lg:px-8">
         <article className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Primeiro acesso</p>

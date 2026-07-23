@@ -163,6 +163,26 @@ function firstName(value: string) {
   return value.split(/\s+/)[0] || "Filho da Corrente";
 }
 
+function normalizedSlugSet(value: unknown) {
+  return new Set(asTextList(value).map((item) => item.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+}
+
+function profileHasReception(profileValue: unknown) {
+  const profile = asRecord(profileValue);
+  if (profile.supportsReception === true) return true;
+  const values = [
+    ...normalizedSlugSet(profile.functionSlugs),
+    ...asDraftItems(profile.selectedFunctions).map((item) => item.slug.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()),
+    ...asDraftItems(profile.selectedFunctions).map((item) => item.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()),
+  ];
+  return values.some((value) => value.includes("recepcao") || value.includes("recepcionista"));
+}
+
+function listDifference(nextValues: string[], previousValues: string[]) {
+  const previous = new Set(previousValues);
+  return nextValues.filter((item) => !previous.has(item));
+}
+
 async function findTucxaOrganizationId() {
   const { data: bySlug } = await supabaseAdmin.from("oh_organizations").select("id, name").eq("slug", "tucxa").maybeSingle();
   if (bySlug?.id) return { id: bySlug.id as string, name: asText(bySlug.name) || "Tucxa" };
@@ -241,6 +261,8 @@ function profilePayload(person: PersonRecord, membership: MembershipRecord) {
     submittedAt: asText(profile.submittedAt),
     lastProfileUpdateAt: asText(profile.lastProfileUpdateAt),
     profileUpdateStatus: asText(profile.profileUpdateStatus),
+    pendingProfileUpdate: asRecord(profile.pendingProfileUpdate),
+    canReception: profileHasReception(profile),
   };
 }
 
@@ -281,17 +303,46 @@ export async function POST(request: Request) {
     if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
 
     const previousProfile = asRecord(current.membership.agenda_viva_profile);
+    const previousFunctionSlugs = asTextList(previousProfile.functionSlugs);
+    const previousAgendaSlugs = asTextList(previousProfile.agendaSlugs);
+    const previousSelectedFunctions = asDraftItems(previousProfile.selectedFunctions);
+    const previousSelectedAgenda = asDraftItems(previousProfile.selectedAgenda);
     const now = new Date().toISOString();
     const updateToken = statusToken();
+    const previousPerson = {
+      fullName: current.person.full_name || "",
+      whatsapp: current.person.whatsapp || "",
+      email: displayEmail(current.person.email),
+      notes: current.person.notes || "",
+    };
+    const requestedPerson = { fullName, whatsapp, email, notes };
+    const requestedProfile = { functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda };
+    const changes = {
+      functionsAdded: listDifference(functionSlugs, previousFunctionSlugs),
+      functionsRemoved: listDifference(previousFunctionSlugs, functionSlugs),
+      agendaAdded: listDifference(agendaSlugs, previousAgendaSlugs),
+      agendaRemoved: listDifference(previousAgendaSlugs, agendaSlugs),
+      personalData: [
+        previousPerson.fullName !== requestedPerson.fullName ? "Nome completo" : "",
+        onlyDigits(previousPerson.whatsapp) !== requestedPerson.whatsapp ? "WhatsApp" : "",
+        normalizeEmail(previousPerson.email) !== requestedPerson.email ? "E-mail" : "",
+        previousPerson.notes !== requestedPerson.notes ? "Observação" : "",
+      ].filter(Boolean),
+    };
     const requestSummary = {
       requestType: "profile_update",
       statusToken: updateToken,
-      notes,
-      selectedFunctions,
-      selectedAgenda,
       requestedAt: now,
-      previousFunctionSlugs: Array.isArray(previousProfile.functionSlugs) ? previousProfile.functionSlugs : [],
-      previousAgendaSlugs: Array.isArray(previousProfile.agendaSlugs) ? previousProfile.agendaSlugs : [],
+      previousPerson,
+      requestedPerson,
+      previousProfile: {
+        functionSlugs: previousFunctionSlugs,
+        agendaSlugs: previousAgendaSlugs,
+        selectedFunctions: previousSelectedFunctions,
+        selectedAgenda: previousSelectedAgenda,
+      },
+      requestedProfile,
+      changes,
     };
 
     const nextProfile = {
@@ -299,33 +350,15 @@ export async function POST(request: Request) {
       source: "primeiro_acesso_filho_corrente",
       validationStatus: "ativo",
       profileUpdateStatus: "pendente_validacao",
-      functionSlugs,
-      agendaSlugs,
-      selectedFunctions,
-      selectedAgenda,
-      lastProfileUpdateAt: now,
       pendingProfileUpdateAt: now,
+      pendingProfileUpdate: requestSummary,
     };
-
-    const { error: personError } = await supabaseAdmin
-      .from("oh_people")
-      .update({
-        full_name: fullName,
-        whatsapp,
-        email: email || current.person.email,
-        notes: notes || null,
-        updated_at: now,
-      })
-      .eq("id", current.person.id)
-      .eq("organization_id", organization.id);
-    if (personError) throw personError;
 
     const { error: membershipError } = await supabaseAdmin
       .from("oh_memberships")
       .update({
         active: true,
         status: "ativo",
-        module_slugs: DEFAULT_MODULE_SLUGS,
         agenda_viva_profile: nextProfile,
         updated_at: now,
       })
