@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { UpcomingAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-appointments-login-modal";
 
 type UserInfo = {
   fullName: string;
@@ -117,6 +118,8 @@ export default function PainelFilhoDaCorrentePage() {
           </div>
         )}
       </section>
+
+      <UpcomingAppointmentsLoginModal appointmentsHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamentos" />
     </main>
   );
 }

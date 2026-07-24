@@ -162,6 +162,8 @@ export default function ValidacoesPrimeiroAcessoPage() {
     const requests = payload?.validationRequests ?? [];
     const requestByPerson = new Map<string, ValidationRequest>();
     for (const request of requests) {
+      const requestStatus = asText(request.status).toLowerCase();
+      if (["aprovado", "ativo", "cancelado"].includes(requestStatus)) continue;
       if (!requestByPerson.has(request.person_id)) requestByPerson.set(request.person_id, request);
     }
 

@@ -1,9 +1,13 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
-import { ReceptionAppointmentsCard } from "@/components/organizacao-em-harmonia/reception-appointments-card";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const pageHref = `${filhoPanelBase}/atendimento`;
+const consultationHref = `${pageHref}/consultar-agendamentos`;
 
 const filhoSupportAction = {
   label: "Dúvidas?",
@@ -19,68 +23,169 @@ const filhoSignOutAction = {
   action: "signOutFilhoCorrente" as const,
 };
 
-const cards = [
-  {
-    id: "orientacoes",
+type ModalKind = "orientacoes" | "agendamentos" | "recepcao" | null;
+
+type HeaderAction = {
+  label: string;
+  href: string;
+  variant: "primary" | "secondary";
+  action?: "signOutFilhoCorrente" | "supportWhatsapp";
+};
+
+type ProfileResponse = {
+  canReception?: boolean;
+};
+
+const modalContent = {
+  orientacoes: {
     eyebrow: "Orientações práticas do Tucxa",
-    title: "Tudo que ajuda você a chegar preparado e seguro.",
-    description:
-      "Regulamento, preparo, silêncio, cambonos, presença e acolhimento reunidos em linguagem simples para consultar antes, durante ou depois dos trabalhos.",
-    cta: "Abrir orientações",
+    title: "Chegue preparado e participe com segurança.",
+    paragraphs: [
+      "Consulte as orientações sobre chegada, silêncio, preparo, presença, atuação dos cambonos e cuidado com o ambiente antes dos trabalhos.",
+      "As informações completas permanecem disponíveis na página de Orientações para consulta sempre que precisar.",
+    ],
     href: `${pageHref}/orientacoes`,
+    cta: "Abrir orientações completas",
   },
-  {
-    id: "agendamentos",
+  agendamentos: {
     eyebrow: "Acolhimento e agendamentos",
-    title: "Recepção com ordem, cuidado e continuidade.",
-    description:
-      "Confira grupos de atendimento, entidades ativas, vagas disponíveis e registros da recepção, sempre preservando a sequência e o cuidado humano.",
-    cta: "Abrir agendamentos",
+    title: "Acompanhe presença, acolhimento e atendimento.",
+    paragraphs: [
+      "Consulte as quintas do seu grupo, confirme presença e solicite atendimento com uma entidade somente quando desejar.",
+      "Pessoas com função de Recepção também podem agendar Consulentes/Filhos de Fora pelos períodos permitidos.",
+    ],
     href: `${pageHref}/agendamentos`,
+    cta: "Abrir acolhimento e agendamentos",
   },
-];
+  recepcao: {
+    eyebrow: "Consulta da Recepção",
+    title: "Localize e acompanhe os atendimentos previstos.",
+    paragraphs: [
+      "Pesquise por nome ou WhatsApp, filtre por entidade e situação e consulte atendimentos futuros ou anteriores.",
+      "A consulta também permite editar, cancelar ou excluir registros conforme as regras e permissões da organização.",
+    ],
+    href: consultationHref,
+    cta: "Abrir consulta da Recepção",
+  },
+} as const;
 
 export default function AtendimentoEmHarmoniaPage() {
+  const [canReception, setCanReception] = useState(false);
+  const [modal, setModal] = useState<ModalKind>(null);
+
+  useEffect(() => {
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      void supabaseBrowser.auth.getSession().then(async ({ data }) => {
+        const token = data.session?.access_token;
+        if (!token) return;
+        const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const payload = (await response.json().catch(() => ({}))) as ProfileResponse;
+        if (active && response.ok) setCanReception(payload.canReception === true);
+      });
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!modal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [modal]);
+
+  const actions = useMemo<HeaderAction[]>(() => {
+    const current: HeaderAction[] = [
+      { label: "Início", href: pageHref, variant: "primary" as const },
+      { label: "Orientações", href: `${pageHref}/orientacoes`, variant: "secondary" as const },
+      { label: "Agendamentos", href: `${pageHref}/agendamentos`, variant: "secondary" as const },
+    ];
+    if (canReception) {
+      current.push({ label: "Consultas", href: consultationHref, variant: "secondary" as const });
+    }
+    current.push(
+      { label: "Voltar", href: `${pageHref}/orientacoes`, variant: "secondary" as const },
+      filhoSupportAction,
+      filhoSignOutAction,
+    );
+    return current;
+  }, [canReception]);
+
+  const selected = modal ? modalContent[modal] : null;
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader
-        navLabel="Atendimento em Harmonia"
-        showSupport={false}
-        actions={[
-          { label: "Atendimento em Harmonia", href: pageHref, variant: "primary" },
-          { label: "Voltar", href: `${pageHref}/orientacoes`, variant: "secondary" },
-          { label: "Orientações", href: "#orientacoes", variant: "secondary" },
-          { label: "Acolhimento e Agendamentos", href: "#agendamentos", variant: "secondary" },
-          filhoSupportAction,
-          filhoSignOutAction,
-        ]}
-      />
+      <FilhoCorrentePanelHeader navLabel="Atendimento em Harmonia" showSupport={false} actions={actions} />
 
-      <section id="inicio" className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
-        <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
-            <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Cuidar bem começa antes do atendimento.</h1>
-            <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-              Este módulo organiza o que precisa ser lembrado, registrado e encaminhado para que a recepção, os cambonos e a corrente trabalhem com mais clareza, sem perder o cuidado humano do Tucxa.
-            </p>
-          </section>
+      <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
+        <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
+          <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Cuidar bem começa antes do atendimento.</h1>
+          <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
+            Este módulo organiza o que precisa ser lembrado, registrado e encaminhado para que a recepção, os cambonos e a corrente trabalhem com mais clareza, sem perder o cuidado humano do Tucxa.
+          </p>
+        </section>
 
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-            {cards.map((card) => (
-              <article key={card.href} id={card.id} className="scroll-mt-44 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 hover:shadow-xl">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">{card.eyebrow}</p>
-                <h2 className="mt-2 text-xl font-black leading-tight text-[#123D2C]">{card.title}</h2>
-                <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{card.description}</p>
-                <Link href={card.href} className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">
-                  {card.cta}
-                </Link>
-              </article>
-            ))}
-            <ReceptionAppointmentsCard />
+        <section className="mt-4 grid gap-3">
+          <button
+            type="button"
+            onClick={() => setModal("orientacoes")}
+            className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Orientações práticas do Tucxa
+          </button>
+          <button
+            type="button"
+            onClick={() => setModal("agendamentos")}
+            className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Acolhimento e agendamentos
+          </button>
+          {canReception && (
+            <button
+              type="button"
+              onClick={() => setModal("recepcao")}
+              className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+            >
+              Consulta da Recepção
+            </button>
+          )}
+        </section>
+      </section>
+
+      {selected && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={selected.eyebrow}>
+          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+            <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <p className="min-w-0 truncate text-sm font-black uppercase tracking-[0.16em] text-[#123D2C]">{selected.eyebrow}</p>
+              <button type="button" onClick={() => setModal(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">
+                Fechar
+              </button>
+            </header>
+            <div className="min-h-0 overflow-y-auto p-5">
+              <h2 className="text-2xl font-black leading-tight text-[#123D2C]">{selected.title}</h2>
+              <div className="mt-4 grid gap-3">
+                {selected.paragraphs.map((paragraph) => (
+                  <p key={paragraph} className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+              <Link href={selected.href} className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">
+                {selected.cta}
+              </Link>
+            </div>
           </section>
         </div>
-      </section>
+      )}
     </main>
   );
 }

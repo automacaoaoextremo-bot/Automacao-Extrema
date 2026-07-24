@@ -805,7 +805,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
     await supabaseAdmin
       .from("oh_first_access_validation_requests")
-      .update({ status: approved ? "ativo" : "ajuste_solicitado", updated_at: now })
+      .update({ status: approved ? "aprovado" : "ajuste_solicitado", updated_at: now })
       .eq("id", validationRequest.id);
 
     if (person.auth_user_id) {
@@ -824,6 +824,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     }
 
     const currentEmail = displayEmail(approved ? requestedEmail || person.email : person.email);
+    const panelUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel`;
     const updateMessage = approved
       ? [
           `Olá, ${firstName(approved ? requestedFullName : person.full_name)}.`,
@@ -831,7 +832,10 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
           "Sua atualização cadastral no Tucxa em Harmonia foi aprovada.",
           "As funções, agendas e dados aprovados já estão disponíveis no seu acesso.",
           "",
-          reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Acesse seu painel para conferir as informações atualizadas.",
+          "Acesse seu painel para conferir as informações atualizadas.",
+          panelUrl,
+          "",
+          "Tucxa em Harmonia",
         ].join("\n")
       : [
           `Olá, ${firstName(person.full_name)}.`,

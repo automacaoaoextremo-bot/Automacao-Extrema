@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export const dynamic = "force-dynamic";
 
 const SAO_PAULO_TIME_ZONE = "America/Sao_Paulo";
-const PAGE_SIZE_LIMIT = 50;
+const PAGE_SIZE_LIMIT = 12;
 
 type ProfileRecord = Record<string, unknown>;
 
@@ -26,12 +26,14 @@ type EntityRow = {
   id: string;
   name: string | null;
   active: boolean | null;
+  daily_capacity?: number | null;
 };
 
 type AppointmentRow = {
   id: string;
   person_id: string | null;
   entity_id: string | null;
+  event_id: string | null;
   consulente_name: string | null;
   whatsapp: string | null;
   appointment_date: string;
@@ -40,6 +42,10 @@ type AppointmentRow = {
   booking_channel: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string | null;
+  updated_at?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by_person_id?: string | null;
+  cancellation_reason?: string | null;
 };
 
 function asText(value: unknown) {
@@ -113,12 +119,12 @@ async function currentReception(request: Request): Promise<ReceptionContext | nu
     .maybeSingle();
   if (personError || !person?.id || !person.organization_id) return null;
 
-  const { data: organization, error: organizationError } = await supabaseAdmin
+  const { data: organization } = await supabaseAdmin
     .from("oh_organizations")
     .select("id, slug, name")
     .eq("id", person.organization_id)
     .maybeSingle();
-  if (organizationError || !organization?.id) return null;
+  if (!organization?.id) return null;
   if (normalize(organization.slug) !== "tucxa" && !normalize(organization.name).includes("tucxa")) return null;
 
   const { data: membership, error: membershipError } = await supabaseAdmin
@@ -154,8 +160,64 @@ function appointmentOrder(metadataValue: unknown) {
   return Number.isFinite(candidate) && candidate > 0 ? candidate : null;
 }
 
+function firstHour(value: string) {
+  const match = value.match(/(?:^|\D)(\d{1,2})(?::(\d{2}))?\s*h?/i);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function appointmentStart(date: string, time: string) {
+  const parsed = firstHour(time);
+  if (!parsed) return null;
+  const hour = String(parsed.hour).padStart(2, "0");
+  const minute = String(parsed.minute).padStart(2, "0");
+  return new Date(`${date}T${hour}:${minute}:00-03:00`);
+}
+
+async function editCutoffMinutes(organizationId: string) {
+  const { data } = await supabaseAdmin
+    .from("oh_module_settings")
+    .select("settings")
+    .eq("organization_id", organizationId)
+    .in("module_slug", ["agenda-viva", "atendimento-em-harmonia"]);
+  for (const row of data ?? []) {
+    const settings = asRecord(row.settings);
+    const candidate = Number(settings.appointmentEditCutoffMinutes ?? 1440);
+    if (Number.isFinite(candidate) && candidate >= 0) return Math.trunc(candidate);
+  }
+  return 1440;
+}
+
+async function appointmentForReception(context: ReceptionContext, appointmentId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, organization_id, person_id, entity_id, event_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, metadata, created_at, updated_at, cancelled_at, cancelled_by_person_id, cancellation_reason")
+    .eq("id", appointmentId)
+    .eq("organization_id", context.organizationId)
+    .or("booking_channel.neq.filho_corrente,booking_channel.is.null")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) throw new Error("Agendamento não localizado.");
+  return data as AppointmentRow & { organization_id: string };
+}
+
+async function registerAudit(context: ReceptionContext, appointment: AppointmentRow, action: string, details: Record<string, unknown>) {
+  const { error } = await supabaseAdmin.from("oh_appointment_audit_log").insert({
+    organization_id: context.organizationId,
+    appointment_id: appointment.id,
+    actor_person_id: context.personId,
+    action,
+    snapshot: appointment,
+    details,
+  });
+  if (error && !String(error.message || "").toLowerCase().includes("does not exist")) throw error;
+}
+
 function friendlyError(error: unknown) {
-  return error instanceof Error ? error.message : "Não foi possível consultar os agendamentos da Recepção.";
+  return error instanceof Error ? error.message : "Não foi possível processar os agendamentos da Recepção.";
 }
 
 export async function GET(request: Request) {
@@ -173,7 +235,7 @@ export async function GET(request: Request) {
     const entityId = asText(url.searchParams.get("entityId"));
     const status = asText(url.searchParams.get("status"));
     const page = Math.max(1, Number(url.searchParams.get("page") || 1) || 1);
-    const pageSize = Math.min(PAGE_SIZE_LIMIT, Math.max(5, Number(url.searchParams.get("pageSize") || 20) || 20));
+    const pageSize = Math.min(PAGE_SIZE_LIMIT, Math.max(3, Number(url.searchParams.get("pageSize") || 4) || 4));
     const today = todayInSaoPaulo();
 
     const { data: peopleRows, error: peopleError } = await supabaseAdmin
@@ -198,23 +260,19 @@ export async function GET(request: Request) {
       : [];
 
     if (queryText && matchingPersonIds.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        range,
-        today,
-        page,
-        pageSize,
-        total: 0,
-        totalPages: 0,
-        appointments: [],
-        entities: [],
-      });
+      const { data: entities } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id, name")
+        .eq("organization_id", context.organizationId)
+        .eq("active", true)
+        .order("name", { ascending: true });
+      return NextResponse.json({ ok: true, range, today, page, pageSize, total: 0, totalPages: 0, appointments: [], entities: entities ?? [] });
     }
 
     let appointmentQuery = supabaseAdmin
       .from("oh_consulente_appointments")
       .select(
-        "id, person_id, entity_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, metadata, created_at",
+        "id, person_id, entity_id, event_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, metadata, created_at, updated_at, cancelled_at, cancelled_by_person_id, cancellation_reason",
         { count: "exact" },
       )
       .eq("organization_id", context.organizationId)
@@ -234,10 +292,9 @@ export async function GET(request: Request) {
     if (appointmentsError) throw appointmentsError;
 
     const appointmentsSource = (appointmentRows ?? []) as AppointmentRow[];
-    const entityIds = Array.from(new Set(appointmentsSource.map((item) => item.entity_id).filter((value): value is string => Boolean(value))));
     const { data: entityRows, error: entitiesError } = await supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, active")
+      .select("id, name, active, daily_capacity")
       .eq("organization_id", context.organizationId)
       .eq("active", true)
       .order("name", { ascending: true });
@@ -281,10 +338,152 @@ export async function GET(request: Request) {
       totalPages: Math.ceil(total / pageSize),
       appointments,
       entities: entities.map((entity) => ({ id: entity.id, name: entity.name })),
-      selectedEntityIds: entityIds,
     });
   } catch (error) {
-    console.error("[OH/TUCXA recepcao-agendamentos]", { requestId, error });
+    console.error("[OH/TUCXA recepcao-agendamentos GET]", { requestId, error });
+    return NextResponse.json({ error: friendlyError(error), requestId }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const requestId = crypto.randomUUID().slice(0, 8);
+  try {
+    const context = await currentReception(request);
+    if (!context) return NextResponse.json({ error: "Apenas a Recepção pode alterar agendamentos.", requestId }, { status: 403 });
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const appointmentId = asText(body.appointmentId);
+    const action = asText(body.action) || "edit";
+    if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId }, { status: 400 });
+
+    const current = await appointmentForReception(context, appointmentId);
+    const now = new Date().toISOString();
+
+    if (action === "cancel") {
+      const reason = asText(body.reason) || "Cancelado pela Recepção.";
+      await registerAudit(context, current, "cancel", { reason });
+      const { error } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .update({
+          status: "cancelado",
+          cancelled_at: now,
+          cancelled_by_person_id: context.personId,
+          cancellation_reason: reason,
+          metadata: {
+            ...asRecord(current.metadata),
+            receptionLastAction: "cancel",
+            receptionLastActionAt: now,
+            receptionLastActionBy: context.personId,
+          },
+          updated_at: now,
+        })
+        .eq("id", appointmentId)
+        .eq("organization_id", context.organizationId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true, action: "cancel", appointmentId });
+    }
+
+    const appointmentDate = asText(body.appointmentDate);
+    const appointmentTime = asText(body.appointmentTime);
+    const entityId = asText(body.entityId);
+    if (!appointmentDate || !appointmentTime || !entityId) {
+      return NextResponse.json({ error: "Informe data, período e entidade.", requestId }, { status: 400 });
+    }
+
+    const start = appointmentStart(current.appointment_date, current.appointment_time || "");
+    const cutoff = await editCutoffMinutes(context.organizationId);
+    if (start && start.getTime() - Date.now() < cutoff * 60_000) {
+      return NextResponse.json({ error: `O prazo de edição encerra ${cutoff} minuto(s) antes do atendimento.`, requestId }, { status: 409 });
+    }
+    if (appointmentDate < todayInSaoPaulo()) {
+      return NextResponse.json({ error: "Não é possível mover o agendamento para uma data passada.", requestId }, { status: 409 });
+    }
+
+    const { data: entity, error: entityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, daily_capacity, active, appointment_enabled")
+      .eq("id", entityId)
+      .eq("organization_id", context.organizationId)
+      .maybeSingle();
+    if (entityError) throw entityError;
+    if (!entity?.id || entity.active !== true || entity.appointment_enabled !== true) {
+      return NextResponse.json({ error: "A entidade escolhida não está disponível para agendamento.", requestId }, { status: 409 });
+    }
+
+    const { count, error: countError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", context.organizationId)
+      .eq("entity_id", entityId)
+      .eq("appointment_date", appointmentDate)
+      .eq("appointment_time", appointmentTime)
+      .neq("id", appointmentId)
+      .not("status", "in", '("cancelado","cancelamento_solicitado","ausente")');
+    if (countError) throw countError;
+    const capacity = Math.max(1, Number(entity.daily_capacity ?? 1));
+    if ((count ?? 0) >= capacity) return NextResponse.json({ error: "Não há vaga disponível para esta entidade no período escolhido.", requestId }, { status: 409 });
+
+    const order = (count ?? 0) + 1;
+    await registerAudit(context, current, "edit", { appointmentDate, appointmentTime, entityId, order });
+    const { error } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .update({
+        entity_id: entityId,
+        appointment_date: appointmentDate,
+        appointment_time: appointmentTime,
+        status: "confirmado",
+        cancelled_at: null,
+        cancelled_by_person_id: null,
+        cancellation_reason: null,
+        metadata: {
+          ...asRecord(current.metadata),
+          order,
+          receptionLastAction: "edit",
+          receptionLastActionAt: now,
+          receptionLastActionBy: context.personId,
+          previousAppointmentDate: current.appointment_date,
+          previousAppointmentTime: current.appointment_time,
+          previousEntityId: current.entity_id,
+        },
+        updated_at: now,
+      })
+      .eq("id", appointmentId)
+      .eq("organization_id", context.organizationId);
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true, action: "edit", appointmentId, order });
+  } catch (error) {
+    console.error("[OH/TUCXA recepcao-agendamentos PATCH]", { requestId, error });
+    return NextResponse.json({ error: friendlyError(error), requestId }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const requestId = crypto.randomUUID().slice(0, 8);
+  try {
+    const context = await currentReception(request);
+    if (!context) return NextResponse.json({ error: "Apenas a Recepção pode excluir agendamentos.", requestId }, { status: 403 });
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const appointmentId = asText(body.appointmentId);
+    const confirmation = asText(body.confirmation).toUpperCase();
+    if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId }, { status: 400 });
+    if (confirmation !== "EXCLUIR") {
+      return NextResponse.json({ error: "Digite EXCLUIR para confirmar a ação definitiva.", requestId }, { status: 400 });
+    }
+
+    const current = await appointmentForReception(context, appointmentId);
+    await registerAudit(context, current, "delete", { irreversible: true });
+    const { error } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .delete()
+      .eq("id", appointmentId)
+      .eq("organization_id", context.organizationId);
+    if (error) throw error;
+
+    return NextResponse.json({ ok: true, action: "delete", appointmentId });
+  } catch (error) {
+    console.error("[OH/TUCXA recepcao-agendamentos DELETE]", { requestId, error });
     return NextResponse.json({ error: friendlyError(error), requestId }, { status: 500 });
   }
 }

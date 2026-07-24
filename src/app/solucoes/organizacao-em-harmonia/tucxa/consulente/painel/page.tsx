@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { UpcomingAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-appointments-login-modal";
 
 type UserInfo = {
   fullName: string;
@@ -88,6 +89,8 @@ export default function PainelConsulenteTucxaPage() {
           </div>
         )}
       </section>
+
+      <UpcomingAppointmentsLoginModal appointmentsHref="/solucoes/organizacao-em-harmonia/tucxa/consulente/agendamentos" />
     </main>
   );
 }
