@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
   AnnualCalendarView,
   type AnnualCalendarEvent,
@@ -95,7 +96,7 @@ type EventTone = {
   soft: string;
 };
 
-const todayIso = new Date().toISOString().slice(0, 10);
+const todayIso = saoPauloDateIso();
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const compactWeekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -155,6 +156,29 @@ function normalize(value: string) {
     .toLowerCase();
 }
 
+
+function canonicalTaxonomy(value: string) {
+  return normalize(value).replace(/[^a-z0-9]+/g, "");
+}
+
+function hasClassification(event: AgendaEvent, expected: "umbanda" | "social" | "sementinha") {
+  const classification = canonicalTaxonomy(event.classification);
+  if (expected === "umbanda") return classification.includes("umbanda");
+  if (expected === "sementinha") return classification.includes("sementinha");
+
+  const socialValues = new Set([
+    "social",
+    "socialcomunidade",
+    "comunidade",
+    "eventosocial",
+    "eventossociais",
+  ]);
+  if (socialValues.has(classification) || classification.startsWith("social")) return true;
+
+  const collection = canonicalTaxonomy(event.eventCollection);
+  return !classification && ["eventosdotucxa", "eventostucxa"].includes(collection);
+}
+
 function dateFromIso(value: string) {
   const [year = "", month = "", day = ""] = value.split("-");
   const parsedYear = Number(year);
@@ -193,10 +217,7 @@ function startOfWeek(date: Date) {
 }
 
 function eventDateOnly(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return instantToSaoPauloDateIso(value);
 }
 
 function eventStartDate(event: AgendaEvent) {
@@ -891,9 +912,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       if (startDate && dateOnly && dateOnly < startDate) return false;
       if (endDate && dateOnly && dateOnly > endDate) return false;
 
-      if (calendarMode === "tucxa" && !normalize(event.classification).includes("umbanda")) return false;
-      if (calendarMode === "events" && !normalize(event.classification).includes("social")) return false;
-      if (calendarMode === "sementinha" && !normalize(event.classification).includes("sementinha")) return false;
+      if (calendarMode === "tucxa" && !hasClassification(event, "umbanda")) return false;
+      if (calendarMode === "events" && !hasClassification(event, "social")) return false;
+      if (calendarMode === "sementinha" && !hasClassification(event, "sementinha")) return false;
       if (calendarMode === "mine" && !event.associatedToCurrentPerson) return false;
 
       if (responsible && calendarMode !== "mine") {
@@ -1159,7 +1180,6 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                   <div className="grid gap-3">
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Escolha o calendário</p>
-                      <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{selectedModeLabel}</h2>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -1221,9 +1241,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
         <ModalShell title={`Calendário anual - ${selectedModeLabel}`} onClose={() => setCalendarOpen(false)}>
           <div className="grid gap-3">
             <div className="agenda-no-print grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">← Ano anterior</button>
-              <button type="button" onClick={() => window.print()} className="rounded-2xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Visão PDF</button>
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, 1))} className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Próximo ano →</button>
+              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
+              <button type="button" onClick={() => window.print()} className="whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
+              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, 1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
             </div>
             <AnnualCalendarView
               mode={calendarMode as AnnualCalendarMode}

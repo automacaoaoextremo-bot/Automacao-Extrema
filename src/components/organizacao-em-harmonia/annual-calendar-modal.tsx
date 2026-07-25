@@ -193,31 +193,56 @@ function MiniMonth({
   const isEvents = variant === "events";
   const isSementinha = variant === "sementinha";
 
+  const monthTitleStyle = {
+    fontSize: isEvents ? "clamp(0.5rem, 1.8vw, 0.9rem)" : "clamp(0.4rem, 1.35vw, 0.62rem)",
+    lineHeight: 1,
+  } as const;
+  const weekDayStyle = {
+    fontSize: "clamp(0.28rem, 0.95vw, 0.44rem)",
+    lineHeight: 1,
+  } as const;
+  const dayStyle = {
+    width: "100%",
+    minWidth: 0,
+    aspectRatio: "1 / 1",
+    padding: 0,
+    fontSize: "clamp(0.27rem, 1.05vw, 0.46rem)",
+    lineHeight: 1,
+  } as const;
+
   return (
-    <section className={`min-w-0 ${isEvents ? "px-1" : "rounded-md bg-white/90 p-1 ring-1 ring-black/15"}`}>
+    <section className={`min-w-0 overflow-hidden ${isEvents ? "px-0.5" : "rounded-md bg-white/90 p-1 ring-1 ring-black/15"}`}>
       <h3
-        className={`text-center font-black uppercase leading-none ${
+        className={`overflow-hidden text-ellipsis whitespace-nowrap text-center font-black uppercase ${
           isEvents
-            ? "mb-1 font-serif text-[0.62rem] normal-case text-[#4F4B4B] sm:text-sm"
+            ? "mb-1 font-serif normal-case text-[#4F4B4B]"
             : isSementinha
-              ? "mb-1 bg-[#A7C494] py-1 text-[0.48rem] tracking-[0.25em] text-white sm:text-[0.62rem]"
-              : "mb-1 border-b border-black/20 bg-[#EDE7DA] py-1 text-[0.46rem] text-[#10251C] sm:text-[0.58rem]"
+              ? "mb-1 bg-[#A7C494] py-1 tracking-[0.18em] text-white"
+              : "mb-1 border-b border-black/20 bg-[#EDE7DA] py-1 text-[#10251C]"
         }`}
+        style={monthTitleStyle}
       >
         {monthName(month, isEvents)}
       </h3>
       <div
-        className={`grid grid-cols-7 text-center font-black leading-none ${
+        className={`grid min-w-0 grid-cols-7 text-center font-black ${
           isEvents
-            ? "mb-0.5 rounded-full bg-[#E8C7CE] py-0.5 text-[0.35rem] text-[#684B51] sm:text-[0.46rem]"
-            : "text-[0.33rem] text-[#234034] sm:text-[0.42rem]"
+            ? "mb-0.5 rounded-full bg-[#E8C7CE] py-0.5 text-[#684B51]"
+            : "text-[#234034]"
         }`}
+        style={weekDayStyle}
       >
-        {compactWeekDays.map((label, index) => <span key={`${month}-${label}-${index}`} className="py-0.5">{label}</span>)}
+        {compactWeekDays.map((label, index) => (
+          <span key={`${month}-${label}-${index}`} className="min-w-0 py-0.5">
+            {label}
+          </span>
+        ))}
       </div>
-      <div className="grid grid-cols-7 gap-px text-center">
+      <div className="grid min-w-0 grid-cols-7 gap-px text-center">
         {days.map((day, index) => {
-          if (day.outsideMonth) return <span key={`${day.isoDate}-${index}`} className="h-3.5 sm:h-4" />;
+          if (day.outsideMonth) {
+            return <span key={`${day.isoDate}-${index}`} className="block min-w-0" style={dayStyle} />;
+          }
           const firstTone = day.events[0] ? toneFor(day.events[0]) : null;
           const background = dayBackground(day.events, toneFor);
           const clickable = day.events.length > 0 && Boolean(onSelectDay);
@@ -228,15 +253,16 @@ function MiniMonth({
               disabled={!clickable}
               onClick={() => onSelectDay?.(day.isoDate, day.events)}
               title={day.events.length ? day.events.map((event) => event.title).join(" • ") : undefined}
-              className={`relative flex h-3.5 items-center justify-center rounded-sm text-[0.34rem] font-bold leading-none sm:h-4 sm:text-[0.43rem] ${clickable ? "cursor-pointer" : "cursor-default"}`}
+              className={`relative flex min-w-0 items-center justify-center overflow-hidden rounded-[2px] font-bold ${clickable ? "cursor-pointer" : "cursor-default"}`}
               style={{
+                ...dayStyle,
                 background,
                 color: firstTone?.text ?? "#26352D",
                 border: firstTone ? `1px solid ${firstTone.border}` : "1px solid transparent",
               }}
             >
-              {day.dayNumber}
-              {day.events.length > 1 && <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#123D2C] ring-1 ring-white" />}
+              <span className="block min-w-0">{day.dayNumber}</span>
+              {day.events.length > 1 && <span className="absolute right-0 top-0 h-1 w-1 rounded-full bg-[#123D2C] ring-1 ring-white" />}
               {day.events.some(isInactive) && <span className="absolute inset-x-0 top-1/2 h-px -rotate-12 bg-[#7A2737]" />}
             </button>
           );
@@ -260,7 +286,7 @@ function AnnualGrid({
   onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void;
 }) {
   return (
-    <div className={`grid ${variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1.5 sm:gap-3`}>
+    <div className={`grid min-w-0 ${variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1 sm:gap-3`}>
       {Array.from({ length: 12 }, (_, month) => (
         <MiniMonth
           key={month}
@@ -279,7 +305,7 @@ function AnnualGrid({
 function TucxaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
-      <div className="grid grid-cols-[4.8rem_1fr] gap-2 sm:grid-cols-[7rem_1fr] sm:gap-4">
+      <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-1.5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-4">
         <aside className="grid content-start gap-1 text-center text-[0.36rem] font-black uppercase leading-tight text-[#10251C] sm:text-[0.52rem]">
           {umbandaLegend.map((item) => (
             <div

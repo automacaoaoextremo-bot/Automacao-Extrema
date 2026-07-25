@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import Link from "next/link";
 import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
+import {
+  AnnualCalendarView,
+  type AnnualCalendarEvent,
+  type AnnualCalendarMode,
+} from "@/components/organizacao-em-harmonia/annual-calendar-modal";
 
 type AgendaEvent = {
   id: string;
@@ -12,6 +18,9 @@ type AgendaEvent = {
   eventType: string;
   eventTypeLabel: string;
   classification: string;
+  eventCollection: string;
+  calendarColorKey: string;
+  eventSubtype: string;
   audience: string;
   responsiblePersonId: string;
   responsiblePersonName: string;
@@ -34,16 +43,19 @@ type FilterOption = {
 type CalendarView = "schedule" | "day" | "threeDays" | "week" | "month" | "year";
 
 type PeriodMode = "future" | "all";
+type CalendarMode = AnnualCalendarMode | "interactive";
 
 type AgendaPreferences = {
   defaultView?: CalendarView;
   periodMode?: PeriodMode;
   eventTypes?: string[];
   classification?: string;
+  audience?: string;
   responsible?: string;
   startDate?: string;
   endDate?: string;
   showAnnualGuide?: boolean;
+  calendarMode?: CalendarMode;
 };
 
 type AgendaPayload = {
@@ -53,6 +65,7 @@ type AgendaPayload = {
   filters?: {
     eventTypes?: FilterOption[];
     classifications?: string[];
+    audiences?: string[];
     responsiblePeople?: FilterOption[];
   };
   currentPerson?: {
@@ -83,7 +96,7 @@ type EventTone = {
   soft: string;
 };
 
-const todayIso = new Date().toISOString().slice(0, 10);
+const todayIso = saoPauloDateIso();
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const compactWeekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -95,6 +108,18 @@ const calendarViews: { value: CalendarView; label: string; description: string }
   { value: "month", label: "Mês", description: "Grade mensal" },
   { value: "year", label: "Ano", description: "Calendário anual" },
 ];
+
+const calendarModeOptions: Array<{ value: CalendarMode; label: string; description: string }> = [
+  { value: "tucxa", label: "Tucxa", description: "Calendário anual dos eventos de Umbanda" },
+  { value: "events", label: "Eventos", description: "Calendário anual dos eventos sociais do TUCXA" },
+  { value: "sementinha", label: "Sementinha", description: "Calendário anual das ações do Sementinha" },
+  { value: "mine", label: "Minhas Atividades", description: "Somente atividades relacionadas ao seu cadastro" },
+  { value: "interactive", label: "Interativo", description: "Agenda, dia, 3 dias, semana, mês e ano" },
+];
+
+function isCalendarMode(value: unknown): value is CalendarMode {
+  return typeof value === "string" && calendarModeOptions.some((item) => item.value === value);
+}
 
 const eventTones: EventTone[] = [
   { background: "#2563EB", border: "#1D4ED8", text: "#FFFFFF", soft: "#DBEAFE" },
@@ -129,6 +154,49 @@ function normalize(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+
+function canonicalTaxonomy(value: string) {
+  return normalize(value).replace(/[^a-z0-9]+/g, "");
+}
+
+function hasClassification(event: AgendaEvent, expected: "umbanda" | "social" | "sementinha") {
+  const classification = canonicalTaxonomy(event.classification);
+  if (expected === "umbanda") return classification.includes("umbanda");
+  if (expected === "sementinha") return classification.includes("sementinha");
+
+  const socialValues = new Set([
+    "social",
+    "socialcomunidade",
+    "comunidade",
+    "eventosocial",
+    "eventossociais",
+  ]);
+  if (socialValues.has(classification) || classification.startsWith("social")) return true;
+
+  const collection = canonicalTaxonomy(event.eventCollection);
+  return !classification && ["eventosdotucxa", "eventostucxa"].includes(collection);
+}
+
+
+function isVisibleToConsulente(event: AgendaEvent) {
+  const audience = canonicalTaxonomy(event.audience);
+  if (!audience) return true;
+  return !new Set([
+    "filhoscorrente",
+    "filhosdacorrente",
+    "filhocorrente",
+    "filhodacorrente",
+    "somentefilhoscorrente",
+    "somentefilhosdacorrente",
+    "somentefilhocorrente",
+    "somentefilhodacorrente",
+    "exclusivoparafilhoscorrente",
+    "exclusivoparafilhosdacorrente",
+    "exclusivaparafilhoscorrente",
+    "exclusivaparafilhosdacorrente",
+  ]).has(audience);
 }
 
 function dateFromIso(value: string) {
@@ -169,10 +237,7 @@ function startOfWeek(date: Date) {
 }
 
 function eventDateOnly(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return instantToSaoPauloDateIso(value);
 }
 
 function eventStartDate(event: AgendaEvent) {
@@ -261,13 +326,17 @@ function eventTone(event: AgendaEvent) {
 
 function TucxaLegend() {
   const legendRows = [
-    { kind: "section", label: "Atendimento\nFilhos de Fora/Consulentes" },
+    { kind: "section", label: "Atendimento\nFilhos de Fora" },
     { kind: "tone", label: "Grupo Segunda-Feira", tone: tucxaLegendTones[0]?.tone },
     { kind: "tone", label: "Grupo Terça-Feira", tone: tucxaLegendTones[1]?.tone },
     { kind: "tone", label: "Tratamento Espiritual", tone: tucxaLegendTones[2]?.tone },
-    { kind: "note", label: "Eventos e atividades abertos ao seu público" },
-    { kind: "note", label: "Eventos exclusivos dos Filhos da Corrente não são exibidos" },
-    { kind: "vacation", label: "Períodos de férias e pausas aparecem conforme o calendário publicado pelo Tucxa" },
+    { kind: "section", label: "Atendimento\nFilhos da Corrente" },
+    { kind: "tone", label: "Grupo 1", tone: tucxaLegendTones[3]?.tone },
+    { kind: "tone", label: "Grupo 2", tone: tucxaLegendTones[4]?.tone },
+    { kind: "note", label: "24/01 - Mutirão de Limpeza" },
+    { kind: "note", label: "29/01 e 30/07\nTrabalho para todos\nos Cavalinhos e Cambonos" },
+    { kind: "note", label: "20/12 - Encerramento" },
+    { kind: "vacation", label: "Períodos de Férias:\nJaneiro até 28\nJulho até 29\na partir de 21 de Dezembro" },
   ];
 
   return (
@@ -700,12 +769,12 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
   );
 }
 
-function AnnualGuideModal({ events, periodStart, onClose, onDisableAuto, onSelectMonth }: { events: AgendaEvent[]; periodStart: Date; onClose: () => void; onDisableAuto: () => void; onSelectMonth: (date: Date) => void }) {
+function AnnualGuideModal({ events, periodStart, onClose, onSelectMonth }: { events: AgendaEvent[]; periodStart: Date; onClose: () => void; onSelectMonth: (date: Date) => void }) {
   const year = periodStart.getUTCFullYear();
 
   return (
-    <ModalShell title={`Calendário anual Tucxa ${year}`} onClose={onClose}>
-      <div className="grid gap-3">
+    <ModalShell title={`Visão PDF - Calendário anual ${year}`} onClose={onClose}>
+      <div className="grid gap-3" data-agenda-pdf>
         <div style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
           <DynamicAnnualTucxaPoster
             events={events}
@@ -716,9 +785,10 @@ function AnnualGuideModal({ events, periodStart, onClose, onDisableAuto, onSelec
             }}
           />
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onDisableAuto} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Não abrir automaticamente</button>
-          <button type="button" onClick={onClose} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow">Abrir calendário interativo</button>
+        <div className="agenda-no-print flex justify-end">
+          <button type="button" onClick={() => window.print()} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow">
+            Imprimir ou salvar como PDF
+          </button>
         </div>
       </div>
     </ModalShell>
@@ -750,22 +820,23 @@ function ViewButtons({ view, onChange }: { view: CalendarView; onChange: (view: 
   );
 }
 
-export default function AgendaVivaConsulentePage() {
+export default function AgendaVivaFilhoDaCorrentePage() {
   const [payload, setPayload] = useState<AgendaPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [periodMode, setPeriodMode] = useState<PeriodMode>("future");
   const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [classification, setClassification] = useState("");
+  const [audience, setAudience] = useState("");
   const [responsible, setResponsible] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [view, setView] = useState<CalendarView>("month");
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>("tucxa");
   const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [annualGuideOpen, setAnnualGuideOpen] = useState(false);
-  const [showAnnualGuide, setShowAnnualGuide] = useState(true);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [notice, setNotice] = useState("");
@@ -775,13 +846,14 @@ export default function AgendaVivaConsulentePage() {
   const applyPreferences = useCallback((preferences?: AgendaPreferences) => {
     if (!preferences) return;
     if (isCalendarView(preferences.defaultView)) setView(preferences.defaultView);
+    if (isCalendarMode(preferences.calendarMode)) setCalendarMode(preferences.calendarMode);
     if (preferences.periodMode === "all" || preferences.periodMode === "future") setPeriodMode(preferences.periodMode);
     setEventTypes(cleanStringArray(preferences.eventTypes));
     setClassification(typeof preferences.classification === "string" ? preferences.classification : "");
+    setAudience(typeof preferences.audience === "string" ? preferences.audience : "");
     setResponsible(typeof preferences.responsible === "string" ? preferences.responsible : "");
     setStartDate(typeof preferences.startDate === "string" ? preferences.startDate : "");
     setEndDate(typeof preferences.endDate === "string" ? preferences.endDate : "");
-    setShowAnnualGuide(preferences.showAnnualGuide !== false);
   }, []);
 
   const load = useCallback(async () => {
@@ -804,9 +876,8 @@ export default function AgendaVivaConsulentePage() {
     }
 
     setPayload(result);
-    const shouldShowAnnualGuide = result.agendaPreferences?.showAnnualGuide !== false;
-    setAnnualGuideOpen(shouldShowAnnualGuide);
-    setCalendarOpen(!shouldShowAnnualGuide);
+    setAnnualGuideOpen(false);
+    setCalendarOpen(false);
   }, [applyPreferences]);
 
   useEffect(() => {
@@ -835,9 +906,11 @@ export default function AgendaVivaConsulentePage() {
     const events = payload?.events ?? [];
     return uniqueSortedEvents(events).filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
+      if (!isVisibleToConsulente(event)) return false;
       if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
       if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
       if (classification && event.classification !== classification) return false;
+      if (audience && event.audience !== audience) return false;
       if (responsible) {
         if (responsible === "__associated__" && !event.associatedToCurrentPerson) return false;
         if (responsible !== "__associated__") {
@@ -849,12 +922,39 @@ export default function AgendaVivaConsulentePage() {
       if (endDate && dateOnly && dateOnly > endDate) return false;
       return true;
     });
-  }, [classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+  }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
 
-  const annualGuideEvents = useMemo(() => {
-    const year = periodStart.getUTCFullYear();
-    return uniqueSortedEvents(payload?.events ?? []).filter((event) => eventStartDate(event)?.getUTCFullYear() === year);
-  }, [payload?.events, periodStart]);
+  const calendarModeEvents = useMemo(() => {
+    const events = uniqueSortedEvents(payload?.events ?? []);
+    return events.filter((event) => {
+      const dateOnly = eventDateOnly(event.startsAt);
+      if (!isVisibleToConsulente(event)) return false;
+      if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
+      if (audience && event.audience !== audience) return false;
+      if (startDate && dateOnly && dateOnly < startDate) return false;
+      if (endDate && dateOnly && dateOnly > endDate) return false;
+
+      if (calendarMode === "tucxa" && !hasClassification(event, "umbanda")) return false;
+      if (calendarMode === "events" && !hasClassification(event, "social")) return false;
+      if (calendarMode === "sementinha" && !hasClassification(event, "sementinha")) return false;
+      if (calendarMode === "mine" && !event.associatedToCurrentPerson) return false;
+
+      if (responsible && calendarMode !== "mine") {
+        if (responsible === "__associated__" && !event.associatedToCurrentPerson) return false;
+        if (responsible !== "__associated__") {
+          const target = event.responsiblePersonId || event.responsiblePersonName;
+          if (target !== responsible) return false;
+        }
+      }
+
+      if (calendarMode === "interactive") {
+        if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
+        if (classification && event.classification !== classification) return false;
+      }
+
+      return true;
+    });
+  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);
@@ -886,8 +986,15 @@ export default function AgendaVivaConsulentePage() {
       const dateOnly = eventDateOnly(event.startsAt);
       return !dateOnly || dateOnly >= todayIso;
     }).length;
-    return { total: events.length, future, filtered: filteredEvents.length, visible: visibleEvents.length };
-  }, [filteredEvents.length, payload?.events, visibleEvents.length]);
+    const year = periodStart.getUTCFullYear();
+    const annualVisible = calendarModeEvents.filter((event) => eventDateOnly(event.startsAt).startsWith(`${year}-`)).length;
+    return {
+      total: events.length,
+      future,
+      filtered: calendarMode === "interactive" ? filteredEvents.length : calendarModeEvents.length,
+      visible: calendarMode === "interactive" ? visibleEvents.length : annualVisible,
+    };
+  }, [calendarMode, calendarModeEvents, filteredEvents.length, payload?.events, periodStart, visibleEvents.length]);
 
   const filterSummary = useMemo(() => {
     const availableEventTypes = payload?.filters?.eventTypes ?? [];
@@ -900,16 +1007,18 @@ export default function AgendaVivaConsulentePage() {
     }
 
     if (classification) parts.push(classification);
+    if (audience) parts.push(`público: ${audience}`);
     if (responsible === "__associated__") parts.push("minhas atividades");
     else if (responsible) parts.push(`responsável: ${payload?.filters?.responsiblePeople?.find((item) => item.value === responsible)?.label ?? responsible}`);
     if (startDate || endDate) parts.push(`${startDate || "início"} até ${endDate || "fim"}`);
     return `Exibindo ${parts.join(" • ")} • ${visibleEvents.length} evento(s) nesta visão.`;
-  }, [classification, endDate, eventTypeLabels, eventTypes, payload?.filters?.eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate, visibleEvents.length]);
+  }, [audience, classification, endDate, eventTypeLabels, eventTypes, payload?.filters?.eventTypes, payload?.filters?.responsiblePeople, periodMode, responsible, startDate, visibleEvents.length]);
 
   function clearFilters() {
     setPeriodMode("future");
     setEventTypes([]);
     setClassification("");
+    setAudience("");
     setResponsible("");
     setStartDate("");
     setEndDate("");
@@ -960,25 +1069,9 @@ export default function AgendaVivaConsulentePage() {
     setEventTypes((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
   }
 
-
-  function closeAnnualGuide(openInteractive = true) {
-    setAnnualGuideOpen(false);
-    if (openInteractive) setCalendarOpen(true);
-  }
-
-  async function disableAnnualGuideAuto() {
-    setShowAnnualGuide(false);
-    setAnnualGuideOpen(false);
-    setCalendarOpen(true);
-  }
-
   function toggleAllEventTypes() {
     const allTypes = (payload?.filters?.eventTypes ?? []).map((option) => option.value);
     setEventTypes((current) => current.length === allTypes.length ? [] : allTypes);
-  }
-
-  function toggleOnlyMine() {
-    setResponsible((current) => current === "__associated__" ? "" : "__associated__");
   }
 
   async function saveDefaults() {
@@ -995,13 +1088,15 @@ export default function AgendaVivaConsulentePage() {
 
       const preferences: AgendaPreferences = {
         defaultView: view,
+        calendarMode,
         periodMode,
         eventTypes,
         classification,
+        audience,
         responsible,
         startDate,
         endDate,
-        showAnnualGuide,
+        showAnnualGuide: false,
       };
 
       const response = await fetch("/api/organizacao-em-harmonia/consulentes/agenda", {
@@ -1023,8 +1118,56 @@ export default function AgendaVivaConsulentePage() {
     }
   }
 
+  function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
+    if (events.length === 0) return;
+
+    const completeEvents = events.map((annualEvent): AgendaEvent => {
+      const agendaEvent = payload?.events?.find((event) => event.id === annualEvent.id);
+      if (agendaEvent) return agendaEvent;
+
+      return {
+        ...annualEvent,
+        eventCollection: annualEvent.eventCollection ?? "",
+        calendarColorKey: annualEvent.calendarColorKey ?? "",
+        eventSubtype: annualEvent.eventSubtype ?? "",
+        audience: "",
+        responsiblePersonId: "",
+        responsiblePersonName: "",
+        dateLabel: isoDate,
+        locationLabel: "",
+        recurrenceLabel: "",
+        notes: "",
+      };
+    });
+
+    const date = dateFromIso(isoDate);
+    setSelectedDay({
+      isoDate,
+      dayNumber: date.getUTCDate(),
+      month: date.getUTCMonth(),
+      year: date.getUTCFullYear(),
+      outsideMonth: false,
+      isToday: isoDate === todayIso,
+      events: completeEvents,
+    });
+  }
+
+  const selectedModeLabel = calendarModeOptions.find((item) => item.value === calendarMode)?.label ?? "Tucxa";
+
   const modalCalendar = (
     <div className="grid gap-3">
+      <div className="agenda-no-print flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            setCalendarOpen(false);
+            setAnnualGuideOpen(true);
+          }}
+          className="rounded-2xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10"
+        >
+          Visão PDF
+        </button>
+      </div>
       <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
         <button type="button" onClick={() => move(-1)} className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">←</button>
         <button type="button" onClick={goToday} className="rounded-2xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Hoje</button>
@@ -1058,22 +1201,38 @@ export default function AgendaVivaConsulentePage() {
                 <section className="rounded-[1.75rem] bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
                   <div className="grid gap-3">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">{calendarViews.find((item) => item.value === view)?.label ?? "Mês"}</p>
-                      <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{viewTitle(view, periodStart)}</h2>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Escolha o calendário</p>
                     </div>
-                    <ViewButtons view={view} onChange={setView} />
-                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                      <button type="button" onClick={() => setAnnualGuideOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Visão PDF</button>
-                      <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir calendário</button>
-                      <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
-                      <button type="button" onClick={toggleOnlyMine} className={`rounded-2xl px-4 py-3 text-sm font-black shadow ring-1 ${responsible === "__associated__" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}>Minhas atividades</button>
-                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como padrão"}</button>
+
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      {calendarModeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setCalendarMode(option.value)}
+                          title={option.description}
+                          className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm ring-1 transition ${
+                            calendarMode === option.value
+                              ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                              : "bg-white text-[#123D2C] ring-[#123D2C]/10"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
                     </div>
-                    <FilterSummary summary={filterSummary} />
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
+                      <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
+                    </div>
+
+                    <p className="rounded-2xl bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
+                      {calendarModeOptions.find((item) => item.value === calendarMode)?.description}
+                    </p>
                   </div>
                 </section>
-
-                <EventDetailsList events={visibleEvents.slice(0, 12)} title="Próximos detalhes da visão atual" />
 
                 <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
               </>
@@ -1082,8 +1241,41 @@ export default function AgendaVivaConsulentePage() {
         </div>
       </section>
 
-      {annualGuideOpen && <AnnualGuideModal events={annualGuideEvents} periodStart={periodStart} onClose={() => closeAnnualGuide(true)} onDisableAuto={disableAnnualGuideAuto} onSelectMonth={selectMonth} />}
-      {calendarOpen && <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>{modalCalendar}</ModalShell>}
+      {annualGuideOpen && (
+        <AnnualGuideModal
+          events={filteredEvents}
+          periodStart={periodStart}
+          onClose={() => {
+            setAnnualGuideOpen(false);
+            if (calendarMode === "interactive") setCalendarOpen(true);
+          }}
+          onSelectMonth={selectMonth}
+        />
+      )}
+
+      {calendarOpen && calendarMode === "interactive" && (
+        <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>
+          {modalCalendar}
+        </ModalShell>
+      )}
+
+      {calendarOpen && calendarMode !== "interactive" && (
+        <ModalShell title={`Calendário anual - ${selectedModeLabel}`} onClose={() => setCalendarOpen(false)}>
+          <div className="grid gap-3">
+            <div className="agenda-no-print grid grid-cols-3 gap-2">
+              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
+              <button type="button" onClick={() => window.print()} className="whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
+              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, 1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
+            </div>
+            <AnnualCalendarView
+              mode={calendarMode as AnnualCalendarMode}
+              events={calendarModeEvents}
+              year={periodStart.getUTCFullYear()}
+              onSelectDay={selectAnnualDay}
+            />
+          </div>
+        </ModalShell>
+      )}
 
       {filtersOpen && (
         <ModalShell title="Filtros da Agenda Viva" onClose={() => setFiltersOpen(false)}>
@@ -1116,10 +1308,17 @@ export default function AgendaVivaConsulentePage() {
                 </select>
               </label>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                Umbanda / outros
+                Classificação do evento
                 <select value={classification} onChange={(event) => setClassification(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
                   <option value="">Todos</option>
                   {(payload?.filters?.classifications ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                Público
+                <select value={audience} onChange={(event) => setAudience(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 outline-none focus:border-[#31C16B]">
+                  <option value="">Todos</option>
+                  {(payload?.filters?.audiences ?? []).map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
@@ -1157,11 +1356,6 @@ export default function AgendaVivaConsulentePage() {
                 ))}
               </div>
             </section>
-
-            <label className="flex items-center gap-3 rounded-2xl bg-white p-4 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">
-              <input type="checkbox" checked={showAnnualGuide} onChange={(event) => setShowAnnualGuide(event.target.checked)} className="h-5 w-5 accent-[#123D2C]" />
-              Abrir visão anual estilo PDF automaticamente ao entrar na Agenda Viva
-            </label>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button type="button" onClick={clearFilters} className="rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Limpar filtros</button>
