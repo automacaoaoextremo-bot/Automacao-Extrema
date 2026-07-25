@@ -350,13 +350,30 @@ function eventClassification(event: EventRecord) {
 
 function eventCollection(event: EventRecord) {
   const metadata = asRecord(event.metadata);
-  return (
+  const explicit =
     asText(metadata.eventCollection) ||
     asText(metadata.event_collection) ||
     asText(metadata.collection) ||
     asText(metadata.calendarCollection) ||
-    asText(metadata.calendar_collection)
-  );
+    asText(metadata.calendar_collection);
+
+  if (explicit) return explicit;
+
+  const fallbackCandidates = [
+    asText(metadata.calendarColorKey),
+    asText(metadata.calendar_color_key),
+    asText(metadata.sourceCalendar),
+    asText(metadata.source_calendar),
+    asText(event.group_slug),
+    asText(event.event_type),
+  ];
+
+  const matchesEventosTucxa = fallbackCandidates.some((value) => {
+    const canonical = canonicalTaxonomy(value);
+    return ["eventosdotucxa", "eventostucxa", "eventotucxa", "calendariofisicotucxa2026"].includes(canonical);
+  });
+
+  return matchesEventosTucxa ? "eventos-tucxa" : "";
 }
 
 function calendarColorKey(event: EventRecord) {

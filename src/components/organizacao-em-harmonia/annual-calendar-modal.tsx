@@ -308,22 +308,23 @@ function AnnualGrid({
 function TucxaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
-      <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-1.5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-4">
-        <aside className="grid content-start gap-1 text-center text-[0.36rem] font-black uppercase leading-tight text-[#10251C] sm:text-[0.52rem]">
-          {umbandaLegend.map((item) => (
+      <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>
+      <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay} />
+
+      <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[0.34rem] font-black uppercase leading-tight text-[#10251C] sm:mt-3 sm:grid-cols-4 sm:text-[0.5rem]">
+        {umbandaLegend.map((item) => {
+          const isVacation = item.kind === "vacation";
+          const isLongNote = item.label.includes("TRABALHO PARA TODOS");
+          return (
             <div
               key={item.label}
-              className={`whitespace-pre-line px-1 py-1 ${item.kind === "section" ? "border border-dashed border-[#10251C]" : ""}`}
+              className={`min-w-0 whitespace-pre-line px-1 py-1 ${item.kind === "section" ? "border border-dashed border-[#10251C]" : ""} ${isVacation ? "col-span-3 sm:col-span-4" : isLongNote ? "col-span-2" : ""}`}
               style={{ backgroundColor: item.color }}
             >
               {item.label}
             </div>
-          ))}
-        </aside>
-        <div className="min-w-0">
-          <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>
-          <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay} />
-        </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -353,7 +354,7 @@ function EventsCalendar({ events, year, onSelectDay }: { events: AnnualCalendarE
             <p key={event.id} className={isInactive(event) ? "line-through opacity-60" : ""}>
               {eventDateOnly(event.startsAt).slice(8, 10)}/{eventDateOnly(event.startsAt).slice(5, 7)} - {event.title}
             </p>
-          )) : <p>Nenhum evento social cadastrado para {year}.</p>}
+          )) : <p>Nenhum evento da coleção Eventos do TUCXA cadastrado para {year}.</p>}
         </div>
       </div>
     </section>
