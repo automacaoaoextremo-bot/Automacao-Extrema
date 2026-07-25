@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import Link from "next/link";
-import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
-import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
   AnnualCalendarView,
@@ -109,11 +108,12 @@ const calendarViews: { value: CalendarView; label: string; description: string }
   { value: "year", label: "Ano", description: "Calendário anual" },
 ];
 
+const PUBLIC_PREFERENCES_KEY = "oh:tucxa:agenda-viva:public-preferences";
+
 const calendarModeOptions: Array<{ value: CalendarMode; label: string; description: string }> = [
   { value: "tucxa", label: "Tucxa", description: "Calendário anual dos eventos de Umbanda" },
   { value: "events", label: "Eventos", description: "Calendário anual dos eventos sociais do TUCXA" },
   { value: "sementinha", label: "Sementinha", description: "Calendário anual das ações do Sementinha" },
-  { value: "mine", label: "Meu", description: "Atividades e agendamentos relacionados ao seu cadastro" },
   { value: "interactive", label: "Interativo", description: "Agenda, dia, 3 dias, semana, mês e ano" },
 ];
 
@@ -143,11 +143,6 @@ const tucxaLegendTones: Array<{ label: string; keywords: string[]; tone: EventTo
   { label: "Encerramento", keywords: ["encerramento"], tone: { background: "#E9DFCB", border: "#BFAE8F", text: "#3B2F11", soft: "#F6EFE2" } },
 ];
 
-function loginUrl() {
-  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/tucxa/consulente/login";
-  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  return `/solucoes/organizacao-em-harmonia/tucxa/consulente/login?returnTo=${encodeURIComponent(returnTo)}`;
-}
 
 function normalize(value: string) {
   return value
@@ -826,7 +821,7 @@ function ViewButtons({ view, onChange }: { view: CalendarView; onChange: (view: 
   );
 }
 
-export default function AgendaVivaFilhoDaCorrentePage() {
+export default function AgendaVivaPublicaPage() {
   const [payload, setPayload] = useState<AgendaPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -863,21 +858,23 @@ export default function AgendaVivaFilhoDaCorrentePage() {
   }, []);
 
   const load = useCallback(async () => {
-    const { data: sessionData } = await supabaseBrowser.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) {
-      window.location.replace(loginUrl());
-      return;
-    }
-
-    const response = await fetch("/api/organizacao-em-harmonia/consulentes/agenda", {
-      headers: { Authorization: `Bearer ${token}` },
+    const response = await fetch("/api/organizacao-em-harmonia/consulentes/agenda?public=1", {
+      cache: "no-store",
     });
     const result = (await response.json()) as AgendaPayload;
     if (!response.ok) throw new Error(result.error || "Não foi possível carregar a Agenda Viva.");
 
     if (!preferencesApplied.current) {
-      applyPreferences(result.agendaPreferences);
+      let localPreferences: AgendaPreferences | undefined;
+      const stored = window.localStorage.getItem(PUBLIC_PREFERENCES_KEY);
+      if (stored) {
+        try {
+          localPreferences = JSON.parse(stored) as AgendaPreferences;
+        } catch {
+          window.localStorage.removeItem(PUBLIC_PREFERENCES_KEY);
+        }
+      }
+      applyPreferences(localPreferences ?? result.agendaPreferences);
       preferencesApplied.current = true;
     }
 
@@ -1087,13 +1084,6 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     setNotice("");
     setError("");
     try {
-      const { data: sessionData } = await supabaseBrowser.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) {
-        window.location.replace(loginUrl());
-        return;
-      }
-
       const preferences: AgendaPreferences = {
         defaultView: view,
         calendarMode,
@@ -1106,21 +1096,11 @@ export default function AgendaVivaFilhoDaCorrentePage() {
         endDate,
         showAnnualGuide: false,
       };
-
-      const response = await fetch("/api/organizacao-em-harmonia/consulentes/agenda", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "savePreferences", preferences }),
-      });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível salvar seu padrão da Agenda Viva.");
+      window.localStorage.setItem(PUBLIC_PREFERENCES_KEY, JSON.stringify(preferences));
       setPayload((current) => (current ? { ...current, agendaPreferences: preferences } : current));
-      setNotice(result.message || "Padrão da Agenda Viva salvo com sucesso.");
+      setNotice("Padrão da Agenda Viva salvo neste dispositivo.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar padrão da Agenda Viva.");
+      setError(err instanceof Error ? err.message : "Erro ao salvar o padrão da Agenda Viva.");
     } finally {
       setSavingDefaults(false);
     }
@@ -1190,14 +1170,22 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <ConsulentePanelHeader navLabel="Agenda Viva do Filho de Fora/Consulente" />
+      <TucxaPublicHeader
+        navLabel="Agenda Viva"
+        actions={[
+          { label: "Início", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "primary" },
+          { label: "Módulos", href: "/solucoes/organizacao-em-harmonia/tucxa#modulos", variant: "secondary" },
+          { label: "Filhos da Corrente", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente", variant: "secondary" },
+          { label: "Consulente", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente", variant: "secondary" },
+        ]}
+      />
 
       <section className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
           <div className="grid gap-4">
             <div>
               <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Escolha a visualização, ajuste filtros e salve seu padrão para abrir a Agenda Viva do seu jeito.</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte os calendários do Tucxa, ajuste os filtros e salve o padrão neste dispositivo.</p>
             </div>
 
             {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
@@ -1242,7 +1230,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                   </div>
                 </section>
 
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa#modulos" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao site do Tucxa</Link>
               </>
             )}
           </div>

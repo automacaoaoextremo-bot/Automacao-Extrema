@@ -42,6 +42,22 @@ type MembershipRecord = {
   agenda_viva_profile: Record<string, unknown> | null;
 };
 
+
+type AppointmentRecord = {
+  id: string;
+  person_id: string | null;
+  entity_id: string | null;
+  appointment_date: string;
+  appointment_time: string | null;
+  status: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type SpiritualEntityRecord = {
+  id: string;
+  name: string | null;
+};
+
 type LookupRecord = {
   id: string;
   name?: string | null;
@@ -275,8 +291,15 @@ function continuesDuringVacation(event: EventRecord) {
 }
 
 function shouldShowEvent(event: EventRecord) {
-  if (event.active === false) return false;
   const status = normalize(asText(event.status));
+
+  // O calendário histórico "Eventos do TUCXA" mantém datas inativas/reprovadas
+  // para representar fielmente o calendário físico, sempre sinalizadas como inativas.
+  if (event.active === false && isEventosDoTucxa(event)) {
+    return !new Set(["pendente_aprovacao", "pendente", "rascunho", "draft", "cancelado", "cancelled"]).has(status);
+  }
+
+  if (event.active === false) return false;
   const hidden = new Set(["pendente_aprovacao", "pendente", "reprovado", "ajuste_solicitado", "rascunho", "draft", "cancelado", "cancelled"]);
   return !hidden.has(status);
 }
@@ -338,7 +361,13 @@ function eventClassification(event: EventRecord) {
 
 function eventCollection(event: EventRecord) {
   const metadata = asRecord(event.metadata);
-  return asText(metadata.eventCollection) || asText(metadata.event_collection);
+  return (
+    asText(metadata.eventCollection) ||
+    asText(metadata.event_collection) ||
+    asText(metadata.collection) ||
+    asText(metadata.calendarCollection) ||
+    asText(metadata.calendar_collection)
+  );
 }
 
 function calendarColorKey(event: EventRecord) {
@@ -578,6 +607,114 @@ function expandRecurringEvent(event: EventRecord) {
   return occurrences.length > 0 ? occurrences : [event];
 }
 
+
+function canonicalTaxonomy(value: string) {
+  return normalize(value).replace(/[^a-z0-9]+/g, "");
+}
+
+function isEventosDoTucxa(event: EventRecord) {
+  const collection = canonicalTaxonomy(eventCollection(event));
+  return ["eventosdotucxa", "eventostucxa"].includes(collection);
+}
+
+function appointmentOrder(metadataValue: unknown) {
+  const metadata = asRecord(metadataValue);
+  const candidate = Number(metadata.order ?? metadata.confirmed_order ?? metadata.appointment_order ?? 0);
+  return Number.isFinite(candidate) && candidate > 0 ? Math.trunc(candidate) : null;
+}
+
+function appointmentTimes(value: string | null) {
+  const text = asText(value);
+  const matches = Array.from(text.matchAll(/(\d{1,2})(?::|h)(\d{2})?/gi));
+  const normalizePart = (match: RegExpMatchArray | undefined, fallbackHour: number) => {
+    const hour = Math.min(23, Math.max(0, Number(match?.[1] ?? fallbackHour)));
+    const minute = Math.min(59, Math.max(0, Number(match?.[2] ?? 0)));
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  };
+  return {
+    start: normalizePart(matches[0], 12),
+    end: normalizePart(matches[1], matches[0] ? Math.min(Number(matches[0][1]) + 4, 23) : 16),
+  };
+}
+
+function appointmentInstant(dateIso: string, time: string) {
+  const value = new Date(`${dateIso}T${time}:00-03:00`);
+  return Number.isNaN(value.getTime()) ? null : value.toISOString();
+}
+
+function appointmentDateLabel(dateIso: string) {
+  const [year = "", month = "", day = ""] = dateIso.split("-");
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+  if (Number.isNaN(date.getTime())) return dateIso;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "UTC",
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+async function personalAppointmentEvents(organizationId: string, personId: string): Promise<AgendaEvent[]> {
+  const { data: appointments, error: appointmentsError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, person_id, entity_id, appointment_date, appointment_time, status, metadata")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("appointment_date", { ascending: true })
+    .limit(500);
+  if (appointmentsError) throw appointmentsError;
+
+  const appointmentRows = (appointments ?? []) as AppointmentRecord[];
+  const entityIds = Array.from(new Set(appointmentRows.map((item) => item.entity_id).filter((value): value is string => Boolean(value))));
+  const { data: entities, error: entitiesError } = entityIds.length
+    ? await supabaseAdmin.from("oh_spiritual_entities").select("id, name").in("id", entityIds)
+    : { data: [] as SpiritualEntityRecord[], error: null };
+  if (entitiesError) throw entitiesError;
+
+  const entityById = new Map(((entities ?? []) as SpiritualEntityRecord[]).map((entity) => [entity.id, asText(entity.name)]));
+  return appointmentRows.map((appointment) => {
+    const status = asText(appointment.status) || "confirmado";
+    const normalizedStatus = canonicalTaxonomy(status);
+    const metadata = asRecord(appointment.metadata);
+    const periodLabel = asText(metadata.period_label) || asText(appointment.appointment_time) || "Horário a confirmar";
+    const periodEndTime = asText(metadata.period_end_time);
+    const times = appointmentTimes([periodLabel, periodEndTime].filter(Boolean).join(" às "));
+    const order = appointmentOrder(metadata);
+    const entityName = appointment.entity_id ? entityById.get(appointment.entity_id) || "Entidade a confirmar" : "Entidade a confirmar";
+    const title = normalizedStatus.includes("presente") ? "Presença confirmada" : "Meu atendimento";
+    const details = [
+      periodLabel,
+      entityName,
+      order ? `Ordem ${order}` : "",
+    ].filter(Boolean).join(" • ");
+
+    return {
+      id: `appointment:${appointment.id}`,
+      title,
+      status,
+      eventType: "agendamento",
+      eventTypeLabel: "Agendamento",
+      classification: "Agendamento",
+      eventCollection: "meu",
+      calendarColorKey: "agendamento",
+      eventSubtype: "appointment",
+      audience: "Pessoal",
+      responsiblePersonId: "",
+      responsiblePersonName: "Tucxa",
+      associatedToCurrentPerson: true,
+      startsAt: appointmentInstant(appointment.appointment_date, times.start),
+      endsAt: appointmentInstant(appointment.appointment_date, times.end),
+      dateLabel: appointmentDateLabel(appointment.appointment_date),
+      timeLabel: periodLabel,
+      locationLabel: entityName,
+      recurrenceLabel: details,
+      notes: "",
+      continuesDuringVacation: true,
+    };
+  });
+}
+
 function agendaPreferences(profile: Record<string, unknown>): AgendaPreferences {
   const primaryPreferences = asRecord(profile.agendaPreferences);
   const fallbackPreferences = asRecord(profile.agendaViewPreferences);
@@ -646,7 +783,7 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
   return {
     id: event.id,
     title: asText(event.title) || labelFromSlug(eventType),
-    status: asText(event.status) || "ativo",
+    status: event.active === false ? "inativo" : asText(event.status) || "ativo",
     eventType,
     eventTypeLabel: asText(typeRecord?.name) || labelFromSlug(eventType),
     classification: eventClassification(event),
@@ -676,8 +813,9 @@ export async function GET(request: Request) {
     const organization = await findTucxaOrganizationId();
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
 
-    const current = await currentConsulente(request, organization.id);
-    const profile = asRecord(current.membership.agenda_viva_profile);
+    const publicMode = new URL(request.url).searchParams.get("public") === "1";
+    const current = publicMode ? null : await currentConsulente(request, organization.id);
+    const profile = asRecord(current?.membership.agenda_viva_profile);
     const selectedAgendaSlugs = Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [];
     const selectedFunctionSlugs = Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [];
 
@@ -705,24 +843,57 @@ export async function GET(request: Request) {
     const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
       .filter(shouldShowEvent)
       .filter(isVisibleToConsulente)
+      .filter((event) => !publicMode || event.active !== false)
       .flatMap(expandRecurringEvent);
 
-    const events = removeUmbandaDuringVacations(expandedEvents)
-      .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
+    const currentPersonId = current?.person.id ?? "";
+    const agendaEvents = removeUmbandaDuringVacations(expandedEvents)
+      .map((event) => eventPayload(event, { currentPersonId, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
+      .map((event) => publicMode
+        ? {
+            ...event,
+            associatedToCurrentPerson: false,
+            responsiblePersonId: "",
+            responsiblePersonName: "Tucxa",
+            notes: "",
+          }
+        : event);
+    const appointmentEvents = current ? await personalAppointmentEvents(organization.id, current.person.id) : [];
+    const events = [...agendaEvents, ...appointmentEvents]
       .sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
 
     return NextResponse.json({
       ok: true,
       organization,
-      currentPerson: {
-        id: current.person.id,
-        fullName: current.person.full_name || "Filho de Fora/Consulente",
-        email: displayEmail(current.person.email),
-        whatsapp: current.person.whatsapp || "",
-      },
+      currentPerson: current
+        ? {
+            id: current.person.id,
+            fullName: current.person.full_name || "Filho de Fora/Consulente",
+            email: displayEmail(current.person.email),
+            whatsapp: current.person.whatsapp || "",
+          }
+        : {
+            id: "",
+            fullName: "Agenda Viva pública",
+            email: "",
+            whatsapp: "",
+          },
       selectedAgendaSlugs,
       selectedFunctionSlugs,
-      agendaPreferences: agendaPreferences(profile),
+      agendaPreferences: publicMode
+        ? {
+            defaultView: "month",
+            periodMode: "future",
+            eventTypes: [],
+            classification: "",
+            audience: "",
+            responsible: "",
+            startDate: "",
+            endDate: "",
+            showAnnualGuide: false,
+            calendarMode: "tucxa",
+          }
+        : agendaPreferences(profile),
       events,
       filters: {
         eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),

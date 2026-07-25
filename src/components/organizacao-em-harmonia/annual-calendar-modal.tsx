@@ -159,6 +159,9 @@ function sementinhaTone(event: AnnualCalendarEvent): CalendarTone {
 }
 
 function mineTone(event: AnnualCalendarEvent): CalendarTone {
+  if (event.id.startsWith("appointment:") || normalize(event.eventSubtype ?? "") === "appointment") {
+    return { background: "#F8D789", border: "#D6A531", text: "#3B2F11" };
+  }
   const classification = normalize(event.classification);
   if (classification.includes("umbanda")) return umbandaTone(event);
   if (classification.includes("sementinha")) return sementinhaTone(event);
@@ -359,13 +362,13 @@ function EventsCalendar({ events, year, onSelectDay }: { events: AnnualCalendarE
 
 function SementinhaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
   return (
-    <section className="relative overflow-hidden rounded-3xl bg-[#FFFDF8] px-3 pb-5 pt-6 ring-1 ring-[#A7C494]/30 sm:px-8 sm:pb-8" data-agenda-pdf>
+    <section className="relative overflow-hidden rounded-3xl bg-[#FFFDF8] px-2 pb-3 pt-2 ring-1 ring-[#A7C494]/30 sm:px-6 sm:pb-5 sm:pt-4" data-agenda-pdf>
       <Image src={`${assetRoot}/sementinha-floral-top-left.webp`} alt="" width={340} height={185} className="pointer-events-none absolute left-0 top-0 w-[30%] max-w-72 opacity-55" />
       <Image src={`${assetRoot}/sementinha-floral-top-right.webp`} alt="" width={355} height={190} className="pointer-events-none absolute right-0 top-0 w-[31%] max-w-72 opacity-55" />
       <div className="relative z-10">
-        <h2 className="mb-5 text-center text-lg font-light uppercase tracking-wide text-[#676767] sm:text-4xl">Calendário Sementinha {year}</h2>
+        <h2 className="mb-2 text-center text-base font-light uppercase leading-tight tracking-wide text-[#676767] sm:mb-3 sm:text-3xl">Calendário Sementinha {year}</h2>
         <AnnualGrid events={events} year={year} toneFor={sementinhaTone} variant="sementinha" onSelectDay={onSelectDay} />
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.62rem] font-bold text-[#5D625E] sm:text-sm">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[0.58rem] font-bold text-[#5D625E] sm:mt-4 sm:text-sm">
           {sementinhaLegend.map((item) => (
             <span key={item.key} className="flex items-center gap-2">
               <span className="h-4 w-4 rounded" style={{ backgroundColor: item.color }} />
@@ -373,7 +376,7 @@ function SementinhaCalendar({ events, year, onSelectDay }: { events: AnnualCalen
             </span>
           ))}
         </div>
-        <div className="mt-4 grid grid-cols-[1fr_auto] items-end gap-3">
+        <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2 sm:mt-3">
           <p className="text-center text-[0.58rem] font-semibold text-[#666] sm:text-sm">“A Caridade é uma semente que germina no coração”</p>
           <Image src={`${assetRoot}/sementinha-logo.webp`} alt="Sementinha Tucxa" width={200} height={220} className="w-20 sm:w-28" />
         </div>
@@ -385,9 +388,8 @@ function SementinhaCalendar({ events, year, onSelectDay }: { events: AnnualCalen
 function MineCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
   return (
     <section className="overflow-hidden rounded-3xl bg-gradient-to-b from-[#EDF5EB] to-white p-3 ring-1 ring-[#123D2C]/10 sm:p-6" data-agenda-pdf>
-      <div className="mb-4 text-center">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Agenda Viva</p>
-        <h2 className="mt-1 text-2xl font-black text-[#123D2C]">Minhas Atividades - {year}</h2>
+      <div className="mb-3 text-center">
+        <h2 className="text-2xl font-black text-[#123D2C]">Minhas Atividades - {year}</h2>
         <p className="mt-1 text-xs font-semibold text-slate-600">Somente atividades relacionadas ao seu grupo, funções e vínculos.</p>
       </div>
       <AnnualGrid events={events} year={year} toneFor={mineTone} variant="mine" onSelectDay={onSelectDay} />

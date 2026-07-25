@@ -61,6 +61,7 @@ export default async function TucxaSitePage() {
     {
       title: "Agenda Viva",
       text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
     },
     {
       title: content.atendimentoEmHarmonia.title,
@@ -141,6 +142,14 @@ export default async function TucxaSitePage() {
             <article key={module.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">{module.title}</h3>
               <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{module.text}</p>
+              {"href" in module && module.href && (
+                <Link
+                  href={module.href}
+                  className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+                >
+                  Abrir Agenda Viva
+                </Link>
+              )}
             </article>
           ))}
         </div>

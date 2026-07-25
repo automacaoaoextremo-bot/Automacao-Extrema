@@ -113,7 +113,7 @@ const calendarModeOptions: Array<{ value: CalendarMode; label: string; descripti
   { value: "tucxa", label: "Tucxa", description: "Calendário anual dos eventos de Umbanda" },
   { value: "events", label: "Eventos", description: "Calendário anual dos eventos sociais do TUCXA" },
   { value: "sementinha", label: "Sementinha", description: "Calendário anual das ações do Sementinha" },
-  { value: "mine", label: "Minhas Atividades", description: "Somente atividades relacionadas ao seu cadastro" },
+  { value: "mine", label: "Meu", description: "Atividades e agendamentos relacionados ao seu cadastro" },
   { value: "interactive", label: "Interativo", description: "Agenda, dia, 3 dias, semana, mês e ano" },
 ];
 
@@ -161,22 +161,28 @@ function canonicalTaxonomy(value: string) {
   return normalize(value).replace(/[^a-z0-9]+/g, "");
 }
 
+function isEventosDoTucxa(event: AgendaEvent) {
+  const collection = canonicalTaxonomy(event.eventCollection);
+  if (["eventosdotucxa", "eventostucxa"].includes(collection)) return true;
+
+  // Compatibilidade para cadastros antigos que ainda não possuem coleção.
+  if (collection) return false;
+  const classification = canonicalTaxonomy(event.classification);
+  return ["social", "socialcomunidade", "comunidade", "eventosocial", "eventossociais"].includes(classification)
+    || classification.startsWith("social");
+}
+
 function hasClassification(event: AgendaEvent, expected: "umbanda" | "social" | "sementinha") {
   const classification = canonicalTaxonomy(event.classification);
   if (expected === "umbanda") return classification.includes("umbanda");
   if (expected === "sementinha") return classification.includes("sementinha");
+  return isEventosDoTucxa(event);
+}
 
-  const socialValues = new Set([
-    "social",
-    "socialcomunidade",
-    "comunidade",
-    "eventosocial",
-    "eventossociais",
-  ]);
-  if (socialValues.has(classification) || classification.startsWith("social")) return true;
-
-  const collection = canonicalTaxonomy(event.eventCollection);
-  return !classification && ["eventosdotucxa", "eventostucxa"].includes(collection);
+function isAppointmentEvent(event: AgendaEvent) {
+  return canonicalTaxonomy(event.eventType) === "agendamento"
+    || canonicalTaxonomy(event.eventSubtype) === "appointment"
+    || event.id.startsWith("appointment:");
 }
 
 function dateFromIso(value: string) {
@@ -886,6 +892,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     const events = payload?.events ?? [];
     return uniqueSortedEvents(events).filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
+      if (isAppointmentEvent(event)) return false;
       if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
       if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
       if (classification && event.classification !== classification) return false;
@@ -912,8 +919,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       if (startDate && dateOnly && dateOnly < startDate) return false;
       if (endDate && dateOnly && dateOnly > endDate) return false;
 
+      if (isAppointmentEvent(event) && calendarMode !== "mine") return false;
       if (calendarMode === "tucxa" && !hasClassification(event, "umbanda")) return false;
-      if (calendarMode === "events" && !hasClassification(event, "social")) return false;
+      if (calendarMode === "events" && !isEventosDoTucxa(event)) return false;
       if (calendarMode === "sementinha" && !hasClassification(event, "sementinha")) return false;
       if (calendarMode === "mine" && !event.associatedToCurrentPerson) return false;
 
@@ -1238,7 +1246,10 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       )}
 
       {calendarOpen && calendarMode !== "interactive" && (
-        <ModalShell title={`Calendário anual - ${selectedModeLabel}`} onClose={() => setCalendarOpen(false)}>
+        <ModalShell
+          title={calendarMode === "sementinha" ? "Calendário anual" : `Calendário anual - ${selectedModeLabel}`}
+          onClose={() => setCalendarOpen(false)}
+        >
           <div className="grid gap-3">
             <div className="agenda-no-print grid grid-cols-3 gap-2">
               <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
