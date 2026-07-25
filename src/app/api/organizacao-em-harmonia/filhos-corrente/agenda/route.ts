@@ -56,6 +56,9 @@ type AgendaEvent = {
   eventType: string;
   eventTypeLabel: string;
   classification: string;
+  eventCollection: string;
+  calendarColorKey: string;
+  eventSubtype: string;
   audience: string;
   responsiblePersonId: string;
   responsiblePersonName: string;
@@ -80,6 +83,7 @@ type AgendaPreferences = {
   startDate?: string;
   endDate?: string;
   showAnnualGuide?: boolean;
+  calendarMode?: string;
 };
 
 const weekDayMap: Record<string, number> = {
@@ -93,6 +97,7 @@ const weekDayMap: Record<string, number> = {
 };
 
 const calendarViews = new Set(["schedule", "day", "threeDays", "week", "month", "year"]);
+const calendarModes = new Set(["tucxa", "events", "sementinha", "mine", "interactive"]);
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -320,6 +325,26 @@ function eventClassification(event: EventRecord) {
   return raw || (normalize(`${event.event_type ?? ""} ${event.title ?? ""}`).includes("umbanda") ? "Umbanda" : "Outros");
 }
 
+function eventCollection(event: EventRecord) {
+  const metadata = asRecord(event.metadata);
+  return asText(metadata.eventCollection) || asText(metadata.event_collection);
+}
+
+function calendarColorKey(event: EventRecord) {
+  const metadata = asRecord(event.metadata);
+  return asText(metadata.calendarColorKey) || asText(metadata.calendar_color_key);
+}
+
+function eventSubtype(event: EventRecord) {
+  const metadata = asRecord(event.metadata);
+  return (
+    asText(metadata.sementinhaEventType) ||
+    asText(metadata.sementinha_event_type) ||
+    asText(metadata.eventSubtype) ||
+    asText(metadata.event_subtype)
+  );
+}
+
 function eventAudience(event: EventRecord) {
   const metadata = asRecord(event.metadata);
   return asText(metadata.audience) || asText(metadata.publico) || asText(metadata.targetAudience) || "Filhos da Corrente";
@@ -513,7 +538,8 @@ function agendaPreferences(profile: Record<string, unknown>): AgendaPreferences 
     responsible: asText(preferences.responsible),
     startDate: asText(preferences.startDate),
     endDate: asText(preferences.endDate),
-    showAnnualGuide: preferences.showAnnualGuide === false ? false : true,
+    showAnnualGuide: false,
+    calendarMode: calendarModes.has(asText(preferences.calendarMode)) ? asText(preferences.calendarMode) : "tucxa",
   };
 }
 
@@ -530,11 +556,12 @@ function normalizePreferences(value: unknown): AgendaPreferences {
     responsible: asText(record.responsible),
     startDate: asText(record.startDate),
     endDate: asText(record.endDate),
-    showAnnualGuide: record.showAnnualGuide === false ? false : true,
+    showAnnualGuide: false,
+    calendarMode: calendarModes.has(asText(record.calendarMode)) ? asText(record.calendarMode) : "tucxa",
   };
 }
 
-function eventPayload(event: EventRecord, context: { currentPersonId: string; selectedAgendaSlugs: string[]; eventTypes: Map<string, LookupRecord>; locations: Map<string, LookupRecord>; people: Map<string, LookupRecord> }): AgendaEvent {
+function eventPayload(event: EventRecord, context: { currentPersonId: string; selectedAgendaSlugs: string[]; selectedFunctionSlugs: string[]; eventTypes: Map<string, LookupRecord>; locations: Map<string, LookupRecord>; people: Map<string, LookupRecord> }): AgendaEvent {
   const metadata = asRecord(event.metadata);
   const typeRecord = event.event_type_id ? context.eventTypes.get(event.event_type_id) : null;
   const locationRecord = event.location_id ? context.locations.get(event.location_id) : null;
@@ -555,6 +582,11 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     ...metadataList(metadata.agendaSlugs),
     ...metadataList(metadata.associatedAgendaSlugs),
   ].filter(Boolean);
+  const associatedFunctionSlugs = [
+    ...metadataList(metadata.functionSlugs),
+    ...metadataList(metadata.associatedFunctionSlugs),
+    ...metadataList(metadata.funcoesAssociadas),
+  ].filter(Boolean);
 
   return {
     id: event.id,
@@ -563,10 +595,16 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     eventType,
     eventTypeLabel: asText(typeRecord?.name) || labelFromSlug(eventType),
     classification: eventClassification(event),
+    eventCollection: eventCollection(event),
+    calendarColorKey: calendarColorKey(event),
+    eventSubtype: eventSubtype(event),
     audience: eventAudience(event),
     responsiblePersonId: asText(event.responsible_person_id),
     responsiblePersonName: asText(responsible?.name) || "Responsável a definir",
-    associatedToCurrentPerson: associatedPersonIds.includes(context.currentPersonId) || associatedAgendaSlugs.some((slug) => context.selectedAgendaSlugs.includes(slug)),
+    associatedToCurrentPerson:
+      associatedPersonIds.includes(context.currentPersonId) ||
+      associatedAgendaSlugs.some((slug) => context.selectedAgendaSlugs.includes(slug)) ||
+      associatedFunctionSlugs.some((slug) => context.selectedFunctionSlugs.includes(slug)),
     startsAt: event.starts_at,
     endsAt: event.ends_at,
     dateLabel: formatDate(event.starts_at),
@@ -586,6 +624,7 @@ export async function GET(request: Request) {
     const current = await currentFilho(request, organization.id);
     const profile = asRecord(current.membership.agenda_viva_profile);
     const selectedAgendaSlugs = Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [];
+    const selectedFunctionSlugs = Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [];
 
     const [eventsResult, typesResult, locationsResult, peopleResult] = await Promise.all([
       supabaseAdmin
@@ -613,7 +652,7 @@ export async function GET(request: Request) {
       .flatMap(expandRecurringEvent);
 
     const events = removeUmbandaDuringVacations(expandedEvents)
-      .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, eventTypes, locations, people }))
+      .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
       .sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
 
     return NextResponse.json({
@@ -626,7 +665,7 @@ export async function GET(request: Request) {
         whatsapp: current.person.whatsapp || "",
       },
       selectedAgendaSlugs,
-      selectedFunctionSlugs: Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [],
+      selectedFunctionSlugs,
       agendaPreferences: agendaPreferences(profile),
       events,
       filters: {

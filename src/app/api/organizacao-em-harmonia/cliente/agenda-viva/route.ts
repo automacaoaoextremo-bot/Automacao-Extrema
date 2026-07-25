@@ -378,7 +378,14 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
   const audience = asText(body.audience ?? body.publico ?? body.targetAudience) || "filhos-corrente";
   const eventClassification = asText(body.eventClassification ?? body.event_classification ?? body.classification ?? body.classificacao) || "umbanda";
   const eventCollection = asText(body.eventCollection ?? body.event_collection) || "";
-  const calendarColorKey = asText(body.calendarColorKey ?? body.calendar_color_key) || (eventCollection === "eventos-tucxa" ? "eventos-tucxa" : "");
+  const sementinhaEventType = asText(body.sementinhaEventType ?? body.sementinha_event_type ?? body.eventSubtype ?? body.event_subtype) || "";
+  const calendarColorKey =
+    asText(body.calendarColorKey ?? body.calendar_color_key) ||
+    (eventCollection === "eventos-tucxa"
+      ? "eventos-tucxa"
+      : eventClassification === "sementinha" && sementinhaEventType
+        ? `sementinha-${sementinhaEventType}`
+        : "");
   const specialEventType = asText(body.specialEventType ?? body.special_event_type) || "";
   const specialPanelLabel = specialEventType === "retorno-ferias" ? "Atendimento Retorno Férias" : "";
   if (specialEventType === "retorno-ferias") {
@@ -439,6 +446,10 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       event_collection: eventCollection || null,
       calendarColorKey: calendarColorKey || null,
       calendar_color_key: calendarColorKey || null,
+      sementinhaEventType: sementinhaEventType || null,
+      sementinha_event_type: sementinhaEventType || null,
+      eventSubtype: sementinhaEventType || null,
+      event_subtype: sementinhaEventType || null,
       specialEventType: specialEventType || null,
       special_event_type: specialEventType || null,
       specialPanelLabel: specialPanelLabel || null,

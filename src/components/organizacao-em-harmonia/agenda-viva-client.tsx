@@ -162,6 +162,7 @@ type FormState = {
   audience: string;
   eventClassification: string;
   eventCollection: string;
+  sementinhaEventType: string;
   specialEventType: string;
   groupSlug: string;
   responsiblePersonId: string;
@@ -296,6 +297,7 @@ const emptyForm: FormState = {
   audience: "filhos-corrente",
   eventClassification: "umbanda",
   eventCollection: "",
+  sementinhaEventType: "",
   specialEventType: "",
   groupSlug: "",
   responsiblePersonId: "",
@@ -640,6 +642,20 @@ function eventCollection(event: AgendaEvent) {
 
 function eventCollectionLabel(value: string) {
   return value === "eventos-tucxa" ? "Eventos do TUCXA" : "Sem coleção específica";
+}
+
+function sementinhaEventType(event: AgendaEvent) {
+  const metadata = event.metadata ?? {};
+  const value = metadata.sementinhaEventType ?? metadata.sementinha_event_type ?? metadata.eventSubtype ?? metadata.event_subtype;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function sementinhaEventTypeLabel(value: string) {
+  if (value === "community-action") return "Ação em comunidade";
+  if (value === "bazar") return "Bazar";
+  if (value === "bazar-simple") return "Bazar simples";
+  if (value === "bingo") return "Bingo";
+  return "A definir pelo título";
 }
 
 function specialEventType(event: AgendaEvent) {
@@ -1049,6 +1065,19 @@ function AgendaEventForm({
           </select>
           <span className="text-xs font-semibold text-slate-500">Use Eventos do TUCXA para Pizza, Feijoada, Festa Junina e demais datas do calendário físico.</span>
         </label>
+        {form.eventClassification === "sementinha" && (
+          <label className="grid gap-1">
+            <span className="text-sm font-black text-[#00334E]">Tipo de evento do Sementinha</span>
+            <select value={form.sementinhaEventType} onChange={(event) => update("sementinhaEventType", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+              <option value="">A definir pelo título</option>
+              <option value="community-action">Ação em comunidade</option>
+              <option value="bazar">Bazar</option>
+              <option value="bazar-simple">Bazar simples</option>
+              <option value="bingo">Bingo</option>
+            </select>
+            <span className="text-xs font-semibold text-slate-500">Define a cor usada no calendário anual do Sementinha.</span>
+          </label>
+        )}
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Tratamento especial</span>
           <select value={form.specialEventType} onChange={(event) => update("specialEventType", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1235,6 +1264,7 @@ function EventDetails({ event, payload }: { event: AgendaEvent; payload: Payload
         <AdminDetailItem label="Tipo de atividade">{type?.name || event.event_type || "Atividade"}</AdminDetailItem>
         <AdminDetailItem label="Classificação">{eventClassificationLabel(eventClassification(event))}</AdminDetailItem>
         <AdminDetailItem label="Coleção/calendário">{eventCollectionLabel(eventCollection(event))}</AdminDetailItem>
+        {eventClassification(event) === "sementinha" && <AdminDetailItem label="Tipo do Sementinha">{sementinhaEventTypeLabel(sementinhaEventType(event))}</AdminDetailItem>}
         {specialEventType(event) && <AdminDetailItem label="Tratamento especial">{specialEventType(event) === "retorno-ferias" ? "Retorno das férias — todos os grupos" : specialEventType(event)}</AdminDetailItem>}
         <AdminDetailItem label="Público">{audienceLabel(eventAudience(event))}</AdminDetailItem>
         <AdminDetailItem label="Local">{locationLabel(event, payload.locations)}</AdminDetailItem>
@@ -1870,6 +1900,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       audience: eventAudience(event),
       eventClassification: eventClassification(event),
       eventCollection: eventCollection(event),
+      sementinhaEventType: sementinhaEventType(event),
       specialEventType: specialEventType(event),
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
