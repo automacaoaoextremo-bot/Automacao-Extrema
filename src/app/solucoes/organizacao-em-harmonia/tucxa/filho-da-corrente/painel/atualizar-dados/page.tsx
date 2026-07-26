@@ -54,6 +54,11 @@ type AgendaOptionsPayload = {
   entities?: EntityOption[];
 };
 
+type CavalinhoEntitiesPayload = {
+  entities?: EntityOption[];
+  error?: string;
+};
+
 type SubmitResponse = {
   ok?: boolean;
   message?: string;
@@ -109,6 +114,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([]);
   const [entityOptions, setEntityOptions] = useState<EntityOption[]>([]);
   const [cavalinhoEntityIds, setCavalinhoEntityIds] = useState<string[]>([]);
+  const [cavalinhoEntityDraftId, setCavalinhoEntityDraftId] = useState("");
   const [originalEntityIds, setOriginalEntityIds] = useState<string[]>([]);
   const [entityModalOpen, setEntityModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -128,17 +134,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       return;
     }
 
-    const [profileResponse, optionsResponse] = await Promise.all([
+    const [profileResponse, optionsResponse, entitiesResponse] = await Promise.all([
       fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
         headers: { Authorization: `Bearer ${token}` },
       }),
       fetch("/api/organizacao-em-harmonia/site-tucxa/agenda-options"),
+      fetch("/api/organizacao-em-harmonia/site-tucxa/cavalinho-entities"),
     ]);
 
     const profile = (await profileResponse.json()) as ProfilePayload;
     if (!profileResponse.ok) throw new Error(profile.error || "Não foi possível carregar seus dados.");
 
     const agenda = (await optionsResponse.json().catch(() => ({}))) as AgendaOptionsPayload;
+    const cavalinhoEntities = (await entitiesResponse.json().catch(() => ({}))) as CavalinhoEntitiesPayload;
     const options = (agenda.options ?? []).map(normalizeOption).filter((item): item is AgendaOption => Boolean(item));
 
     setFullName(profile.person?.fullName || "");
@@ -151,10 +159,16 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setOriginalAgendaSlugs(profile.agendaSlugs ?? []);
     setProfileUpdateStatus(profile.profileUpdateStatus || "");
     setAgendaOptions(options);
-    const entities = (profile.availableEntities?.length ? profile.availableEntities : agenda.entities ?? []).filter((item) => item.id && item.name);
+    const fallbackEntities = profile.availableEntities?.length ? profile.availableEntities : agenda.entities ?? [];
+    const sourceEntities = entitiesResponse.ok && cavalinhoEntities.entities?.length
+      ? cavalinhoEntities.entities
+      : fallbackEntities;
+    const entities = sourceEntities.filter((item) => item.id && item.name);
+    const currentEntityIds = profile.selectedEntityIds ?? [];
+
     setEntityOptions(entities);
-    setCavalinhoEntityIds(profile.selectedEntityIds ?? []);
-    setOriginalEntityIds(profile.selectedEntityIds ?? []);
+    setCavalinhoEntityIds(currentEntityIds.slice(0, 1));
+    setOriginalEntityIds(currentEntityIds);
   }, []);
 
   useEffect(() => {
@@ -210,16 +224,29 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     return { addedFunctions, removedFunctions, addedAgenda, removedAgenda, addedEntities, removedEntities };
   }, [agendaSlugs, cavalinhoEntityIds, functionSlugs, hasCavalinho, originalAgendaSlugs, originalEntityIds, originalFunctionSlugs]);
 
+  function openEntityModal() {
+    setCavalinhoEntityDraftId(cavalinhoEntityIds[0] ?? "");
+    setEntityModalOpen(true);
+  }
+
+  function saveEntitySelection() {
+    if (!cavalinhoEntityDraftId) return;
+    setCavalinhoEntityIds([cavalinhoEntityDraftId]);
+    setEntityModalOpen(false);
+  }
+
   function toggleFunction(slug: string) {
-    setFunctionSlugs((current) => {
-      const selected = current.includes(slug);
-      const next = toggleValue(current, slug);
-      if (slug === "cavalinho") {
-        if (selected) setCavalinhoEntityIds([]);
-        else window.setTimeout(() => setEntityModalOpen(true), 0);
+    const selected = functionSlugs.includes(slug);
+    setFunctionSlugs((current) => toggleValue(current, slug));
+
+    if (slug === "cavalinho") {
+      if (selected) {
+        setCavalinhoEntityIds([]);
+        setCavalinhoEntityDraftId("");
+      } else {
+        window.setTimeout(openEntityModal, 0);
       }
-      return next;
-    });
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -239,8 +266,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
-      setError("Selecione ao menos uma entidade que você recebe para atendimento dos Consulentes/Filhos de Fora.");
-      setEntityModalOpen(true);
+      setError("Selecione a entidade que você recebe para atender Consulentes.");
+      openEntityModal();
       return;
     }
 
@@ -402,9 +429,9 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   </div>
                   {hasCavalinho && (
                     <div className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-100">
-                      <p className="font-black">Entidades que você recebe</p>
+                      <p className="font-black">Entidade que você recebe</p>
                       <p className="mt-1">{selectedEntities.length ? selectedEntities.map((item) => item.name).join(" • ") : "Seleção obrigatória ainda não informada."}</p>
-                      <button type="button" onClick={() => setEntityModalOpen(true)} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar</button>
+                      <button type="button" onClick={openEntityModal} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar entidade</button>
                     </div>
                   )}
                 </article>
@@ -446,24 +473,40 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       </section>
 
       {entityModalOpen && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidades do Cavalinho">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidade que o Cavalinho recebe">
           <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-            <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-              <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p><h2 className="truncate text-xl font-black text-[#123D2C]">Entidades que você recebe</h2></div>
-              <button type="button" onClick={() => { if (cavalinhoEntityIds.length > 0) setEntityModalOpen(false); }} disabled={cavalinhoEntityIds.length === 0} className="rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-40">Concluir</button>
-            </header>
-            <div className="min-h-0 overflow-y-auto p-5">
-              <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">Selecione as entidades que você incorpora para atendimento dos Filhos de Fora/Consulentes. Inclusões e retiradas somente serão aplicadas após a validação do Tucxa.</p>
-              <div className="mt-3 grid gap-2">
-                {entityOptions.map((entity) => (
-                  <label key={entity.id} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                    <input type="checkbox" checked={cavalinhoEntityIds.includes(entity.id)} onChange={() => setCavalinhoEntityIds((current) => toggleValue(current, entity.id))} className="mt-1 h-5 w-5" />
-                    <span><span className="block font-black text-[#123D2C]">{entity.name}</span>{(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}</span>
-                  </label>
-                ))}
+            <header className="grid shrink-0 gap-3 border-b border-slate-100 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p>
+                <h2 className="mt-1 text-lg font-black leading-tight text-[#123D2C] sm:text-xl">
+                  Qual entidade, só pode ser uma, você recebe para atender Consulentes
+                </h2>
               </div>
-              {entityOptions.length === 0 && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa foi localizada.</p>}
-              {cavalinhoEntityIds.length === 0 && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione ao menos uma entidade para continuar com a função Cavalinho.</p>}
+              <div className="grid grid-cols-2 gap-2 sm:flex">
+                <button type="button" onClick={() => setEntityModalOpen(false)} className="min-h-10 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Fechar</button>
+                <button type="button" onClick={saveEntitySelection} disabled={!cavalinhoEntityDraftId} className="min-h-10 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-40">Salvar</button>
+              </div>
+            </header>
+            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+              <div className="grid gap-2">
+                {entityOptions.length ? entityOptions.map((entity) => (
+                  <label key={entity.id} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                    <input
+                      type="radio"
+                      name="cavalinho-entity-update"
+                      value={entity.id}
+                      checked={cavalinhoEntityDraftId === entity.id}
+                      onChange={() => setCavalinhoEntityDraftId(entity.id)}
+                      className="mt-1 h-5 w-5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                      {(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}
+                    </span>
+                  </label>
+                )) : <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa foi localizada. Procure a organização antes de salvar a atualização.</p>}
+              </div>
+              {!cavalinhoEntityDraftId && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione uma entidade para continuar com a função Cavalinho.</p>}
             </div>
           </section>
         </div>

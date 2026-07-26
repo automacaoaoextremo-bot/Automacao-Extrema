@@ -28,6 +28,12 @@ type EntityOption = {
   appointmentEnabled?: boolean;
 };
 
+type CavalinhoEntitiesPayload = {
+  ok?: boolean;
+  entities?: EntityOption[];
+  error?: string;
+};
+
 type AgendaOption = {
   slug: string;
   label: string;
@@ -89,6 +95,7 @@ export default function FilhoDaCorrenteTucxaPage() {
   ]);
   const [entityOptions, setEntityOptions] = useState<EntityOption[]>([]);
   const [cavalinhoEntityIds, setCavalinhoEntityIds] = useState<string[]>([]);
+  const [cavalinhoEntityDraftId, setCavalinhoEntityDraftId] = useState("");
   const [entityModalOpen, setEntityModalOpen] = useState(false);
   const submitLoading = false;
   const [message, setMessage] = useState("");
@@ -97,54 +104,60 @@ export default function FilhoDaCorrenteTucxaPage() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/organizacao-em-harmonia/site-tucxa/agenda-options")
-      .then(async (response) => {
-        const result = (await response.json()) as {
-          options?: Array<Partial<AgendaOption>>;
-          entities?: Array<Partial<EntityOption>>;
-        };
-        if (!response.ok) return;
-        const options = (result.options ?? [])
-          .map((item) => ({
-            slug: String(item.slug || "").trim(),
-            label: String(item.label || "").trim(),
-            title:
-              typeof item.title === "string" ? item.title.trim() : undefined,
-            dateLabel:
-              typeof item.dateLabel === "string"
-                ? item.dateLabel.trim()
-                : undefined,
-            timeLabel:
-              typeof item.timeLabel === "string"
-                ? item.timeLabel.trim()
-                : undefined,
-            recurrenceLabel:
-              typeof item.recurrenceLabel === "string"
-                ? item.recurrenceLabel.trim()
-                : undefined,
-            locationLabel:
-              typeof item.locationLabel === "string"
-                ? item.locationLabel.trim()
-                : undefined,
-            description:
-              typeof item.description === "string"
-                ? item.description.trim()
-                : undefined,
-          }))
-          .filter((item) => item.slug && item.label);
-        if (active && options.length) setAgendaOptions(options);
-        if (active) {
-          setEntityOptions((result.entities ?? []).flatMap((item) => {
+
+    const timer = window.setTimeout(() => {
+      void Promise.all([
+        fetch("/api/organizacao-em-harmonia/site-tucxa/agenda-options"),
+        fetch("/api/organizacao-em-harmonia/site-tucxa/cavalinho-entities"),
+      ])
+        .then(async ([agendaResponse, entitiesResponse]) => {
+          const agendaResult = (await agendaResponse.json().catch(() => ({}))) as {
+            options?: Array<Partial<AgendaOption>>;
+            entities?: Array<Partial<EntityOption>>;
+          };
+          const entitiesResult = (await entitiesResponse.json().catch(() => ({}))) as CavalinhoEntitiesPayload;
+
+          if (!active) return;
+
+          const options = (agendaResult.options ?? [])
+            .map((item) => ({
+              slug: String(item.slug || "").trim(),
+              label: String(item.label || "").trim(),
+              title: typeof item.title === "string" ? item.title.trim() : undefined,
+              dateLabel: typeof item.dateLabel === "string" ? item.dateLabel.trim() : undefined,
+              timeLabel: typeof item.timeLabel === "string" ? item.timeLabel.trim() : undefined,
+              recurrenceLabel: typeof item.recurrenceLabel === "string" ? item.recurrenceLabel.trim() : undefined,
+              locationLabel: typeof item.locationLabel === "string" ? item.locationLabel.trim() : undefined,
+              description: typeof item.description === "string" ? item.description.trim() : undefined,
+            }))
+            .filter((item) => item.slug && item.label);
+
+          if (agendaResponse.ok && options.length) setAgendaOptions(options);
+
+          const sourceEntities = entitiesResponse.ok && entitiesResult.entities?.length
+            ? entitiesResult.entities
+            : agendaResult.entities ?? [];
+
+          setEntityOptions(sourceEntities.flatMap((item) => {
             const id = typeof item.id === "string" ? item.id.trim() : "";
             const name = typeof item.name === "string" ? item.name.trim() : "";
             if (!id || !name) return [];
-            return [{ id, name, line: typeof item.line === "string" ? item.line : "", entityType: typeof item.entityType === "string" ? item.entityType : "", appointmentEnabled: item.appointmentEnabled !== false }];
+
+            return [{
+              id,
+              name,
+              line: typeof item.line === "string" ? item.line : "",
+              entityType: typeof item.entityType === "string" ? item.entityType : "",
+              appointmentEnabled: item.appointmentEnabled !== false,
+            }];
           }));
-        }
-      })
-      .catch(() => undefined);
+        })
+        .catch(() => undefined);
+    }, 0);
+
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -193,7 +206,7 @@ export default function FilhoDaCorrenteTucxaPage() {
               )
             : [],
         );
-        setCavalinhoEntityIds(Array.isArray(draft.cavalinhoEntityIds) ? draft.cavalinhoEntityIds.filter((item): item is string => typeof item === "string") : []);
+        setCavalinhoEntityIds(Array.isArray(draft.cavalinhoEntityIds) ? draft.cavalinhoEntityIds.filter((item): item is string => typeof item === "string").slice(0, 1) : []);
       } catch {
         window.sessionStorage.removeItem(FIRST_ACCESS_DRAFT_KEY);
       }
@@ -243,16 +256,29 @@ export default function FilhoDaCorrenteTucxaPage() {
     [selectedAgenda.length, selectedFunctions.length],
   );
 
+  function openEntityModal() {
+    setCavalinhoEntityDraftId(cavalinhoEntityIds[0] ?? "");
+    setEntityModalOpen(true);
+  }
+
+  function saveEntitySelection() {
+    if (!cavalinhoEntityDraftId) return;
+    setCavalinhoEntityIds([cavalinhoEntityDraftId]);
+    setEntityModalOpen(false);
+  }
+
   function toggleFunction(slug: string) {
-    setFunctionSlugs((current) => {
-      const selected = current.includes(slug);
-      const next = toggleValue(current, slug);
-      if (slug === "cavalinho") {
-        if (selected) setCavalinhoEntityIds([]);
-        else window.setTimeout(() => setEntityModalOpen(true), 0);
+    const selected = functionSlugs.includes(slug);
+    setFunctionSlugs((current) => toggleValue(current, slug));
+
+    if (slug === "cavalinho") {
+      if (selected) {
+        setCavalinhoEntityIds([]);
+        setCavalinhoEntityDraftId("");
+      } else {
+        window.setTimeout(openEntityModal, 0);
       }
-      return next;
-    });
+    }
   }
 
   async function submitFirstAccess(event: FormEvent<HTMLFormElement>) {
@@ -277,8 +303,8 @@ export default function FilhoDaCorrenteTucxaPage() {
       if (!confirmed) return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
-      setError("Selecione ao menos uma entidade que você recebe para atendimento dos Consulentes/Filhos de Fora.");
-      setEntityModalOpen(true);
+      setError("Selecione a entidade que você recebe para atender Consulentes.");
+      openEntityModal();
       return;
     }
     if (signupPassword.length < 8) {
@@ -443,9 +469,9 @@ export default function FilhoDaCorrenteTucxaPage() {
               </div>
               {hasCavalinho && (
                 <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-100">
-                  <p className="font-black">Entidade(s) que você recebe</p>
+                  <p className="font-black">Entidade que você recebe</p>
                   <p>{selectedEntities.length ? selectedEntities.map((item) => item.name).join(" • ") : "Seleção obrigatória ainda não informada."}</p>
-                  <button type="button" onClick={() => setEntityModalOpen(true)} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar entidades</button>
+                  <button type="button" onClick={openEntityModal} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar entidade</button>
                 </div>
               )}
             </div>
@@ -586,23 +612,40 @@ export default function FilhoDaCorrenteTucxaPage() {
       </section>
 
       {entityModalOpen && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidades que o Cavalinho recebe">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidade que o Cavalinho recebe">
           <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-            <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-              <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p><h2 className="truncate text-xl font-black text-[#123D2C]">Qual entidade você recebe?</h2></div>
-              <button type="button" onClick={() => { if (cavalinhoEntityIds.length > 0) setEntityModalOpen(false); }} className="rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-40" disabled={cavalinhoEntityIds.length === 0}>Concluir</button>
+            <header className="grid shrink-0 gap-3 border-b border-slate-100 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p>
+                <h2 className="mt-1 text-lg font-black leading-tight text-[#123D2C] sm:text-xl">
+                  Qual entidade, só pode ser uma, você recebe para atender Consulentes
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:flex">
+                <button type="button" onClick={() => setEntityModalOpen(false)} className="min-h-10 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Fechar</button>
+                <button type="button" onClick={saveEntitySelection} disabled={!cavalinhoEntityDraftId} className="min-h-10 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-40">Salvar</button>
+              </div>
             </header>
-            <div className="min-h-0 overflow-y-auto p-5">
-              <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">Selecione uma ou mais entidades que você incorpora para atendimento dos Filhos de Fora/Consulentes. Esta informação será validada pelo Tucxa.</p>
-              <div className="mt-3 grid gap-2">
+            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+              <div className="grid gap-2">
                 {entityOptions.length ? entityOptions.map((entity) => (
                   <label key={entity.id} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                    <input type="checkbox" checked={cavalinhoEntityIds.includes(entity.id)} onChange={() => setCavalinhoEntityIds((current) => toggleValue(current, entity.id))} className="mt-1 h-5 w-5" />
-                    <span className="min-w-0"><span className="block font-black text-[#123D2C]">{entity.name}</span>{(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}</span>
+                    <input
+                      type="radio"
+                      name="cavalinho-entity"
+                      value={entity.id}
+                      checked={cavalinhoEntityDraftId === entity.id}
+                      onChange={() => setCavalinhoEntityDraftId(entity.id)}
+                      className="mt-1 h-5 w-5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                      {(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}
+                    </span>
                   </label>
-                )) : <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa para atendimento de Consulentes foi localizada. Procure a organização antes de concluir o cadastro.</p>}
+                )) : <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa foi localizada. Procure a organização antes de concluir o cadastro.</p>}
               </div>
-              {cavalinhoEntityIds.length === 0 && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione ao menos uma entidade para continuar com a função Cavalinho.</p>}
+              {!cavalinhoEntityDraftId && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione uma entidade para continuar com a função Cavalinho.</p>}
             </div>
           </section>
         </div>

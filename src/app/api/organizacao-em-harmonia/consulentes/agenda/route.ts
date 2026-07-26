@@ -859,8 +859,7 @@ export async function GET(request: Request) {
 
     const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
       .filter(shouldShowEvent)
-      .filter(isVisibleToConsulente)
-      .filter((event) => !publicMode || event.active !== false)
+      .filter((event) => isVisibleToConsulente(event) || (publicMode && isEventosDoTucxa(event)))
       .flatMap(expandRecurringEvent);
 
     const currentPersonId = current?.person.id ?? "";

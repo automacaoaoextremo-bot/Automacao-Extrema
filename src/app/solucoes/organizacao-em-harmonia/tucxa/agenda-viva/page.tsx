@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
@@ -310,18 +309,6 @@ function viewTitle(view: CalendarView, periodStart: Date) {
   return `${shortDateLabel(start)} – ${shortDateLabel(end)}`;
 }
 
-function popupTitle(view: CalendarView, periodStart: Date) {
-  const labelByView: Record<CalendarView, string> = {
-    schedule: "AGENDA",
-    day: "CALENDÁRIO DIÁRIO",
-    threeDays: "CALENDÁRIO 3 DIAS",
-    week: "CALENDÁRIO SEMANAL",
-    month: "CALENDÁRIO MENSAL",
-    year: "CALENDÁRIO ANUAL",
-  };
-
-  return `${labelByView[view]} - ${viewTitle(view, periodStart)}`;
-}
 
 function statusIsDone(status: string) {
   const normalized = normalize(status);
@@ -825,7 +812,7 @@ function ViewButtons({ view, onChange }: { view: CalendarView; onChange: (view: 
           key={item.value}
           type="button"
           onClick={() => onChange(item.value)}
-          className={`rounded-2xl px-3 py-2 text-sm font-black shadow-sm ring-1 transition ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
+          className={`min-h-9 rounded-xl px-2 py-1.5 text-xs font-black shadow-sm ring-1 transition sm:px-3 sm:text-sm ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
         >
           {item.label}
         </button>
@@ -945,15 +932,20 @@ export default function AgendaVivaPublicaPage() {
     const events = uniqueSortedEvents(payload?.events ?? []);
     return events.filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
-      if (!isVisibleToConsulente(event)) return false;
 
-      // Os calendários anuais representam coleções completas. Filtros antigos
-      // salvos no modo Interativo não podem esconder os eventos do ano.
-      if (calendarMode === "tucxa") {
-        return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
-      }
+      // A coleção Eventos do TUCXA é uma seleção editorial completa. Ao abrir
+      // esse calendário, nenhum filtro do modo Interativo nem o público do
+      // evento pode esconder itens que foram classificados nesta coleção.
       if (calendarMode === "events") {
         return !isAppointmentEvent(event) && isEventosDoTucxa(event);
+      }
+
+      if (!isVisibleToConsulente(event)) return false;
+
+      // Os demais calendários anuais também representam coleções completas.
+      // Filtros antigos salvos no modo Interativo não podem esconder o ano.
+      if (calendarMode === "tucxa") {
+        return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
       }
       if (calendarMode === "sementinha") {
         return !isAppointmentEvent(event) && hasClassification(event, "sementinha");
@@ -1125,6 +1117,49 @@ export default function AgendaVivaPublicaPage() {
     }
   }
 
+  function annualEventsForMode(nextMode: CalendarMode) {
+    const events = uniqueSortedEvents(payload?.events ?? []);
+
+    if (nextMode === "events") {
+      return events.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
+    }
+
+    return events.filter((event) => {
+      if (!isVisibleToConsulente(event)) return false;
+      if (nextMode === "tucxa") return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
+      if (nextMode === "sementinha") return !isAppointmentEvent(event) && hasClassification(event, "sementinha");
+      if (nextMode === "mine") return event.associatedToCurrentPerson;
+      return !isAppointmentEvent(event);
+    });
+  }
+
+  function focusAvailableYear(nextMode: CalendarMode) {
+    if (nextMode === "interactive") return;
+
+    const years = Array.from(new Set(
+      annualEventsForMode(nextMode)
+        .map((event) => eventDateOnly(event.startsAt).slice(0, 4))
+        .filter((value) => /^\d{4}$/.test(value))
+        .map(Number),
+    )).sort((left, right) => left - right);
+
+    if (years.length === 0 || years.includes(periodStart.getUTCFullYear())) return;
+
+    const currentYear = dateFromIso(todayIso).getUTCFullYear();
+    const preferredYear = years.find((year) => year >= currentYear) ?? years[years.length - 1];
+    setPeriodStart(new Date(Date.UTC(preferredYear, 0, 1, 12)));
+  }
+
+  function selectCalendarMode(nextMode: CalendarMode) {
+    setCalendarMode(nextMode);
+    focusAvailableYear(nextMode);
+  }
+
+  function openCalendar() {
+    focusAvailableYear(calendarMode);
+    setCalendarOpen(true);
+  }
+
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
     if (events.length === 0) return;
 
@@ -1163,22 +1198,26 @@ export default function AgendaVivaPublicaPage() {
 
   const modalCalendar = (
     <div className="grid gap-3">
-      <div className="agenda-no-print grid grid-cols-4 gap-2">
-        <button type="button" onClick={() => move(-1)} className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">←</button>
-        <button type="button" onClick={goToday} className="min-w-0 rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Hoje</button>
-        <button type="button" onClick={() => move(1)} className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">→</button>
-        <button
-          type="button"
-          onClick={() => {
-            setCalendarOpen(false);
-            setAnnualGuideOpen(true);
-          }}
-          className="min-w-0 whitespace-nowrap rounded-2xl bg-white px-1.5 py-2 text-[0.68rem] font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm"
-        >
-          Visão PDF
-        </button>
+      <div className="agenda-no-print sticky -top-3 z-30 -mx-3 -mt-3 grid gap-1.5 border-b border-[#123D2C]/10 bg-[#F7FAF2]/95 px-3 pb-2 pt-3 shadow-sm backdrop-blur sm:-top-5 sm:-mx-5 sm:-mt-5 sm:px-5 sm:pt-5">
+        <div className="grid grid-cols-[2.25rem_minmax(0,0.8fr)_2.25rem_minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
+          <button type="button" onClick={() => move(-1)} aria-label="Período anterior" className="min-h-9 rounded-xl bg-white px-1 py-1.5 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">←</button>
+          <button type="button" onClick={goToday} className="min-h-9 min-w-0 rounded-xl bg-[#E9F2E7] px-1.5 py-1.5 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Hoje</button>
+          <button type="button" onClick={() => move(1)} aria-label="Próximo período" className="min-h-9 rounded-xl bg-white px-1 py-1.5 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">→</button>
+          <button type="button" onClick={() => setFiltersOpen(true)} className="min-h-9 min-w-0 rounded-xl bg-white px-1.5 py-1.5 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+          <button
+            type="button"
+            onClick={() => {
+              setCalendarOpen(false);
+              setAnnualGuideOpen(true);
+            }}
+            className="min-h-9 min-w-0 whitespace-nowrap rounded-xl bg-white px-1.5 py-1.5 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10"
+          >
+            <span className="sm:hidden">PDF</span>
+            <span className="hidden sm:inline">Visão PDF</span>
+          </button>
+        </div>
+        <ViewButtons view={view} onChange={setView} />
       </div>
-      <ViewButtons view={view} onChange={setView} />
       <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
         <CalendarRenderer view={view} events={visibleEvents} periodStart={periodStart} onSelectDay={selectDay} onSelectMonth={selectMonth} filterSummary={filterSummary} compactMonth />
       </section>
@@ -1190,19 +1229,17 @@ export default function AgendaVivaPublicaPage() {
       <TucxaPublicHeader
         navLabel="Agenda Viva"
         actions={[
-          { label: "Início", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "primary" },
-          { label: "Módulos", href: "/solucoes/organizacao-em-harmonia/tucxa#modulos", variant: "secondary" },
-          { label: "Filhos da Corrente", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente", variant: "secondary" },
-          { label: "Consulente", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente", variant: "secondary" },
+          { label: "Início", href: "#inicio", variant: "primary" },
+          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#modulos", variant: "secondary" },
         ]}
       />
 
-      <section className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
+      <section id="inicio" className="mx-auto max-w-6xl scroll-mt-48 px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
           <div className="grid gap-4">
             <div>
               <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte os calendários do Tucxa, ajuste os filtros e salve o padrão neste dispositivo.</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte os calendários do Tucxa e, no modo Interativo, ajuste os filtros e salve o padrão neste dispositivo.</p>
             </div>
 
             {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
@@ -1222,7 +1259,7 @@ export default function AgendaVivaPublicaPage() {
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => setCalendarMode(option.value)}
+                          onClick={() => selectCalendarMode(option.value)}
                           title={option.description}
                           className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm ring-1 transition ${
                             calendarMode === option.value
@@ -1235,9 +1272,8 @@ export default function AgendaVivaPublicaPage() {
                       ))}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
-                      <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={openCalendar} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
                       <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
                     </div>
 
@@ -1247,7 +1283,6 @@ export default function AgendaVivaPublicaPage() {
                   </div>
                 </section>
 
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa#modulos" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao site do Tucxa</Link>
               </>
             )}
           </div>
@@ -1267,7 +1302,7 @@ export default function AgendaVivaPublicaPage() {
       )}
 
       {calendarOpen && calendarMode === "interactive" && (
-        <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>
+        <ModalShell title="Calendário interativo" onClose={() => setCalendarOpen(false)}>
           {modalCalendar}
         </ModalShell>
       )}
