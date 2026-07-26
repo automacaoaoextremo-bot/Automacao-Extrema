@@ -89,6 +89,25 @@ function channelLabel(value: string) {
   return labels[value] || value || "Consulente";
 }
 
+function whatsappConversationUrl(appointment: Appointment) {
+  const digits = appointment.person.whatsapp.replace(/\D/g, "");
+  if (!digits) return "";
+  const phone = digits.startsWith("55") ? digits : `55${digits}`;
+  const message = [
+    `Olá, ${appointment.person.fullName}.`,
+    "",
+    "Estou entrando em contato sobre seu atendimento no TUCXA:",
+    `Data: ${longDate(appointment.appointmentDate)}`,
+    `Período: ${appointment.appointmentTime}`,
+    `Entidade: ${appointment.entity.name}`,
+    `Situação: ${statusLabel(appointment.status)}`,
+    appointment.order ? `Ordem prevista: ${appointment.order}` : "",
+    "",
+    "Podemos prosseguir por aqui?",
+  ].filter(Boolean).join("\n");
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
 async function accessToken() {
   const { data } = await supabaseBrowser.auth.getSession();
   const token = data.session?.access_token;
@@ -299,11 +318,11 @@ export default function ConsultarAgendamentosRecepcaoPage() {
         <section className="mt-4 rounded-[2rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
           <form onSubmit={(event) => void runSearch(event)} className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-black text-[#123D2C] md:col-span-2">
-              Nome ou WhatsApp
+              Nome, WhatsApp ou Entidade
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Ex.: Antonio ou 993194222"
+                placeholder="Ex.: Antonio, 993194222 ou Caboclo"
                 className="min-h-12 rounded-2xl border border-slate-200 px-4 text-base font-semibold outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
               />
             </label>
@@ -390,7 +409,14 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="break-words font-black text-[#123D2C]">{appointment.person.fullName}</p>
-                                  <p className="mt-1 text-xs font-semibold text-slate-600">{formatPhone(appointment.person.whatsapp)}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <p className="text-xs font-semibold text-slate-600">{formatPhone(appointment.person.whatsapp)}</p>
+                                    {whatsappConversationUrl(appointment) && (
+                                      <a href={whatsappConversationUrl(appointment)} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center rounded-xl bg-[#25D366] px-2.5 py-1 text-[0.68rem] font-black text-[#073B1D]">
+                                        Falar no WhatsApp
+                                      </a>
+                                    )}
+                                  </div>
                                 </div>
                                 <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
                                   Ordem {appointment.order ?? "a confirmar"}

@@ -27,6 +27,7 @@ type LinkedAppointmentRow = {
   person_id: string | null;
   entity_id: string | null;
   consulente_name: string | null;
+  whatsapp: string | null;
   appointment_date: string;
   appointment_time: string | null;
   status: string | null;
@@ -109,7 +110,10 @@ export async function GET(request: Request) {
     if (linksError) throw linksError;
 
     const linkRows = (links ?? []) as EntityLinkRow[];
-    const entityIds = [...new Set(linkRows.map((link) => asText(link.entity_id)).filter(Boolean))];
+    const primaryEntityIds = [...new Set(linkRows.filter((link) => link.is_primary_for_attendance === true).map((link) => asText(link.entity_id)).filter(Boolean))];
+    const legacyEntityIds = [...new Set(linkRows.map((link) => asText(link.entity_id)).filter(Boolean))];
+    const hasExplicitConsulenteEntity = primaryEntityIds.length > 0;
+    const entityIds = hasExplicitConsulenteEntity ? primaryEntityIds : legacyEntityIds;
     if (entityIds.length === 0) {
       return NextResponse.json({ profile: { fullName: person.fullName }, entities: [], appointments: [] });
     }
@@ -121,11 +125,10 @@ export async function GET(request: Request) {
         .eq("organization_id", person.organizationId)
         .in("id", entityIds)
         .eq("active", true)
-        .eq("attends_consulentes", true)
         .order("name", { ascending: true }),
       supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id, person_id, entity_id, consulente_name, appointment_date, appointment_time, status, metadata, created_at")
+        .select("id, person_id, entity_id, consulente_name, whatsapp, appointment_date, appointment_time, status, metadata, created_at")
         .eq("organization_id", person.organizationId)
         .in("entity_id", entityIds)
         .gte("appointment_date", todayInSaoPaulo())
@@ -136,8 +139,20 @@ export async function GET(request: Request) {
     if (entitiesError) throw entitiesError;
     if (appointmentsError) throw appointmentsError;
 
-    const entityRows = (entities ?? []) as LinkedEntityRow[];
+    const entityRows = ((entities ?? []) as LinkedEntityRow[]).filter(
+      (entity) => hasExplicitConsulenteEntity || entity.attends_consulentes === true,
+    );
     const appointmentRows = (appointments ?? []) as LinkedAppointmentRow[];
+    const personIds = [...new Set(appointmentRows.map((appointment) => asText(appointment.person_id)).filter(Boolean))];
+    const { data: people, error: peopleError } = personIds.length
+      ? await supabaseAdmin
+          .from("oh_people")
+          .select("id, whatsapp, normalized_whatsapp")
+          .eq("organization_id", person.organizationId)
+          .in("id", personIds)
+      : { data: [], error: null };
+    if (peopleError) throw peopleError;
+    const whatsappByPersonId = new Map((people ?? []).map((row) => [asText(row.id), asText(row.normalized_whatsapp || row.whatsapp)]));
     const allowedEntityIds = new Set(entityRows.map((entity) => entity.id));
     const entityMap = new Map<string, LinkedEntityRow>(entityRows.map((entity) => [entity.id, entity]));
     const linkMap = new Map<string, EntityLinkRow>(linkRows.map((link) => [asText(link.entity_id), link]));
@@ -159,6 +174,7 @@ export async function GET(request: Request) {
             entityId: appointment.entity_id,
             entityName: entityMap.get(asText(appointment.entity_id))?.name || "Entidade",
             consulenteName: asText(appointment.consulente_name) || "Consulente",
+            whatsapp: whatsappByPersonId.get(asText(appointment.person_id)) || asText(appointment.whatsapp),
             order: Number(metadata.order ?? 0) || null,
             status: appointment.status,
           };

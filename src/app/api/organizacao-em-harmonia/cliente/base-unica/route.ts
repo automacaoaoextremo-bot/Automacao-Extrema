@@ -663,8 +663,17 @@ async function bulkUpdateProfiles(organizationId: string, body: Record<string, u
 }
 
 
-async function syncCavalinhoEntityLinks(organizationId: string, personId: string, entityIdsValue: unknown) {
+async function syncCavalinhoEntityLinks(
+  organizationId: string,
+  personId: string,
+  entityIdsValue: unknown,
+  primaryEntityIdValue: unknown,
+) {
   const entityIds = Array.from(new Set(asTextList(entityIdsValue)));
+  const primaryEntityId = asText(primaryEntityIdValue);
+  if (primaryEntityId && !entityIds.includes(primaryEntityId)) {
+    throw new Error("A entidade que atende Consulentes precisa estar entre as entidades recebidas.");
+  }
   const relationshipTypes = ["recebe", "cavalinho", "incorporates_for_consulente"];
   const now = new Date().toISOString();
 
@@ -696,6 +705,7 @@ async function syncCavalinhoEntityLinks(organizationId: string, personId: string
     person_id: personId,
     entity_id: entityId,
     relationship_type: "recebe",
+    is_primary_for_attendance: entityId === primaryEntityId,
     active: true,
     updated_at: now,
   }));
@@ -773,6 +783,12 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
       : Array.isArray(requestSummary.selectedEntities)
         ? requestSummary.selectedEntities
         : [];
+    const requestedCavalinhoConsulenteEntityId = asText(
+      requestedProfile.cavalinhoConsulenteEntityId ?? requestSummary.cavalinhoConsulenteEntityId,
+    );
+    const requestedCavalinhoConsulenteDefinitionCompleted =
+      requestedProfile.cavalinhoConsulenteDefinitionCompleted === true ||
+      requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
     const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
     const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
     const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
@@ -807,6 +823,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
           selectedAgenda: requestedSelectedAgenda,
           selectedEntityIds: requestedEntityIds,
           selectedEntities: requestedSelectedEntities,
+          cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
+          cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
         },
         approvedAt: now,
       };
@@ -817,6 +835,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         selectedAgenda: requestedSelectedAgenda,
         selectedEntityIds: requestedEntityIds,
         selectedEntities: requestedSelectedEntities,
+        cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
+        cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
         validationStatus: "ativo",
         profileUpdateStatus: "aprovado",
         pendingProfileUpdate: null,
@@ -840,7 +860,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         })
         .eq("id", currentMembership.id);
       if (approvedMembershipError) throw approvedMembershipError;
-      await syncCavalinhoEntityLinks(organizationId, personId, requestedEntityIds);
+      await syncCavalinhoEntityLinks(organizationId, personId, requestedEntityIds, requestedCavalinhoConsulenteEntityId);
     } else {
       const nextProfile = mergeProfile(currentProfile, {
         validationStatus: "ativo",
@@ -930,6 +950,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
   const firstAccessSelectedEntities = Array.isArray(requestSummary.selectedEntities)
     ? requestSummary.selectedEntities
     : [];
+  const firstAccessCavalinhoConsulenteEntityId = asText(requestSummary.cavalinhoConsulenteEntityId);
+  const firstAccessCavalinhoConsulenteDefinitionCompleted = requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
 
   const nextStatus = approved ? "ativo" : "ajuste_solicitado";
   const { error: personUpdateError } = await supabaseAdmin
@@ -950,6 +972,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
       ? {
           selectedEntityIds: firstAccessEntityIds,
           selectedEntities: firstAccessSelectedEntities,
+          cavalinhoConsulenteEntityId: firstAccessCavalinhoConsulenteEntityId,
+          cavalinhoConsulenteDefinitionCompleted: firstAccessCavalinhoConsulenteDefinitionCompleted,
         }
       : {}),
     reviewedAt: now,
@@ -973,7 +997,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
   if (approved) {
-    await syncCavalinhoEntityLinks(organizationId, personId, firstAccessEntityIds);
+    await syncCavalinhoEntityLinks(organizationId, personId, firstAccessEntityIds, firstAccessCavalinhoConsulenteEntityId);
   }
 
   await supabaseAdmin

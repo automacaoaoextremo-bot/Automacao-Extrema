@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
@@ -269,10 +268,6 @@ function eventDurationHours(event: AgendaEvent) {
   return Math.min(Math.max(end - start, 1), 4);
 }
 
-function shortDateLabel(date: Date) {
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(date).replace(".", "");
-}
-
 function longDateLabel(date: Date) {
   const label = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
@@ -281,31 +276,6 @@ function longDateLabel(date: Date) {
 function monthTitle(date: Date) {
   const label = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
-}
-
-function viewTitle(view: CalendarView, periodStart: Date) {
-  if (view === "year") return `Tucxa - ${periodStart.getUTCFullYear()}`;
-  if (view === "month") return monthTitle(periodStart);
-  if (view === "schedule") return `Agenda a partir de ${shortDateLabel(periodStart)}`;
-  if (view === "day") return longDateLabel(periodStart);
-
-  const days = view === "threeDays" ? 3 : 7;
-  const start = view === "week" ? startOfWeek(periodStart) : periodStart;
-  const end = addDays(start, days - 1);
-  return `${shortDateLabel(start)} – ${shortDateLabel(end)}`;
-}
-
-function popupTitle(view: CalendarView, periodStart: Date) {
-  const labelByView: Record<CalendarView, string> = {
-    schedule: "AGENDA",
-    day: "CALENDÁRIO DIÁRIO",
-    threeDays: "CALENDÁRIO 3 DIAS",
-    week: "CALENDÁRIO SEMANAL",
-    month: "CALENDÁRIO MENSAL",
-    year: "CALENDÁRIO ANUAL",
-  };
-
-  return `${labelByView[view]} - ${viewTitle(view, periodStart)}`;
 }
 
 function statusIsDone(status: string) {
@@ -759,7 +729,7 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
     <div className="fixed inset-0 z-50 bg-[#10251C]/70 px-3 py-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F7FAF2] shadow-2xl ring-1 ring-white/30">
         <div className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
-          <h2 className="min-w-0 truncate text-sm font-black uppercase tracking-[0.12em] text-[#123D2C] sm:text-xl">{title}</h2>
+          <h2 className="min-w-0 break-words text-sm font-black uppercase leading-tight tracking-[0.12em] text-[#123D2C] sm:text-xl">{title}</h2>
           <button type="button" onClick={onClose} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">{children}</div>
@@ -810,7 +780,7 @@ function ViewButtons({ view, onChange }: { view: CalendarView; onChange: (view: 
           key={item.value}
           type="button"
           onClick={() => onChange(item.value)}
-          className={`rounded-2xl px-3 py-2 text-sm font-black shadow-sm ring-1 transition ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
+          className={`min-h-8 rounded-xl px-2 py-1 text-xs font-black shadow-sm ring-1 transition ${view === item.value ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
         >
           {item.label}
         </button>
@@ -1161,22 +1131,28 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
   const modalCalendar = (
     <div className="grid gap-3">
-      <div className="agenda-no-print grid grid-cols-4 gap-2">
-        <button type="button" onClick={() => move(-1)} className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">←</button>
-        <button type="button" onClick={goToday} className="min-w-0 rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Hoje</button>
-        <button type="button" onClick={() => move(1)} className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">→</button>
-        <button
-          type="button"
-          onClick={() => {
-            setCalendarOpen(false);
-            setAnnualGuideOpen(true);
-          }}
-          className="min-w-0 whitespace-nowrap rounded-2xl bg-white px-1.5 py-2 text-[0.68rem] font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm"
-        >
-          Visão PDF
-        </button>
+      <div className="agenda-no-print sticky top-0 z-20 -mx-1 grid gap-2 rounded-2xl bg-[#F7FAF2]/95 p-1 pb-2 shadow-sm backdrop-blur">
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem_minmax(0,1fr)] gap-1.5">
+          <button type="button" onClick={() => move(-1)} aria-label="Período anterior" className="min-h-9 rounded-xl bg-white px-1 py-1 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">←</button>
+          <button type="button" onClick={goToday} className="min-h-9 min-w-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Hoje</button>
+          <button type="button" onClick={() => move(1)} aria-label="Próximo período" className="min-h-9 rounded-xl bg-white px-1 py-1 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">→</button>
+          <button type="button" onClick={() => setFiltersOpen(true)} className="min-h-9 min-w-0 rounded-xl bg-white px-2 py-1 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
+        </div>
+        <ViewButtons view={view} onChange={setView} />
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+          <p className="min-w-0 truncate rounded-xl bg-white px-2 py-1.5 text-[0.68rem] font-bold text-slate-600 ring-1 ring-[#123D2C]/10">{filterSummary}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setCalendarOpen(false);
+              setAnnualGuideOpen(true);
+            }}
+            className="min-h-8 whitespace-nowrap rounded-xl bg-white px-2 py-1 text-[0.68rem] font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10"
+          >
+            Visão PDF
+          </button>
+        </div>
       </div>
-      <ViewButtons view={view} onChange={setView} />
       <section onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
         <CalendarRenderer view={view} events={visibleEvents} periodStart={periodStart} onSelectDay={selectDay} onSelectMonth={selectMonth} filterSummary={filterSummary} compactMonth />
       </section>
@@ -1225,10 +1201,9 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                       ))}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      <button type="button" onClick={() => setCalendarOpen(true)} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
-                      <button type="button" onClick={() => setFiltersOpen(true)} className="rounded-2xl bg-white px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Filtros</button>
-                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setCalendarOpen(true)} className="min-h-10 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
+                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="min-h-10 rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
                     </div>
 
                     <p className="rounded-2xl bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
@@ -1236,8 +1211,6 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                     </p>
                   </div>
                 </section>
-
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
               </>
             )}
           </div>
@@ -1257,7 +1230,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       )}
 
       {calendarOpen && calendarMode === "interactive" && (
-        <ModalShell title={popupTitle(view, periodStart)} onClose={() => setCalendarOpen(false)}>
+        <ModalShell title="Calendário interativo" onClose={() => setCalendarOpen(false)}>
           {modalCalendar}
         </ModalShell>
       )}

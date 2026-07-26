@@ -276,14 +276,24 @@ export async function GET(request: Request) {
           .map((person) => person.id)
       : [];
 
-    if (queryText && matchingPersonIds.length === 0) {
-      const { data: entities } = await supabaseAdmin
-        .from("oh_spiritual_entities")
-        .select("id, name")
-        .eq("organization_id", context.organizationId)
-        .eq("active", true)
-        .order("name", { ascending: true });
-      return NextResponse.json({ ok: true, range, today, page, pageSize, total: 0, totalPages: 0, appointments: [], entities: entities ?? [], capabilities: context.capabilities });
+    const { data: entityRows, error: entitiesError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, name, active, daily_capacity")
+      .eq("organization_id", context.organizationId)
+      .eq("active", true)
+      .order("name", { ascending: true });
+    if (entitiesError) throw entitiesError;
+
+    const allEntities = (entityRows ?? []) as EntityRow[];
+    const entities = context.capabilities.scope === "linked_entities"
+      ? allEntities.filter((entity) => context.linkedEntityIds.includes(entity.id))
+      : allEntities;
+    const matchingEntityIds = queryText
+      ? entities.filter((entity) => normalize(entity.name).includes(normalizedQuery)).map((entity) => entity.id)
+      : [];
+
+    if (queryText && matchingPersonIds.length === 0 && matchingEntityIds.length === 0) {
+      return NextResponse.json({ ok: true, range, today, page, pageSize, total: 0, totalPages: 0, appointments: [], entities: entities.map((entity) => ({ id: entity.id, name: entity.name })), capabilities: context.capabilities });
     }
 
     let appointmentQuery = supabaseAdmin
@@ -319,7 +329,15 @@ export async function GET(request: Request) {
 
     if (entityId) appointmentQuery = appointmentQuery.eq("entity_id", entityId);
     if (status) appointmentQuery = appointmentQuery.eq("status", status);
-    if (queryText) appointmentQuery = appointmentQuery.in("person_id", matchingPersonIds);
+    if (queryText) {
+      if (matchingPersonIds.length > 0 && matchingEntityIds.length > 0) {
+        appointmentQuery = appointmentQuery.or(`person_id.in.(${matchingPersonIds.join(",")}),entity_id.in.(${matchingEntityIds.join(",")})`);
+      } else if (matchingPersonIds.length > 0) {
+        appointmentQuery = appointmentQuery.in("person_id", matchingPersonIds);
+      } else {
+        appointmentQuery = appointmentQuery.in("entity_id", matchingEntityIds);
+      }
+    }
 
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
@@ -327,18 +345,6 @@ export async function GET(request: Request) {
     if (appointmentsError) throw appointmentsError;
 
     const appointmentsSource = (appointmentRows ?? []) as AppointmentRow[];
-    const { data: entityRows, error: entitiesError } = await supabaseAdmin
-      .from("oh_spiritual_entities")
-      .select("id, name, active, daily_capacity")
-      .eq("organization_id", context.organizationId)
-      .eq("active", true)
-      .order("name", { ascending: true });
-    if (entitiesError) throw entitiesError;
-
-    const allEntities = (entityRows ?? []) as EntityRow[];
-    const entities = context.capabilities.scope === "linked_entities"
-      ? allEntities.filter((entity) => context.linkedEntityIds.includes(entity.id))
-      : allEntities;
     const personById = new Map<string, PersonRow>(people.map((person) => [person.id, person]));
     const entityById = new Map<string, EntityRow>(entities.map((entity) => [entity.id, entity]));
 

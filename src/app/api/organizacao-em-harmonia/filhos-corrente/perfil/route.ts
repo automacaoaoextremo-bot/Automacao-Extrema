@@ -164,10 +164,6 @@ function firstName(value: string) {
   return value.split(/\s+/)[0] || "Filho da Corrente";
 }
 
-function normalizedSlugSet(value: unknown) {
-  return new Set(asTextList(value).map((item) => item.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
-}
-
 function listDifference(nextValues: string[], previousValues: string[]) {
   const previous = new Set(previousValues);
   return nextValues.filter((item) => !previous.has(item));
@@ -237,7 +233,7 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
   const [{ data: roles, error: rolesError }, { data: entities, error: entitiesError }, { data: links, error: linksError }, { data: moduleSettings }] = await Promise.all([
     supabaseAdmin.from("oh_roles").select("id, name, slug, active").eq("organization_id", organizationId).eq("active", true).order("name"),
     supabaseAdmin.from("oh_spiritual_entities").select("id, name, slug, line, entity_type, active, attends_consulentes, appointment_enabled").eq("organization_id", organizationId).eq("active", true).order("name"),
-    supabaseAdmin.from("oh_person_entity_links").select("entity_id, relationship_type, active").eq("organization_id", organizationId).eq("person_id", person.id).eq("active", true),
+    supabaseAdmin.from("oh_person_entity_links").select("entity_id, relationship_type, is_primary_for_attendance, active").eq("organization_id", organizationId).eq("person_id", person.id).eq("active", true),
     supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "agenda-viva").maybeSingle(),
   ]);
   if (rolesError || entitiesError || linksError) throw rolesError || entitiesError || linksError;
@@ -248,6 +244,18 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     .filter((link) => ["recebe", "cavalinho", "incorporates_for_consulente"].includes(asText(link.relationship_type)))
     .map((link) => asText(link.entity_id))
     .filter(Boolean)));
+  const primaryLinkEntityId = asText((links ?? []).find((link) => link.is_primary_for_attendance === true)?.entity_id);
+  const profilePrimaryEntityId = asText(profile.cavalinhoConsulenteEntityId);
+  const cavalinhoConsulenteEntityId = linkedEntityIds.includes(primaryLinkEntityId)
+    ? primaryLinkEntityId
+    : linkedEntityIds.includes(profilePrimaryEntityId)
+      ? profilePrimaryEntityId
+      : linkedEntityIds.length === 1
+        ? linkedEntityIds[0]
+        : "";
+  const cavalinhoConsulenteDefinitionCompleted = Object.prototype.hasOwnProperty.call(profile, "cavalinhoConsulenteDefinitionCompleted")
+    ? profile.cavalinhoConsulenteDefinitionCompleted === true
+    : linkedEntityIds.length > 0;
   return {
     person: {
       id: person.id,
@@ -263,6 +271,8 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     selectedFunctions: asDraftItems(profile.selectedFunctions),
     selectedAgenda: asDraftItems(profile.selectedAgenda),
     selectedEntityIds: linkedEntityIds,
+    cavalinhoConsulenteEntityId,
+    cavalinhoConsulenteDefinitionCompleted,
     availableEntities: (entities ?? []).filter((entity) => entity.active !== false).map((entity) => ({
       id: entity.id,
       name: entity.name || "Entidade",
@@ -315,6 +325,8 @@ export async function POST(request: Request) {
     const selectedFunctions = asDraftItems(body.selectedFunctions);
     const selectedAgenda = asDraftItems(body.selectedAgenda);
     const cavalinhoEntityIds = Array.from(new Set(asTextList(body.cavalinhoEntityIds)));
+    const cavalinhoConsulenteEntityId = asText(body.cavalinhoConsulenteEntityId);
+    const cavalinhoConsulenteDefinitionCompleted = body.cavalinhoConsulenteDefinitionCompleted === true;
 
     if (!fullName) throw new Error("Informe seu nome completo.");
     if (whatsapp.length < 10) throw new Error("Informe seu WhatsApp com DDD.");
@@ -322,7 +334,13 @@ export async function POST(request: Request) {
     const requestedProfilePreview = { functionSlugs, selectedFunctions };
     const requestedHasCavalinho = profileHasCavalinho(requestedProfilePreview);
     if (requestedHasCavalinho && cavalinhoEntityIds.length === 0) {
-      throw new Error("Selecione ao menos uma entidade que você recebe para atendimento dos Consulentes/Filhos de Fora.");
+      throw new Error("Selecione ao menos uma entidade que você recebe.");
+    }
+    if (requestedHasCavalinho && !cavalinhoConsulenteDefinitionCompleted) {
+      throw new Error("Informe se alguma das entidades selecionadas atende Consulentes.");
+    }
+    if (requestedHasCavalinho && cavalinhoConsulenteEntityId && !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)) {
+      throw new Error("A entidade que atende Consulentes precisa estar entre as entidades que você recebe.");
     }
     let selectedEntities: Array<{ id: string; name: string }> = [];
     if (cavalinhoEntityIds.length > 0) {
@@ -365,7 +383,16 @@ export async function POST(request: Request) {
       notes: current.person.notes || "",
     };
     const requestedPerson = { fullName, whatsapp, email, notes };
-    const requestedProfile = { functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda, selectedEntityIds: requestedHasCavalinho ? cavalinhoEntityIds : [], selectedEntities };
+    const requestedProfile = {
+      functionSlugs,
+      agendaSlugs,
+      selectedFunctions,
+      selectedAgenda,
+      selectedEntityIds: requestedHasCavalinho ? cavalinhoEntityIds : [],
+      selectedEntities,
+      cavalinhoConsulenteEntityId: requestedHasCavalinho ? cavalinhoConsulenteEntityId : "",
+      cavalinhoConsulenteDefinitionCompleted: requestedHasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
+    };
     const changes = {
       functionsAdded: listDifference(functionSlugs, previousFunctionSlugs),
       functionsRemoved: listDifference(previousFunctionSlugs, functionSlugs),
@@ -436,6 +463,7 @@ export async function POST(request: Request) {
     const functionText = itemLines(selectedFunctions, "Somente Filho da Corrente").join("\n");
     const agendaText = itemLines(selectedAgenda, "Nenhuma agenda selecionada").join("\n");
     const entityText = selectedEntities.length ? selectedEntities.map((entity) => `- ${entity.name}`).join("\n") : "- Nenhuma entidade vinculada";
+    const consulenteEntityName = selectedEntities.find((entity) => entity.id === cavalinhoConsulenteEntityId)?.name || "Nenhuma";
     const reviewerMessage = [
       "Tucxa em Harmonia",
       "",
@@ -450,8 +478,9 @@ export async function POST(request: Request) {
       "Agenda solicitada:",
       agendaText,
       "",
-      "Entidades que recebo para atendimento:",
+      "Entidades que recebo:",
       entityText,
+      `Entidade que atende Consulentes: ${consulenteEntityName}`,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",
@@ -504,8 +533,9 @@ export async function POST(request: Request) {
       "Agenda solicitada:",
       agendaText,
       "",
-      "Entidades que recebo para atendimento:",
+      "Entidades que recebo:",
       entityText,
+      `Entidade que atende Consulentes: ${consulenteEntityName}`,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",

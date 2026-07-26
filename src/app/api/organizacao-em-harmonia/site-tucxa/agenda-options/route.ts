@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 
 type AgendaOption = {
   slug: string;
+  legacySlug?: string;
   label: string;
   title: string;
   dateLabel: string;
@@ -574,8 +575,15 @@ function locationLabel(event: AgendaEventRecord, locations: LocationRecord[]) {
   return "Local a definir";
 }
 
-function eventSlug(event: AgendaEventRecord, label: string) {
+function legacyEventSlug(event: AgendaEventRecord, label: string) {
   return event.group_slug || event.event_type || event.id || slugify(label);
+}
+
+function eventSlug(event: AgendaEventRecord, label: string) {
+  // Cada evento precisa ter um identificador próprio no formulário. Usar
+  // event_type fazia eventos distintos, como Pizza, Rodízio de Pizza e
+  // Confraternização, compartilharem o mesmo valor e serem marcados juntos.
+  return event.id || `${slugify(event.event_type || "evento")}-${slugify(label)}`;
 }
 
 function optionForEvent(event: AgendaEventRecord, locations: LocationRecord[]): AgendaOption {
@@ -589,6 +597,7 @@ function optionForEvent(event: AgendaEventRecord, locations: LocationRecord[]): 
 
   return {
     slug,
+    legacySlug: legacyEventSlug(event, title),
     title,
     label: title,
     dateLabel,

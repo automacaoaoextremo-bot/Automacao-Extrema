@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
 import {
   filhoDaCorrenteAgenda as fallbackFilhoDaCorrenteAgenda,
   filhoDaCorrenteFunctions,
@@ -36,6 +37,7 @@ type CavalinhoEntitiesPayload = {
 
 type AgendaOption = {
   slug: string;
+  legacySlug?: string;
   label: string;
   title?: string;
   dateLabel?: string;
@@ -57,6 +59,8 @@ type FirstAccessDraft = {
   selectedFunctions: Array<{ slug: string; label: string }>;
   selectedAgenda: Array<{ slug: string; label: string; description: string }>;
   cavalinhoEntityIds: string[];
+  cavalinhoConsulenteEntityId: string;
+  cavalinhoConsulenteDefinitionCompleted: boolean;
   selectedEntities: Array<{ id: string; name: string }>;
   createdAt: string;
 };
@@ -95,8 +99,8 @@ export default function FilhoDaCorrenteTucxaPage() {
   ]);
   const [entityOptions, setEntityOptions] = useState<EntityOption[]>([]);
   const [cavalinhoEntityIds, setCavalinhoEntityIds] = useState<string[]>([]);
-  const [cavalinhoEntityDraftId, setCavalinhoEntityDraftId] = useState("");
-  const [entityModalOpen, setEntityModalOpen] = useState(false);
+  const [cavalinhoConsulenteEntityId, setCavalinhoConsulenteEntityId] = useState("");
+  const [cavalinhoConsulenteDefinitionCompleted, setCavalinhoConsulenteDefinitionCompleted] = useState(false);
   const submitLoading = false;
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -122,6 +126,7 @@ export default function FilhoDaCorrenteTucxaPage() {
           const options = (agendaResult.options ?? [])
             .map((item) => ({
               slug: String(item.slug || "").trim(),
+              legacySlug: typeof item.legacySlug === "string" ? item.legacySlug.trim() : undefined,
               label: String(item.label || "").trim(),
               title: typeof item.title === "string" ? item.title.trim() : undefined,
               dateLabel: typeof item.dateLabel === "string" ? item.dateLabel.trim() : undefined,
@@ -206,7 +211,9 @@ export default function FilhoDaCorrenteTucxaPage() {
               )
             : [],
         );
-        setCavalinhoEntityIds(Array.isArray(draft.cavalinhoEntityIds) ? draft.cavalinhoEntityIds.filter((item): item is string => typeof item === "string").slice(0, 1) : []);
+        setCavalinhoEntityIds(Array.isArray(draft.cavalinhoEntityIds) ? draft.cavalinhoEntityIds.filter((item): item is string => typeof item === "string") : []);
+        setCavalinhoConsulenteEntityId(typeof draft.cavalinhoConsulenteEntityId === "string" ? draft.cavalinhoConsulenteEntityId : "");
+        setCavalinhoConsulenteDefinitionCompleted(draft.cavalinhoConsulenteDefinitionCompleted === true);
       } catch {
         window.sessionStorage.removeItem(FIRST_ACCESS_DRAFT_KEY);
       }
@@ -216,6 +223,23 @@ export default function FilhoDaCorrenteTucxaPage() {
       window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (agendaOptions.length === 0) return;
+    const timer = window.setTimeout(() => {
+      setAgendaSlugs((current) => {
+        const mapped = current.flatMap((slug) => {
+          if (agendaOptions.some((option) => option.slug === slug)) return [slug];
+          const legacyMatches = agendaOptions.filter((option) => option.legacySlug === slug).map((option) => option.slug);
+          return legacyMatches.length ? legacyMatches : [slug];
+        });
+        const unique = Array.from(new Set(mapped));
+        return unique.length === current.length && unique.every((slug, index) => slug === current[index]) ? current : unique;
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [agendaOptions]);
 
   const selectedFunctions = useMemo(
     () =>
@@ -256,17 +280,6 @@ export default function FilhoDaCorrenteTucxaPage() {
     [selectedAgenda.length, selectedFunctions.length],
   );
 
-  function openEntityModal() {
-    setCavalinhoEntityDraftId(cavalinhoEntityIds[0] ?? "");
-    setEntityModalOpen(true);
-  }
-
-  function saveEntitySelection() {
-    if (!cavalinhoEntityDraftId) return;
-    setCavalinhoEntityIds([cavalinhoEntityDraftId]);
-    setEntityModalOpen(false);
-  }
-
   function toggleFunction(slug: string) {
     const selected = functionSlugs.includes(slug);
     setFunctionSlugs((current) => toggleValue(current, slug));
@@ -274,9 +287,10 @@ export default function FilhoDaCorrenteTucxaPage() {
     if (slug === "cavalinho") {
       if (selected) {
         setCavalinhoEntityIds([]);
-        setCavalinhoEntityDraftId("");
+        setCavalinhoConsulenteEntityId("");
+        setCavalinhoConsulenteDefinitionCompleted(false);
       } else {
-        window.setTimeout(openEntityModal, 0);
+        window.setTimeout(() => document.getElementById("cavalinho-entity-selector-button")?.click(), 0);
       }
     }
   }
@@ -303,8 +317,15 @@ export default function FilhoDaCorrenteTucxaPage() {
       if (!confirmed) return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
-      setError("Selecione a entidade que você recebe para atender Consulentes.");
-      openEntityModal();
+      setError("Selecione pelo menos uma entidade que você recebe.");
+      return;
+    }
+    if (hasCavalinho && !cavalinhoConsulenteDefinitionCompleted) {
+      setError("Informe se alguma das entidades selecionadas atende Consulentes.");
+      return;
+    }
+    if (hasCavalinho && cavalinhoConsulenteEntityId && !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)) {
+      setError("A entidade que atende Consulentes precisa estar entre as entidades que você recebe.");
       return;
     }
     if (signupPassword.length < 8) {
@@ -329,6 +350,8 @@ export default function FilhoDaCorrenteTucxaPage() {
       selectedFunctions,
       selectedAgenda,
       cavalinhoEntityIds: hasCavalinho ? cavalinhoEntityIds : [],
+      cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "",
+      cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
       selectedEntities: hasCavalinho ? selectedEntities : [],
       createdAt: new Date().toISOString(),
     };
@@ -468,11 +491,17 @@ export default function FilhoDaCorrenteTucxaPage() {
                 ))}
               </div>
               {hasCavalinho && (
-                <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-100">
-                  <p className="font-black">Entidade que você recebe</p>
-                  <p>{selectedEntities.length ? selectedEntities.map((item) => item.name).join(" • ") : "Seleção obrigatória ainda não informada."}</p>
-                  <button type="button" onClick={openEntityModal} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar entidade</button>
-                </div>
+                <CavalinhoEntitySelector
+                  entities={entityOptions}
+                  selectedEntityIds={cavalinhoEntityIds}
+                  consulenteEntityId={cavalinhoConsulenteEntityId}
+                  consulenteDefinitionCompleted={cavalinhoConsulenteDefinitionCompleted}
+                  onChange={(value) => {
+                    setCavalinhoEntityIds(value.selectedEntityIds);
+                    setCavalinhoConsulenteEntityId(value.consulenteEntityId);
+                    setCavalinhoConsulenteDefinitionCompleted(value.consulenteDefinitionCompleted);
+                  }}
+                />
               )}
             </div>
 
@@ -611,45 +640,6 @@ export default function FilhoDaCorrenteTucxaPage() {
         </div>
       </section>
 
-      {entityModalOpen && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidade que o Cavalinho recebe">
-          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-            <header className="grid shrink-0 gap-3 border-b border-slate-100 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
-              <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p>
-                <h2 className="mt-1 text-lg font-black leading-tight text-[#123D2C] sm:text-xl">
-                  Qual entidade, só pode ser uma, você recebe para atender Consulentes
-                </h2>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:flex">
-                <button type="button" onClick={() => setEntityModalOpen(false)} className="min-h-10 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Fechar</button>
-                <button type="button" onClick={saveEntitySelection} disabled={!cavalinhoEntityDraftId} className="min-h-10 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-40">Salvar</button>
-              </div>
-            </header>
-            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
-              <div className="grid gap-2">
-                {entityOptions.length ? entityOptions.map((entity) => (
-                  <label key={entity.id} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                    <input
-                      type="radio"
-                      name="cavalinho-entity"
-                      value={entity.id}
-                      checked={cavalinhoEntityDraftId === entity.id}
-                      onChange={() => setCavalinhoEntityDraftId(entity.id)}
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block font-black text-[#123D2C]">{entity.name}</span>
-                      {(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}
-                    </span>
-                  </label>
-                )) : <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa foi localizada. Procure a organização antes de concluir o cadastro.</p>}
-              </div>
-              {!cavalinhoEntityDraftId && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione uma entidade para continuar com a função Cavalinho.</p>}
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }

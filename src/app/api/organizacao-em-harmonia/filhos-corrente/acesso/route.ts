@@ -32,6 +32,8 @@ type AccessBody = {
   selectedFunctions?: unknown;
   selectedAgenda?: unknown;
   cavalinhoEntityIds?: unknown;
+  cavalinhoConsulenteEntityId?: unknown;
+  cavalinhoConsulenteDefinitionCompleted?: unknown;
   selectedEntities?: unknown;
 };
 
@@ -656,7 +658,9 @@ async function submitFirstAccess(body: AccessBody) {
   const agendaSlugs = asTextList(body.agendaSlugs);
   const selectedFunctions = asDraftItems(body.selectedFunctions);
   const selectedAgenda = asDraftItems(body.selectedAgenda);
-  const requestedEntityIds = asTextList(body.cavalinhoEntityIds);
+  const requestedEntityIds = Array.from(new Set(asTextList(body.cavalinhoEntityIds)));
+  const cavalinhoConsulenteEntityId = asText(body.cavalinhoConsulenteEntityId);
+  const cavalinhoConsulenteDefinitionCompleted = body.cavalinhoConsulenteDefinitionCompleted === true;
   const requestedEntities = asEntityItems(body.selectedEntities);
   const hasCavalinho = hasCavalinhoFunction(functionSlugs, selectedFunctions);
 
@@ -665,7 +669,13 @@ async function submitFirstAccess(body: AccessBody) {
   if (password.length < 8) throw new Error("Crie uma senha com pelo menos 8 caracteres.");
   if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
   if (hasCavalinho && requestedEntityIds.length === 0) {
-    throw new Error("Selecione ao menos uma entidade que o Cavalinho recebe para atendimento.");
+    throw new Error("Selecione ao menos uma entidade que o Cavalinho recebe.");
+  }
+  if (hasCavalinho && !cavalinhoConsulenteDefinitionCompleted) {
+    throw new Error("Informe se alguma das entidades selecionadas atende Consulentes.");
+  }
+  if (hasCavalinho && cavalinhoConsulenteEntityId && !requestedEntityIds.includes(cavalinhoConsulenteEntityId)) {
+    throw new Error("A entidade que atende Consulentes precisa estar entre as entidades que o Cavalinho recebe.");
   }
 
   let selectedEntities: EntityItem[] = [];
@@ -720,6 +730,8 @@ async function submitFirstAccess(body: AccessBody) {
     selectedAgenda,
     selectedEntityIds: selectedEntities.map((item) => item.id),
     selectedEntities,
+    cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "",
+    cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
     submittedAt: new Date().toISOString(),
     canSimulateAccess: false,
   };
@@ -758,6 +770,8 @@ async function submitFirstAccess(body: AccessBody) {
     selectedAgenda,
     selectedEntityIds: selectedEntities.map((item) => item.id),
     selectedEntities,
+    cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "",
+    cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
     notes,
     statusToken,
   };
