@@ -662,6 +662,50 @@ async function bulkUpdateProfiles(organizationId: string, body: Record<string, u
   }
 }
 
+
+async function syncCavalinhoEntityLinks(organizationId: string, personId: string, entityIdsValue: unknown) {
+  const entityIds = Array.from(new Set(asTextList(entityIdsValue)));
+  const relationshipTypes = ["recebe", "cavalinho", "incorporates_for_consulente"];
+  const now = new Date().toISOString();
+
+  if (entityIds.length > 0) {
+    const { data: entities, error: entityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .in("id", entityIds);
+    if (entityError) throw entityError;
+    if ((entities ?? []).length !== entityIds.length) {
+      throw new Error("Uma ou mais entidades selecionadas não estão ativas ou não pertencem à organização.");
+    }
+  }
+
+  const { error: deactivateError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .update({ active: false, updated_at: now })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .in("relationship_type", relationshipTypes);
+  if (deactivateError) throw deactivateError;
+
+  if (entityIds.length === 0) return;
+
+  const rows = entityIds.map((entityId) => ({
+    organization_id: organizationId,
+    person_id: personId,
+    entity_id: entityId,
+    relationship_type: "recebe",
+    active: true,
+    updated_at: now,
+  }));
+
+  const { error: upsertError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .upsert(rows, { onConflict: "organization_id,person_id,entity_id,relationship_type" });
+  if (upsertError) throw upsertError;
+}
+
 async function updateAccessStatus(organizationId: string, body: Record<string, unknown>, approved: boolean) {
   const personId = asText(body.personId);
   const reviewNotes = asText(body.reviewNotes ?? body.notes);
@@ -718,6 +762,17 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
       : Array.isArray(requestSummary.selectedAgenda)
         ? requestSummary.selectedAgenda
         : [];
+    const requestedEntityIds = asTextList(
+      requestedProfile.selectedEntityIds ??
+      requestedProfile.cavalinhoEntityIds ??
+      requestSummary.selectedEntityIds ??
+      requestSummary.cavalinhoEntityIds,
+    );
+    const requestedSelectedEntities = Array.isArray(requestedProfile.selectedEntities)
+      ? requestedProfile.selectedEntities
+      : Array.isArray(requestSummary.selectedEntities)
+        ? requestSummary.selectedEntities
+        : [];
     const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
     const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
     const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
@@ -750,6 +805,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
           agendaSlugs: requestedAgendaSlugs,
           selectedFunctions: requestedSelectedFunctions,
           selectedAgenda: requestedSelectedAgenda,
+          selectedEntityIds: requestedEntityIds,
+          selectedEntities: requestedSelectedEntities,
         },
         approvedAt: now,
       };
@@ -758,6 +815,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         agendaSlugs: requestedAgendaSlugs,
         selectedFunctions: requestedSelectedFunctions,
         selectedAgenda: requestedSelectedAgenda,
+        selectedEntityIds: requestedEntityIds,
+        selectedEntities: requestedSelectedEntities,
         validationStatus: "ativo",
         profileUpdateStatus: "aprovado",
         pendingProfileUpdate: null,
@@ -781,6 +840,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         })
         .eq("id", currentMembership.id);
       if (approvedMembershipError) throw approvedMembershipError;
+      await syncCavalinhoEntityLinks(organizationId, personId, requestedEntityIds);
     } else {
       const nextProfile = mergeProfile(currentProfile, {
         validationStatus: "ativo",
@@ -863,6 +923,14 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     };
   }
 
+  const firstAccessEntityIds = asTextList(
+    requestSummary.selectedEntityIds ??
+    requestSummary.cavalinhoEntityIds,
+  );
+  const firstAccessSelectedEntities = Array.isArray(requestSummary.selectedEntities)
+    ? requestSummary.selectedEntities
+    : [];
+
   const nextStatus = approved ? "ativo" : "ajuste_solicitado";
   const { error: personUpdateError } = await supabaseAdmin
     .from("oh_people")
@@ -878,6 +946,12 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
   const mergedProfile = mergeProfile(currentMembership.agenda_viva_profile, {
     source: "primeiro_acesso_filho_corrente",
     validationStatus: nextStatus,
+    ...(approved
+      ? {
+          selectedEntityIds: firstAccessEntityIds,
+          selectedEntities: firstAccessSelectedEntities,
+        }
+      : {}),
     reviewedAt: now,
     reviewNotes: reviewNotes || "",
   });
@@ -898,6 +972,9 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
+  if (approved) {
+    await syncCavalinhoEntityLinks(organizationId, personId, firstAccessEntityIds);
+  }
 
   await supabaseAdmin
     .from("oh_first_access_validation_requests")

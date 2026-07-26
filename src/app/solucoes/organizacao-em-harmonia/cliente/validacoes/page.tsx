@@ -49,6 +49,11 @@ type DraftItem = {
   label: string;
 };
 
+type EntityItem = {
+  id: string;
+  name: string;
+};
+
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -70,6 +75,26 @@ function draftItems(value: unknown): DraftItem[] {
     const label = asText(record.label);
     return slug && label ? [{ slug, label }] : [];
   });
+}
+
+
+
+function entityItems(value: unknown): EntityItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = asRecord(item);
+    const id = asText(record.id);
+    const name = asText(record.name);
+    return id && name ? [{ id, name }] : [];
+  });
+}
+
+function entityLabel(id: string, ...collections: EntityItem[][]) {
+  for (const collection of collections) {
+    const match = collection.find((item) => item.id === id);
+    if (match) return match.name;
+  }
+  return id;
 }
 
 function selectedLabels(value: unknown) {
@@ -319,8 +344,25 @@ export default function ValidacoesPrimeiroAcessoPage() {
             const agendaAdded = agendaAddedSlugs.map((slug) => labelForSlug(slug, requestedAgenda, previousAgenda));
             const agendaRemoved = agendaRemovedSlugs.map((slug) => labelForSlug(slug, previousAgenda, requestedAgenda));
             const personalData = asTextList(changes.personalData);
+            const previousEntities = entityItems(previousProfile.selectedEntities);
+            const requestedEntities = entityItems(requestedProfile.selectedEntities).length
+              ? entityItems(requestedProfile.selectedEntities)
+              : entityItems(summary.selectedEntities);
+            const previousEntityIds = asTextList(previousProfile.selectedEntityIds);
+            const requestedEntityIds = asTextList(requestedProfile.selectedEntityIds).length
+              ? asTextList(requestedProfile.selectedEntityIds)
+              : asTextList(summary.selectedEntityIds);
+            const entitiesAddedIds = asTextList(changes.entitiesAdded).length
+              ? asTextList(changes.entitiesAdded)
+              : requestedEntityIds.filter((id) => !previousEntityIds.includes(id));
+            const entitiesRemovedIds = asTextList(changes.entitiesRemoved).length
+              ? asTextList(changes.entitiesRemoved)
+              : previousEntityIds.filter((id) => !requestedEntityIds.includes(id));
+            const entitiesAdded = entitiesAddedIds.map((id) => entityLabel(id, requestedEntities, previousEntities));
+            const entitiesRemoved = entitiesRemovedIds.map((id) => entityLabel(id, previousEntities, requestedEntities));
             const functionLabels = selectedLabels(profile.selectedFunctions);
             const agendaLabels = selectedLabels(profile.selectedAgenda);
+            const selectedEntityLabels = entityItems(summary.selectedEntities).map((item) => item.name);
 
             return (
               <article key={`${membership.id}-${request?.id ?? "membership"}`} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100">
@@ -347,6 +389,8 @@ export default function ValidacoesPrimeiroAcessoPage() {
                     <ChangeList title="Funções retiradas" values={functionsRemoved} tone="removed" />
                     <ChangeList title="Agenda incluída" values={agendaAdded} tone="added" />
                     <ChangeList title="Agenda retirada" values={agendaRemoved} tone="removed" />
+                    <ChangeList title="Entidades incluídas" values={entitiesAdded} tone="added" />
+                    <ChangeList title="Entidades retiradas" values={entitiesRemoved} tone="removed" />
                     <ChangeList title="Dados pessoais alterados" values={personalData} />
                   </div>
                 ) : (
@@ -361,6 +405,12 @@ export default function ValidacoesPrimeiroAcessoPage() {
                         {agendaLabels.length ? agendaLabels.map((label) => <p key={label} className="rounded-xl bg-white/70 p-2 ring-1 ring-[#123D2C]/10">{label}</p>) : <p>Sem agenda selecionada</p>}
                       </div>
                     </div>
+                    {selectedEntityLabels.length > 0 && (
+                      <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 md:col-span-2">
+                        <p className="font-black text-[#00334E]">Entidades que recebe para atendimento</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{selectedEntityLabels.join(" • ")}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 

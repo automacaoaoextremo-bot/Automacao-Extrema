@@ -37,18 +37,27 @@ type CalendarTone = {
 const compactWeekDays = ["D", "S", "T", "Q", "Q", "S", "S"];
 const assetRoot = "/organizacao-em-harmonia/tucxa/agenda-viva";
 
-const umbandaLegend = [
-  { label: "ATENDIMENTO\nFILHOS DE FORA", kind: "section", color: "#FFF9E8" },
-  { label: "GRUPO SEGUNDA-\nFEIRA", kind: "tone", color: "#F3B2AE" },
-  { label: "GRUPO TERÇA-FEIRA", kind: "tone", color: "#A8D0E8" },
-  { label: "TRATAMENTO\nESPIRITUAL", kind: "tone", color: "#C9E6C8" },
-  { label: "ATENDIMENTO\nFILHOS DA CORRENTE", kind: "section", color: "#FFF9E8" },
-  { label: "GRUPO 1", kind: "tone", color: "#5E9E6D" },
-  { label: "GRUPO 2", kind: "tone", color: "#4299C6" },
-  { label: "24/01 - MUTIRÃO DE\nLIMPEZA", kind: "note", color: "#FAEDC4" },
-  { label: "29/01 E 30/07\nTRABALHO PARA TODOS\nOS CAVALINHOS E\nCAMBONOS", kind: "note", color: "#FAEDC4" },
-  { label: "20/12 - ENCERRAMENTO", kind: "note", color: "#FAEDC4" },
-  { label: "PERÍODOS DE FÉRIAS:\nJANEIRO ATÉ 28\nJULHO ATÉ 29\nA PARTIR DE 21 DE\nDEZEMBRO", kind: "vacation", color: "#D9E8D6" },
+const umbandaLegendRows = [
+  [
+    { label: "ATENDIMENTOS FILHOS DE FORA", kind: "section", color: "#FFF9E8" },
+    { label: "GRUPO DE SEGUNDA-FEIRA", kind: "tone", color: "#F3B2AE" },
+    { label: "GRUPO DE TERÇA-FEIRA", kind: "tone", color: "#A8D0E8" },
+  ],
+  [
+    { label: "ATENDIMENTOS FILHOS DA CORRENTE", kind: "section", color: "#FFF9E8" },
+    { label: "GRUPO 1", kind: "tone", color: "#5E9E6D" },
+    { label: "GRUPO 2", kind: "tone", color: "#4299C6" },
+  ],
+  [
+    { label: "TRATAMENTO ESPIRITUAL", kind: "tone", color: "#C9E6C8" },
+    { label: "24/01 - MUTIRÃO DA LIMPEZA", kind: "note", color: "#FAEDC4" },
+  ],
+] as const;
+
+const umbandaLegendNotes = [
+  { label: "29/01 E 30/07 - TRABALHO PARA TODOS OS CAVALINHOS E CAMBONOS", color: "#FAEDC4" },
+  { label: "20/12 - ENCERRAMENTO", color: "#FAEDC4" },
+  { label: "PERÍODOS DE FÉRIAS: JANEIRO ATÉ 28 • JULHO ATÉ 29 • A PARTIR DE 21 DE DEZEMBRO", color: "#D9E8D6" },
 ] as const;
 
 const sementinhaLegend = [
@@ -311,20 +320,31 @@ function TucxaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEv
       <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>
       <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay} />
 
-      <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[0.34rem] font-black uppercase leading-tight text-[#10251C] sm:mt-3 sm:grid-cols-4 sm:text-[0.5rem]">
-        {umbandaLegend.map((item) => {
-          const isVacation = item.kind === "vacation";
-          const isLongNote = item.label.includes("TRABALHO PARA TODOS");
-          return (
-            <div
-              key={item.label}
-              className={`min-w-0 whitespace-pre-line px-1 py-1 ${item.kind === "section" ? "border border-dashed border-[#10251C]" : ""} ${isVacation ? "col-span-3 sm:col-span-4" : isLongNote ? "col-span-2" : ""}`}
-              style={{ backgroundColor: item.color }}
-            >
-              {item.label}
-            </div>
-          );
-        })}
+      <div className="mt-2 grid gap-1 text-center font-black uppercase leading-[1.05] text-[#10251C] sm:mt-3">
+        {umbandaLegendRows.map((row, rowIndex) => (
+          <div key={rowIndex} className={`grid min-w-0 gap-1 ${row.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+            {row.map((item) => (
+              <div
+                key={item.label}
+                className={`flex min-h-8 min-w-0 items-center justify-center px-1 py-1 text-[clamp(0.28rem,1.15vw,0.5rem)] sm:min-h-10 sm:px-2 ${item.kind === "section" ? "border border-dashed border-[#10251C]" : ""}`}
+                style={{ backgroundColor: item.color }}
+              >
+                <span className="min-w-0 whitespace-nowrap">{item.label}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+        <div className="grid min-w-0 grid-cols-3 gap-1">
+          <div className="col-span-2 flex min-h-9 items-center justify-center px-2 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[0].color }}>
+            {umbandaLegendNotes[0].label}
+          </div>
+          <div className="flex min-h-9 items-center justify-center px-2 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[1].color }}>
+            {umbandaLegendNotes[1].label}
+          </div>
+        </div>
+        <div className="flex min-h-9 items-center justify-center px-3 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[2].color }}>
+          {umbandaLegendNotes[2].label}
+        </div>
       </div>
     </section>
   );

@@ -14,6 +14,11 @@ type DraftItem = {
   description?: string;
 };
 
+type EntityItem = {
+  id: string;
+  name: string;
+};
+
 type AccessBody = {
   action?: string;
   identifier?: string;
@@ -26,6 +31,8 @@ type AccessBody = {
   agendaSlugs?: unknown;
   selectedFunctions?: unknown;
   selectedAgenda?: unknown;
+  cavalinhoEntityIds?: unknown;
+  selectedEntities?: unknown;
 };
 
 type PersonRow = {
@@ -71,6 +78,37 @@ function asDraftItems(value: unknown): DraftItem[] {
       return { slug, label, description };
     })
     .filter(Boolean) as DraftItem[];
+}
+
+
+
+function asEntityItems(value: unknown): EntityItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Record<string, unknown>;
+      const id = asText(candidate.id);
+      const name = asText(candidate.name);
+      if (!id || !name) return null;
+      return { id, name };
+    })
+    .filter(Boolean) as EntityItem[];
+}
+
+function normalizeToken(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function hasCavalinhoFunction(functionSlugs: string[], selectedFunctions: DraftItem[]) {
+  return [...functionSlugs, ...selectedFunctions.flatMap((item) => [item.slug, item.label])]
+    .map(normalizeToken)
+    .some((token) => token.includes("cavalinho") || token.includes("medium") || token.includes("incorporante"));
 }
 
 function siteUrl() {
@@ -387,6 +425,7 @@ function commonSummaryText(input: {
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
+  selectedEntities: EntityItem[];
 }) {
   return [
     `Organização: ${ORGANIZATION_DISPLAY_NAME}`,
@@ -399,6 +438,9 @@ function commonSummaryText(input: {
     "",
     "Agenda:",
     agendaLines(input.selectedAgenda).join("\n\n"),
+    ...(input.selectedEntities.length
+      ? ["", "Entidades que recebe para atendimento:", input.selectedEntities.map((item) => `- ${item.name}`).join("\n")]
+      : []),
     "",
     input.notes ? `Observação: ${input.notes}` : "Observação: não informada",
   ].join("\n");
@@ -411,6 +453,7 @@ function commonSummaryHtml(input: {
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
+  selectedEntities: EntityItem[];
 }) {
   return `
     <p style="margin:0 0 8px 0"><strong>Organização:</strong> ${htmlEscape(ORGANIZATION_DISPLAY_NAME)}</p>
@@ -421,6 +464,7 @@ function commonSummaryHtml(input: {
     ${listToHtml(functionsLines(input.selectedFunctions))}
     <h3 style="margin:22px 0 8px 0;color:#123D2C">Agenda:</h3>
     ${listToHtml(agendaLines(input.selectedAgenda), true)}
+    ${input.selectedEntities.length ? `<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidades que recebe para atendimento:</h3>${listToHtml(input.selectedEntities.map((item) => item.name))}` : ""}
     <p style="margin:18px 0 0 0"><strong>Observação:</strong> ${htmlEscape(input.notes || "não informada")}</p>`;
 }
 
@@ -441,6 +485,7 @@ function buildPersonEmail(input: {
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
+  selectedEntities: EntityItem[];
   statusUrl: string;
 }) {
   const text = [
@@ -480,6 +525,7 @@ function buildReviewerEmail(input: {
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
+  selectedEntities: EntityItem[];
   validationUrl: string;
   simulationUrl: string;
 }) {
@@ -526,6 +572,7 @@ function buildWhatsappPersonMessage(input: {
   notes: string;
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
+  selectedEntities: EntityItem[];
   statusUrl: string;
 }) {
   return [
@@ -609,11 +656,34 @@ async function submitFirstAccess(body: AccessBody) {
   const agendaSlugs = asTextList(body.agendaSlugs);
   const selectedFunctions = asDraftItems(body.selectedFunctions);
   const selectedAgenda = asDraftItems(body.selectedAgenda);
+  const requestedEntityIds = asTextList(body.cavalinhoEntityIds);
+  const requestedEntities = asEntityItems(body.selectedEntities);
+  const hasCavalinho = hasCavalinhoFunction(functionSlugs, selectedFunctions);
 
   if (!fullName) throw new Error("Informe o nome completo.");
   if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");
   if (password.length < 8) throw new Error("Crie uma senha com pelo menos 8 caracteres.");
   if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+  if (hasCavalinho && requestedEntityIds.length === 0) {
+    throw new Error("Selecione ao menos uma entidade que o Cavalinho recebe para atendimento.");
+  }
+
+  let selectedEntities: EntityItem[] = [];
+  if (hasCavalinho) {
+    const { data: entityRows, error: entityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, name")
+      .eq("organization_id", organization.id)
+      .eq("active", true)
+      .in("id", requestedEntityIds);
+    if (entityError) throw entityError;
+    selectedEntities = (entityRows ?? []).map((row) => ({ id: String(row.id), name: asText(row.name) }));
+    if (selectedEntities.length !== new Set(requestedEntityIds).size) {
+      throw new Error("Uma ou mais entidades selecionadas não estão ativas ou não pertencem ao Tucxa.");
+    }
+  } else if (requestedEntities.length > 0) {
+    selectedEntities = [];
+  }
 
   const existing = await findPersonByIdentifier(organization.id, email || whatsapp);
   const emailForAuth = email || syntheticEmailFromPhone(whatsapp);
@@ -648,6 +718,8 @@ async function submitFirstAccess(body: AccessBody) {
     agendaSlugs,
     selectedFunctions,
     selectedAgenda,
+    selectedEntityIds: selectedEntities.map((item) => item.id),
+    selectedEntities,
     submittedAt: new Date().toISOString(),
     canSimulateAccess: false,
   };
@@ -681,7 +753,14 @@ async function submitFirstAccess(body: AccessBody) {
   }
 
   const statusToken = crypto.randomUUID();
-  const summary = { selectedFunctions, selectedAgenda, notes, statusToken };
+  const summary = {
+    selectedFunctions,
+    selectedAgenda,
+    selectedEntityIds: selectedEntities.map((item) => item.id),
+    selectedEntities,
+    notes,
+    statusToken,
+  };
   const { error: validationError } = await supabaseAdmin
     .from("oh_first_access_validation_requests")
     .insert({
@@ -707,6 +786,7 @@ async function submitFirstAccess(body: AccessBody) {
     notes,
     selectedFunctions,
     selectedAgenda,
+    selectedEntities,
   };
 
   const reviewers = await reviewerEmails(organization.id);

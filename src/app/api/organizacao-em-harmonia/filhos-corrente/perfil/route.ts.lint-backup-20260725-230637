@@ -168,6 +168,17 @@ function normalizedSlugSet(value: unknown) {
   return new Set(asTextList(value).map((item) => item.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
 }
 
+function profileHasReception(profileValue: unknown) {
+  const profile = asRecord(profileValue);
+  if (profile.supportsReception === true) return true;
+  const values = [
+    ...normalizedSlugSet(profile.functionSlugs),
+    ...asDraftItems(profile.selectedFunctions).map((item) => item.slug.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()),
+    ...asDraftItems(profile.selectedFunctions).map((item) => item.label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()),
+  ];
+  return values.some((value) => value.includes("recepcao") || value.includes("recepcionista"));
+}
+
 function listDifference(nextValues: string[], previousValues: string[]) {
   const previous = new Set(previousValues);
   return nextValues.filter((item) => !previous.has(item));

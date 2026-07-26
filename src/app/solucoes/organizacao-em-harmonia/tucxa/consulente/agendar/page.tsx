@@ -68,6 +68,8 @@ type Payload = {
   settings: {
     appointmentReturnGuidance: string;
     appointmentEditCutoffMinutes: number;
+    maxRecurringAppointmentsPerConsulente: number;
+    autoCancelRecurringOnAbsence: boolean;
   };
 };
 
@@ -194,6 +196,7 @@ export default function AgendarConsulentePage() {
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [recurrenceCount, setRecurrenceCount] = useState(1);
   const [successEmail, setSuccessEmail] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
@@ -347,6 +350,7 @@ export default function AgendarConsulentePage() {
     setEmail(payload?.profile.email || "");
     setNotes("");
     setIdempotencyKey(crypto.randomUUID());
+    setRecurrenceCount(1);
     setError("");
     setActiveModal("confirm");
   }
@@ -369,6 +373,7 @@ export default function AgendarConsulentePage() {
           email,
           notes,
           idempotencyKey,
+          recurrenceCount: changing ? 1 : recurrenceCount,
         }),
       });
       const appointment = result.appointment as {
@@ -698,6 +703,17 @@ export default function AgendarConsulentePage() {
             </section>
 
             {selectedEntity.appointment_notes && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">{selectedEntity.appointment_notes}</p>}
+
+            {!isEditing && payload.settings.maxRecurringAppointmentsPerConsulente > 1 && (
+              <label className="grid gap-1 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
+                <span className="text-sm font-black text-[#123D2C]">Recorrência com a mesma entidade</span>
+                <select value={recurrenceCount} onChange={(event) => setRecurrenceCount(Number(event.target.value))} className="rounded-xl border border-blue-200 bg-white p-3">
+                  {Array.from({ length: payload.settings.maxRecurringAppointmentsPerConsulente }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count === 1 ? "Somente esta data" : `${count} ocorrências`}</option>)}
+                </select>
+                <span className="text-xs font-semibold leading-5 text-slate-600">Todas as ocorrências mantêm o mesmo dia da semana, período e entidade. A série só será confirmada quando houver vaga em todas as datas.</span>
+                {recurrenceCount > 1 && payload.settings.autoCancelRecurringOnAbsence && <span className="rounded-xl bg-amber-50 p-3 text-xs font-black leading-5 text-amber-900">Em caso de ausência, as próximas ocorrências desta série poderão ser canceladas automaticamente.</span>}
+              </label>
+            )}
 
             {!isEditing && (
               <>

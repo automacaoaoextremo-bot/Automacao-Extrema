@@ -6,6 +6,9 @@ export const dynamic = "force-dynamic";
 
 const SAO_PAULO_TIME_ZONE = "America/Sao_Paulo";
 const PAGE_SIZE_LIMIT = 12;
+
+type ProfileRecord = Record<string, unknown>;
+
 type ReceptionContext = {
   organizationId: string;
   personId: string;

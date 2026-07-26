@@ -34,6 +34,9 @@ type HeaderAction = {
 
 type ProfileResponse = {
   canReception?: boolean;
+  canCambono?: boolean;
+  canCavalinho?: boolean;
+  consultationScope?: "manage" | "read_all" | "linked_entities" | "none";
 };
 
 const modalContent = {
@@ -58,19 +61,21 @@ const modalContent = {
     cta: "Abrir acolhimento e agendamentos",
   },
   recepcao: {
-    eyebrow: "Consulta da Recepção",
+    eyebrow: "Consulta de Agendamentos",
     title: "Localize e acompanhe os atendimentos previstos.",
     paragraphs: [
       "Pesquise por nome ou WhatsApp, filtre por entidade e situação e consulte atendimentos futuros ou anteriores.",
-      "A consulta também permite editar, cancelar ou excluir registros conforme as regras e permissões da organização.",
+      "As ações disponíveis respeitam sua função: Recepção pode gerir; Cambono consulta em modo somente leitura; Cavalinho vê somente os atendimentos das entidades vinculadas ao seu cadastro.",
     ],
     href: consultationHref,
-    cta: "Abrir consulta da Recepção",
+    cta: "Abrir consulta de agendamentos",
   },
 } as const;
 
 export default function AtendimentoEmHarmoniaPage() {
   const [canReception, setCanReception] = useState(false);
+  const [canCambono, setCanCambono] = useState(false);
+  const [canCavalinho, setCanCavalinho] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => {
@@ -83,7 +88,11 @@ export default function AtendimentoEmHarmoniaPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
         const payload = (await response.json().catch(() => ({}))) as ProfileResponse;
-        if (active && response.ok) setCanReception(payload.canReception === true);
+        if (active && response.ok) {
+          setCanReception(payload.canReception === true);
+          setCanCambono(payload.canCambono === true);
+          setCanCavalinho(payload.canCavalinho === true);
+        }
       });
     }, 0);
 
@@ -108,7 +117,7 @@ export default function AtendimentoEmHarmoniaPage() {
       { label: "Orientações", href: `${pageHref}/orientacoes`, variant: "secondary" as const },
       { label: "Agendamentos", href: `${pageHref}/agendamentos`, variant: "secondary" as const },
     ];
-    if (canReception) {
+    if (canReception || canCambono || canCavalinho) {
       current.push({ label: "Consultas", href: consultationHref, variant: "secondary" as const });
     }
     current.push(
@@ -117,7 +126,7 @@ export default function AtendimentoEmHarmoniaPage() {
       filhoSignOutAction,
     );
     return current;
-  }, [canReception]);
+  }, [canCambono, canCavalinho, canReception]);
 
   const selected = modal ? modalContent[modal] : null;
 
@@ -138,24 +147,24 @@ export default function AtendimentoEmHarmoniaPage() {
           <button
             type="button"
             onClick={() => setModal("orientacoes")}
-            className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+            className="min-h-16 rounded-[1.5rem] bg-[#E9F4E6] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
           >
             Orientações práticas do Tucxa
           </button>
           <button
             type="button"
             onClick={() => setModal("agendamentos")}
-            className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+            className="min-h-16 rounded-[1.5rem] bg-[#D6EBD5] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
           >
             Acolhimento e agendamentos
           </button>
-          {canReception && (
+          {(canReception || canCambono || canCavalinho) && (
             <button
               type="button"
               onClick={() => setModal("recepcao")}
-              className="min-h-16 rounded-[1.5rem] bg-white px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+              className="min-h-16 rounded-[1.5rem] bg-[#BDDDBF] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
             >
-              Consulta da Recepção
+              Consulta de Agendamentos
             </button>
           )}
         </section>

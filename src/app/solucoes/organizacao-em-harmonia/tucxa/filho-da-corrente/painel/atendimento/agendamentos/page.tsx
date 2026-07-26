@@ -13,6 +13,8 @@ type Profile = {
   email: string;
   groups: Array<"grupo-1" | "grupo-2">;
   canReception: boolean;
+  canBookWednesday?: boolean;
+  canScheduleConsulente?: boolean;
 };
 
 type Period = {
@@ -78,6 +80,8 @@ type Payload = {
   settings: {
     appointmentEditCutoffMinutes: number;
     appointmentReturnGuidance: string;
+    maxRecurringAppointmentsPerConsulente: number;
+    autoCancelRecurringOnAbsence: boolean;
   };
   periods: Period[];
   entities: Entity[];
@@ -202,6 +206,7 @@ export default function AgendamentosFilhoCorrentePage() {
   const [treatmentNeed, setTreatmentNeed] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [attendanceThanks, setAttendanceThanks] = useState<"confirmed" | "cannot_attend" | null>(null);
+  const [recurrenceCount, setRecurrenceCount] = useState(1);
 
   const authorizedFetch = useCallback(async (init?: RequestInit) => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -241,8 +246,8 @@ export default function AgendamentosFilhoCorrentePage() {
       const result = await authorizedFetch();
       const next = result as Payload;
       setPayload(next);
-      const preferredMode: Mode = next.profile.groups.length ? "self" : next.profile.canReception ? "reception" : "self";
-      setMode((current) => current === "reception" && !next.profile.canReception ? preferredMode : current);
+      const preferredMode: Mode = next.profile.groups.length ? "self" : next.profile.canScheduleConsulente ? "reception" : "self";
+      setMode((current) => current === "reception" && !next.profile.canScheduleConsulente ? preferredMode : current);
       const first = next.periods.find((period) => period.audience === preferredMode);
       if (first) setMonth(monthDateFromKey(first.appointmentDate.slice(0, 7)));
     } catch (err) {
@@ -337,7 +342,7 @@ export default function AgendamentosFilhoCorrentePage() {
   }
 
   function openMode(nextMode: Mode) {
-    if (nextMode === "reception" && !payload?.profile.canReception) return;
+    if (nextMode === "reception" && !payload?.profile.canScheduleConsulente) return;
     setMode(nextMode);
     setEditingAppointmentId("");
     const firstMonth = payload?.periods.find((period) => period.audience === nextMode)?.appointmentDate.slice(0, 7);
@@ -429,6 +434,7 @@ export default function AgendamentosFilhoCorrentePage() {
         entityId: selectedEntity.id,
         notes,
         idempotencyKey,
+        recurrenceCount: editingAppointmentId ? 1 : recurrenceCount,
       });
       setConfirmation({ ...result.appointment, changed: Boolean(editingAppointmentId) });
       setEditingAppointmentId("");
@@ -485,6 +491,7 @@ export default function AgendamentosFilhoCorrentePage() {
         targetPersonId: foundPerson.id,
         notes,
         idempotencyKey,
+        recurrenceCount,
         temporaryPassword: createdAccess?.temporaryPassword || undefined,
         recommendedByEntityId: selectedPeriod.weekday === "quarta" ? recommendedByEntityId : undefined,
         ageAtAppointment: selectedPeriod.weekday === "quarta" ? Number(ageAtAppointment) : undefined,
@@ -537,6 +544,7 @@ export default function AgendamentosFilhoCorrentePage() {
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-[#123D2C]">
               <span className="rounded-full bg-white px-3 py-1.5">{groupLabel(payload.profile.groups)}</span>
               {payload.profile.canReception && <span className="rounded-full bg-[#DDF0FA] px-3 py-1.5 text-[#17445B]">Função Recepção ativa</span>}
+              {!payload.profile.canReception && payload.profile.canBookWednesday && <span className="rounded-full bg-[#FFF4D6] px-3 py-1.5 text-[#654311]">Função autorizada para quarta-feira</span>}
             </div>
           )}
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -562,7 +570,7 @@ export default function AgendamentosFilhoCorrentePage() {
                 Atendimento Retorno Férias
               </button>
             )}
-            {payload?.profile.canReception && (
+            {payload?.profile.canScheduleConsulente && (
               <button type="button" onClick={() => openMode("reception")} className="min-h-14 rounded-2xl bg-[#1B563F] px-4 py-3 font-black text-white ring-1 ring-white/30">
                 Agendar Consulente
               </button>
@@ -736,6 +744,16 @@ export default function AgendamentosFilhoCorrentePage() {
             <CompactPair leftLabel="Data" leftValue={longDate(selectedPeriod.appointmentDate)} rightLabel="Período" rightValue={selectedPeriod.label} />
             <CompactPair leftLabel="Entidade" leftValue={selectedEntity.name || "Entidade"} rightLabel="Ordem prevista" rightValue={selectedAvailability.nextOrder} />
             <label className="grid gap-1"><span className="text-sm font-black text-[#123D2C]">Observação opcional</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-xl border border-[#123D2C]/15 p-3" /></label>
+            {!editingAppointmentId && payload.settings.maxRecurringAppointmentsPerConsulente > 1 && (
+              <label className="grid gap-1 rounded-xl bg-blue-50 p-3 ring-1 ring-blue-100">
+                <span className="text-sm font-black text-[#123D2C]">Recorrência com a mesma entidade</span>
+                <select value={recurrenceCount} onChange={(event) => setRecurrenceCount(Number(event.target.value))} className="rounded-xl border border-blue-200 bg-white p-3">
+                  {Array.from({ length: payload.settings.maxRecurringAppointmentsPerConsulente }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count === 1 ? "Somente esta data" : `${count} ocorrências`}</option>)}
+                </select>
+                <span className="text-xs font-semibold leading-5 text-slate-600">As próximas datas manterão o mesmo dia da semana, período e entidade. Todas as vagas serão verificadas antes da confirmação.</span>
+                {recurrenceCount > 1 && payload.settings.autoCancelRecurringOnAbsence && <span className="rounded-lg bg-amber-50 p-2 text-xs font-black leading-5 text-amber-900">Em caso de ausência, as próximas ocorrências desta série poderão ser canceladas automaticamente.</span>}
+              </label>
+            )}
             {error && <ErrorBox message={error} requestId={requestId} />}
             <button type="submit" disabled={saving} className="min-h-13 rounded-xl bg-[#123D2C] px-4 font-black text-white disabled:opacity-60">{saving ? "Confirmando..." : editingAppointmentId ? "Confirmar alteração" : "Confirmar atendimento"}</button>
           </form>
@@ -784,7 +802,7 @@ export default function AgendamentosFilhoCorrentePage() {
         </Modal>
       )}
 
-      {modal === "confirmReception" && selectedPeriod && selectedEntity && selectedAvailability && foundPerson && (
+      {modal === "confirmReception" && selectedPeriod && selectedEntity && selectedAvailability && foundPerson && payload && (
         <Modal title="Confirmar agendamento" onClose={() => setModal("lookup")}>
           <div className="grid gap-2 text-sm font-semibold text-slate-700">
             <CompactPair leftLabel="Consulente" leftValue={foundPerson.fullName} rightLabel="WhatsApp" rightValue={foundPerson.whatsapp} />
@@ -797,6 +815,16 @@ export default function AgendamentosFilhoCorrentePage() {
                 <label className="grid gap-1"><span className="text-xs font-black text-[#123D2C]">Idade da pessoa</span><input value={ageAtAppointment} onChange={(event) => setAgeAtAppointment(event.target.value)} type="number" min={0} max={120} className="rounded-xl border border-amber-200 bg-white p-3" required /></label>
                 <label className="grid gap-1"><span className="text-xs font-black text-[#123D2C]">Necessidade do atendimento</span><textarea value={treatmentNeed} onChange={(event) => setTreatmentNeed(event.target.value)} className="min-h-24 rounded-xl border border-amber-200 bg-white p-3" placeholder="Descreva apenas o necessário para organizar o atendimento." required /></label>
               </div>
+            )}
+            {payload.settings.maxRecurringAppointmentsPerConsulente > 1 && (
+              <label className="grid gap-1 rounded-xl bg-blue-50 p-3 ring-1 ring-blue-100">
+                <span className="text-sm font-black text-[#123D2C]">Recorrência com a mesma entidade</span>
+                <select value={recurrenceCount} onChange={(event) => setRecurrenceCount(Number(event.target.value))} className="rounded-xl border border-blue-200 bg-white p-3">
+                  {Array.from({ length: payload.settings.maxRecurringAppointmentsPerConsulente }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count === 1 ? "Somente esta data" : `${count} ocorrências`}</option>)}
+                </select>
+                <span className="text-xs font-semibold leading-5 text-slate-600">A série manterá o mesmo dia da semana, período e entidade. A confirmação só ocorre quando todas as datas possuem vaga.</span>
+                {recurrenceCount > 1 && payload.settings.autoCancelRecurringOnAbsence && <span className="rounded-lg bg-amber-50 p-2 text-xs font-black leading-5 text-amber-900">Em caso de ausência, as próximas ocorrências desta série poderão ser canceladas automaticamente.</span>}
+              </label>
             )}
             <label className="grid gap-1"><span className="text-sm font-black text-[#123D2C]">Observação opcional</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-20 rounded-xl border border-[#123D2C]/15 p-3" /></label>
           </div>

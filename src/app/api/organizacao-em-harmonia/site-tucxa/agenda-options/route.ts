@@ -634,9 +634,9 @@ export async function GET() {
   try {
     const organizationId = await findTucxaOrganizationId();
     const todayIso = todayIsoInSaoPaulo();
-    if (!organizationId) return NextResponse.json({ options: availableFallbackOptions(todayIso), source: "fallback" });
+    if (!organizationId) return NextResponse.json({ options: availableFallbackOptions(todayIso), entities: [], source: "fallback" });
 
-    const [{ data, error }, { data: locationsData, error: locationsError }] = await Promise.all([
+    const [{ data, error }, { data: locationsData, error: locationsError }, { data: entitiesData, error: entitiesError }] = await Promise.all([
       supabaseAdmin
         .from("agv_events")
         .select("*")
@@ -648,10 +648,17 @@ export async function GET() {
         .from("oh_locations")
         .select("id, name, active")
         .eq("organization_id", organizationId),
+      supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id, name, line, entity_type, active, attends_consulentes, appointment_enabled")
+        .eq("organization_id", organizationId)
+        .eq("active", true)
+        .order("name", { ascending: true }),
     ]);
 
     if (error) throw error;
     if (locationsError) throw locationsError;
+    if (entitiesError) throw entitiesError;
     const locations = (locationsData ?? []) as LocationRecord[];
     const rawEvents = (data ?? []) as AgendaEventRecord[];
 
@@ -674,8 +681,18 @@ export async function GET() {
         .filter((item) => item.slug && item.label),
     );
 
-    return NextResponse.json({ options: generated.length ? generated : availableFallbackOptions(todayIso), source: generated.length ? "agenda-viva" : "fallback" });
+    return NextResponse.json({
+      options: generated.length ? generated : availableFallbackOptions(todayIso),
+      entities: (entitiesData ?? []).filter((entity) => entity.active !== false && entity.attends_consulentes !== false).map((entity) => ({
+        id: entity.id,
+        name: entity.name || "Entidade",
+        line: entity.line || "",
+        entityType: entity.entity_type || "",
+        appointmentEnabled: entity.appointment_enabled !== false,
+      })),
+      source: generated.length ? "agenda-viva" : "fallback",
+    });
   } catch {
-    return NextResponse.json({ options: availableFallbackOptions(todayIsoInSaoPaulo()), source: "fallback" });
+    return NextResponse.json({ options: availableFallbackOptions(todayIsoInSaoPaulo()), entities: [], source: "fallback" });
   }
 }

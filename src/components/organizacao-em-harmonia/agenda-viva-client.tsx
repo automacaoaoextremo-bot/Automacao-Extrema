@@ -105,10 +105,18 @@ type AgendaCatalogs = {
   responsiblePersonIds: string[];
 };
 
+type OrganizationRole = {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+};
+
 type AgendaSettings = {
   maxRecurringAppointmentsPerConsulente: number;
   autoCancelRecurringOnAbsence: boolean;
   wednesdayBookingMode: string;
+  wednesdayAuthorizedFunctionIds: string[];
   wednesdayAuthorizedPersonIds: string[];
   requireRecommendingEntityForWednesday: boolean;
   appointmentReturnGuidance: string;
@@ -127,6 +135,7 @@ type Payload = {
   events: AgendaEvent[];
   locations: Location[];
   entities?: SpiritualEntity[];
+  roles?: OrganizationRole[];
   agendaSettings?: Partial<AgendaSettings>;
 };
 
@@ -249,7 +258,8 @@ function activeCatalogItems(items: AgendaCatalogItem[]) {
 const defaultAgendaSettings: AgendaSettings = {
   maxRecurringAppointmentsPerConsulente: 2,
   autoCancelRecurringOnAbsence: true,
-  wednesdayBookingMode: "coordination",
+  wednesdayBookingMode: "functions",
+  wednesdayAuthorizedFunctionIds: [],
   wednesdayAuthorizedPersonIds: [],
   requireRecommendingEntityForWednesday: true,
   appointmentReturnGuidance:
@@ -268,7 +278,8 @@ function normalizeAgendaSettings(value: Payload["agendaSettings"]): AgendaSettin
     ...(value ?? {}),
     maxRecurringAppointmentsPerConsulente: Number(value?.maxRecurringAppointmentsPerConsulente ?? defaultAgendaSettings.maxRecurringAppointmentsPerConsulente),
     appointmentEditCutoffMinutes: Math.max(0, Math.trunc(Number(value?.appointmentEditCutoffMinutes ?? defaultAgendaSettings.appointmentEditCutoffMinutes) || 0)),
-    wednesdayAuthorizedPersonIds: Array.isArray(value?.wednesdayAuthorizedPersonIds) ? value.wednesdayAuthorizedPersonIds : [],
+    wednesdayAuthorizedFunctionIds: Array.isArray(value?.wednesdayAuthorizedFunctionIds) ? value.wednesdayAuthorizedFunctionIds : [],
+    wednesdayAuthorizedPersonIds: [],
     accessValidationReviewerEmails: typeof value?.accessValidationReviewerEmails === "string" ? value.accessValidationReviewerEmails : defaultAgendaSettings.accessValidationReviewerEmails,
     accessValidationReviewerPersonIds: Array.isArray(value?.accessValidationReviewerPersonIds) ? value.accessValidationReviewerPersonIds : [],
     accessSimulationPersonIds: Array.isArray(value?.accessSimulationPersonIds) ? value.accessSimulationPersonIds : [],
@@ -2261,10 +2272,10 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-1">
-                  <span className="text-sm font-black text-[#00334E]">Agendamentos recorrentes por consulente</span>
+                  <span className="text-sm font-black text-[#00334E]">Máximo de ocorrências por agendamento recorrente</span>
                   <input
                     value={String(settingsForm.maxRecurringAppointmentsPerConsulente)}
-                    onChange={(event) => updateSetting("maxRecurringAppointmentsPerConsulente", Math.max(0, Number(event.target.value.replace(/\D/g, "") || 0)))}
+                    onChange={(event) => updateSetting("maxRecurringAppointmentsPerConsulente", Math.max(1, Number(event.target.value.replace(/\D/g, "") || 1)))}
                     className="rounded-2xl border border-slate-200 p-3"
                     inputMode="numeric"
                   />
@@ -2287,30 +2298,45 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
                   <input type="checkbox" checked={settingsForm.autoCancelRecurringOnAbsence} onChange={(event) => updateSetting("autoCancelRecurringOnAbsence", event.target.checked)} className="h-5 w-5" />
                   <span className="text-sm font-black text-[#00334E]">Cancelar recorrência automaticamente em caso de ausência</span>
                 </label>
-                <label className="grid gap-1">
+                <div className="grid gap-1 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100">
                   <span className="text-sm font-black text-[#00334E]">Quem pode agendar quarta-feira</span>
-                  <select value={settingsForm.wednesdayBookingMode} onChange={(event) => updateSetting("wednesdayBookingMode", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
-                    <option value="coordination">Somente diretoria/coordenação definida</option>
-                    <option value="consulentes">Também pelos consulentes</option>
-                  </select>
-                </label>
+                  <span className="text-xs font-semibold leading-5 text-slate-600">Somente Filhos da Corrente que possuam uma função autorizada. A função Recepção permanece sempre autorizada. Consulentes/Filhos de Fora nunca podem realizar esse agendamento diretamente.</span>
+                </div>
                 <label className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
                   <input type="checkbox" checked={settingsForm.requireRecommendingEntityForWednesday} onChange={(event) => updateSetting("requireRecommendingEntityForWednesday", event.target.checked)} className="h-5 w-5" />
                   <span className="text-sm font-black text-[#00334E]">Exigir entidade que recomendou/encaminhou na quarta-feira</span>
                 </label>
               </div>
-              <label className="grid gap-1">
-                <span className="text-sm font-black text-[#00334E]">Pessoas autorizadas a agendar quarta-feira</span>
-                <select
-                  multiple
-                  value={settingsForm.wednesdayAuthorizedPersonIds}
-                  onChange={(event) => updateSetting("wednesdayAuthorizedPersonIds", Array.from(event.target.selectedOptions).map((option) => option.value))}
-                  className="min-h-40 rounded-2xl border border-slate-200 bg-white p-3"
-                >
-                  {(payload?.people ?? []).filter((person) => person.active !== false).map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
-                </select>
-                <span className="text-xs font-semibold text-slate-500">Use Ctrl/Shift para selecionar mais de uma pessoa no desktop.</span>
-              </label>
+              <section className="grid gap-3 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100">
+                <div>
+                  <span className="text-sm font-black text-[#00334E]">Funções autorizadas a agendar quarta-feira</span>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">A autorização acompanha a função, mesmo quando a pessoa responsável muda. Recepção é obrigatória e não pode ser removida.</p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {(payload?.roles ?? []).filter((role) => role.active !== false).map((role) => {
+                    const normalizedRole = `${role.slug} ${role.name}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                    const isReception = normalizedRole.includes("recepcao") || normalizedRole.includes("recepcionista");
+                    const checked = isReception || settingsForm.wednesdayAuthorizedFunctionIds.includes(role.id);
+                    return (
+                      <label key={role.id} className={`flex items-center gap-3 rounded-2xl p-3 ring-1 ${isReception ? "bg-emerald-100 ring-emerald-200" : "bg-white ring-[#123D2C]/10"}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isReception}
+                          onChange={(event) => updateSetting(
+                            "wednesdayAuthorizedFunctionIds",
+                            event.target.checked
+                              ? Array.from(new Set([...settingsForm.wednesdayAuthorizedFunctionIds, role.id]))
+                              : settingsForm.wednesdayAuthorizedFunctionIds.filter((id) => id !== role.id),
+                          )}
+                          className="h-5 w-5"
+                        />
+                        <span className="min-w-0 text-sm font-black text-[#00334E]">{role.name}{isReception ? " · obrigatória" : ""}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
               <section className="grid gap-4 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-lime-100 md:grid-cols-2">
                 <div className="md:col-span-2">
                   <h3 className="text-lg font-black text-[#00334E]">Validação do Primeiro Acesso</h3>

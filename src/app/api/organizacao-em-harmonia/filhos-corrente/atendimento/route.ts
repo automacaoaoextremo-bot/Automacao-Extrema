@@ -319,21 +319,24 @@ async function updateAppointmentStatus(context: AuthContext, body: Record<string
     if (settings.autoCancelRecurringOnAbsence) {
       const { data: current } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("email, whatsapp, appointment_date")
+        .select("email, whatsapp, appointment_date, series_id")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
-      if (current?.appointment_date) {
-        let query = supabaseAdmin
+      if (current?.appointment_date && current.series_id) {
+        const now = new Date().toISOString();
+        await supabaseAdmin
           .from("oh_consulente_appointments")
-          .update({ status: "cancelado", updated_at: new Date().toISOString() })
+          .update({
+            status: "cancelado",
+            cancelled_at: now,
+            cancellation_reason: "Recorrência cancelada automaticamente após ausência",
+            updated_at: now,
+          })
           .eq("organization_id", context.organizationId)
+          .eq("series_id", current.series_id)
           .gt("appointment_date", current.appointment_date)
-          .eq("is_recurring", true)
-          .not("status", "in", "(cancelado,atendido)");
-        if (current.email) query = query.eq("email", current.email);
-        else if (current.whatsapp) query = query.eq("whatsapp", current.whatsapp);
-        await query;
+          .not("status", "in", "(cancelado,cancelamento_solicitado,ausente,atendido,concluido)");
       }
     }
   }

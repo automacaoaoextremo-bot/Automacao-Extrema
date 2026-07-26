@@ -1,9 +1,38 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { profileHasCavalinho } from "@/lib/organizacao-em-harmonia/appointment-permissions";
 
 export const dynamic = "force-dynamic";
 
 const ACTIVE_STATUSES = ["confirmado", "solicitado", "aprovado", "presente", "concluido"];
+
+type EntityLinkRow = {
+  entity_id: string | null;
+  relationship_type: string | null;
+  is_primary_for_attendance: boolean | null;
+  active: boolean | null;
+};
+
+type LinkedEntityRow = {
+  id: string;
+  name: string | null;
+  line: string | null;
+  entity_type: string | null;
+  attends_consulentes: boolean | null;
+  active: boolean | null;
+};
+
+type LinkedAppointmentRow = {
+  id: string;
+  person_id: string | null;
+  entity_id: string | null;
+  consulente_name: string | null;
+  appointment_date: string;
+  appointment_time: string | null;
+  status: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+};
 
 function tokenFromRequest(request: Request) {
   const authorization = request.headers.get("authorization") || request.headers.get("Authorization") || "";
@@ -48,7 +77,7 @@ async function currentPerson(request: Request) {
 
   const { data: membership, error: membershipError } = await supabaseAdmin
     .from("oh_memberships")
-    .select("id, active, status")
+    .select("id, active, status, agenda_viva_profile")
     .eq("organization_id", person.organization_id)
     .eq("person_id", person.id)
     .eq("active", true)
@@ -56,6 +85,7 @@ async function currentPerson(request: Request) {
     .limit(1)
     .maybeSingle();
   if (membershipError || !membership?.id || asText(membership.status).toLowerCase() !== "ativo") return null;
+  if (!profileHasCavalinho(asRecord(membership.agenda_viva_profile))) return null;
 
   return {
     id: person.id as string,
@@ -78,7 +108,8 @@ export async function GET(request: Request) {
       .eq("active", true);
     if (linksError) throw linksError;
 
-    const entityIds = [...new Set((links ?? []).map((link) => asText(link.entity_id)).filter(Boolean))];
+    const linkRows = (links ?? []) as EntityLinkRow[];
+    const entityIds = [...new Set(linkRows.map((link) => asText(link.entity_id)).filter(Boolean))];
     if (entityIds.length === 0) {
       return NextResponse.json({ profile: { fullName: person.fullName }, entities: [], appointments: [] });
     }
@@ -105,17 +136,19 @@ export async function GET(request: Request) {
     if (entitiesError) throw entitiesError;
     if (appointmentsError) throw appointmentsError;
 
-    const allowedEntityIds = new Set((entities ?? []).map((entity) => entity.id as string));
-    const entityMap = new Map((entities ?? []).map((entity) => [entity.id as string, entity]));
-    const linkMap = new Map((links ?? []).map((link) => [asText(link.entity_id), link]));
+    const entityRows = (entities ?? []) as LinkedEntityRow[];
+    const appointmentRows = (appointments ?? []) as LinkedAppointmentRow[];
+    const allowedEntityIds = new Set(entityRows.map((entity) => entity.id));
+    const entityMap = new Map<string, LinkedEntityRow>(entityRows.map((entity) => [entity.id, entity]));
+    const linkMap = new Map<string, EntityLinkRow>(linkRows.map((link) => [asText(link.entity_id), link]));
 
     return NextResponse.json({
       profile: { fullName: person.fullName },
-      entities: (entities ?? []).map((entity) => ({
+      entities: entityRows.map((entity) => ({
         ...entity,
         isPrimaryForAttendance: linkMap.get(entity.id as string)?.is_primary_for_attendance === true,
       })),
-      appointments: (appointments ?? [])
+      appointments: appointmentRows
         .filter((appointment) => allowedEntityIds.has(asText(appointment.entity_id)))
         .map((appointment) => {
           const metadata = asRecord(appointment.metadata);

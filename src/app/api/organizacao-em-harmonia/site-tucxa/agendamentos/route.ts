@@ -14,6 +14,8 @@ type AgendaSettings = {
   allowAlternateEntityWhenUnavailable: boolean;
   appointmentReturnGuidance: string;
   appointmentEditCutoffMinutes: number;
+  maxRecurringAppointmentsPerConsulente: number;
+  autoCancelRecurringOnAbsence: boolean;
 };
 
 type AuthUser = {
@@ -392,6 +394,8 @@ function normalizeSettings(settings: unknown): AgendaSettings {
     allowAlternateEntityWhenUnavailable: current.allowAlternateEntityWhenUnavailable !== false,
     appointmentReturnGuidance: asText(current.appointmentReturnGuidance) || "Após o primeiro atendimento com uma entidade, se houver orientação de retorno, procure manter a continuidade com a mesma entidade sempre que possível.",
     appointmentEditCutoffMinutes: Math.max(0, Math.trunc(Number(current.appointmentEditCutoffMinutes ?? 1440) || 0)),
+    maxRecurringAppointmentsPerConsulente: Math.max(1, Math.trunc(Number(current.maxRecurringAppointmentsPerConsulente ?? 2) || 2)),
+    autoCancelRecurringOnAbsence: current.autoCancelRecurringOnAbsence !== false,
   };
 }
 
@@ -444,8 +448,8 @@ async function agendaSettings(organizationId: string) {
   const agendaSettingsRow = rows.find((item) => item.module_slug === "agenda-viva");
   const atendimentoSettingsRow = rows.find((item) => item.module_slug === "atendimento-em-harmonia");
   return normalizeSettings({
-    ...asRecord(agendaSettingsRow?.settings),
     ...asRecord(atendimentoSettingsRow?.settings),
+    ...asRecord(agendaSettingsRow?.settings),
   });
 }
 
@@ -625,6 +629,107 @@ async function appointmentBundle(context: ConsulenteContext, editingAppointmentI
     existingAppointments,
     editingAppointment,
   };
+}
+
+function recurrenceCountFromBody(body: Record<string, unknown>, maximum: number) {
+  const requested = Math.max(1, Math.trunc(Number(body.recurrenceCount ?? 1) || 1));
+  if (requested > maximum) throw new Error(`RECURRENCE_LIMIT:${maximum}`);
+  return requested;
+}
+
+function recurrencePeriodsForConsulente(periods: BookingPeriod[], base: BookingPeriod, count: number) {
+  return periods
+    .filter((period) => period.weekday === base.weekday)
+    .filter((period) => period.startTime === base.startTime)
+    .filter((period) => period.appointmentDate >= base.appointmentDate)
+    .sort((left, right) => left.appointmentDate.localeCompare(right.appointmentDate))
+    .slice(0, count);
+}
+
+async function reserveConsulenteSeries(input: {
+  context: ConsulenteContext;
+  bundle: Awaited<ReturnType<typeof appointmentBundle>>;
+  basePeriod: BookingPeriod;
+  entity: EntityRecord;
+  body: Record<string, unknown>;
+  email: string;
+  notes: string;
+  idempotencyKey: string;
+}) {
+  const total = recurrenceCountFromBody(input.body, input.bundle.settings.maxRecurringAppointmentsPerConsulente);
+  const occurrences = recurrencePeriodsForConsulente(input.bundle.periods, input.basePeriod, total);
+  if (occurrences.length !== total) throw new Error("RECURRENCE_PERIODS_UNAVAILABLE");
+  for (const occurrence of occurrences) {
+    if (!entityMatchesPeriod(input.entity, occurrence)) throw new Error(`RECURRENCE_NO_AVAILABILITY:${occurrence.appointmentDate}`);
+    const availability = input.bundle.availability.find((item) => item.periodId === occurrence.id && item.entityId === input.entity.id);
+    if (!availability || availability.available <= 0) throw new Error(`RECURRENCE_NO_AVAILABILITY:${occurrence.appointmentDate}`);
+  }
+
+  const seriesId = total > 1 ? crypto.randomUUID() : "";
+  const createdIds: string[] = [];
+  const appointments: Array<{ id: string; appointmentDate: string; appointmentTime: string; status: string; order: number; entityName: string; guidance: string }> = [];
+  try {
+    for (let index = 0; index < occurrences.length; index += 1) {
+      const occurrence = occurrences[index];
+      const { data, error } = await supabaseAdmin.rpc("oh_reserve_consulente_appointment", {
+        p_organization_id: input.context.organizationId,
+        p_person_id: input.context.personId,
+        p_entity_id: input.entity.id,
+        p_event_id: occurrence.eventId,
+        p_appointment_date: occurrence.appointmentDate,
+        p_appointment_time: occurrence.startTime,
+        p_consulente_name: input.context.fullName,
+        p_whatsapp: input.context.whatsapp || null,
+        p_email: input.email || input.context.email || null,
+        p_notes: input.notes || null,
+        p_capacity: Math.max(1, Number(input.entity.daily_capacity ?? 4)),
+        p_idempotency_key: `${input.idempotencyKey}-${index + 1}`,
+        p_metadata: {
+          source: "site_tucxa_consulente_popup",
+          period_id: occurrence.id,
+          period_label: occurrence.label,
+          period_end_time: occurrence.endTime,
+          event_id: occurrence.eventId,
+          return_guidance: input.bundle.settings.appointmentReturnGuidance,
+          recurrence_series_id: seriesId || null,
+          recurrence_sequence: index + 1,
+          recurrence_total: total,
+        },
+      });
+      if (error) throw error;
+      const reservation = (Array.isArray(data) ? data[0] : data) as ReserveResult | null;
+      if (!reservation?.appointment_id) throw new Error("Reserva recorrente sem identificador.");
+      createdIds.push(reservation.appointment_id);
+      appointments.push({
+        id: reservation.appointment_id,
+        appointmentDate: reservation.confirmed_date,
+        appointmentTime: occurrence.label,
+        status: reservation.confirmed_status,
+        order: Number(reservation.confirmed_order),
+        entityName: input.entity.name || "Entidade escolhida",
+        guidance: publicAppointmentNotes(input.entity.appointment_notes) || input.bundle.settings.appointmentReturnGuidance,
+      });
+    }
+    if (seriesId) {
+      const { error } = await supabaseAdmin.from("oh_consulente_appointments")
+        .update({ is_recurring: true, recurrence_count: total, recurrence_total: total, series_id: seriesId, updated_at: new Date().toISOString() })
+        .eq("organization_id", input.context.organizationId)
+        .in("id", createdIds);
+      if (error) throw error;
+      await Promise.all(createdIds.map(async (appointmentId, index) => {
+        const { error: sequenceError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .update({ recurrence_sequence: index + 1 })
+          .eq("organization_id", input.context.organizationId)
+          .eq("id", appointmentId);
+        if (sequenceError) throw sequenceError;
+      }));
+    }
+    return { seriesId: seriesId || null, appointments };
+  } catch (error) {
+    if (createdIds.length) await supabaseAdmin.from("oh_consulente_appointments").delete().eq("organization_id", input.context.organizationId).in("id", createdIds);
+    throw error;
+  }
 }
 
 async function previousAppointment(context: ConsulenteContext, excludedAppointmentId = "") {
@@ -1044,36 +1149,18 @@ export async function POST(request: Request) {
       return jsonError("A configuração atual orienta manter a mesma entidade após o primeiro atendimento. Procure a recepção para avaliar uma troca.", 409, id);
     }
 
-    const rpcPayload = {
-      p_organization_id: context.organizationId,
-      p_person_id: context.personId,
-      p_entity_id: entity.id,
-      p_event_id: period.eventId,
-      p_appointment_date: period.appointmentDate,
-      p_appointment_time: period.startTime,
-      p_consulente_name: context.fullName,
-      p_whatsapp: context.whatsapp || null,
-      p_email: email || context.email || null,
-      p_notes: notes || null,
-      p_capacity: Math.max(1, Number(entity.daily_capacity ?? 4)),
-      p_idempotency_key: idempotencyKey,
-      p_metadata: {
-        source: "site_tucxa_consulente_popup",
-        period_id: period.id,
-        period_label: period.label,
-        period_end_time: period.endTime,
-        event_id: period.eventId,
-        return_guidance: bundle.settings.appointmentReturnGuidance,
-      },
-    };
-    const { data: reserved, error: reserveError } = await supabaseAdmin.rpc("oh_reserve_consulente_appointment", rpcPayload);
-    if (reserveError) {
-      const friendly = reservationErrorMessage(reserveError);
-      if (friendly.status >= 500) logRouteError(id, "POST/rpc", reserveError);
-      return jsonError(friendly.message, friendly.status, id);
-    }
-    const reservation = (Array.isArray(reserved) ? reserved[0] : reserved) as ReserveResult | null;
-    if (!reservation?.appointment_id) throw new Error("Reserva não retornou identificador.");
+    const recurring = await reserveConsulenteSeries({
+      context,
+      bundle,
+      basePeriod: period,
+      entity,
+      body,
+      email,
+      notes,
+      idempotencyKey,
+    });
+    const reservation = recurring.appointments[0];
+    if (!reservation?.id) throw new Error("Reserva não retornou identificador.");
 
     if (email && email !== context.email) await updateNotificationEmail(context, email);
     let emailSent = false;
@@ -1084,9 +1171,9 @@ export async function POST(request: Request) {
           to: confirmationEmail,
           name: context.fullName,
           entityName: asText(entity.name) || "Entidade escolhida",
-          appointmentDate: reservation.confirmed_date,
-          appointmentTime: period.label,
-          order: Number(reservation.confirmed_order),
+          appointmentDate: reservation.appointmentDate,
+          appointmentTime: reservation.appointmentTime,
+          order: reservation.order,
           guidance: bundle.settings.appointmentReturnGuidance,
         });
       } catch (emailError) {
@@ -1097,19 +1184,25 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       appointment: {
-        id: reservation.appointment_id,
-        appointmentDate: reservation.confirmed_date,
-        appointmentTime: period.label,
-        status: reservation.confirmed_status,
-        order: Number(reservation.confirmed_order),
+        id: reservation.id,
+        appointmentDate: reservation.appointmentDate,
+        appointmentTime: reservation.appointmentTime,
+        status: reservation.status,
+        order: reservation.order,
         entityName: entity.name || "Entidade escolhida",
         guidance: publicAppointmentNotes(entity.appointment_notes) || bundle.settings.appointmentReturnGuidance,
       },
+      appointments: recurring.appointments,
+      recurrence: { seriesId: recurring.seriesId, count: recurring.appointments.length, autoCancelOnAbsence: bundle.settings.autoCancelRecurringOnAbsence },
       emailSent,
       email: confirmationEmail,
       message: "Agendamento confirmado.",
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.startsWith("RECURRENCE_LIMIT:")) return jsonError(`A configuração permite no máximo ${message.split(":")[1]} ocorrência(s) por série.`, 409, id);
+    if (message === "RECURRENCE_PERIODS_UNAVAILABLE") return jsonError("Não existem datas futuras suficientes com o mesmo dia e período para completar a recorrência.", 409, id);
+    if (message.startsWith("RECURRENCE_NO_AVAILABILITY:")) return jsonError(`Não há vaga para a mesma entidade na data ${message.split(":")[1]}. Nenhum agendamento da série foi criado.`, 409, id);
     logRouteError(id, "POST", error);
     return jsonError("Não foi possível concluir o agendamento. Tente novamente. Se o erro continuar, informe o código exibido.", 500, id);
   }

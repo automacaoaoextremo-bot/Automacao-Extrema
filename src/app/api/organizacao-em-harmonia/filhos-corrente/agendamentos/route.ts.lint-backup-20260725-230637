@@ -465,6 +465,12 @@ function groupsFromProfile(profile: AgendaProfile): CurrentFilho["groups"] {
   return groups;
 }
 
+function receptionFromProfile(profile: AgendaProfile) {
+  if (profile.supportsReception === true) return true;
+  const values = profileValues(profile);
+  return [...values.functionSlugs, ...values.selectedFunctions].some((value) => value.includes("recepcao") || value.includes("recepcionista"));
+}
+
 async function currentFilho(request: Request): Promise<CurrentFilho | null> {
   const token = tokenFromRequest(request);
   if (!token) return null;

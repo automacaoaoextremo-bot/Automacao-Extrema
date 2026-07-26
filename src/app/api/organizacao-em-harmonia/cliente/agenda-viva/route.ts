@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { sendAgendaVivaApprovalRequestEmail } from "@/lib/mail";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isReceptionRole } from "@/lib/organizacao-em-harmonia/appointment-permissions";
 import { normalizeAllowedMonthOccurrences } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 function asText(value: unknown) {
@@ -113,7 +114,8 @@ function defaultAgendaSettings() {
   return {
     maxRecurringAppointmentsPerConsulente: 2,
     autoCancelRecurringOnAbsence: true,
-    wednesdayBookingMode: "coordination",
+    wednesdayBookingMode: "functions",
+    wednesdayAuthorizedFunctionIds: [] as string[],
     wednesdayAuthorizedPersonIds: [] as string[],
     requireRecommendingEntityForWednesday: true,
     appointmentReturnGuidance:
@@ -170,6 +172,9 @@ function mergeAgendaSettings(settings: unknown) {
   return {
     ...base,
     ...current,
+    wednesdayAuthorizedFunctionIds: Array.isArray(current.wednesdayAuthorizedFunctionIds)
+      ? current.wednesdayAuthorizedFunctionIds.map((item) => asText(item)).filter(Boolean)
+      : base.wednesdayAuthorizedFunctionIds,
     wednesdayAuthorizedPersonIds: Array.isArray(current.wednesdayAuthorizedPersonIds)
       ? current.wednesdayAuthorizedPersonIds.map((item) => asText(item)).filter(Boolean)
       : base.wednesdayAuthorizedPersonIds,
@@ -292,6 +297,12 @@ async function listPayload(organizationId: string) {
   }
 
   const agendaSettings = mergeAgendaSettings(moduleSettingsResult.status === 200 && !moduleSettingsResult.error ? moduleSettingsResult.data?.settings : null);
+  const activeRoles = (rolesResult.data ?? []).filter((role) => role.active !== false);
+  const receptionRoleIds = activeRoles.filter(isReceptionRole).map((role) => role.id);
+  agendaSettings.wednesdayAuthorizedFunctionIds = Array.from(new Set([
+    ...agendaSettings.wednesdayAuthorizedFunctionIds,
+    ...receptionRoleIds,
+  ]));
 
   return {
     organization: organizationResult.data,
@@ -605,10 +616,11 @@ async function updateAgendaSettings(organizationId: string, body: Record<string,
   const current = mergeAgendaSettings(body.settings && typeof body.settings === "object" ? body.settings : body);
   const settings = {
     ...current,
-    maxRecurringAppointmentsPerConsulente: Math.max(0, Math.trunc(asNumber(body.maxRecurringAppointmentsPerConsulente ?? current.maxRecurringAppointmentsPerConsulente, 2))),
+    maxRecurringAppointmentsPerConsulente: Math.max(1, Math.trunc(asNumber(body.maxRecurringAppointmentsPerConsulente ?? current.maxRecurringAppointmentsPerConsulente, 2))),
     autoCancelRecurringOnAbsence: asBool(body.autoCancelRecurringOnAbsence ?? current.autoCancelRecurringOnAbsence, true),
-    wednesdayBookingMode: asText(body.wednesdayBookingMode ?? current.wednesdayBookingMode) || "coordination",
-    wednesdayAuthorizedPersonIds: asTextList(body.wednesdayAuthorizedPersonIds ?? current.wednesdayAuthorizedPersonIds),
+    wednesdayBookingMode: "functions",
+    wednesdayAuthorizedFunctionIds: asTextList(body.wednesdayAuthorizedFunctionIds ?? current.wednesdayAuthorizedFunctionIds),
+    wednesdayAuthorizedPersonIds: [],
     requireRecommendingEntityForWednesday: asBool(body.requireRecommendingEntityForWednesday ?? current.requireRecommendingEntityForWednesday, true),
     appointmentReturnGuidance: asText(body.appointmentReturnGuidance ?? current.appointmentReturnGuidance) || defaultAgendaSettings().appointmentReturnGuidance,
     appointmentEditCutoffMinutes: Math.max(0, Math.trunc(asNumber(body.appointmentEditCutoffMinutes ?? current.appointmentEditCutoffMinutes, 1440))),
@@ -618,6 +630,19 @@ async function updateAgendaSettings(organizationId: string, body: Record<string,
     accessCopyEmail: asText(body.accessCopyEmail ?? current.accessCopyEmail) || defaultAgendaSettings().accessCopyEmail,
     updated_at: new Date().toISOString(),
   };
+
+  const { data: activeRoles, error: rolesError } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id, name, slug, active")
+    .eq("organization_id", organizationId)
+    .eq("active", true);
+  if (rolesError) throw rolesError;
+  const validRoleIds = new Set((activeRoles ?? []).map((role) => role.id));
+  const receptionRoleIds = (activeRoles ?? []).filter(isReceptionRole).map((role) => role.id);
+  settings.wednesdayAuthorizedFunctionIds = Array.from(new Set([
+    ...settings.wednesdayAuthorizedFunctionIds.filter((id) => validRoleIds.has(id)),
+    ...receptionRoleIds,
+  ]));
 
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("oh_module_settings")

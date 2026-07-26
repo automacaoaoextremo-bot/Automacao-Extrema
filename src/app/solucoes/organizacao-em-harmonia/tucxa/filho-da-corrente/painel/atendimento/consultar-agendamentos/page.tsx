@@ -33,6 +33,13 @@ type Payload = {
   totalPages?: number;
   error?: string;
   requestId?: string;
+  capabilities?: {
+    scope: "manage" | "read_all" | "linked_entities";
+    canRead: boolean;
+    canEdit: boolean;
+    canCancel: boolean;
+    canDelete: boolean;
+  };
 };
 
 type Range = "upcoming" | "today" | "previous";
@@ -268,7 +275,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
-        navLabel="Consulta de agendamentos da Recepção"
+        navLabel="Consulta de agendamentos"
         showSupport={false}
         actions={[
           { label: "Voltar", href: ATTENDANCE_PATH, variant: "secondary" },
@@ -278,8 +285,15 @@ export default function ConsultarAgendamentosRecepcaoPage() {
 
       <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
         <header className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Recepção</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight">Consultar agendamentos</h1>
+          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
+          <h1 className="mt-2 text-3xl font-black leading-tight">Consulta de Agendamentos</h1>
+          <p className="mt-2 text-sm font-semibold leading-6 text-[#EEF7EA]">
+            {payload?.capabilities?.scope === "manage"
+              ? "Recepção: consulta e gestão completa dos agendamentos."
+              : payload?.capabilities?.scope === "linked_entities"
+                ? "Cavalinho: consulta somente dos atendimentos destinados às entidades vinculadas ao seu cadastro."
+                : "Cambono: consulta geral em modo somente leitura."}
+          </p>
         </header>
 
         <section className="mt-4 rounded-[2rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
@@ -331,7 +345,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
           <section className="flex h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Recepção</p>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Consulta</p>
                 <h2 className="truncate text-xl font-black text-[#123D2C]">Resultados da consulta</h2>
               </div>
               <button type="button" onClick={() => setResultsOpen(false)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
@@ -387,11 +401,13 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                 {groupBy === "date" && <p><span className="font-black text-[#2F6B43]">Entidade:</span> {appointment.entity.name}</p>}
                                 <p><span className="font-black text-[#2F6B43]">Situação:</span> {statusLabel(appointment.status)} · {channelLabel(appointment.bookingChannel)}</p>
                               </div>
-                              <div className="mt-3 grid grid-cols-3 gap-2">
-                                <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => startEdit(appointment)} className="rounded-xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Editar</button>
-                                <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => cancelAppointment(appointment)} className="rounded-xl bg-amber-50 px-2 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100 disabled:opacity-40">Cancelar</button>
-                                <button type="button" disabled={saving} onClick={() => deleteAppointment(appointment)} className="rounded-xl bg-red-50 px-2 py-2 text-xs font-black text-red-700 ring-1 ring-red-100 disabled:opacity-40">Excluir</button>
-                              </div>
+                              {(payload?.capabilities?.canEdit || payload?.capabilities?.canCancel || payload?.capabilities?.canDelete) && (
+                                <div className="mt-3 grid grid-cols-3 gap-2">
+                                  {payload?.capabilities?.canEdit && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => startEdit(appointment)} className="rounded-xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Editar</button>}
+                                  {payload?.capabilities?.canCancel && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => cancelAppointment(appointment)} className="rounded-xl bg-amber-50 px-2 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100 disabled:opacity-40">Cancelar</button>}
+                                  {payload?.capabilities?.canDelete && <button type="button" disabled={saving} onClick={() => deleteAppointment(appointment)} className="rounded-xl bg-red-50 px-2 py-2 text-xs font-black text-red-700 ring-1 ring-red-100 disabled:opacity-40">Excluir</button>}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -414,7 +430,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
         </div>
       )}
 
-      {editDraft && (
+      {editDraft && payload?.capabilities?.canEdit && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#10251C]/80 p-3" role="dialog" aria-modal="true" aria-label="Editar agendamento">
           <form
             onSubmit={(event) => {

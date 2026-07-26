@@ -12,6 +12,15 @@ type DraftItem = {
   description?: string;
 };
 
+type EntityOption = {
+  id: string;
+  name: string;
+  line?: string;
+  entityType?: string;
+  attendsConsulentes?: boolean;
+  appointmentEnabled?: boolean;
+};
+
 type AgendaOption = {
   slug: string;
   label: string;
@@ -35,11 +44,14 @@ type ProfilePayload = {
   selectedFunctions?: DraftItem[];
   selectedAgenda?: DraftItem[];
   profileUpdateStatus?: string;
+  selectedEntityIds?: string[];
+  availableEntities?: EntityOption[];
   error?: string;
 };
 
 type AgendaOptionsPayload = {
   options?: AgendaOption[];
+  entities?: EntityOption[];
 };
 
 type SubmitResponse = {
@@ -95,6 +107,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [originalFunctionSlugs, setOriginalFunctionSlugs] = useState<string[]>([]);
   const [originalAgendaSlugs, setOriginalAgendaSlugs] = useState<string[]>([]);
   const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([]);
+  const [entityOptions, setEntityOptions] = useState<EntityOption[]>([]);
+  const [cavalinhoEntityIds, setCavalinhoEntityIds] = useState<string[]>([]);
+  const [originalEntityIds, setOriginalEntityIds] = useState<string[]>([]);
+  const [entityModalOpen, setEntityModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -135,6 +151,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setOriginalAgendaSlugs(profile.agendaSlugs ?? []);
     setProfileUpdateStatus(profile.profileUpdateStatus || "");
     setAgendaOptions(options);
+    const entities = (profile.availableEntities?.length ? profile.availableEntities : agenda.entities ?? []).filter((item) => item.id && item.name);
+    setEntityOptions(entities);
+    setCavalinhoEntityIds(profile.selectedEntityIds ?? []);
+    setOriginalEntityIds(profile.selectedEntityIds ?? []);
   }, []);
 
   useEffect(() => {
@@ -171,6 +191,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   const selectedFunctions = useMemo(() => selectedDraftItems(functionOptions, functionSlugs), [functionOptions, functionSlugs]);
   const selectedAgenda = useMemo(() => selectedDraftItems(agendaDraftItems, agendaSlugs), [agendaDraftItems, agendaSlugs]);
+  const hasCavalinho = functionSlugs.includes("cavalinho");
+  const selectedEntities = useMemo(() => entityOptions.filter((item) => cavalinhoEntityIds.includes(item.id)).map((item) => ({ id: item.id, name: item.name })), [cavalinhoEntityIds, entityOptions]);
 
   const newAgendaOptions = useMemo(
     () => agendaOptions.filter((item) => !originalAgendaSlugs.includes(item.slug)),
@@ -182,8 +204,23 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     const removedFunctions = originalFunctionSlugs.filter((item) => !functionSlugs.includes(item)).length;
     const addedAgenda = agendaSlugs.filter((item) => !originalAgendaSlugs.includes(item)).length;
     const removedAgenda = originalAgendaSlugs.filter((item) => !agendaSlugs.includes(item)).length;
-    return { addedFunctions, removedFunctions, addedAgenda, removedAgenda };
-  }, [agendaSlugs, functionSlugs, originalAgendaSlugs, originalFunctionSlugs]);
+    const effectiveEntityIds = hasCavalinho ? cavalinhoEntityIds : [];
+    const addedEntities = effectiveEntityIds.filter((item) => !originalEntityIds.includes(item)).length;
+    const removedEntities = originalEntityIds.filter((item) => !effectiveEntityIds.includes(item)).length;
+    return { addedFunctions, removedFunctions, addedAgenda, removedAgenda, addedEntities, removedEntities };
+  }, [agendaSlugs, cavalinhoEntityIds, functionSlugs, hasCavalinho, originalAgendaSlugs, originalEntityIds, originalFunctionSlugs]);
+
+  function toggleFunction(slug: string) {
+    setFunctionSlugs((current) => {
+      const selected = current.includes(slug);
+      const next = toggleValue(current, slug);
+      if (slug === "cavalinho") {
+        if (selected) setCavalinhoEntityIds([]);
+        else window.setTimeout(() => setEntityModalOpen(true), 0);
+      }
+      return next;
+    });
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -199,6 +236,11 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     }
     if (whatsapp.replace(/\D/g, "").length < 10) {
       setError("Informe seu WhatsApp com DDD.");
+      return;
+    }
+    if (hasCavalinho && cavalinhoEntityIds.length === 0) {
+      setError("Selecione ao menos uma entidade que você recebe para atendimento dos Consulentes/Filhos de Fora.");
+      setEntityModalOpen(true);
       return;
     }
 
@@ -224,7 +266,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fullName, whatsapp, email, notes, functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda }),
+        body: JSON.stringify({ fullName, whatsapp, email, notes, functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda, cavalinhoEntityIds: hasCavalinho ? cavalinhoEntityIds : [], selectedEntities: hasCavalinho ? selectedEntities : [] }),
       });
       const result = (await response.json()) as SubmitResponse;
       if (!response.ok) {
@@ -329,11 +371,13 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
               <section className="rounded-[1.75rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
                 <h2 className="text-xl font-black text-[#123D2C]">Resumo das alterações</h2>
-                <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
                   <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedFunctions} funções</p>
                   <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedFunctions} funções</p>
                   <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedAgenda} agendas</p>
                   <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedAgenda} agendas</p>
+                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedEntities} entidades</p>
+                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedEntities} entidades</p>
                 </div>
               </section>
 
@@ -346,7 +390,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                       const wasChecked = originalFunctionSlugs.includes(item.slug);
                       return (
                         <label key={item.slug} className={`flex gap-3 rounded-2xl p-3 ring-1 ${checked ? "bg-emerald-50 ring-emerald-100" : "bg-[#F7FAF2] ring-[#123D2C]/10"}`}>
-                          <input type="checkbox" checked={checked} onChange={() => setFunctionSlugs((values) => toggleValue(values, item.slug))} className="mt-1 h-5 w-5" />
+                          <input type="checkbox" checked={checked} onChange={() => toggleFunction(item.slug)} className="mt-1 h-5 w-5" />
                           <span>
                             <span className="font-black text-[#123D2C]">{item.label}</span>
                             {wasChecked && <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-xs font-black text-white">já selecionado</span>}
@@ -356,6 +400,13 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                       );
                     })}
                   </div>
+                  {hasCavalinho && (
+                    <div className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-100">
+                      <p className="font-black">Entidades que você recebe</p>
+                      <p className="mt-1">{selectedEntities.length ? selectedEntities.map((item) => item.name).join(" • ") : "Seleção obrigatória ainda não informada."}</p>
+                      <button type="button" onClick={() => setEntityModalOpen(true)} className="mt-2 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Selecionar ou alterar</button>
+                    </div>
+                  )}
                 </article>
 
                 <article className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
@@ -393,6 +444,30 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
           )}
         </div>
       </section>
+
+      {entityModalOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Entidades do Cavalinho">
+          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+            <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0"><p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p><h2 className="truncate text-xl font-black text-[#123D2C]">Entidades que você recebe</h2></div>
+              <button type="button" onClick={() => { if (cavalinhoEntityIds.length > 0) setEntityModalOpen(false); }} disabled={cavalinhoEntityIds.length === 0} className="rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-40">Concluir</button>
+            </header>
+            <div className="min-h-0 overflow-y-auto p-5">
+              <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">Selecione as entidades que você incorpora para atendimento dos Filhos de Fora/Consulentes. Inclusões e retiradas somente serão aplicadas após a validação do Tucxa.</p>
+              <div className="mt-3 grid gap-2">
+                {entityOptions.map((entity) => (
+                  <label key={entity.id} className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                    <input type="checkbox" checked={cavalinhoEntityIds.includes(entity.id)} onChange={() => setCavalinhoEntityIds((current) => toggleValue(current, entity.id))} className="mt-1 h-5 w-5" />
+                    <span><span className="block font-black text-[#123D2C]">{entity.name}</span>{(entity.line || entity.entityType) && <span className="block text-xs font-semibold text-slate-600">{[entity.line, entity.entityType].filter(Boolean).join(" • ")}</span>}</span>
+                  </label>
+                ))}
+              </div>
+              {entityOptions.length === 0 && <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma entidade ativa foi localizada.</p>}
+              {cavalinhoEntityIds.length === 0 && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">Selecione ao menos uma entidade para continuar com a função Cavalinho.</p>}
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
