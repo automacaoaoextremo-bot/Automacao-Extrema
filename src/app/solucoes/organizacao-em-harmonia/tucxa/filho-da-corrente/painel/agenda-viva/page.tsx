@@ -60,6 +60,7 @@ type AgendaPreferences = {
 type AgendaPayload = {
   ok?: boolean;
   events?: AgendaEvent[];
+  annualCalendarEvents?: AgendaEvent[];
   agendaPreferences?: AgendaPreferences;
   filters?: {
     eventTypes?: FilterOption[];
@@ -186,7 +187,7 @@ function isEventosDoTucxa(event: AgendaEvent) {
 
 function hasClassification(event: AgendaEvent, expected: "umbanda" | "social" | "sementinha") {
   const classification = canonicalTaxonomy(event.classification);
-  if (expected === "umbanda") return classification.includes("umbanda");
+  if (expected === "umbanda") return classification === "umbanda";
   if (expected === "sementinha") return classification.includes("sementinha");
   return isEventosDoTucxa(event);
 }
@@ -894,12 +895,16 @@ export default function AgendaVivaFilhoDaCorrentePage() {
   }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
 
   const calendarModeEvents = useMemo(() => {
-    const events = uniqueSortedEvents(payload?.events ?? []);
+    const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
+    const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
+    const events = ["tucxa", "events", "sementinha"].includes(calendarMode)
+      ? fixedAnnualEvents
+      : interactiveEvents;
     return events.filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
 
-      // Os calendários anuais representam coleções completas. Filtros antigos
-      // salvos no modo Interativo não podem esconder os eventos do ano.
+      // Os calendários anuais são coleções editoriais fixas. Eles usam a
+      // carga original da API e nunca herdam filtros ou exclusões do Interativo.
       if (calendarMode === "tucxa") {
         return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
       }
@@ -929,7 +934,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
       return !isAppointmentEvent(event);
     });
-  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.annualCalendarEvents, payload?.events, periodMode, responsible, startDate]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);
@@ -1093,6 +1098,56 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     }
   }
 
+  function annualEventsForMode(nextMode: CalendarMode) {
+    const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
+    const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
+    const events = ["tucxa", "events", "sementinha"].includes(nextMode)
+      ? fixedAnnualEvents
+      : interactiveEvents;
+
+    if (nextMode === "tucxa") {
+      return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
+    if (nextMode === "events") {
+      return events.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
+    }
+    if (nextMode === "sementinha") {
+      return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "sementinha"));
+    }
+    if (nextMode === "mine") {
+      return events.filter((event) => event.associatedToCurrentPerson);
+    }
+
+    return events.filter((event) => !isAppointmentEvent(event));
+  }
+
+  function focusAvailableYear(nextMode: CalendarMode) {
+    if (nextMode === "interactive") return;
+
+    const years = Array.from(new Set(
+      annualEventsForMode(nextMode)
+        .map((event) => eventDateOnly(event.startsAt).slice(0, 4))
+        .filter((value) => /^\d{4}$/.test(value))
+        .map(Number),
+    )).sort((left, right) => left - right);
+
+    if (years.length === 0 || years.includes(periodStart.getUTCFullYear())) return;
+
+    const currentYear = dateFromIso(todayIso).getUTCFullYear();
+    const preferredYear = years.find((year) => year >= currentYear) ?? years[years.length - 1];
+    setPeriodStart(new Date(Date.UTC(preferredYear, 0, 1, 12)));
+  }
+
+  function selectCalendarMode(nextMode: CalendarMode) {
+    setCalendarMode(nextMode);
+    focusAvailableYear(nextMode);
+  }
+
+  function openCalendar() {
+    focusAvailableYear(calendarMode);
+    setCalendarOpen(true);
+  }
+
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
     if (events.length === 0) return;
 
@@ -1188,7 +1243,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => setCalendarMode(option.value)}
+                          onClick={() => selectCalendarMode(option.value)}
                           title={option.description}
                           className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm ring-1 transition ${
                             calendarMode === option.value
@@ -1202,7 +1257,7 @@ export default function AgendaVivaFilhoDaCorrentePage() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => setCalendarOpen(true)} className="min-h-10 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
+                      <button type="button" onClick={openCalendar} className="min-h-10 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
                       <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="min-h-10 rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
                     </div>
 

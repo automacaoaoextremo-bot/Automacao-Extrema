@@ -300,7 +300,7 @@ function isVacationEvent(event: EventRecord) {
 }
 
 function isUmbandaEvent(event: EventRecord) {
-  return normalize(eventClassification(event)).includes("umbanda");
+  return canonicalTaxonomy(eventClassification(event)) === "umbanda";
 }
 
 function addVacationRange(keys: Set<string>, year: number, startMonth: number, startDay: number, endMonth: number, endDay: number) {
@@ -805,6 +805,8 @@ export async function GET(request: Request) {
       .filter(shouldShowEvent)
       .flatMap(expandRecurringEvent);
 
+    const annualCalendarEvents = expandedEvents
+      .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }));
     const agendaEvents = removeUmbandaDuringVacations(expandedEvents)
       .map((event) => eventPayload(event, { currentPersonId: current.person.id, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }));
     const appointmentEvents = await personalAppointmentEvents(organization.id, current.person.id);
@@ -824,6 +826,7 @@ export async function GET(request: Request) {
       selectedFunctionSlugs,
       agendaPreferences: agendaPreferences(profile),
       events,
+      annualCalendarEvents,
       filters: {
         eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
         classifications: Array.from(new Set(events.map((event) => event.classification).filter(Boolean))),

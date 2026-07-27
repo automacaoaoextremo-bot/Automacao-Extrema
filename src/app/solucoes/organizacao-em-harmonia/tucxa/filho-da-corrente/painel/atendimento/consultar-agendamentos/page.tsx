@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FilhoCorrentePanelHeader,
+  filhoSignOutAction,
+  filhoSupportAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-const PAGE_PATH = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/consultar-agendamentos";
-const ATTENDANCE_PATH = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
 
 type Appointment = {
   id: string;
@@ -297,21 +299,22 @@ export default function ConsultarAgendamentosRecepcaoPage() {
         navLabel="Consulta de agendamentos"
         showSupport={false}
         actions={[
-          { label: "Voltar", href: ATTENDANCE_PATH, variant: "secondary" },
-          { label: "Consultas", href: PAGE_PATH, variant: "primary" },
+          { label: "Início", href: "#inicio", variant: "primary" },
+          filhoSupportAction,
+          filhoSignOutAction,
         ]}
       />
 
-      <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
+      <section id="inicio" className="mx-auto max-w-4xl scroll-mt-36 px-4 py-5 sm:px-6 lg:px-8">
         <header className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
           <h1 className="mt-2 text-3xl font-black leading-tight">Consulta de Agendamentos</h1>
           <p className="mt-2 text-sm font-semibold leading-6 text-[#EEF7EA]">
             {payload?.capabilities?.scope === "manage"
-              ? "Recepção: consulta e gestão completa dos agendamentos."
+              ? "Recepção: consulta e gestão completa."
               : payload?.capabilities?.scope === "linked_entities"
                 ? "Cavalinho: consulta somente dos atendimentos destinados às entidades vinculadas ao seu cadastro."
-                : "Cambono: consulta geral em modo somente leitura."}
+                : "Cambono: todos em modo somente leitura."}
           </p>
         </header>
 

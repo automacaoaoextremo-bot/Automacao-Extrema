@@ -428,6 +428,7 @@ function commonSummaryText(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntity: EntityItem | null;
 }) {
   return [
     `Organização: ${ORGANIZATION_DISPLAY_NAME}`,
@@ -441,7 +442,13 @@ function commonSummaryText(input: {
     "Agenda:",
     agendaLines(input.selectedAgenda).join("\n\n"),
     ...(input.selectedEntities.length
-      ? ["", "Entidades que recebe para atendimento:", input.selectedEntities.map((item) => `- ${item.name}`).join("\n")]
+      ? [
+          "",
+          "Entidades que recebe:",
+          input.selectedEntities.map((item) => `- ${item.name}`).join("\n"),
+          "",
+          `Entidade que atende Filhos de Fora/Consulentes: ${input.cavalinhoConsulenteEntity?.name || "Nenhuma das entidades selecionadas"}`,
+        ]
       : []),
     "",
     input.notes ? `Observação: ${input.notes}` : "Observação: não informada",
@@ -456,6 +463,7 @@ function commonSummaryHtml(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntity: EntityItem | null;
 }) {
   return `
     <p style="margin:0 0 8px 0"><strong>Organização:</strong> ${htmlEscape(ORGANIZATION_DISPLAY_NAME)}</p>
@@ -466,7 +474,7 @@ function commonSummaryHtml(input: {
     ${listToHtml(functionsLines(input.selectedFunctions))}
     <h3 style="margin:22px 0 8px 0;color:#123D2C">Agenda:</h3>
     ${listToHtml(agendaLines(input.selectedAgenda), true)}
-    ${input.selectedEntities.length ? `<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidades que recebe para atendimento:</h3>${listToHtml(input.selectedEntities.map((item) => item.name))}` : ""}
+    ${input.selectedEntities.length ? `<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidades que recebe:</h3>${listToHtml(input.selectedEntities.map((item) => item.name))}<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidade que atende Filhos de Fora/Consulentes:</h3><p style="margin:0 0 6px 0;line-height:1.6">${htmlEscape(input.cavalinhoConsulenteEntity?.name || "Nenhuma das entidades selecionadas")}</p>` : ""}
     <p style="margin:18px 0 0 0"><strong>Observação:</strong> ${htmlEscape(input.notes || "não informada")}</p>`;
 }
 
@@ -488,6 +496,7 @@ function buildPersonEmail(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntity: EntityItem | null;
   statusUrl: string;
 }) {
   const text = [
@@ -528,6 +537,7 @@ function buildReviewerEmail(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntity: EntityItem | null;
   validationUrl: string;
   simulationUrl: string;
 }) {
@@ -575,6 +585,7 @@ function buildWhatsappPersonMessage(input: {
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntity: EntityItem | null;
   statusUrl: string;
 }) {
   return [
@@ -695,6 +706,10 @@ async function submitFirstAccess(body: AccessBody) {
     selectedEntities = [];
   }
 
+  const cavalinhoConsulenteEntity = selectedEntities.find(
+    (entity) => entity.id === cavalinhoConsulenteEntityId,
+  ) ?? null;
+
   const existing = await findPersonByIdentifier(organization.id, email || whatsapp);
   const emailForAuth = email || syntheticEmailFromPhone(whatsapp);
   const authUserId = await ensureAuthUser({ person: existing, emailForAuth, password, fullName, whatsapp, organizationId: organization.id });
@@ -801,6 +816,7 @@ async function submitFirstAccess(body: AccessBody) {
     selectedFunctions,
     selectedAgenda,
     selectedEntities,
+    cavalinhoConsulenteEntity,
   };
 
   const reviewers = await reviewerEmails(organization.id);

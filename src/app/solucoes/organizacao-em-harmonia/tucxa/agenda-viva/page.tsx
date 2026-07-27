@@ -59,6 +59,7 @@ type AgendaPreferences = {
 type AgendaPayload = {
   ok?: boolean;
   events?: AgendaEvent[];
+  annualCalendarEvents?: AgendaEvent[];
   agendaPreferences?: AgendaPreferences;
   filters?: {
     eventTypes?: FilterOption[];
@@ -181,7 +182,7 @@ function isEventosDoTucxa(event: AgendaEvent) {
 
 function hasClassification(event: AgendaEvent, expected: "umbanda" | "social" | "sementinha") {
   const classification = canonicalTaxonomy(event.classification);
-  if (expected === "umbanda") return classification.includes("umbanda");
+  if (expected === "umbanda") return classification === "umbanda";
   if (expected === "sementinha") return classification.includes("sementinha");
   return isEventosDoTucxa(event);
 }
@@ -929,23 +930,21 @@ export default function AgendaVivaPublicaPage() {
   }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
 
   const calendarModeEvents = useMemo(() => {
-    const events = uniqueSortedEvents(payload?.events ?? []);
+    const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
+    const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
+    const events = ["tucxa", "events", "sementinha"].includes(calendarMode)
+      ? fixedAnnualEvents
+      : interactiveEvents;
     return events.filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
 
-      // A coleção Eventos do TUCXA é uma seleção editorial completa. Ao abrir
-      // esse calendário, nenhum filtro do modo Interativo nem o público do
-      // evento pode esconder itens que foram classificados nesta coleção.
-      if (calendarMode === "events") {
-        return !isAppointmentEvent(event) && isEventosDoTucxa(event);
-      }
-
-      if (!isVisibleToConsulente(event)) return false;
-
-      // Os demais calendários anuais também representam coleções completas.
-      // Filtros antigos salvos no modo Interativo não podem esconder o ano.
+      // Os calendários anuais são coleções editoriais fixas. Eles usam a
+      // carga original da API e nunca herdam filtros ou exclusões do Interativo.
       if (calendarMode === "tucxa") {
         return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
+      }
+      if (calendarMode === "events") {
+        return !isAppointmentEvent(event) && isEventosDoTucxa(event);
       }
       if (calendarMode === "sementinha") {
         return !isAppointmentEvent(event) && hasClassification(event, "sementinha");
@@ -953,6 +952,10 @@ export default function AgendaVivaPublicaPage() {
       if (calendarMode === "mine") {
         return event.associatedToCurrentPerson;
       }
+
+      // A regra de público continua valendo somente para a visualização
+      // Interativo. Tucxa e Eventos sempre mostram suas coleções completas.
+      if (!isVisibleToConsulente(event)) return false;
 
       if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
       if (audience && event.audience !== audience) return false;
@@ -970,7 +973,7 @@ export default function AgendaVivaPublicaPage() {
 
       return !isAppointmentEvent(event);
     });
-  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.annualCalendarEvents, payload?.events, periodMode, responsible, startDate]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);
@@ -1118,19 +1121,26 @@ export default function AgendaVivaPublicaPage() {
   }
 
   function annualEventsForMode(nextMode: CalendarMode) {
-    const events = uniqueSortedEvents(payload?.events ?? []);
+    const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
+    const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
+    const events = ["tucxa", "events", "sementinha"].includes(nextMode)
+      ? fixedAnnualEvents
+      : interactiveEvents;
 
+    if (nextMode === "tucxa") {
+      return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
     if (nextMode === "events") {
       return events.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
     }
+    if (nextMode === "sementinha") {
+      return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "sementinha"));
+    }
+    if (nextMode === "mine") {
+      return events.filter((event) => event.associatedToCurrentPerson);
+    }
 
-    return events.filter((event) => {
-      if (!isVisibleToConsulente(event)) return false;
-      if (nextMode === "tucxa") return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
-      if (nextMode === "sementinha") return !isAppointmentEvent(event) && hasClassification(event, "sementinha");
-      if (nextMode === "mine") return event.associatedToCurrentPerson;
-      return !isAppointmentEvent(event);
-    });
+    return events.filter((event) => !isAppointmentEvent(event));
   }
 
   function focusAvailableYear(nextMode: CalendarMode) {
@@ -1159,6 +1169,7 @@ export default function AgendaVivaPublicaPage() {
     focusAvailableYear(calendarMode);
     setCalendarOpen(true);
   }
+
 
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
     if (events.length === 0) return;

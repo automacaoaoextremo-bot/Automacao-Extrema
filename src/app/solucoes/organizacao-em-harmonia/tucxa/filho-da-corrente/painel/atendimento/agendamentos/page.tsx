@@ -97,11 +97,16 @@ type FoundPerson = {
   email: string;
 };
 
-type Confirmation = {
+type ConfirmationAppointment = {
+  id?: string;
   appointmentDate: string;
   appointmentTime: string;
   entityName: string;
   order: number;
+  status?: string;
+};
+
+type Confirmation = ConfirmationAppointment & {
   personName?: string;
   changed?: boolean;
   weekday?: string;
@@ -205,6 +210,7 @@ export default function AgendamentosFilhoCorrentePage() {
   const [ageAtAppointment, setAgeAtAppointment] = useState("");
   const [treatmentNeed, setTreatmentNeed] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [confirmationAppointments, setConfirmationAppointments] = useState<ConfirmationAppointment[]>([]);
   const [attendanceThanks, setAttendanceThanks] = useState<"confirmed" | "cannot_attend" | null>(null);
   const [recurrenceCount, setRecurrenceCount] = useState(1);
 
@@ -436,7 +442,12 @@ export default function AgendamentosFilhoCorrentePage() {
         idempotencyKey,
         recurrenceCount: editingAppointmentId ? 1 : recurrenceCount,
       });
+      const confirmedAppointments = Array.isArray(result.appointments) && result.appointments.length > 0
+        ? result.appointments as ConfirmationAppointment[]
+        : [result.appointment as ConfirmationAppointment];
       setConfirmation({ ...result.appointment, changed: Boolean(editingAppointmentId) });
+      setConfirmationAppointments(confirmedAppointments);
+      setDelivery(null);
       setEditingAppointmentId("");
       setModal("success");
       await load();
@@ -497,7 +508,11 @@ export default function AgendamentosFilhoCorrentePage() {
         ageAtAppointment: selectedPeriod.weekday === "quarta" ? Number(ageAtAppointment) : undefined,
         treatmentNeed: selectedPeriod.weekday === "quarta" ? treatmentNeed : undefined,
       });
+      const confirmedAppointments = Array.isArray(result.appointments) && result.appointments.length > 0
+        ? result.appointments as ConfirmationAppointment[]
+        : [result.appointment as ConfirmationAppointment];
       setConfirmation(result.appointment as Confirmation);
+      setConfirmationAppointments(confirmedAppointments);
       const resultDelivery = (result.delivery || null) as AccessDelivery | null;
       setDelivery(resultDelivery
         ? { ...createdAccess, ...resultDelivery, temporaryPassword: resultDelivery.temporaryPassword || createdAccess?.temporaryPassword }
@@ -835,11 +850,28 @@ export default function AgendamentosFilhoCorrentePage() {
 
       {modal === "success" && confirmation && (
         <Modal title={confirmation.changed ? "Atendimento alterado" : "Agendamento confirmado"} onClose={() => setModal(null)}>
-          <p className="rounded-xl bg-emerald-50 p-3 font-black text-emerald-900 ring-1 ring-emerald-100">{confirmation.changed ? "A alteração foi confirmada." : "O agendamento foi confirmado."}</p>
+          <p className="rounded-xl bg-emerald-50 p-3 font-black text-emerald-900 ring-1 ring-emerald-100">
+            {confirmation.changed
+              ? "A alteração foi confirmada."
+              : confirmationAppointments.length > 1
+                ? `${confirmationAppointments.length} agendamentos foram confirmados.`
+                : "O agendamento foi confirmado."}
+          </p>
           <div className="mt-2 grid gap-2 text-sm font-semibold text-slate-700">
             {confirmation.personName && <Info label="Consulente">{confirmation.personName}</Info>}
-            <CompactPair leftLabel="Data" leftValue={longDate(confirmation.appointmentDate)} rightLabel="Período" rightValue={confirmation.appointmentTime} />
-            <CompactPair leftLabel="Entidade" leftValue={confirmation.entityName} rightLabel="Ordem" rightValue={confirmation.order} />
+            {(confirmationAppointments.length > 0 ? confirmationAppointments : [confirmation]).map((appointment, index) => (
+              <article key={appointment.id || `${appointment.appointmentDate}-${index}`} className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                {confirmationAppointments.length > 1 && (
+                  <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+                    Agendamento {index + 1} de {confirmationAppointments.length}
+                  </p>
+                )}
+                <CompactPair leftLabel="Data" leftValue={longDate(appointment.appointmentDate)} rightLabel="Período" rightValue={appointment.appointmentTime} />
+                <div className="mt-2">
+                  <CompactPair leftLabel="Entidade" leftValue={appointment.entityName} rightLabel="Ordem" rightValue={appointment.order} />
+                </div>
+              </article>
+            ))}
           </div>
           {delivery?.whatsappUrl && (
             <a href={delivery.whatsappUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#25D366] px-4 text-center font-black text-[#073B1D]">Enviar acesso e agendamento pelo WhatsApp</a>
@@ -878,8 +910,8 @@ function Modal({ title, children, onClose, fullScreenMobile = false, bodyClassNa
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <section className={`flex w-full flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl ${fullScreenMobile ? "h-[calc(100dvh-1rem)] max-w-3xl sm:h-auto sm:max-h-[92vh]" : "max-h-[calc(100dvh-1rem)] max-w-2xl sm:max-h-[90vh]"}`}>
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 p-3 sm:p-4">
-          <h2 className="min-w-0 truncate text-base font-black uppercase tracking-[0.13em] text-[#123D2C] sm:text-xl">{title}</h2>
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 p-3 sm:items-center sm:p-4">
+          <h2 className="min-w-0 flex-1 break-words text-base font-black uppercase leading-tight tracking-[0.1em] text-[#123D2C] sm:text-xl sm:tracking-[0.13em]">{title}</h2>
           <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-2xl bg-[#123D2C] px-4 text-sm font-black text-white">Fechar</button>
         </header>
         <div className={bodyClassName}>{children}</div>

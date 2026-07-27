@@ -18,6 +18,8 @@ type FirstAccessDraft = {
   selectedAgenda: DraftItem[];
   cavalinhoEntityIds: string[];
   selectedEntities: EntityItem[];
+  cavalinhoConsulenteEntityId: string;
+  cavalinhoConsulenteDefinitionCompleted: boolean;
   createdAt: string;
 };
 
@@ -75,6 +77,10 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
     }
   }
 
+  const consulenteEntity = draft?.selectedEntities.find(
+    (entity) => entity.id === draft.cavalinhoConsulenteEntityId,
+  ) ?? null;
+
   const actions = [
     { label: "Voltar", href: backPath, variant: "secondary" as const },
     { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
@@ -117,9 +123,19 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
                     </div>
                   </div>
                   {draft.selectedEntities.length > 0 && (
-                    <div className="mt-4 rounded-[1.5rem] border border-[#123D2C]/10 p-4">
-                      <h2 className="font-black text-[#123D2C]">Entidades que recebe para atendimento de Consulentes/Filhos de Fora</h2>
-                      <p className="mt-2 text-sm font-semibold text-slate-700">{draft.selectedEntities.map((item) => item.name).join(" • ")}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
+                        <h2 className="font-black text-[#123D2C]">Entidades que recebe</h2>
+                        <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
+                          {draft.selectedEntities.map((item) => <li key={item.id}>• {item.name}</li>)}
+                        </ul>
+                      </div>
+                      <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
+                        <h2 className="font-black text-[#123D2C]">Entidade que atende Filhos de Fora/Consulentes</h2>
+                        <p className="mt-2 text-sm font-semibold text-slate-700">
+                          {consulenteEntity?.name || "Nenhuma das entidades selecionadas"}
+                        </p>
+                      </div>
                     </div>
                   )}
                   {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-200">{error}</p>}

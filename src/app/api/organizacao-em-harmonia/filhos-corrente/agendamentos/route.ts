@@ -697,12 +697,19 @@ function hasSmtpConfig() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
 }
 
+type ReceptionDeliveryAppointment = {
+  date: string;
+  period: string;
+  entity: string;
+  order?: number | null;
+};
+
 async function sendReceptionAccessEmail(input: {
   to: string;
   fullName: string;
   login: string;
   temporaryPassword?: string;
-  appointment?: { date: string; period: string; entity: string };
+  appointments?: ReceptionDeliveryAppointment[];
 }) {
   if (!input.to || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
   const transporter = nodemailer.createTransport({
@@ -711,17 +718,29 @@ async function sendReceptionAccessEmail(input: {
     secure: process.env.SMTP_SECURE === "true",
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
-  const appointmentLines = input.appointment
-    ? ["", "Agendamento:", `Data: ${formatDateForMessage(input.appointment.date)}`, `Período: ${input.appointment.period}`, `Entidade: ${input.appointment.entity}`]
+  const appointments = input.appointments ?? [];
+  const appointmentLines = appointments.length > 0
+    ? [
+        "",
+        appointments.length > 1 ? `${appointments.length} agendamentos confirmados:` : "Agendamento confirmado:",
+        ...appointments.flatMap((appointment, index) => [
+          "",
+          ...(appointments.length > 1 ? [`Agendamento ${index + 1}:`] : []),
+          `Data: ${formatDateForMessage(appointment.date)}`,
+          `Período: ${appointment.period}`,
+          `Entidade: ${appointment.entity}`,
+          ...(appointment.order ? [`Ordem: ${appointment.order}`] : []),
+        ]),
+      ]
     : [];
   await transporter.sendMail({
     from: `"${process.env.OH_TUCXA_EMAIL_FROM_NAME || process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
     to: input.to,
-    subject: "[TUCXA] Acesso ao Organização em Harmonia",
+    subject: appointments.length > 0 ? "[TUCXA] Agendamento confirmado" : "[TUCXA] Acesso ao Organização em Harmonia",
     text: [
       `Olá, ${input.fullName}.`,
       "",
-      "Seu acesso como Consulente / Filho de Fora foi criado pela Recepção do TUCXA.",
+      "Seu acesso como Consulente / Filho de Fora foi criado ou confirmado pela Recepção do TUCXA.",
       `Link: ${consulenteLoginUrl()}`,
       `Login: ${input.login}`,
       ...(input.temporaryPassword ? [`Senha temporária: ${input.temporaryPassword}`, "", "Troque esta senha no primeiro acesso e não compartilhe estes dados."] : []),
@@ -1355,15 +1374,28 @@ export async function POST(request: Request) {
       const actualEmail = normalizeEmail(target.notification_email || target.email);
       const login = normalizePhone(target.whatsapp);
       const temporaryPassword = asText(body.temporaryPassword);
+      const deliveryAppointments: ReceptionDeliveryAppointment[] = recurring.appointments.map((appointment) => ({
+        date: appointment.appointmentDate,
+        period: appointment.appointmentTime,
+        entity: appointment.entityName,
+        order: appointment.order,
+      }));
       const appointmentMessage = [
         "Tucxa em Harmonia",
         "",
         `Olá, ${asText(target.full_name) || "Consulente"}.`,
-        "Seu agendamento no TUCXA foi confirmado.",
-        `Data: ${formatDateForMessage(reservation.appointmentDate)}`,
-        `Período: ${period.label}`,
-        `Entidade: ${entity.name || "Entidade escolhida"}`,
-        `Ordem: ${reservation.order}`,
+        recurring.appointments.length > 1
+          ? `${recurring.appointments.length} agendamentos no TUCXA foram confirmados.`
+          : "Seu agendamento no TUCXA foi confirmado.",
+        ...deliveryAppointments.flatMap((appointment, index) => [
+          "",
+          ...(deliveryAppointments.length > 1 ? [`Agendamento ${index + 1}:`] : []),
+          `Data: ${formatDateForMessage(appointment.date)}`,
+          `Período: ${appointment.period}`,
+          `Entidade: ${appointment.entity}`,
+          ...(appointment.order ? [`Ordem: ${appointment.order}`] : []),
+        ]),
+        "",
         `Acesso: ${consulenteLoginUrl()}`,
         `Login: ${login || actualEmail}`,
         ...(temporaryPassword
@@ -1376,7 +1408,7 @@ export async function POST(request: Request) {
             fullName: asText(target.full_name) || "Consulente",
             login: login || actualEmail,
             temporaryPassword: asText(body.temporaryPassword) || undefined,
-            appointment: { date: reservation.appointmentDate, period: period.label, entity: entity.name || "Entidade escolhida" },
+            appointments: deliveryAppointments,
           }).catch(() => false)
         : false;
 

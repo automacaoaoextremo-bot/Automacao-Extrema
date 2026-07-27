@@ -311,7 +311,7 @@ function isVacationEvent(event: EventRecord) {
 }
 
 function isUmbandaEvent(event: EventRecord) {
-  return normalize(eventClassification(event)).includes("umbanda");
+  return canonicalTaxonomy(eventClassification(event)) === "umbanda";
 }
 
 function addVacationRange(keys: Set<string>, year: number, startMonth: number, startDay: number, endMonth: number, endDay: number) {
@@ -859,21 +859,25 @@ export async function GET(request: Request) {
 
     const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
       .filter(shouldShowEvent)
-      .filter((event) => isVisibleToConsulente(event) || (publicMode && isEventosDoTucxa(event)))
+      .filter((event) => isVisibleToConsulente(event) || isUmbandaEvent(event) || isEventosDoTucxa(event))
       .flatMap(expandRecurringEvent);
 
     const currentPersonId = current?.person.id ?? "";
+    const sanitizeForPublic = (event: AgendaEvent): AgendaEvent => publicMode
+      ? {
+          ...event,
+          associatedToCurrentPerson: false,
+          responsiblePersonId: "",
+          responsiblePersonName: "Tucxa",
+          notes: "",
+        }
+      : event;
+    const annualCalendarEvents = expandedEvents
+      .map((event) => eventPayload(event, { currentPersonId, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
+      .map(sanitizeForPublic);
     const agendaEvents = removeUmbandaDuringVacations(expandedEvents)
       .map((event) => eventPayload(event, { currentPersonId, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
-      .map((event) => publicMode
-        ? {
-            ...event,
-            associatedToCurrentPerson: false,
-            responsiblePersonId: "",
-            responsiblePersonName: "Tucxa",
-            notes: "",
-          }
-        : event);
+      .map(sanitizeForPublic);
     const appointmentEvents = current ? await personalAppointmentEvents(organization.id, current.person.id) : [];
     const events = [...agendaEvents, ...appointmentEvents]
       .sort((a, b) => (a.startsAt ?? "9999").localeCompare(b.startsAt ?? "9999"));
@@ -911,6 +915,7 @@ export async function GET(request: Request) {
           }
         : agendaPreferences(profile),
       events,
+      annualCalendarEvents,
       filters: {
         eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
         classifications: Array.from(new Set(events.map((event) => event.classification).filter(Boolean))),

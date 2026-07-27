@@ -120,7 +120,7 @@ export default function PainelFilhoDaCorrentePage() {
         )}
       </section>
 
-      <UpcomingAppointmentsLoginModal appointmentsHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamentos" />
+      <UpcomingAppointmentsLoginModal appointmentsHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/consultar-agendamentos" />
       <UpcomingEntityAppointmentsLoginModal />
     </main>
   );

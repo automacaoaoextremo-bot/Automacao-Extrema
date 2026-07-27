@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Appointment = {
@@ -15,7 +14,14 @@ type Appointment = {
   status: string;
 };
 
+type Entity = {
+  id: string;
+  name: string;
+  isPrimaryForAttendance?: boolean;
+};
+
 type Payload = {
+  entities?: Entity[];
   appointments?: Appointment[];
   error?: string;
 };
@@ -47,6 +53,7 @@ function whatsappUrl(appointment: Appointment) {
 
 export function UpcomingEntityAppointmentsLoginModal() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [attendanceEntityName, setAttendanceEntityName] = useState("");
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -61,7 +68,10 @@ export function UpcomingEntityAppointmentsLoginModal() {
         const payload = (await response.json().catch(() => ({}))) as Payload;
         if (!active || !response.ok) return;
         const nextAppointments = payload.appointments ?? [];
+        const primaryEntity = (payload.entities ?? []).find((entity) => entity.isPrimaryForAttendance)
+          ?? (payload.entities ?? [])[0];
         setAppointments(nextAppointments);
+        setAttendanceEntityName(primaryEntity?.name || nextAppointments[0]?.entityName || "sua entidade");
         setOpen(nextAppointments.length > 0);
       });
     }, 250);
@@ -89,7 +99,7 @@ export function UpcomingEntityAppointmentsLoginModal() {
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Função Cavalinho</p>
-            <h2 className="break-words text-xl font-black leading-tight text-[#123D2C]">Atendimentos previstos para suas entidades</h2>
+            <h2 className="break-words text-xl font-black leading-tight text-[#123D2C]">{`Próximos atendimentos previstos para o ${attendanceEntityName}`}</h2>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
         </header>
@@ -116,9 +126,6 @@ export function UpcomingEntityAppointmentsLoginModal() {
               );
             })}
           </div>
-          <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/consultar-agendamentos" className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-center font-black text-white">
-            Consultar todos os atendimentos
-          </Link>
         </div>
       </section>
     </div>
