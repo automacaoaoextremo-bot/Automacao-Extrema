@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { isMonthOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
+import { isRecurringWeekdayOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 
 export const dynamic = "force-dynamic";
 
@@ -577,7 +577,7 @@ function expandRecurringEvent(event: EventRecord) {
       const weekDiff = Math.floor((startOfWeek(cursor).getTime() - startWeek.getTime()) / (7 * 24 * 60 * 60 * 1000));
       if (weekDiff >= 0 && weekDiff % interval === 0 && allowedWeekdays.has(cursor.getUTCDay())) {
         const occurrenceDate = toIsoDate(cursor);
-        if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+        if (isRecurringWeekdayOccurrenceAllowed(event.metadata, occurrenceDate)) {
           occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
         }
       }
@@ -600,7 +600,7 @@ function expandRecurringEvent(event: EventRecord) {
             dates.forEach((date) => {
               if (date >= startDate && date <= endDate) {
                 const occurrenceDate = toIsoDate(date);
-                if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+                if (isRecurringWeekdayOccurrenceAllowed(event.metadata, occurrenceDate)) {
                   occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
                 }
               }
@@ -610,7 +610,7 @@ function expandRecurringEvent(event: EventRecord) {
           const date = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), startDate.getUTCDate(), 12));
           if (date.getUTCMonth() === cursor.getUTCMonth() && date >= startDate && date <= endDate) {
             const occurrenceDate = toIsoDate(date);
-            if (isMonthOccurrenceAllowed(event.metadata, occurrenceDate)) {
+            if (isRecurringWeekdayOccurrenceAllowed(event.metadata, occurrenceDate)) {
               occurrences.push(buildOccurrence(event, occurrenceDate, occurrences.length));
             }
           }
@@ -872,10 +872,11 @@ export async function GET(request: Request) {
           notes: "",
         }
       : event;
-    const annualCalendarEvents = expandedEvents
+    const calendarEvents = removeUmbandaDuringVacations(expandedEvents);
+    const annualCalendarEvents = calendarEvents
       .map((event) => eventPayload(event, { currentPersonId, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
       .map(sanitizeForPublic);
-    const agendaEvents = removeUmbandaDuringVacations(expandedEvents)
+    const agendaEvents = calendarEvents
       .map((event) => eventPayload(event, { currentPersonId, selectedAgendaSlugs, selectedFunctionSlugs, eventTypes, locations, people }))
       .map(sanitizeForPublic);
     const appointmentEvents = current ? await personalAppointmentEvents(organization.id, current.person.id) : [];

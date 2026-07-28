@@ -113,10 +113,10 @@ type Confirmation = ConfirmationAppointment & {
 };
 
 type AccessDelivery = {
-  login: string;
+  login?: string;
   authEmail?: string;
   temporaryPassword?: string;
-  loginUrl: string;
+  loginUrl?: string;
   whatsappUrl: string;
   emailSent: boolean;
 };
@@ -447,7 +447,7 @@ export default function AgendamentosFilhoCorrentePage() {
         : [result.appointment as ConfirmationAppointment];
       setConfirmation({ ...result.appointment, changed: Boolean(editingAppointmentId) });
       setConfirmationAppointments(confirmedAppointments);
-      setDelivery(null);
+      setDelivery((result.delivery || null) as AccessDelivery | null);
       setEditingAppointmentId("");
       setModal("success");
       await load();
@@ -874,7 +874,7 @@ export default function AgendamentosFilhoCorrentePage() {
             ))}
           </div>
           {delivery?.whatsappUrl && (
-            <a href={delivery.whatsappUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#25D366] px-4 text-center font-black text-[#073B1D]">Enviar acesso e agendamento pelo WhatsApp</a>
+            <a href={delivery.whatsappUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#25D366] px-4 text-center font-black text-[#073B1D]">Receber confirmação pelo WhatsApp</a>
           )}
           {delivery?.emailSent && <p className="mt-2 rounded-xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">As informações também foram enviadas por e-mail.</p>}
           <button type="button" onClick={() => setModal(null)} className="mt-3 min-h-12 w-full rounded-xl bg-[#123D2C] px-4 font-black text-white">Fechar</button>

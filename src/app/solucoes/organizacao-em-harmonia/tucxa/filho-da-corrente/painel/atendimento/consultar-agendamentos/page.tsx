@@ -8,6 +8,8 @@ import {
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
+const atendimentoPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
+const voltarParaConsultaHref = `${atendimentoPath}?consulta=agendamentos`;
 
 type Appointment = {
   id: string;
@@ -300,16 +302,17 @@ export default function ConsultarAgendamentosRecepcaoPage() {
         showSupport={false}
         actions={[
           { label: "Início", href: "#inicio", variant: "primary" },
+          { label: "Voltar", href: voltarParaConsultaHref, variant: "secondary" },
           filhoSupportAction,
           filhoSignOutAction,
         ]}
       />
 
-      <section id="inicio" className="mx-auto max-w-4xl scroll-mt-36 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
+      <section id="inicio" className="mx-auto max-w-4xl scroll-mt-36 px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
+        <header className="rounded-[1.5rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-6">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight">Consulta de Agendamentos</h1>
-          <p className="mt-2 text-sm font-semibold leading-6 text-[#EEF7EA]">
+          <h1 className="mt-1.5 text-2xl font-black leading-tight sm:text-3xl">Consulta de Agendamentos</h1>
+          <p className="mt-1.5 text-sm font-semibold leading-5 text-[#EEF7EA] sm:leading-6">
             {payload?.capabilities?.scope === "manage"
               ? "Recepção: consulta e gestão completa."
               : payload?.capabilities?.scope === "linked_entities"
@@ -318,27 +321,27 @@ export default function ConsultarAgendamentosRecepcaoPage() {
           </p>
         </header>
 
-        <section className="mt-4 rounded-[2rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-          <form onSubmit={(event) => void runSearch(event)} className="grid gap-3 md:grid-cols-2">
+        <section className="mt-3 rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-[2rem] sm:p-5">
+          <form onSubmit={(event) => void runSearch(event)} className="grid gap-2.5 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-black text-[#123D2C] md:col-span-2">
               Nome, WhatsApp ou Entidade
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Ex.: Antonio, 993194222 ou Caboclo"
-                className="min-h-12 rounded-2xl border border-slate-200 px-4 text-base font-semibold outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
+                className="min-h-10 rounded-xl border border-slate-200 px-3 text-base font-semibold outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
               />
             </label>
             <label className="grid gap-1 text-sm font-black text-[#123D2C]">
               Entidade
-              <select value={entityId} onChange={(event) => setEntityId(event.target.value)} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold">
+              <select value={entityId} onChange={(event) => setEntityId(event.target.value)} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold">
                 <option value="">Todas</option>
                 {(payload?.entities ?? []).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
               </select>
             </label>
             <label className="grid gap-1 text-sm font-black text-[#123D2C]">
               Situação
-              <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold">
+              <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold">
                 <option value="">Todas</option>
                 <option value="confirmado">Confirmado</option>
                 <option value="solicitado">Solicitado</option>
@@ -349,12 +352,12 @@ export default function ConsultarAgendamentosRecepcaoPage() {
             </label>
             <label className="grid gap-1 text-sm font-black text-[#123D2C] md:col-span-2">
               Agrupar resultados por
-              <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold">
+              <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold">
                 <option value="date">Data e período</option>
                 <option value="entity">Entidade</option>
               </select>
             </label>
-            <button type="submit" disabled={initialLoading || loading} className="min-h-12 rounded-2xl bg-[#123D2C] px-5 font-black text-white disabled:opacity-60 md:col-span-2">
+            <button type="submit" disabled={initialLoading || loading} className="min-h-11 rounded-xl bg-[#123D2C] px-5 font-black text-white disabled:opacity-60 md:col-span-2">
               {loading ? "Consultando..." : "Consultar"}
             </button>
           </form>
@@ -379,13 +382,8 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                 <button type="button" onClick={() => void changeRange("today")} className={`rounded-2xl px-2 py-2 text-sm font-black ${range === "today" ? "bg-[#123D2C] text-white" : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>Hoje</button>
                 <button type="button" onClick={() => void changeRange("previous")} className={`rounded-2xl px-2 py-2 text-sm font-black ${range === "previous" ? "bg-[#123D2C] text-white" : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>Anteriores</button>
               </div>
-              <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="mt-2">
                 <p className="text-sm font-black text-[#123D2C]">{payload?.total ?? 0} agendamento(s)</p>
-                {range !== "previous" && (
-                  <button type="button" onClick={() => void changeRange("previous")} className="text-xs font-black text-[#2F6B43] underline underline-offset-4">
-                    Consultar agendamentos anteriores
-                  </button>
-                )}
               </div>
             </div>
 
@@ -475,20 +473,20 @@ export default function ConsultarAgendamentosRecepcaoPage() {
             <div className="mt-4 grid gap-3">
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
                 Data
-                <input type="date" value={editDraft.appointmentDate} onChange={(event) => setEditDraft({ ...editDraft, appointmentDate: event.target.value })} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold" required />
+                <input type="date" value={editDraft.appointmentDate} onChange={(event) => setEditDraft({ ...editDraft, appointmentDate: event.target.value })} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold" required />
               </label>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
                 Período
-                <input value={editDraft.appointmentTime} onChange={(event) => setEditDraft({ ...editDraft, appointmentTime: event.target.value })} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold" required />
+                <input value={editDraft.appointmentTime} onChange={(event) => setEditDraft({ ...editDraft, appointmentTime: event.target.value })} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold" required />
               </label>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">
                 Entidade
-                <select value={editDraft.entityId} onChange={(event) => setEditDraft({ ...editDraft, entityId: event.target.value })} className="min-h-12 rounded-2xl border border-slate-200 px-3 font-semibold" required>
+                <select value={editDraft.entityId} onChange={(event) => setEditDraft({ ...editDraft, entityId: event.target.value })} className="min-h-10 rounded-xl border border-slate-200 px-3 font-semibold" required>
                   <option value="">Escolha</option>
                   {(payload?.entities ?? []).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
                 </select>
               </label>
-              <button type="submit" disabled={saving} className="min-h-12 rounded-2xl bg-[#123D2C] px-5 font-black text-white disabled:opacity-60">
+              <button type="submit" disabled={saving} className="min-h-11 rounded-xl bg-[#123D2C] px-5 font-black text-white disabled:opacity-60">
                 {saving ? "Salvando..." : "Salvar alteração"}
               </button>
             </div>

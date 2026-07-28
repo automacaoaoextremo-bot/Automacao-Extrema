@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { isMonthOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
+import { isRecurringWeekdayOccurrenceAllowed } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
+import { whatsappShareUrl } from "@/lib/organizacao-em-harmonia/tucxa-scheduling";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,15 @@ type ExistingAppointment = {
   canEdit: boolean;
   editBlockedReason: string;
 };
+
+type ConfirmationAppointment = {
+  id?: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  entityName: string;
+  order: number;
+};
+
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -294,8 +304,8 @@ function eventMatchesDate(event: AgendaEvent, dateText: string) {
   if (!recurrence) return dateText === startDate;
 
   const weekday = weekdaySlug(dateText);
-  if (recurrence.includes("BYDAY=MO")) return weekday === "segunda" && isMonthOccurrenceAllowed(event.metadata, dateText);
-  if (recurrence.includes("BYDAY=TU")) return weekday === "terca" && isMonthOccurrenceAllowed(event.metadata, dateText);
+  if (recurrence.includes("BYDAY=MO")) return weekday === "segunda" && isRecurringWeekdayOccurrenceAllowed(event.metadata, dateText);
+  if (recurrence.includes("BYDAY=TU")) return weekday === "terca" && isRecurringWeekdayOccurrenceAllowed(event.metadata, dateText);
   return dateText === startDate;
 }
 
@@ -760,39 +770,54 @@ function siteUrl() {
 async function sendConfirmationEmail(input: {
   to: string;
   name: string;
-  entityName: string;
-  appointmentDate: string;
-  appointmentTime: string;
-  order: number;
+  appointments: ConfirmationAppointment[];
   guidance: string;
 }) {
   if (!input.to || !hasSmtpConfig() || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false") return false;
+
+  const appointments = input.appointments;
+  if (appointments.length === 0) return false;
+
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: String(process.env.SMTP_SECURE || "false") === "true",
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   });
-  const formattedDate = new Intl.DateTimeFormat("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(dateFromIso(input.appointmentDate));
+
+  const appointmentLines = appointments.flatMap((appointment, index) => {
+    const formattedDate = new Intl.DateTimeFormat("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(dateFromIso(appointment.appointmentDate));
+
+    return [
+      ...(appointments.length > 1 ? [`Agendamento ${index + 1} de ${appointments.length}`] : []),
+      `Data: ${formattedDate}`,
+      `Horário/período: ${appointment.appointmentTime}`,
+      `Entidade: ${appointment.entityName}`,
+      `Ordem confirmada: ${appointment.order}`,
+      "",
+    ];
+  });
+
   await transporter.sendMail({
     from: `"${process.env.EMAIL_FROM_NAME || "Organização em Harmonia"}" <${process.env.EMAIL_FROM}>`,
     to: input.to,
-    subject: `Agendamento confirmado no Tucxa - ${input.entityName}`,
+    subject: appointments.length > 1
+      ? `${appointments.length} agendamentos confirmados no Tucxa`
+      : `Agendamento confirmado no Tucxa - ${appointments[0]?.entityName || "Tucxa"}`,
     text: [
       `Olá, ${input.name}.`,
       "",
-      "Seu agendamento no Tucxa foi confirmado.",
-      `Data: ${formattedDate}`,
-      `Horário/período: ${input.appointmentTime}`,
-      `Entidade: ${input.entityName}`,
-      `Ordem confirmada: ${input.order}`,
+      appointments.length > 1
+        ? `Seus ${appointments.length} agendamentos no Tucxa foram confirmados.`
+        : "Seu agendamento no Tucxa foi confirmado.",
       "",
+      ...appointmentLines,
       input.guidance,
       "",
       "Consulte seus agendamentos:",
@@ -800,6 +825,89 @@ async function sendConfirmationEmail(input: {
     ].join("\n"),
   });
   return true;
+}
+
+function confirmationWhatsappMessage(input: {
+  name: string;
+  appointments: ConfirmationAppointment[];
+  guidance: string;
+}) {
+  return [
+    "Tucxa em Harmonia",
+    "",
+    `Olá, ${input.name}.`,
+    input.appointments.length > 1
+      ? `Seus ${input.appointments.length} agendamentos no Tucxa foram confirmados.`
+      : "Seu agendamento no Tucxa foi confirmado.",
+    ...input.appointments.flatMap((appointment, index) => [
+      "",
+      ...(input.appointments.length > 1 ? [`Agendamento ${index + 1} de ${input.appointments.length}:`] : []),
+      `Data: ${new Intl.DateTimeFormat("pt-BR", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(dateFromIso(appointment.appointmentDate))}`,
+      `Período: ${appointment.appointmentTime}`,
+      `Entidade: ${appointment.entityName}`,
+      `Ordem confirmada: ${appointment.order}`,
+    ]),
+    "",
+    input.guidance,
+    "",
+    "Consulte seus agendamentos:",
+    `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/agendamentos`,
+  ].join("\n");
+}
+
+async function confirmationAppointmentsForAppointment(
+  context: ConsulenteContext,
+  appointmentId: string,
+): Promise<ConfirmationAppointment[]> {
+  const { data: base, error: baseError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id, series_id, entity_id, appointment_date, appointment_time, metadata")
+    .eq("id", appointmentId)
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .maybeSingle();
+  if (baseError) throw baseError;
+  if (!base?.id) return [];
+
+  let rows = [base];
+  if (asText(base.series_id)) {
+    const { data: seriesRows, error: seriesError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id, series_id, entity_id, appointment_date, appointment_time, metadata")
+      .eq("organization_id", context.organizationId)
+      .eq("person_id", context.personId)
+      .eq("series_id", base.series_id)
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+    if (seriesError) throw seriesError;
+    if ((seriesRows ?? []).length > 0) rows = seriesRows ?? [];
+  }
+
+  const entityIds = Array.from(new Set(rows.map((row) => asText(row.entity_id)).filter(Boolean)));
+  const entityById = new Map<string, string>();
+  if (entityIds.length > 0) {
+    const { data: entities, error: entityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id, name")
+      .eq("organization_id", context.organizationId)
+      .in("id", entityIds);
+    if (entityError) throw entityError;
+    (entities ?? []).forEach((entity) => entityById.set(asText(entity.id), asText(entity.name) || "Entidade escolhida"));
+  }
+
+  return rows.map((row) => ({
+    id: asText(row.id),
+    appointmentDate: asText(row.appointment_date),
+    appointmentTime: asText(row.appointment_time) || "Horário a confirmar",
+    entityName: entityById.get(asText(row.entity_id)) || "Entidade escolhida",
+    order: Math.max(1, Number(asRecord(row.metadata).order ?? asRecord(row.metadata).confirmed_order ?? 1) || 1),
+  }));
 }
 
 async function updateNotificationEmail(context: ConsulenteContext, email: string) {
@@ -951,32 +1059,34 @@ export async function POST(request: Request) {
       const email = normalizeEmail(body.email);
       if (!appointmentId) return jsonError("Agendamento não localizado.", 400, id);
       if (!isRealEmail(email)) return jsonError("Informe um e-mail válido.", 400, id);
-      const { data: appointment, error: appointmentError } = await supabaseAdmin
-        .from("oh_consulente_appointments")
-        .select("id, entity_id, appointment_date, appointment_time, metadata")
-        .eq("id", appointmentId)
-        .eq("organization_id", context.organizationId)
-        .eq("person_id", context.personId)
-        .maybeSingle();
-      if (appointmentError) throw appointmentError;
-      if (!appointment?.id) return jsonError("Agendamento não localizado.", 404, id);
+      const appointments = await confirmationAppointmentsForAppointment(context, appointmentId);
+      if (appointments.length === 0) return jsonError("Agendamento não localizado.", 404, id);
       await updateNotificationEmail(context, email);
-      const { data: entity } = await supabaseAdmin.from("oh_spiritual_entities").select("name").eq("id", appointment.entity_id).maybeSingle();
+      const settings = await agendaSettings(context.organizationId);
       let emailSent = false;
       try {
         emailSent = await sendConfirmationEmail({
           to: email,
           name: context.fullName,
-          entityName: asText(entity?.name) || "Entidade escolhida",
-          appointmentDate: appointment.appointment_date,
-          appointmentTime: appointment.appointment_time || "Horário a confirmar",
-          order: Number(asRecord(appointment.metadata).order ?? 1),
-          guidance: (await agendaSettings(context.organizationId)).appointmentReturnGuidance,
+          appointments,
+          guidance: settings.appointmentReturnGuidance,
         });
       } catch (emailError) {
         logRouteError(id, "update-email/send", emailError);
       }
-      return NextResponse.json({ ok: true, emailSent, message: emailSent ? "E-mail salvo e confirmação enviada." : "E-mail salvo. O agendamento permanece confirmado, mas o envio não pôde ser concluído agora." });
+      return NextResponse.json({
+        ok: true,
+        emailSent,
+        appointments,
+        whatsappUrl: whatsappShareUrl(context.whatsapp, confirmationWhatsappMessage({
+          name: context.fullName,
+          appointments,
+          guidance: settings.appointmentReturnGuidance,
+        })),
+        message: emailSent
+          ? "E-mail salvo e confirmação enviada."
+          : "E-mail salvo. O agendamento permanece confirmado, mas o envio não pôde ser concluído agora.",
+      });
     }
 
     if (action === "cancel") {
@@ -1100,10 +1210,13 @@ export async function POST(request: Request) {
           emailSent = await sendConfirmationEmail({
             to: context.email,
             name: context.fullName,
-            entityName: asText(entity.name) || "Entidade escolhida",
-            appointmentDate: reservation.confirmed_date,
-            appointmentTime: period.label,
-            order: Number(reservation.confirmed_order),
+            appointments: [{
+              id: reservation.appointment_id,
+              appointmentDate: reservation.confirmed_date,
+              appointmentTime: period.label,
+              entityName: asText(entity.name) || "Entidade escolhida",
+              order: Number(reservation.confirmed_order),
+            }],
             guidance: bundle.settings.appointmentReturnGuidance,
           });
         } catch (emailError) {
@@ -1124,6 +1237,17 @@ export async function POST(request: Request) {
         },
         emailSent,
         email: context.email,
+        whatsappUrl: whatsappShareUrl(context.whatsapp, confirmationWhatsappMessage({
+          name: context.fullName,
+          appointments: [{
+            id: reservation.appointment_id,
+            appointmentDate: reservation.confirmed_date,
+            appointmentTime: period.label,
+            entityName: asText(entity.name) || "Entidade escolhida",
+            order: Number(reservation.confirmed_order),
+          }],
+          guidance: bundle.settings.appointmentReturnGuidance,
+        })),
         message: "Agendamento alterado.",
       });
     }
@@ -1170,10 +1294,7 @@ export async function POST(request: Request) {
         emailSent = await sendConfirmationEmail({
           to: confirmationEmail,
           name: context.fullName,
-          entityName: asText(entity.name) || "Entidade escolhida",
-          appointmentDate: reservation.appointmentDate,
-          appointmentTime: reservation.appointmentTime,
-          order: reservation.order,
+          appointments: recurring.appointments,
           guidance: bundle.settings.appointmentReturnGuidance,
         });
       } catch (emailError) {
@@ -1196,6 +1317,11 @@ export async function POST(request: Request) {
       recurrence: { seriesId: recurring.seriesId, count: recurring.appointments.length, autoCancelOnAbsence: bundle.settings.autoCancelRecurringOnAbsence },
       emailSent,
       email: confirmationEmail,
+      whatsappUrl: whatsappShareUrl(context.whatsapp, confirmationWhatsappMessage({
+        name: context.fullName,
+        appointments: recurring.appointments,
+        guidance: bundle.settings.appointmentReturnGuidance,
+      })),
       message: "Agendamento confirmado.",
     });
   } catch (error) {

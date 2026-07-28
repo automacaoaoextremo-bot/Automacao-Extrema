@@ -73,16 +73,23 @@ type Payload = {
   };
 };
 
-type Confirmation = {
-  id: string;
-  date: string;
-  time: string;
+type ConfirmationAppointment = {
+  id?: string;
+  appointmentDate: string;
+  appointmentTime: string;
   entityName: string;
   order: number;
+  guidance?: string;
+};
+
+type Confirmation = {
+  id: string;
+  appointments: ConfirmationAppointment[];
   guidance: string;
   emailSent: boolean;
   email: string;
   changed: boolean;
+  whatsappUrl: string;
 };
 
 type ModalKind = "calendar" | "entities" | "entityInfo" | "confirm" | "success" | "existing" | null;
@@ -376,24 +383,18 @@ export default function AgendarConsulentePage() {
           recurrenceCount: changing ? 1 : recurrenceCount,
         }),
       });
-      const appointment = result.appointment as {
-        id: string;
-        appointmentDate: string;
-        appointmentTime: string;
-        entityName: string;
-        order: number;
-        guidance: string;
-      };
+      const appointment = result.appointment as ConfirmationAppointment & { id: string; guidance: string };
+      const confirmedAppointments = Array.isArray(result.appointments) && result.appointments.length > 0
+        ? result.appointments as ConfirmationAppointment[]
+        : [appointment];
       const nextConfirmation: Confirmation = {
         id: appointment.id,
-        date: appointment.appointmentDate,
-        time: appointment.appointmentTime,
-        entityName: appointment.entityName,
-        order: Number(appointment.order),
-        guidance: appointment.guidance,
+        appointments: confirmedAppointments,
+        guidance: appointment.guidance || confirmedAppointments[0]?.guidance || payload?.settings.appointmentReturnGuidance || "",
         emailSent: result.emailSent === true,
         email: String(result.email || email || ""),
         changed: changing,
+        whatsappUrl: String(result.whatsappUrl || ""),
       };
       setConfirmation(nextConfirmation);
       setSuccessEmail(nextConfirmation.email);
@@ -423,7 +424,17 @@ export default function AgendarConsulentePage() {
         }),
       });
       setEmailMessage(result.message || "E-mail salvo.");
-      setConfirmation((current) => current ? { ...current, email: successEmail, emailSent: result.emailSent === true } : current);
+      setConfirmation((current) => current
+        ? {
+            ...current,
+            email: successEmail,
+            emailSent: result.emailSent === true,
+            appointments: Array.isArray(result.appointments) && result.appointments.length > 0
+              ? result.appointments as ConfirmationAppointment[]
+              : current.appointments,
+            whatsappUrl: String(result.whatsappUrl || current.whatsappUrl),
+          }
+        : current);
     } catch (err) {
       setEmailMessage(err instanceof Error ? err.message : "Não foi possível salvar o e-mail.");
     } finally {
@@ -748,21 +759,59 @@ export default function AgendarConsulentePage() {
       {activeModal === "success" && confirmation && (
         <Modal title={confirmation.changed ? "Agendamento alterado" : "Agendamento confirmado"} onClose={() => setActiveModal(null)}>
           <div className="grid gap-3 text-sm font-bold leading-6 text-[#123D2C]">
-            <p className="rounded-2xl bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-100">{confirmation.changed ? "A alteração foi confirmada." : "Obrigado. Seu agendamento foi confirmado."}</p>
-            <section className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-              <p><strong>Entidade:</strong> {confirmation.entityName}</p>
-              <p><strong>Data:</strong> {longDateLabel(confirmation.date)}</p>
-              <p><strong>Período:</strong> {confirmation.time}</p>
-              <p><strong>Ordem confirmada:</strong> {confirmation.order}</p>
-            </section>
+            <p className="rounded-2xl bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-100">
+              {confirmation.changed
+                ? "A alteração foi confirmada."
+                : confirmation.appointments.length > 1
+                  ? `Obrigado. Seus ${confirmation.appointments.length} agendamentos foram confirmados.`
+                  : "Obrigado. Seu agendamento foi confirmado."}
+            </p>
+
+            <div className="grid gap-3">
+              {confirmation.appointments.map((appointment, index) => (
+                <section key={appointment.id || `${appointment.appointmentDate}-${index}`} className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+                  {confirmation.appointments.length > 1 && (
+                    <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+                      Agendamento {index + 1} de {confirmation.appointments.length}
+                    </p>
+                  )}
+                  <p><strong>Entidade:</strong> {appointment.entityName}</p>
+                  <p><strong>Data:</strong> {longDateLabel(appointment.appointmentDate)}</p>
+                  <p><strong>Período:</strong> {appointment.appointmentTime}</p>
+                  <p><strong>Ordem confirmada:</strong> {appointment.order}</p>
+                </section>
+              ))}
+            </div>
+
             <p className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">{confirmation.guidance}</p>
+
+            {confirmation.whatsappUrl && (
+              <a
+                href={confirmation.whatsappUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-h-13 items-center justify-center rounded-2xl bg-[#25D366] px-5 py-3 text-center font-black text-[#073B1D]"
+              >
+                Receber confirmação pelo WhatsApp
+              </a>
+            )}
+
             {confirmation.email ? (
-              <p className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-100">{confirmation.emailSent ? `As informações também foram enviadas para ${confirmation.email}.` : `O agendamento está confirmado, mas o envio para ${confirmation.email} não pôde ser concluído agora.`}</p>
+              <p className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-100">
+                {confirmation.emailSent
+                  ? `As informações também foram enviadas para ${confirmation.email}.`
+                  : `Os agendamentos estão confirmados, mas o envio para ${confirmation.email} não pôde ser concluído agora.`}
+              </p>
             ) : !confirmation.changed ? (
               <section className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
-                <p>Você pode incluir um e-mail para receber esta confirmação.</p>
-                <label className="mt-3 grid gap-1"><span className="text-xs font-black uppercase tracking-[0.12em]">E-mail</span><input value={successEmail} onChange={(event) => setSuccessEmail(event.target.value)} type="email" className="rounded-2xl border border-amber-200 bg-white p-3" placeholder="seu@email.com" /></label>
-                <button type="button" disabled={saving || !successEmail.trim()} onClick={() => void saveSuccessEmail()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar e enviar confirmação"}</button>
+                <p>Você também pode incluir um e-mail para receber esta confirmação.</p>
+                <label className="mt-3 grid gap-1">
+                  <span className="text-xs font-black uppercase tracking-[0.12em]">E-mail</span>
+                  <input value={successEmail} onChange={(event) => setSuccessEmail(event.target.value)} type="email" className="rounded-2xl border border-amber-200 bg-white p-3" placeholder="seu@email.com" />
+                </label>
+                <button type="button" disabled={saving || !successEmail.trim()} onClick={() => void saveSuccessEmail()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">
+                  {saving ? "Salvando..." : "Salvar e enviar confirmação por e-mail"}
+                </button>
                 {emailMessage && <p className="mt-2 text-xs font-black">{emailMessage}</p>}
               </section>
             ) : null}
@@ -831,7 +880,7 @@ function Modal({
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <section className={`flex w-full flex-col overflow-hidden bg-white shadow-2xl shadow-black/25 ring-1 ring-[#123D2C]/10 ${fullScreenMobile ? "h-[calc(100dvh-1rem)] max-w-3xl rounded-[1.5rem] sm:h-auto sm:max-h-[92vh] sm:rounded-[2rem]" : "max-h-[calc(100dvh-1rem)] max-w-2xl rounded-[1.5rem] sm:max-h-[90vh] sm:rounded-[2rem]"}`}>
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white p-3 sm:p-4">
-          <h2 className="min-w-0 truncate text-base font-black uppercase tracking-[0.13em] text-[#123D2C] sm:text-xl">{title}</h2>
+          <h2 className="min-w-0 break-words text-base font-black uppercase leading-5 tracking-[0.1em] text-[#123D2C] sm:text-xl sm:leading-6">{title}</h2>
           <button type="button" onClick={onClose} className="min-h-11 shrink-0 rounded-2xl bg-[#123D2C] px-4 text-sm font-black text-white">Fechar</button>
         </header>
         <div className={bodyClassName}>{children}</div>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { isMonthOccurrenceAllowed, monthOccurrenceIndex } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
+import { isRecurringWeekdayOccurrenceAllowed, monthOccurrenceIndex } from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 import { resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
 import {
   eventAllowsOptionalEntityAppointment,
@@ -298,7 +298,7 @@ function eventMatchesDate(event: AgendaEvent, appointmentDate: string) {
 
   const positions = recurrencePositions(event);
   if (positions.length && !positions.includes(monthOccurrenceIndex(appointmentDate))) return false;
-  return isMonthOccurrenceAllowed(event.metadata, appointmentDate);
+  return isRecurringWeekdayOccurrenceAllowed(event.metadata, appointmentDate);
 }
 
 
@@ -440,15 +440,26 @@ function buildAvailability(periods: Period[], entities: EntityRecord[], appointm
     }));
 }
 
+function profileItemText(value: unknown) {
+  const item = asRecord(value);
+  return normalize([
+    asText(item.slug),
+    asText(item.label),
+    asText(item.title),
+    asText(item.name),
+    asText(item.description),
+    asText(item.dateLabel),
+    asText(item.date_label),
+  ].filter(Boolean).join(" "));
+}
+
 function profileValues(profile: AgendaProfile) {
-  const functionSlugs = Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map(normalize) : [];
-  const selectedFunctions = Array.isArray(profile.selectedFunctions)
-    ? profile.selectedFunctions.map((item) => normalize(`${asText(asRecord(item).slug)} ${asText(asRecord(item).label)}`))
-    : [];
-  const agendaSlugs = Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map(normalize) : [];
-  const selectedAgenda = Array.isArray(profile.selectedAgenda)
-    ? profile.selectedAgenda.map((item) => normalize(`${asText(asRecord(item).slug)} ${asText(asRecord(item).label)}`))
-    : [];
+  const approvedSnapshot = asRecord(asRecord(profile.approvedProfileSnapshot).profile);
+  const sources = [profile, approvedSnapshot].filter((item) => Object.keys(item).length > 0);
+  const functionSlugs = sources.flatMap((source) => Array.isArray(source.functionSlugs) ? source.functionSlugs.map(normalize) : []);
+  const selectedFunctions = sources.flatMap((source) => Array.isArray(source.selectedFunctions) ? source.selectedFunctions.map(profileItemText) : []);
+  const agendaSlugs = sources.flatMap((source) => Array.isArray(source.agendaSlugs) ? source.agendaSlugs.map(normalize) : []);
+  const selectedAgenda = sources.flatMap((source) => Array.isArray(source.selectedAgenda) ? source.selectedAgenda.map(profileItemText) : []);
   return { functionSlugs, selectedFunctions, agendaSlugs, selectedAgenda };
 }
 
@@ -456,12 +467,16 @@ function groupsFromProfile(profile: AgendaProfile): CurrentFilho["groups"] {
   const values = profileValues(profile);
   const haystack = [
     normalize(profile.thursdayGroup),
+    normalize(profile.thursday_group),
+    normalize(profile.groupSlug),
+    normalize(profile.group_slug),
+    normalize(profile.group),
     ...values.agendaSlugs,
     ...values.selectedAgenda,
   ].join(" ");
   const groups: CurrentFilho["groups"] = [];
-  if (/grupo-?1|grupo i\b/.test(haystack)) groups.push("grupo-1");
-  if (/grupo-?2|grupo ii\b/.test(haystack)) groups.push("grupo-2");
+  if (/grupo-?1|grupo\s*1|grupo i\b|quinta-grupo-1/.test(haystack)) groups.push("grupo-1");
+  if (/grupo-?2|grupo\s*2|grupo ii\b|quinta-grupo-2/.test(haystack)) groups.push("grupo-2");
   return groups;
 }
 
@@ -748,6 +763,77 @@ async function sendReceptionAccessEmail(input: {
     ].join("\n"),
   });
   return true;
+}
+
+function filhoAppointmentsUrl() {
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/consultar-agendamentos`;
+}
+
+async function sendFilhoAppointmentConfirmationEmail(input: {
+  to: string;
+  fullName: string;
+  appointments: ReceptionDeliveryAppointment[];
+}) {
+  if (!input.to || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+
+  await transporter.sendMail({
+    from: `"${process.env.OH_TUCXA_EMAIL_FROM_NAME || process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
+    to: input.to,
+    subject: input.appointments.length > 1
+      ? `[TUCXA] ${input.appointments.length} agendamentos confirmados`
+      : "[TUCXA] Agendamento confirmado",
+    text: [
+      `Olá, ${input.fullName}.`,
+      "",
+      input.appointments.length > 1
+        ? `Seus ${input.appointments.length} agendamentos foram confirmados.`
+        : "Seu agendamento foi confirmado.",
+      ...input.appointments.flatMap((appointment, index) => [
+        "",
+        ...(input.appointments.length > 1 ? [`Agendamento ${index + 1} de ${input.appointments.length}:`] : []),
+        `Data: ${formatDateForMessage(appointment.date)}`,
+        `Período: ${appointment.period}`,
+        `Entidade: ${appointment.entity}`,
+        ...(appointment.order ? [`Ordem: ${appointment.order}`] : []),
+      ]),
+      "",
+      "Consulte os agendamentos:",
+      filhoAppointmentsUrl(),
+    ].join("\n"),
+  });
+
+  return true;
+}
+
+function filhoAppointmentWhatsappMessage(input: {
+  fullName: string;
+  appointments: ReceptionDeliveryAppointment[];
+}) {
+  return [
+    "Tucxa em Harmonia",
+    "",
+    `Olá, ${input.fullName}.`,
+    input.appointments.length > 1
+      ? `Seus ${input.appointments.length} agendamentos foram confirmados.`
+      : "Seu agendamento foi confirmado.",
+    ...input.appointments.flatMap((appointment, index) => [
+      "",
+      ...(input.appointments.length > 1 ? [`Agendamento ${index + 1} de ${input.appointments.length}:`] : []),
+      `Data: ${formatDateForMessage(appointment.date)}`,
+      `Período: ${appointment.period}`,
+      `Entidade: ${appointment.entity}`,
+      ...(appointment.order ? [`Ordem: ${appointment.order}`] : []),
+    ]),
+    "",
+    `Consulte os agendamentos: ${filhoAppointmentsUrl()}`,
+  ].join("\n");
 }
 
 async function findPersonByPhone(organizationId: string, phone: string) {
@@ -1327,11 +1413,32 @@ export async function POST(request: Request) {
         body,
         channel: "filho_corrente",
       });
+      const deliveryAppointments: ReceptionDeliveryAppointment[] = recurring.appointments.map((appointment) => ({
+        date: appointment.appointmentDate,
+        period: appointment.appointmentTime,
+        entity: appointment.entityName,
+        order: appointment.order,
+      }));
+      const emailSent = context.email
+        ? await sendFilhoAppointmentConfirmationEmail({
+            to: context.email,
+            fullName: context.fullName,
+            appointments: deliveryAppointments,
+          }).catch(() => false)
+        : false;
+
       return NextResponse.json({
         ok: true,
         appointment: recurring.appointments[0],
         appointments: recurring.appointments,
         recurrence: { seriesId: recurring.seriesId, count: recurring.appointments.length, autoCancelOnAbsence: currentBundle.settings.autoCancelRecurringOnAbsence },
+        delivery: {
+          emailSent,
+          whatsappUrl: whatsappShareUrl(context.whatsapp, filhoAppointmentWhatsappMessage({
+            fullName: context.fullName,
+            appointments: deliveryAppointments,
+          })),
+        },
       });
     }
 

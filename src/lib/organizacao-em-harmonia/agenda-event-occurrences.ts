@@ -44,6 +44,21 @@ export function isMonthOccurrenceAllowed(metadataValue: unknown, isoDate: string
   return allowedMonthOccurrencesFromMetadata(metadataValue).includes(occurrence);
 }
 
+export function isRecurringWeekdayOccurrenceAllowed(metadataValue: unknown, isoDate: string): boolean {
+  const occurrence = monthOccurrenceIndex(isoDate);
+  if (occurrence < 1) return false;
+
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  const weekday = Number.isNaN(date.getTime()) ? -1 : date.getUTCDay();
+
+  // Os trabalhos recorrentes de segunda a quinta acontecem no máximo
+  // quatro vezes dentro do mesmo mês. Eventos pontuais não passam por
+  // esta validação e, por isso, uma data como 30/07/2026 continua válida.
+  if (weekday >= 1 && weekday <= 4 && occurrence > 4) return false;
+
+  return allowedMonthOccurrencesFromMetadata(metadataValue).includes(occurrence);
+}
+
 export function monthOccurrencesLabel(value: unknown): string {
   const occurrences = normalizeAllowedMonthOccurrences(value);
   if (occurrences.length === ALL_MONTH_OCCURRENCES.length) return "Todas as ocorrências do mês";

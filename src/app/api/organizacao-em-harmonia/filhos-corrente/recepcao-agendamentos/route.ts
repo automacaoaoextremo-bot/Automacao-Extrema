@@ -285,9 +285,11 @@ export async function GET(request: Request) {
     if (entitiesError) throw entitiesError;
 
     const allEntities = (entityRows ?? []) as EntityRow[];
-    const entities = context.capabilities.scope === "linked_entities"
-      ? allEntities.filter((entity) => context.linkedEntityIds.includes(entity.id))
-      : allEntities;
+    // O Cavalinho consulta a entidade vinculada e também precisa visualizar
+    // os próprios agendamentos, mesmo quando foram feitos com outra entidade.
+    // A relação completa é usada apenas para resolver nomes e filtros; o
+    // conjunto de registros continua limitado na consulta abaixo.
+    const entities = allEntities;
     const matchingEntityIds = queryText
       ? entities.filter((entity) => normalize(entity.name).includes(normalizedQuery)).map((entity) => entity.id)
       : [];
@@ -302,25 +304,15 @@ export async function GET(request: Request) {
         "id, person_id, entity_id, event_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, metadata, created_at, updated_at, cancelled_at, cancelled_by_person_id, cancellation_reason",
         { count: "exact" },
       )
-      .eq("organization_id", context.organizationId)
-      .or("booking_channel.neq.filho_corrente,booking_channel.is.null");
+      .eq("organization_id", context.organizationId);
 
     if (context.capabilities.scope === "linked_entities") {
-      if (context.linkedEntityIds.length === 0) {
-        return NextResponse.json({
-          ok: true,
-          range,
-          today,
-          page,
-          pageSize,
-          total: 0,
-          totalPages: 0,
-          appointments: [],
-          entities: [],
-          capabilities: context.capabilities,
-        });
-      }
-      appointmentQuery = appointmentQuery.in("entity_id", context.linkedEntityIds);
+      const linkedEntityFilter = context.linkedEntityIds.length > 0
+        ? `entity_id.in.(${context.linkedEntityIds.join(",")}),person_id.eq.${context.personId}`
+        : `person_id.eq.${context.personId}`;
+      appointmentQuery = appointmentQuery.or(linkedEntityFilter);
+    } else {
+      appointmentQuery = appointmentQuery.or("booking_channel.neq.filho_corrente,booking_channel.is.null");
     }
 
     if (range === "previous") appointmentQuery = appointmentQuery.lt("appointment_date", today).order("appointment_date", { ascending: false });

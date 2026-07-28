@@ -64,10 +64,10 @@ const modalContent = {
     eyebrow: "Consulta de Agendamentos",
     title: "Localize e acompanhe os atendimentos previstos.",
     paragraphs: [
-      "Pesquise por nome ou WhatsApp, filtre por entidade e situação e consulte atendimentos futuros ou anteriores.",
-      "As ações disponíveis respeitam sua função: Recepção pode gerir; Cambono consulta em modo somente leitura; Cavalinho vê somente os atendimentos das entidades vinculadas ao seu cadastro.",
+      "Pesquise por nome, entidade ou WhatsApp, filtre por entidade ou situação e consulte atendimentos futuros ou anteriores.",
+      "As ações disponíveis respeitam sua função: Recepção pode gerir; Cambono consulta em modo somente leitura; Cavalinho vê somente os atendimentos da entidade vinculada ao seu cadastro que faz atendimentos aos Consulentes e os seus agendamentos.",
     ],
-    href: consultationHref,
+    href: `${consultationHref}?from=atendimento`,
     cta: "Abrir consulta de agendamentos",
   },
 } as const;
@@ -100,6 +100,15 @@ export default function AtendimentoEmHarmoniaPage() {
       active = false;
       window.clearTimeout(timeoutId);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("consulta") === "agendamentos") setModal("recepcao");
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -174,7 +183,7 @@ export default function AtendimentoEmHarmoniaPage() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={selected.eyebrow}>
           <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-              <p className="min-w-0 truncate text-sm font-black uppercase tracking-[0.16em] text-[#123D2C]">{selected.eyebrow}</p>
+              <p className="min-w-0 break-words text-sm font-black uppercase leading-5 tracking-[0.12em] text-[#123D2C]">{selected.eyebrow}</p>
               <button type="button" onClick={() => setModal(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">
                 Fechar
               </button>
