@@ -143,6 +143,16 @@ function normalizeEmail(value: unknown) {
   return asText(value).toLowerCase();
 }
 
+function realNotificationEmail(value: unknown) {
+  const email = normalizeEmail(value);
+  const [localPart, domain = ""] = email.split("@");
+
+  if (!localPart || !domain || !domain.includes(".")) return "";
+  if (domain === "organizacao-em-harmonia.local" || domain.endsWith(".local")) return "";
+
+  return email;
+}
+
 
 function formatDateForMessage(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -530,7 +540,7 @@ async function currentFilho(request: Request): Promise<CurrentFilho | null> {
     personId: person.id,
     fullName: asText(person.full_name) || "Filho da Corrente",
     whatsapp: normalizePhone(person.whatsapp),
-    email: normalizeEmail(person.notification_email || person.email),
+    email: realNotificationEmail(person.notification_email) || realNotificationEmail(person.email),
     profile,
     groups: groupsFromProfile(profile),
     canReception: capabilities.canReception,
@@ -726,7 +736,8 @@ async function sendReceptionAccessEmail(input: {
   temporaryPassword?: string;
   appointments?: ReceptionDeliveryAppointment[];
 }) {
-  if (!input.to || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
+  const recipient = realNotificationEmail(input.to);
+  if (!recipient || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
@@ -750,7 +761,7 @@ async function sendReceptionAccessEmail(input: {
     : [];
   await transporter.sendMail({
     from: `"${process.env.OH_TUCXA_EMAIL_FROM_NAME || process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
-    to: input.to,
+    to: recipient,
     subject: appointments.length > 0 ? "[TUCXA] Agendamento confirmado" : "[TUCXA] Acesso ao Organização em Harmonia",
     text: [
       `Olá, ${input.fullName}.`,
@@ -774,7 +785,8 @@ async function sendFilhoAppointmentConfirmationEmail(input: {
   fullName: string;
   appointments: ReceptionDeliveryAppointment[];
 }) {
-  if (!input.to || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
+  const recipient = realNotificationEmail(input.to);
+  if (!recipient || process.env.EMAIL_NOTIFICATIONS_ENABLED === "false" || !hasSmtpConfig()) return false;
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -785,7 +797,7 @@ async function sendFilhoAppointmentConfirmationEmail(input: {
 
   await transporter.sendMail({
     from: `"${process.env.OH_TUCXA_EMAIL_FROM_NAME || process.env.EMAIL_FROM_NAME || "Tucxa em Harmonia"}" <${process.env.EMAIL_FROM}>`,
-    to: input.to,
+    to: recipient,
     subject: input.appointments.length > 1
       ? `[TUCXA] ${input.appointments.length} agendamentos confirmados`
       : "[TUCXA] Agendamento confirmado",
@@ -880,9 +892,9 @@ function maskPhone(value: unknown) {
 }
 
 function maskEmail(value: unknown) {
-  const email = normalizeEmail(value);
+  const email = realNotificationEmail(value);
   const [local, domain] = email.split("@");
-  if (!local || !domain || domain.endsWith(".local")) return "";
+  if (!local || !domain) return "";
   return `${local.slice(0, 2)}${"*".repeat(Math.max(3, local.length - 2))}@${domain}`;
 }
 
@@ -998,12 +1010,13 @@ async function createReceptionPerson(
   if (!canScheduleConsulente) throw new Error("PERMISSION_DENIED");
   const fullName = asText(body.fullName);
   const whatsapp = normalizePhone(body.whatsapp);
-  const email = normalizeEmail(body.email);
+  const rawEmail = normalizeEmail(body.email);
+  const email = rawEmail ? realNotificationEmail(rawEmail) : "";
   const password = asText(body.password);
   const privacyAccepted = body.privacyAccepted === true;
   if (!fullName) throw new Error("Informe o nome completo do Consulente.");
   if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");
-  if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+  if (rawEmail && !email) throw new Error("Confira o e-mail informado.");
   if (password.length < 8) throw new Error("Defina uma senha temporária com pelo menos 8 caracteres.");
   if (!privacyAccepted) throw new Error("Confirme a ciência do Aviso de Privacidade.");
 
@@ -1081,7 +1094,7 @@ async function reserveOnBehalf(
 ) {
   const idempotencyKey = asText(body.idempotencyKey) || crypto.randomUUID();
   const notes = asText(body.notes);
-  const email = normalizeEmail(target.notification_email || target.email);
+  const email = realNotificationEmail(target.notification_email) || realNotificationEmail(target.email);
   const basePayload = {
     p_organization_id: context.organizationId,
     p_person_id: target.id,
@@ -1478,7 +1491,7 @@ export async function POST(request: Request) {
       const reservation = recurring.appointments[0];
       if (!reservation?.id) throw new Error("Reserva sem identificador.");
 
-      const actualEmail = normalizeEmail(target.notification_email || target.email);
+      const actualEmail = realNotificationEmail(target.notification_email) || realNotificationEmail(target.email);
       const login = normalizePhone(target.whatsapp);
       const temporaryPassword = asText(body.temporaryPassword);
       const deliveryAppointments: ReceptionDeliveryAppointment[] = recurring.appointments.map((appointment) => ({
@@ -1509,7 +1522,7 @@ export async function POST(request: Request) {
           ? [`Senha temporária: ${temporaryPassword}`, "Troque esta senha no primeiro acesso."]
           : []),
       ].join("\n");
-      const emailSent = actualEmail && !actualEmail.endsWith(".local")
+      const emailSent = actualEmail
         ? await sendReceptionAccessEmail({
             to: actualEmail,
             fullName: asText(target.full_name) || "Consulente",

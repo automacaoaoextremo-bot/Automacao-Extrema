@@ -872,9 +872,13 @@ export default function AgendaVivaFilhoDaCorrentePage() {
     return new Map((payload?.filters?.eventTypes ?? []).map((option) => [option.value, option.label]));
   }, [payload?.filters?.eventTypes]);
 
+  const interactiveSourceEvents = useMemo(
+    () => uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []),
+    [payload?.annualCalendarEvents, payload?.events],
+  );
+
   const filteredEvents = useMemo(() => {
-    const events = payload?.events ?? [];
-    return uniqueSortedEvents(events).filter((event) => {
+    return interactiveSourceEvents.filter((event) => {
       const dateOnly = eventDateOnly(event.startsAt);
       if (isAppointmentEvent(event)) return false;
       if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
@@ -892,49 +896,29 @@ export default function AgendaVivaFilhoDaCorrentePage() {
       if (endDate && dateOnly && dateOnly > endDate) return false;
       return true;
     });
-  }, [audience, classification, endDate, eventTypes, payload?.events, periodMode, responsible, startDate]);
+  }, [audience, classification, endDate, eventTypes, interactiveSourceEvents, periodMode, responsible, startDate]);
 
   const calendarModeEvents = useMemo(() => {
-    const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
+    if (calendarMode === "interactive") return filteredEvents;
+
     const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
-    const events = ["tucxa", "events", "sementinha"].includes(calendarMode)
-      ? fixedAnnualEvents
-      : interactiveEvents;
-    return events.filter((event) => {
-      const dateOnly = eventDateOnly(event.startsAt);
+    const personalEvents = uniqueSortedEvents(payload?.events ?? []);
 
-      // Os calendários anuais são coleções editoriais fixas. Eles usam a
-      // carga original da API e nunca herdam filtros ou exclusões do Interativo.
-      if (calendarMode === "tucxa") {
-        return !isAppointmentEvent(event) && hasClassification(event, "umbanda");
-      }
-      if (calendarMode === "events") {
-        return !isAppointmentEvent(event) && isEventosDoTucxa(event);
-      }
-      if (calendarMode === "sementinha") {
-        return !isAppointmentEvent(event) && hasClassification(event, "sementinha");
-      }
-      if (calendarMode === "mine") {
-        return event.associatedToCurrentPerson;
-      }
+    if (calendarMode === "tucxa") {
+      return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
+    if (calendarMode === "events") {
+      return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
+    }
+    if (calendarMode === "sementinha") {
+      return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "sementinha"));
+    }
+    if (calendarMode === "mine") {
+      return personalEvents.filter((event) => event.associatedToCurrentPerson);
+    }
 
-      if (eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return false;
-      if (audience && event.audience !== audience) return false;
-      if (startDate && dateOnly && dateOnly < startDate) return false;
-      if (endDate && dateOnly && dateOnly > endDate) return false;
-      if (responsible) {
-        if (responsible === "__associated__" && !event.associatedToCurrentPerson) return false;
-        if (responsible !== "__associated__") {
-          const target = event.responsiblePersonId || event.responsiblePersonName;
-          if (target !== responsible) return false;
-        }
-      }
-      if (periodMode === "future" && dateOnly && dateOnly < todayIso) return false;
-      if (classification && event.classification !== classification) return false;
-
-      return !isAppointmentEvent(event);
-    });
-  }, [audience, calendarMode, classification, endDate, eventTypes, payload?.annualCalendarEvents, payload?.events, periodMode, responsible, startDate]);
+    return [];
+  }, [calendarMode, filteredEvents, payload?.annualCalendarEvents, payload?.events]);
 
   const visibleEvents = useMemo(() => {
     const start = visiblePeriodStart(view, periodStart);

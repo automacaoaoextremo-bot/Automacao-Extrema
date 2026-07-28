@@ -918,10 +918,10 @@ export async function GET(request: Request) {
       events,
       annualCalendarEvents,
       filters: {
-        eventTypes: Array.from(new Map(events.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
-        classifications: Array.from(new Set(events.map((event) => event.classification).filter(Boolean))),
-        audiences: Array.from(new Set(events.map((event) => event.audience).filter(Boolean))),
-        responsiblePeople: Array.from(new Map(events.map((event) => [event.responsiblePersonId || event.responsiblePersonName, { value: event.responsiblePersonId || event.responsiblePersonName, label: event.responsiblePersonName }])).values()).filter((item) => item.label !== "Responsável a definir"),
+        eventTypes: Array.from(new Map(annualCalendarEvents.map((event) => [event.eventType, { value: event.eventType, label: event.eventTypeLabel }])).values()),
+        classifications: Array.from(new Set(annualCalendarEvents.map((event) => event.classification).filter(Boolean))),
+        audiences: Array.from(new Set(annualCalendarEvents.map((event) => event.audience).filter(Boolean))),
+        responsiblePeople: Array.from(new Map(annualCalendarEvents.map((event) => [event.responsiblePersonId || event.responsiblePersonName, { value: event.responsiblePersonId || event.responsiblePersonName, label: event.responsiblePersonName }])).values()).filter((item) => item.label !== "Responsável a definir"),
       },
     });
   } catch (error) {
