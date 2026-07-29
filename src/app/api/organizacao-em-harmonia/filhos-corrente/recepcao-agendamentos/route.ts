@@ -54,6 +54,20 @@ type AppointmentRow = {
   cancellation_reason?: string | null;
 };
 
+type AppointmentView = "all" | "appointments" | "attendances";
+
+type AppointmentAccess = {
+  kind: "appointment" | "attendance";
+  isOwn: boolean;
+  mode: "manage" | "self" | "read_only";
+  canEdit: boolean;
+  canCancel: boolean;
+  canDelete: boolean;
+  editBlockedReason: string;
+};
+
+const ACTIVE_APPOINTMENT_STATUSES = ["confirmado", "solicitado", "aprovado", "presente", "concluido"];
+
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -145,13 +159,24 @@ async function currentReception(request: Request): Promise<ReceptionContext | nu
   if (capabilities.consultationScope === "linked_entities") {
     const { data: links, error: linksError } = await supabaseAdmin
       .from("oh_person_entity_links")
-      .select("entity_id")
+      .select("entity_id, relationship_type, is_primary_for_attendance")
       .eq("organization_id", person.organization_id)
       .eq("person_id", person.id)
       .eq("active", true)
       .in("relationship_type", ["recebe", "cavalinho", "incorporates_for_consulente"]);
     if (linksError) throw linksError;
-    linkedEntityIds = Array.from(new Set((links ?? []).map((item) => asText(item.entity_id)).filter(Boolean)));
+
+    const primaryEntityIds = Array.from(new Set(
+      (links ?? [])
+        .filter((item) => item.is_primary_for_attendance === true)
+        .map((item) => asText(item.entity_id))
+        .filter(Boolean),
+    ));
+    const legacyEntityIds = Array.from(new Set(
+      (links ?? []).map((item) => asText(item.entity_id)).filter(Boolean),
+    ));
+
+    linkedEntityIds = primaryEntityIds.length > 0 ? primaryEntityIds : legacyEntityIds;
   }
 
   return {
@@ -172,6 +197,43 @@ function appointmentOrder(metadataValue: unknown) {
   const metadata = asRecord(metadataValue);
   const candidate = Number(metadata.order ?? metadata.confirmed_order ?? metadata.appointment_order ?? 0);
   return Number.isFinite(candidate) && candidate > 0 ? candidate : null;
+}
+
+function effectiveView(context: ReceptionContext, requested: string): AppointmentView {
+  if (context.capabilities.scope !== "linked_entities") return "all";
+  return requested === "attendances" ? "attendances" : "appointments";
+}
+
+function appointmentAccess(context: ReceptionContext, appointment: AppointmentRow, cutoffMinutes: number): AppointmentAccess {
+  const isOwn = appointment.person_id === context.personId;
+  const canManageAll = context.capabilities.scope === "manage";
+  const activeStatus = ACTIVE_APPOINTMENT_STATUSES.includes(asText(appointment.status));
+  const start = appointmentStart(appointment.appointment_date, appointment.appointment_time || "");
+  const beforeCutoff = !start || Date.now() < start.getTime() - cutoffMinutes * 60_000;
+  const selfCanEdit = isOwn && activeStatus && beforeCutoff;
+  const selfCanCancel = isOwn && activeStatus;
+
+  return {
+    kind: isOwn ? "appointment" : "attendance",
+    isOwn,
+    mode: canManageAll ? "manage" : isOwn ? "self" : "read_only",
+    canEdit: canManageAll || selfCanEdit,
+    canCancel: canManageAll || selfCanCancel,
+    canDelete: canManageAll,
+    editBlockedReason: selfCanEdit
+      ? ""
+      : isOwn && !activeStatus
+        ? "Este agendamento não pode mais ser alterado."
+        : isOwn && !beforeCutoff
+          ? `O prazo de edição encerrou ${cutoffMinutes} minuto(s) antes do atendimento.`
+          : "",
+  };
+}
+
+function canReadAppointment(context: ReceptionContext, appointment: AppointmentRow) {
+  if (context.capabilities.scope === "manage" || context.capabilities.scope === "read_all") return true;
+  if (appointment.person_id === context.personId) return true;
+  return context.linkedEntityIds.includes(asText(appointment.entity_id));
 }
 
 function firstHour(value: string) {
@@ -211,14 +273,16 @@ async function appointmentForReception(context: ReceptionContext, appointmentId:
     .select("id, organization_id, person_id, entity_id, event_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, metadata, created_at, updated_at, cancelled_at, cancelled_by_person_id, cancellation_reason")
     .eq("id", appointmentId)
     .eq("organization_id", context.organizationId)
-    .or("booking_channel.neq.filho_corrente,booking_channel.is.null")
     .maybeSingle();
   if (error) throw error;
   if (!data?.id) throw new Error("Agendamento não localizado.");
-  if (context.capabilities.scope === "linked_entities" && !context.linkedEntityIds.includes(asText(data.entity_id))) {
-    throw new Error("Agendamento fora das entidades vinculadas ao seu perfil.");
+
+  const appointment = data as AppointmentRow & { organization_id: string };
+  if (!canReadAppointment(context, appointment)) {
+    throw new Error("Agendamento fora do escopo permitido para o seu perfil.");
   }
-  return data as AppointmentRow & { organization_id: string };
+
+  return appointment;
 }
 
 async function registerAudit(context: ReceptionContext, appointment: AppointmentRow, action: string, details: Record<string, unknown>) {
@@ -251,6 +315,7 @@ export async function GET(request: Request) {
     const queryText = asText(url.searchParams.get("q"));
     const entityId = asText(url.searchParams.get("entityId"));
     const status = asText(url.searchParams.get("status"));
+    const view = effectiveView(context, asText(url.searchParams.get("view")));
     const page = Math.max(1, Number(url.searchParams.get("page") || 1) || 1);
     const pageSize = Math.min(PAGE_SIZE_LIMIT, Math.max(3, Number(url.searchParams.get("pageSize") || 4) || 4));
     const today = todayInSaoPaulo();
@@ -285,17 +350,43 @@ export async function GET(request: Request) {
     if (entitiesError) throw entitiesError;
 
     const allEntities = (entityRows ?? []) as EntityRow[];
-    // O Cavalinho consulta a entidade vinculada e também precisa visualizar
-    // os próprios agendamentos, mesmo quando foram feitos com outra entidade.
-    // A relação completa é usada apenas para resolver nomes e filtros; o
-    // conjunto de registros continua limitado na consulta abaixo.
-    const entities = allEntities;
+    const entities = context.capabilities.scope === "linked_entities" && view === "attendances"
+      ? allEntities.filter((entity) => context.linkedEntityIds.includes(entity.id))
+      : allEntities;
     const matchingEntityIds = queryText
-      ? entities.filter((entity) => normalize(entity.name).includes(normalizedQuery)).map((entity) => entity.id)
+      ? allEntities.filter((entity) => normalize(entity.name).includes(normalizedQuery)).map((entity) => entity.id)
       : [];
 
     if (queryText && matchingPersonIds.length === 0 && matchingEntityIds.length === 0) {
-      return NextResponse.json({ ok: true, range, today, page, pageSize, total: 0, totalPages: 0, appointments: [], entities: entities.map((entity) => ({ id: entity.id, name: entity.name })), capabilities: context.capabilities });
+      return NextResponse.json({
+        ok: true,
+        range,
+        view,
+        today,
+        page,
+        pageSize,
+        total: 0,
+        totalPages: 0,
+        appointments: [],
+        entities: entities.map((entity) => ({ id: entity.id, name: entity.name })),
+        capabilities: context.capabilities,
+      });
+    }
+
+    if (context.capabilities.scope === "linked_entities" && view === "attendances" && context.linkedEntityIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        range,
+        view,
+        today,
+        page,
+        pageSize,
+        total: 0,
+        totalPages: 0,
+        appointments: [],
+        entities: [],
+        capabilities: context.capabilities,
+      });
     }
 
     let appointmentQuery = supabaseAdmin
@@ -307,12 +398,13 @@ export async function GET(request: Request) {
       .eq("organization_id", context.organizationId);
 
     if (context.capabilities.scope === "linked_entities") {
-      const linkedEntityFilter = context.linkedEntityIds.length > 0
-        ? `entity_id.in.(${context.linkedEntityIds.join(",")}),person_id.eq.${context.personId}`
-        : `person_id.eq.${context.personId}`;
-      appointmentQuery = appointmentQuery.or(linkedEntityFilter);
-    } else {
-      appointmentQuery = appointmentQuery.or("booking_channel.neq.filho_corrente,booking_channel.is.null");
+      if (view === "attendances") {
+        appointmentQuery = appointmentQuery
+          .in("entity_id", context.linkedEntityIds)
+          .or(`person_id.neq.${context.personId},person_id.is.null`);
+      } else {
+        appointmentQuery = appointmentQuery.eq("person_id", context.personId);
+      }
     }
 
     if (range === "previous") appointmentQuery = appointmentQuery.lt("appointment_date", today).order("appointment_date", { ascending: false });
@@ -338,7 +430,8 @@ export async function GET(request: Request) {
 
     const appointmentsSource = (appointmentRows ?? []) as AppointmentRow[];
     const personById = new Map<string, PersonRow>(people.map((person) => [person.id, person]));
-    const entityById = new Map<string, EntityRow>(entities.map((entity) => [entity.id, entity]));
+    const entityById = new Map<string, EntityRow>(allEntities.map((entity) => [entity.id, entity]));
+    const cutoffMinutes = await editCutoffMinutes(context.organizationId);
 
     const appointments = appointmentsSource.map((appointment) => {
       const person = appointment.person_id ? personById.get(appointment.person_id) : null;
@@ -360,6 +453,7 @@ export async function GET(request: Request) {
           id: appointment.entity_id,
           name: asText(entity?.name) || "Entidade a confirmar",
         },
+        access: appointmentAccess(context, appointment, cutoffMinutes),
       };
     });
 
@@ -367,6 +461,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       range,
+      view,
       today,
       page,
       pageSize,

@@ -5,6 +5,7 @@ import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-pu
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const PANEL_BASE = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const FILHO_LOGIN = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
 const TUCXA_SITE = "/solucoes/organizacao-em-harmonia/tucxa";
 
 type PanelHeaderAction = {
@@ -19,6 +20,11 @@ type FilhoCorrentePanelHeaderProps = {
   actions?: PanelHeaderAction[];
   showSupport?: boolean;
 };
+
+function redirectToFilhoLogin() {
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(`${FILHO_LOGIN}?returnTo=${encodeURIComponent(returnTo)}`);
+}
 
 function sessionName(user: { user_metadata?: Record<string, unknown> } | null | undefined) {
   const metadata = user?.user_metadata ?? {};
@@ -35,17 +41,24 @@ function useFilhoCorrenteName() {
     async function load() {
       const { data } = await supabaseBrowser.auth.getSession();
       if (!active) return;
-      const fromSession = sessionName(data.session?.user);
-      if (fromSession) {
-        setName(fromSession);
+
+      const token = data.session?.access_token;
+      if (!token) {
+        redirectToFilhoLogin();
         return;
       }
 
-      const token = data.session?.access_token;
-      if (!token) return;
+      const fromSession = sessionName(data.session?.user);
+      if (fromSession) setName(fromSession);
+
       const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401 || response.status === 403) {
+        redirectToFilhoLogin();
+        return;
+      }
+
       const payload = (await response.json().catch(() => ({}))) as { person?: { fullName?: string } };
       if (active && response.ok && payload.person?.fullName) setName(payload.person.fullName);
     }

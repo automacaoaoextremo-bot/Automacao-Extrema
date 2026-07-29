@@ -280,18 +280,6 @@ function monthTitle(date: Date) {
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
 }
 
-function viewTitle(view: CalendarView, periodStart: Date) {
-  if (view === "year") return `Tucxa - ${periodStart.getUTCFullYear()}`;
-  if (view === "month") return monthTitle(periodStart);
-  if (view === "schedule") return `Agenda a partir de ${shortDateLabel(periodStart)}`;
-  if (view === "day") return longDateLabel(periodStart);
-
-  const days = view === "threeDays" ? 3 : 7;
-  const start = view === "week" ? startOfWeek(periodStart) : periodStart;
-  const end = addDays(start, days - 1);
-  return `${shortDateLabel(start)} – ${shortDateLabel(end)}`;
-}
-
 
 function statusIsDone(status: string) {
   const normalized = normalize(status);

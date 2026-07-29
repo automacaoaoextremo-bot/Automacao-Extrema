@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -184,6 +185,28 @@ function groupLabel(groups: Profile["groups"]) {
 }
 
 export default function AgendamentosFilhoCorrentePage() {
+  return (
+    <Suspense fallback={<AgendamentosFilhoCorrenteLoading />}>
+      <AgendamentosFilhoCorrenteContent />
+    </Suspense>
+  );
+}
+
+function AgendamentosFilhoCorrenteLoading() {
+  return (
+    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+      <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6 lg:px-8">
+        <div className="rounded-[1.75rem] bg-white p-5 shadow-xl ring-1 ring-[#123D2C]/10">
+          <p className="text-sm font-black text-[#123D2C]">Carregando agendamentos...</p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AgendamentosFilhoCorrenteContent() {
+  const searchParams = useSearchParams();
+  const requestedEditId = searchParams.get("editar")?.trim() || "";
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -197,6 +220,7 @@ export default function AgendamentosFilhoCorrentePage() {
   const [infoEntity, setInfoEntity] = useState<Entity | null>(null);
   const [selectedExisting, setSelectedExisting] = useState<ExistingAppointment | null>(null);
   const [editingAppointmentId, setEditingAppointmentId] = useState("");
+  const [handledRequestedEditId, setHandledRequestedEditId] = useState("");
   const [notes, setNotes] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [lookupWhatsapp, setLookupWhatsapp] = useState("");
@@ -268,6 +292,36 @@ export default function AgendamentosFilhoCorrentePage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (!payload || !requestedEditId || handledRequestedEditId === requestedEditId) return;
+
+    const timer = window.setTimeout(() => {
+      setHandledRequestedEditId(requestedEditId);
+      const appointment = payload.existingAppointments.find((item) => item.id === requestedEditId);
+
+      if (!appointment) {
+        setError("O agendamento solicitado para edição não foi localizado ou não pertence ao seu cadastro.");
+        return;
+      }
+
+      if (!appointment.canEdit) {
+        setError(appointment.editBlockedReason || "Este agendamento não pode mais ser alterado.");
+        return;
+      }
+
+      const period = payload.periods.find((item) => item.id === appointment.periodId);
+      setMode("self");
+      setEditingAppointmentId(appointment.id);
+      setSelectedExisting(null);
+      setSelectedPeriodId("");
+      setSelectedEntityId("");
+      if (period) setMonth(monthDateFromKey(period.appointmentDate.slice(0, 7)));
+      setModal("calendar");
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [handledRequestedEditId, payload, requestedEditId]);
 
   const availabilityMap = useMemo(() => {
     const map = new Map<string, Availability>();

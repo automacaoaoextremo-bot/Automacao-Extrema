@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
@@ -9,6 +10,8 @@ import {
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const atendimentoPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
+const agendamentosPath = `${atendimentoPath}/agendamentos`;
+const loginPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
 const voltarParaConsultaHref = `${atendimentoPath}?consulta=agendamentos`;
 
 type Appointment = {
@@ -20,6 +23,15 @@ type Appointment = {
   order: number | null;
   person: { id: string | null; fullName: string; whatsapp: string; email: string };
   entity: { id: string | null; name: string };
+  access: {
+    kind: "appointment" | "attendance";
+    isOwn: boolean;
+    mode: "manage" | "self" | "read_only";
+    canEdit: boolean;
+    canCancel: boolean;
+    canDelete: boolean;
+    editBlockedReason: string;
+  };
 };
 
 type EntityOption = {
@@ -31,6 +43,7 @@ type Payload = {
   appointments?: Appointment[];
   entities?: EntityOption[];
   range?: string;
+  view?: "all" | "appointments" | "attendances";
   today?: string;
   page?: number;
   total?: number;
@@ -47,6 +60,7 @@ type Payload = {
 };
 
 type Range = "upcoming" | "today" | "previous";
+type AppointmentView = "all" | "appointments" | "attendances";
 type GroupBy = "date" | "entity";
 
 type EditDraft = {
@@ -88,6 +102,7 @@ function channelLabel(value: string) {
   const labels: Record<string, string> = {
     recepcao: "Recepção",
     consulente: "Consulente",
+    filho_corrente: "Filho da Corrente",
     site: "Site",
   };
   return labels[value] || value || "Consulente";
@@ -97,10 +112,11 @@ function whatsappConversationUrl(appointment: Appointment) {
   const digits = appointment.person.whatsapp.replace(/\D/g, "");
   if (!digits) return "";
   const phone = digits.startsWith("55") ? digits : `55${digits}`;
+  const subject = appointment.access.isOwn ? "agendamento" : "atendimento";
   const message = [
     `Olá, ${appointment.person.fullName}.`,
     "",
-    "Estou entrando em contato sobre seu atendimento no TUCXA:",
+    `Estou entrando em contato sobre seu ${subject} no TUCXA:`,
     `Data: ${longDate(appointment.appointmentDate)}`,
     `Período: ${appointment.appointmentTime}`,
     `Entidade: ${appointment.entity.name}`,
@@ -112,15 +128,24 @@ function whatsappConversationUrl(appointment: Appointment) {
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
+function redirectToLogin() {
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(`${loginPath}?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
 async function accessToken() {
   const { data } = await supabaseBrowser.auth.getSession();
   const token = data.session?.access_token;
-  if (!token) throw new Error("Sessão expirada. Entre novamente.");
+  if (!token) {
+    redirectToLogin();
+    throw new Error("Sessão expirada. Entre novamente.");
+  }
   return token;
 }
 
 export default function ConsultarAgendamentosRecepcaoPage() {
   const [range, setRange] = useState<Range>("upcoming");
+  const [view, setView] = useState<AppointmentView>("all");
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [entityId, setEntityId] = useState("");
@@ -138,18 +163,19 @@ export default function ConsultarAgendamentosRecepcaoPage() {
 
   const load = useCallback(async (
     openResults = true,
-    overrides: Partial<{ range: Range; page: number; submittedQuery: string; entityId: string; status: string }> = {},
+    overrides: Partial<{ range: Range; view: AppointmentView; page: number; submittedQuery: string; entityId: string; status: string }> = {},
   ) => {
     setLoading(true);
     setError("");
     setMessage("");
     const token = await accessToken();
     const nextRange = overrides.range ?? range;
+    const nextView = overrides.view ?? view;
     const nextPage = overrides.page ?? page;
     const nextQuery = overrides.submittedQuery ?? submittedQuery;
     const nextEntityId = overrides.entityId ?? entityId;
     const nextStatus = overrides.status ?? status;
-    const params = new URLSearchParams({ range: nextRange, page: String(nextPage), pageSize: "4" });
+    const params = new URLSearchParams({ range: nextRange, view: nextView, page: String(nextPage), pageSize: "4" });
     if (nextQuery) params.set("q", nextQuery);
     if (nextEntityId) params.set("entityId", nextEntityId);
     if (nextStatus) params.set("status", nextStatus);
@@ -158,10 +184,15 @@ export default function ConsultarAgendamentosRecepcaoPage() {
       headers: { Authorization: `Bearer ${token}` },
     });
     const result = (await response.json().catch(() => ({}))) as Payload;
+    if (response.status === 401) {
+      redirectToLogin();
+      throw new Error("Sessão expirada. Entre novamente.");
+    }
     if (!response.ok) throw new Error(result.error || "Não foi possível consultar os agendamentos.");
     setPayload(result);
+    if (result.view) setView(result.view);
     if (openResults) setResultsOpen(true);
-  }, [entityId, page, range, status, submittedQuery]);
+  }, [entityId, page, range, status, submittedQuery, view]);
 
   useEffect(() => {
     let active = true;
@@ -230,6 +261,18 @@ export default function ConsultarAgendamentosRecepcaoPage() {
     }, 0);
   }
 
+  async function changeView(nextView: AppointmentView) {
+    setView(nextView);
+    setEntityId("");
+    setPage(1);
+    setLoading(true);
+    window.setTimeout(() => {
+      void load(true, { view: nextView, entityId: "", page: 1 })
+        .catch((reason) => setError(reason instanceof Error ? reason.message : "Erro ao consultar agendamentos."))
+        .finally(() => setLoading(false));
+    }, 0);
+  }
+
   async function changePage(nextPage: number) {
     setPage(nextPage);
     setLoading(true);
@@ -263,6 +306,35 @@ export default function ConsultarAgendamentosRecepcaoPage() {
       setMessage(successMessage);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Erro ao atualizar o agendamento.");
+    } finally {
+      setSaving(false);
+      setLoading(false);
+    }
+  }
+
+  async function deleteOwnAppointment(appointment: Appointment) {
+    if (!window.confirm("Excluir este agendamento? A vaga será liberada e o histórico será preservado.")) return;
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const token = await accessToken();
+      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/agendamentos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "cancel-self", appointmentId: appointment.id }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (response.status === 401) {
+        redirectToLogin();
+        throw new Error("Sessão expirada. Entre novamente.");
+      }
+      if (!response.ok) throw new Error(result.error || "Não foi possível excluir o seu agendamento.");
+      setMessage(result.message || "Agendamento excluído. A vaga foi liberada.");
+      await load(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível excluir o seu agendamento.");
     } finally {
       setSaving(false);
       setLoading(false);
@@ -314,10 +386,10 @@ export default function ConsultarAgendamentosRecepcaoPage() {
           <h1 className="mt-1.5 text-2xl font-black leading-tight sm:text-3xl">Consulta de Agendamentos</h1>
           <p className="mt-1.5 text-sm font-semibold leading-5 text-[#EEF7EA] sm:leading-6">
             {payload?.capabilities?.scope === "manage"
-              ? "Recepção: consulta e gestão completa."
+              ? "Recepção: consulta e gestão completa de todos os agendamentos, inclusive os próprios."
               : payload?.capabilities?.scope === "linked_entities"
-                ? "Cavalinho: consulta somente dos atendimentos destinados às entidades vinculadas ao seu cadastro."
-                : "Cambono: todos em modo somente leitura."}
+                ? "Cavalinho: seus Agendamentos possuem gestão própria; os Atendimentos da entidade vinculada ficam em modo somente leitura."
+                : "Cambono: consulta todos em modo somente leitura e pode gerir somente os próprios agendamentos."}
           </p>
         </header>
 
@@ -377,13 +449,33 @@ export default function ConsultarAgendamentosRecepcaoPage() {
             </header>
 
             <div className="shrink-0 border-b border-slate-100 p-3">
+              {payload?.capabilities?.scope === "linked_entities" && (
+                <div className="mb-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void changeView("appointments")}
+                    className={`rounded-2xl px-3 py-2 text-sm font-black ${view === "appointments" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}
+                  >
+                    Agendamentos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void changeView("attendances")}
+                    className={`rounded-2xl px-3 py-2 text-sm font-black ${view === "attendances" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}
+                  >
+                    Atendimentos
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 <button type="button" onClick={() => void changeRange("upcoming")} className={`rounded-2xl px-2 py-2 text-sm font-black ${range === "upcoming" ? "bg-[#123D2C] text-white" : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>Próximos</button>
                 <button type="button" onClick={() => void changeRange("today")} className={`rounded-2xl px-2 py-2 text-sm font-black ${range === "today" ? "bg-[#123D2C] text-white" : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>Hoje</button>
                 <button type="button" onClick={() => void changeRange("previous")} className={`rounded-2xl px-2 py-2 text-sm font-black ${range === "previous" ? "bg-[#123D2C] text-white" : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>Anteriores</button>
               </div>
               <div className="mt-2">
-                <p className="text-sm font-black text-[#123D2C]">{payload?.total ?? 0} agendamento(s)</p>
+                <p className="text-sm font-black text-[#123D2C]">
+                  {payload?.total ?? 0} {view === "attendances" ? "atendimento(s)" : "agendamento(s)"}
+                </p>
               </div>
             </div>
 
@@ -397,7 +489,8 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                   {grouped.map(([key, appointments]) => {
                     const [first, second] = key.split("::");
                     const title = groupBy === "entity" ? second : longDate(first);
-                    const subtitle = groupBy === "entity" ? `${appointments.length} agendamento(s)` : second;
+                    const itemLabel = view === "attendances" ? "atendimento(s)" : "agendamento(s)";
+                    const subtitle = groupBy === "entity" ? `${appointments.length} ${itemLabel}` : second;
                     return (
                       <article key={key} className="overflow-hidden rounded-[1.5rem] bg-white ring-1 ring-[#123D2C]/10">
                         <header className="bg-[#E9F2E7] px-3 py-2">
@@ -419,20 +512,58 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                     )}
                                   </div>
                                 </div>
-                                <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                                  Ordem {appointment.order ?? "a confirmar"}
-                                </span>
+                                <div className="flex shrink-0 flex-col items-end gap-1">
+                                  <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wide ${
+                                    appointment.access.isOwn
+                                      ? "bg-blue-50 text-blue-800 ring-1 ring-blue-100"
+                                      : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                                  }`}>
+                                    {appointment.access.isOwn ? "Meu agendamento" : "Atendimento"}
+                                  </span>
+                                  <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                                    Ordem {appointment.order ?? "a confirmar"}
+                                  </span>
+                                </div>
                               </div>
                               <div className="mt-2 grid gap-1 text-xs font-semibold text-slate-700">
                                 {groupBy === "entity" && <p><span className="font-black text-[#2F6B43]">Quando:</span> {longDate(appointment.appointmentDate)} · {appointment.appointmentTime}</p>}
                                 {groupBy === "date" && <p><span className="font-black text-[#2F6B43]">Entidade:</span> {appointment.entity.name}</p>}
                                 <p><span className="font-black text-[#2F6B43]">Situação:</span> {statusLabel(appointment.status)} · {channelLabel(appointment.bookingChannel)}</p>
                               </div>
-                              {(payload?.capabilities?.canEdit || payload?.capabilities?.canCancel || payload?.capabilities?.canDelete) && (
+                              {appointment.access.mode === "manage" && (
                                 <div className="mt-3 grid grid-cols-3 gap-2">
-                                  {payload?.capabilities?.canEdit && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => startEdit(appointment)} className="rounded-xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Editar</button>}
-                                  {payload?.capabilities?.canCancel && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => cancelAppointment(appointment)} className="rounded-xl bg-amber-50 px-2 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100 disabled:opacity-40">Cancelar</button>}
-                                  {payload?.capabilities?.canDelete && <button type="button" disabled={saving} onClick={() => deleteAppointment(appointment)} className="rounded-xl bg-red-50 px-2 py-2 text-xs font-black text-red-700 ring-1 ring-red-100 disabled:opacity-40">Excluir</button>}
+                                  {appointment.access.canEdit && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => startEdit(appointment)} className="rounded-xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Editar</button>}
+                                  {appointment.access.canCancel && <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => cancelAppointment(appointment)} className="rounded-xl bg-amber-50 px-2 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100 disabled:opacity-40">Cancelar</button>}
+                                  {appointment.access.canDelete && <button type="button" disabled={saving} onClick={() => deleteAppointment(appointment)} className="rounded-xl bg-red-50 px-2 py-2 text-xs font-black text-red-700 ring-1 ring-red-100 disabled:opacity-40">Excluir</button>}
+                                </div>
+                              )}
+                              {appointment.access.mode === "self" && (
+                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                  {appointment.access.canEdit ? (
+                                    <Link
+                                      href={`${agendamentosPath}?editar=${encodeURIComponent(appointment.id)}`}
+                                      className="rounded-xl bg-white px-2 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                                    >
+                                      Editar
+                                    </Link>
+                                  ) : (
+                                    <span className="rounded-xl bg-slate-100 px-2 py-2 text-center text-xs font-bold text-slate-500">
+                                      Edição indisponível
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={saving || !appointment.access.canCancel}
+                                    onClick={() => void deleteOwnAppointment(appointment)}
+                                    className="rounded-xl bg-red-50 px-2 py-2 text-xs font-black text-red-700 ring-1 ring-red-100 disabled:opacity-40"
+                                  >
+                                    Excluir
+                                  </button>
+                                  {appointment.access.editBlockedReason && (
+                                    <p className="col-span-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+                                      {appointment.access.editBlockedReason}
+                                    </p>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -441,7 +572,11 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                       </article>
                     );
                   })}
-                  {grouped.length === 0 && <p className="rounded-[1.5rem] bg-[#F7FAF2] p-5 text-center font-bold text-slate-500">Nenhum agendamento encontrado.</p>}
+                  {grouped.length === 0 && (
+                    <p className="rounded-[1.5rem] bg-[#F7FAF2] p-5 text-center font-bold text-slate-500">
+                      {view === "attendances" ? "Nenhum atendimento encontrado." : "Nenhum agendamento encontrado."}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -457,7 +592,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
         </div>
       )}
 
-      {editDraft && payload?.capabilities?.canEdit && (
+      {editDraft && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#10251C]/80 p-3" role="dialog" aria-modal="true" aria-label="Editar agendamento">
           <form
             onSubmit={(event) => {
