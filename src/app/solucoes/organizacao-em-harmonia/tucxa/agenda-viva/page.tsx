@@ -266,10 +266,6 @@ function eventDurationHours(event: AgendaEvent) {
   return Math.min(Math.max(end - start, 1), 4);
 }
 
-function shortDateLabel(date: Date) {
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", timeZone: "UTC" }).format(date).replace(".", "");
-}
-
 function longDateLabel(date: Date) {
   const label = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
   return label.charAt(0).toLocaleUpperCase("pt-BR") + label.slice(1);
