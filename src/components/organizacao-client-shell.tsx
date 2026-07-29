@@ -89,9 +89,14 @@ const sidebarGroups: NavGroup[] = [
     description: "Soluções habilitadas para o cliente.",
     items: [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
-      { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Contribuições, comprovantes e conferência financeira." },
-      { label: "Configurações financeiras", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes", description: "Valores, Pix, vencimentos e lembretes." },
-      { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Histórico, comprovantes, pendências e conferência." },
+      { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Visão financeira, indicadores e pendências." },
+      { label: "Lançamentos", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", description: "Receitas, despesas, documentos e aprovação." },
+      { label: "Importações", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/importacoes", description: "CSV, XLSX, OFX, Google Sheets e OCR." },
+      { label: "Conciliação", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/reconciliacao", description: "Associe movimentos bancários ou crie lançamentos." },
+      { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Pontuais, recorrentes, identificadas ou não." },
+      { label: "Famílias", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/familias", description: "Grupos, parentescos e responsáveis financeiros." },
+      { label: "Prestação pública", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/prestacao-contas", description: "Prévia, drilldown, simulação e publicação." },
+      { label: "Configurações financeiras", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes", description: "Valor padrão, vencimentos, lembretes e sigilo." },
     ],
   },
   {

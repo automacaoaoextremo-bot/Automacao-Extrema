@@ -1,75 +1,210 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Settings = {
-  defaultAmount: number;
-  familyAmount: number;
-  defaultDueDays: number[];
-  reminderBeforeDays: number;
-  reminderAfterDays: number;
-  pixKey: string;
-  pixReceiverName: string;
-  pixCity: string;
-  familyContributionLabel: string;
-  persuasiveText: string;
+  defaultMonthlyAmount: number;
+  amountIsMandatory: boolean;
+  allowCustomAmount: boolean;
+  allowedDueDays: number[];
+  defaultDueDay: number;
+  reminderDaysBefore: number[];
+  reminderOnDueDate: boolean;
+  reminderChannels: string[];
+  familyContributionsEnabled: boolean;
+  familyRequiresMemberConfirmation: boolean;
+  familyRequiresFinancialApproval: boolean;
+  publicDetailLevel: "resumido" | "grupos" | "itens";
+  publicShowLast12Months: boolean;
+  publicShowDrilldown: boolean;
+  publicShowTopExpenses: boolean;
+  publicShowTopRevenues: boolean;
+  publicShowNegativeResults: boolean;
+  publicShowAccumulatedBalance: boolean;
+  publicShowSimulator: boolean;
+  publicShowProvisionalData: boolean;
+  publicPopupFrequency:
+    | "every_access"
+    | "once_per_session"
+    | "once_per_day"
+    | "once_per_month"
+    | "on_update"
+    | "disabled";
+  publicHeadline: string;
+  publicMessage: string;
+  googleSheetsUrl: string;
+  googleSheetsTab: string;
+  googleSheetsLastSyncAt: string | null;
+  ocrProvider: string;
 };
 
-type Payload = { settings?: Settings; error?: string };
-
-const defaultSettings: Settings = {
-  defaultAmount: 50,
-  familyAmount: 120,
-  defaultDueDays: [10],
-  reminderBeforeDays: 3,
-  reminderAfterDays: 2,
-  pixKey: "tucxacentro@gmail.com",
-  pixReceiverName: "TUCXA",
-  pixCity: "CAMPINAS",
-  familyContributionLabel: "Contribuição familiar",
-  persuasiveText: "A contribuição mensal ajuda a manter a casa preparada, limpa, organizada e disponível para os trabalhos. Quando cada Filho da Corrente mantém sua parte em dia, a tesouraria ganha previsibilidade e a corrente ganha tranquilidade para servir.",
+type RelationshipType = {
+  id: string;
+  slug: string;
+  label: string;
+  active: boolean;
+  requires_member_confirmation: boolean;
+  requires_financial_approval: boolean;
+  allow_responsible_payment: boolean;
 };
 
-function parseDueDays(value: string) {
-  return value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item) && item >= 1 && item <= 31);
+type Payload = {
+  canManage?: boolean;
+  settings?: Settings;
+  relationshipTypes?: RelationshipType[];
+  error?: string;
+};
+
+const defaults: Settings = {
+  defaultMonthlyAmount: 50,
+  amountIsMandatory: false,
+  allowCustomAmount: true,
+  allowedDueDays: [1, 5, 10, 15, 20, 30],
+  defaultDueDay: 10,
+  reminderDaysBefore: [7, 3, 1],
+  reminderOnDueDate: true,
+  reminderChannels: ["whatsapp", "painel"],
+  familyContributionsEnabled: true,
+  familyRequiresMemberConfirmation: true,
+  familyRequiresFinancialApproval: true,
+  publicDetailLevel: "grupos",
+  publicShowLast12Months: true,
+  publicShowDrilldown: true,
+  publicShowTopExpenses: true,
+  publicShowTopRevenues: true,
+  publicShowNegativeResults: true,
+  publicShowAccumulatedBalance: true,
+  publicShowSimulator: true,
+  publicShowProvisionalData: true,
+  publicPopupFrequency: "once_per_session",
+  publicHeadline: "Transparência fortalece a confiança.",
+  publicMessage:
+    "Cada contribuição ajuda a manter a Casa aberta, acolhedora e preparada para realizar seus trabalhos. Nenhum nome ou valor individual é exibido.",
+  googleSheetsUrl: "",
+  googleSheetsTab: "",
+  googleSheetsLastSyncAt: null,
+  ocrProvider: "external_adapter",
+};
+
+const dueDayOptions = [1, 5, 10, 15, 20, 30];
+const reminderOptions = [15, 10, 7, 5, 3, 1];
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-5 w-5"
+      />
+      <span>
+        <span className="block font-black text-[#123D2C]">{label}</span>
+        {description && (
+          <span className="mt-1 block text-sm leading-6 text-slate-600">
+            {description}
+          </span>
+        )}
+      </span>
+    </label>
+  );
 }
 
 export default function CorrenteConfiguracoesPage() {
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [dueDaysText, setDueDaysText] = useState("10");
+  const [settings, setSettings] = useState<Settings>(defaults);
+  const [relationships, setRelationships] = useState<RelationshipType[]>([]);
+  const [newRelationship, setNewRelationship] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [relationshipSaving, setRelationshipSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const load = useCallback(async () => {
+  const token = useCallback(async () => {
     const { data } = await supabaseBrowser.auth.getSession();
-    const token = data.session?.access_token;
-    const response = await fetch("/api/organizacao-em-harmonia/cliente/corrente-em-dia", { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-    const result = (await response.json()) as Payload;
-    if (!response.ok) throw new Error(result.error || "Não foi possível carregar configurações.");
-    const next = { ...defaultSettings, ...(result.settings ?? {}) };
-    setSettings(next);
-    setDueDaysText(next.defaultDueDays.join(", "));
+    return data.session?.access_token ?? "";
   }, []);
+
+  const load = useCallback(async () => {
+    const accessToken = await token();
+    const response = await fetch(
+      "/api/organizacao-em-harmonia/cliente/corrente-em-dia",
+      {
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
+        cache: "no-store",
+      },
+    );
+    const result = (await response.json()) as Payload;
+    if (!response.ok) {
+      throw new Error(
+        result.error || "Não foi possível carregar as configurações.",
+      );
+    }
+    setSettings({ ...defaults, ...(result.settings ?? {}) });
+    setRelationships(result.relationshipTypes ?? []);
+  }, [token]);
 
   useEffect(() => {
     let active = true;
-    const timer = window.setTimeout(() => {
-      load()
-        .catch((err) => active && setError(err instanceof Error ? err.message : "Erro ao carregar configurações."))
-        .finally(() => active && setLoading(false));
+    const timerId = window.setTimeout(() => {
+      void load()
+        .catch((reason) => {
+          if (active) {
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Erro ao carregar configurações.",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
     }, 0);
+
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearTimeout(timerId);
     };
   }, [load]);
 
-  function update<K extends keyof Settings>(field: K, value: Settings[K]) {
-    setSettings((current) => ({ ...current, [field]: value }));
+  function update<K extends keyof Settings>(key: K, value: Settings[K]) {
+    setSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  function toggleNumber(
+    key: "allowedDueDays" | "reminderDaysBefore",
+    value: number,
+  ) {
+    setSettings((current) => {
+      const list = current[key].includes(value)
+        ? current[key].filter((item) => item !== value)
+        : [...current[key], value].sort((a, b) => a - b);
+      return { ...current, [key]: list };
+    });
+  }
+
+  function toggleChannel(value: string) {
+    setSettings((current) => ({
+      ...current,
+      reminderChannels: current.reminderChannels.includes(value)
+        ? current.reminderChannels.filter((item) => item !== value)
+        : [...current.reminderChannels, value],
+    }));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -77,73 +212,521 @@ export default function CorrenteConfiguracoesPage() {
     setSaving(true);
     setError("");
     setMessage("");
+
     try {
-      const { data } = await supabaseBrowser.auth.getSession();
-      const token = data.session?.access_token;
-      const finalSettings = { ...settings, defaultDueDays: parseDueDays(dueDaysText) };
-      const response = await fetch("/api/organizacao-em-harmonia/cliente/corrente-em-dia", {
-        method: "POST",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "saveSettings", settings: finalSettings }),
-      });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível salvar.");
-      setSettings(finalSettings);
+      const accessToken = await token();
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/cliente/corrente-em-dia",
+        {
+          method: "POST",
+          headers: {
+            ...(accessToken
+              ? { Authorization: `Bearer ${accessToken}` }
+              : {}),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "saveSettings", settings }),
+        },
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível salvar.");
+      }
       setMessage(result.message || "Configurações salvas.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar configurações.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao salvar configurações.",
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <OrganizacaoClientShell title="Configurações do Corrente em Dia" description="Defina valores, vencimentos, Pix e lembretes.">
-      <form onSubmit={submit} className="grid gap-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-        {loading && <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">Carregando...</p>}
-        {error && <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</p>}
-        {message && <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">{message}</p>}
+  async function saveRelationship(input: {
+    id?: string;
+    label: string;
+    active?: boolean;
+    requiresMemberConfirmation?: boolean;
+    requiresFinancialApproval?: boolean;
+    allowResponsiblePayment?: boolean;
+  }) {
+    setRelationshipSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const accessToken = await token();
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/cliente/corrente-em-dia/familias",
+        {
+          method: "POST",
+          headers: {
+            ...(accessToken
+              ? { Authorization: `Bearer ${accessToken}` }
+              : {}),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "saveRelationshipType",
+            ...input,
+          }),
+        },
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível salvar o parentesco.");
+      }
+      setNewRelationship("");
+      setMessage(result.message || "Parentesco salvo.");
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao salvar parentesco.",
+      );
+    } finally {
+      setRelationshipSaving(false);
+    }
+  }
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Valor padrão da contribuição
-            <input value={settings.defaultAmount} onChange={(event) => update("defaultAmount", Number(event.target.value))} inputMode="decimal" className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Valor para contribuição em família
-            <input value={settings.familyAmount} onChange={(event) => update("familyAmount", Number(event.target.value))} inputMode="decimal" className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Dias previstos no mês
-            <input value={dueDaysText} onChange={(event) => setDueDaysText(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" placeholder="Ex.: 10, 20" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Lembrete antes do vencimento (dias)
-            <input value={settings.reminderBeforeDays} onChange={(event) => update("reminderBeforeDays", Number(event.target.value))} inputMode="numeric" className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Lembrete após atraso (dias)
-            <input value={settings.reminderAfterDays} onChange={(event) => update("reminderAfterDays", Number(event.target.value))} inputMode="numeric" className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Chave Pix
-            <input value={settings.pixKey} onChange={(event) => update("pixKey", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Nome do recebedor Pix
-            <input value={settings.pixReceiverName} onChange={(event) => update("pixReceiverName", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Cidade do recebedor
-            <input value={settings.pixCity} onChange={(event) => update("pixCity", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3 font-semibold" />
-          </label>
-          <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
-            Texto persuasivo da tela do Filho da Corrente
-            <textarea value={settings.persuasiveText} onChange={(event) => update("persuasiveText", event.target.value)} className="min-h-32 rounded-2xl border border-slate-200 bg-white p-3 font-semibold text-slate-700" />
-          </label>
+  const dueDayHint = useMemo(() => {
+    if (settings.defaultDueDay === 30) {
+      return "Em meses sem dia 30, será utilizado o último dia do mês.";
+    }
+    return `O dia ${settings.defaultDueDay} será sugerido inicialmente.`;
+  }, [settings.defaultDueDay]);
+
+  return (
+    <OrganizacaoClientShell
+      title="Configurações do Corrente em Dia"
+      description="Defina valor padrão, vencimentos, lembretes, regras familiares e o nível de transparência pública."
+    >
+      <form onSubmit={submit} className="grid gap-5">
+        {loading && (
+          <p className="rounded-2xl bg-white p-4 font-bold text-slate-500 shadow">
+            Carregando...
+          </p>
+        )}
+        {error && (
+          <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">
+            {message}
+          </p>
+        )}
+
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Contribuição mensal
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Valor padrão e liberdade responsável
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            O valor padrão orienta a rotina da Casa. Ele não altera competências já fechadas e pode ser acompanhado por exceções aprovadas pela Tesouraria/Financeiro.
+          </p>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Valor padrão mensal
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={settings.defaultMonthlyAmount}
+                onChange={(event) =>
+                  update(
+                    "defaultMonthlyAmount",
+                    Number(event.target.value),
+                  )
+                }
+                inputMode="decimal"
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Melhor dia sugerido
+              <select
+                value={settings.defaultDueDay}
+                onChange={(event) =>
+                  update("defaultDueDay", Number(event.target.value))
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                {dueDayOptions.map((day) => (
+                  <option key={day} value={day}>
+                    Dia {day}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs font-semibold text-slate-500">
+                {dueDayHint}
+              </span>
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Toggle
+              checked={settings.amountIsMandatory}
+              onChange={(value) => update("amountIsMandatory", value)}
+              label="Valor obrigatório"
+              description="Use apenas quando houver decisão formal da Diretoria. Exceções continuam registradas com justificativa."
+            />
+            <Toggle
+              checked={settings.allowCustomAmount}
+              onChange={(value) => update("allowCustomAmount", value)}
+              label="Permitir valor diferente"
+              description="A pessoa pode contribuir com outro valor sem expor essa escolha publicamente."
+            />
+          </div>
+
+          <div className="mt-5">
+            <p className="font-black text-[#123D2C]">
+              Dias que podem ser escolhidos
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {dueDayOptions.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleNumber("allowedDueDays", day)}
+                  className={`rounded-2xl px-4 py-3 font-black ring-1 ${
+                    settings.allowedDueDays.includes(day)
+                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/15"
+                  }`}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
 
-        <button disabled={saving || loading} className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white shadow disabled:opacity-60">{saving ? "Salvando..." : "Salvar configurações"}</button>
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Lembretes
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Apoio sem constrangimento
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Os lembretes ajudam a pessoa a se organizar. A comunicação deve falar de cuidado e previsibilidade, nunca de exposição ou culpa.
+          </p>
+
+          <div className="mt-5">
+            <p className="font-black text-[#123D2C]">
+              Enviar antes do vencimento
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {reminderOptions.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() =>
+                    toggleNumber("reminderDaysBefore", day)
+                  }
+                  className={`rounded-2xl px-4 py-3 font-black ring-1 ${
+                    settings.reminderDaysBefore.includes(day)
+                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/15"
+                  }`}
+                >
+                  {day} dia{day > 1 ? "s" : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Toggle
+              checked={settings.reminderOnDueDate}
+              onChange={(value) => update("reminderOnDueDate", value)}
+              label="Lembrar no dia escolhido"
+            />
+            <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <p className="font-black text-[#123D2C]">Canais</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  ["whatsapp", "WhatsApp"],
+                  ["email", "E-mail"],
+                  ["painel", "Painel"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => toggleChannel(value)}
+                    className={`rounded-xl px-3 py-2 text-sm font-black ${
+                      settings.reminderChannels.includes(value)
+                        ? "bg-[#123D2C] text-white"
+                        : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Contribuição familiar
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Regras definidas pela Tesouraria/Financeiro
+          </h2>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Toggle
+              checked={settings.familyContributionsEnabled}
+              onChange={(value) =>
+                update("familyContributionsEnabled", value)
+              }
+              label="Habilitar contribuição familiar"
+            />
+            <Toggle
+              checked={settings.familyRequiresMemberConfirmation}
+              onChange={(value) =>
+                update("familyRequiresMemberConfirmation", value)
+              }
+              label="Exigir confirmação do familiar"
+            />
+            <Toggle
+              checked={settings.familyRequiresFinancialApproval}
+              onChange={(value) =>
+                update("familyRequiresFinancialApproval", value)
+              }
+              label="Exigir aprovação financeira"
+            />
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {relationships.map((item) => (
+              <div
+                key={item.id}
+                className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 md:grid-cols-[1fr_auto]"
+              >
+                <div>
+                  <p className="font-black text-[#123D2C]">{item.label}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Confirmação do familiar:{" "}
+                    {item.requires_member_confirmation ? "sim" : "não"} ·
+                    Aprovação financeira:{" "}
+                    {item.requires_financial_approval ? "sim" : "não"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={relationshipSaving}
+                  onClick={() =>
+                    saveRelationship({
+                      id: item.id,
+                      label: item.label,
+                      active: !item.active,
+                      requiresMemberConfirmation:
+                        item.requires_member_confirmation,
+                      requiresFinancialApproval:
+                        item.requires_financial_approval,
+                      allowResponsiblePayment:
+                        item.allow_responsible_payment,
+                    })
+                  }
+                  className={`rounded-xl px-4 py-2 text-sm font-black ${
+                    item.active
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "bg-slate-200 text-slate-600"
+                  }`}
+                >
+                  {item.active ? "Ativo" : "Inativo"}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={newRelationship}
+              onChange={(event) => setNewRelationship(event.target.value)}
+              placeholder="Novo grau de parentesco"
+              className="min-h-12 flex-1 rounded-2xl border border-slate-200 px-4"
+            />
+            <button
+              type="button"
+              disabled={!newRelationship.trim() || relationshipSaving}
+              onClick={() =>
+                saveRelationship({
+                  label: newRelationship,
+                  active: true,
+                  requiresMemberConfirmation: true,
+                  requiresFinancialApproval: true,
+                  allowResponsiblePayment: true,
+                })
+              }
+              className="rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white disabled:opacity-50"
+            >
+              Incluir parentesco
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Painel público
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Transparência sem exposição individual
+          </h2>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Nível de detalhamento
+              <select
+                value={settings.publicDetailLevel}
+                onChange={(event) =>
+                  update(
+                    "publicDetailLevel",
+                    event.target.value as Settings["publicDetailLevel"],
+                  )
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                <option value="resumido">Nível 1 — Resumido</option>
+                <option value="grupos">Nível 2 — Por grupos</option>
+                <option value="itens">Nível 3 — Grupos e itens</option>
+              </select>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Frequência do popup
+              <select
+                value={settings.publicPopupFrequency}
+                onChange={(event) =>
+                  update(
+                    "publicPopupFrequency",
+                    event.target.value as Settings["publicPopupFrequency"],
+                  )
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                <option value="every_access">A cada acesso</option>
+                <option value="once_per_session">Uma vez por sessão</option>
+                <option value="once_per_day">Uma vez por dia</option>
+                <option value="once_per_month">Uma vez por mês</option>
+                <option value="on_update">Somente quando houver atualização</option>
+                <option value="disabled">Não exibir</option>
+              </select>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
+              Título público
+              <input
+                value={settings.publicHeadline}
+                onChange={(event) =>
+                  update("publicHeadline", event.target.value)
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
+              Mensagem pública
+              <textarea
+                value={settings.publicMessage}
+                onChange={(event) =>
+                  update("publicMessage", event.target.value)
+                }
+                className="min-h-28 rounded-2xl border border-slate-200 p-4 font-semibold text-slate-700"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {[
+              ["publicShowLast12Months", "Histórico dos últimos 12 meses"],
+              ["publicShowDrilldown", "Drilldown por grupos"],
+              ["publicShowTopExpenses", "Maiores despesas"],
+              ["publicShowTopRevenues", "Melhores receitas"],
+              ["publicShowNegativeResults", "Resultados negativos destacados"],
+              ["publicShowAccumulatedBalance", "Saldo acumulado"],
+              ["publicShowSimulator", "Simulador de equilíbrio"],
+              ["publicShowProvisionalData", "Exibir dados provisórios"],
+            ].map(([key, label]) => (
+              <Toggle
+                key={key}
+                checked={Boolean(settings[key as keyof Settings])}
+                onChange={(value) =>
+                  update(key as keyof Settings, value as never)
+                }
+                label={label}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Integrações
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Google Sheets e OCR
+          </h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
+              URL da planilha
+              <input
+                value={settings.googleSheetsUrl}
+                onChange={(event) =>
+                  update("googleSheetsUrl", event.target.value)
+                }
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                A primeira versão lê planilhas publicadas ou compartilhadas para leitura.
+              </span>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Aba ou GID
+              <input
+                value={settings.googleSheetsTab}
+                onChange={(event) =>
+                  update("googleSheetsTab", event.target.value)
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Adaptador de OCR
+              <input
+                value={settings.ocrProvider}
+                onChange={(event) =>
+                  update("ocrProvider", event.target.value)
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Configure FINANCIAL_OCR_ENDPOINT e FINANCIAL_OCR_API_KEY no Vercel para extração automática.
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <button
+          disabled={saving || loading}
+          className="sticky bottom-3 z-20 w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-xl disabled:opacity-60 sm:static sm:w-fit"
+        >
+          {saving ? "Salvando..." : "Salvar configurações"}
+        </button>
       </form>
     </OrganizacaoClientShell>
   );

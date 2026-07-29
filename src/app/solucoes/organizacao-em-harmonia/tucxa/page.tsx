@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FinancialTransparencyPopup } from "@/components/organizacao-em-harmonia/financial-transparency-popup";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
@@ -57,11 +58,17 @@ const headerActions = [
 
 export default async function TucxaSitePage() {
   const content = await getTucxaPublicContent();
-  const modules = [
+  const modules: Array<{
+    title: string;
+    text: string;
+    href?: string;
+    buttonLabel?: string;
+  }> = [
     {
       title: "Agenda Viva",
       text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
+      buttonLabel: "Abrir Agenda Viva",
     },
     {
       title: content.atendimentoEmHarmonia.title,
@@ -70,12 +77,15 @@ export default async function TucxaSitePage() {
     {
       title: content.correnteEmDia.title,
       text: content.correnteEmDia.description,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/transparencia",
+      buttonLabel: "Ver Transparência em Harmonia",
     },
   ];
 
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} showSupport={false} />
+      <FinancialTransparencyPopup />
 
       <section className="scroll-mt-48 mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
@@ -142,12 +152,12 @@ export default async function TucxaSitePage() {
             <article key={module.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">{module.title}</h3>
               <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{module.text}</p>
-              {"href" in module && module.href && (
+              {module.href && (
                 <Link
                   href={module.href}
                   className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
                 >
-                  Abrir Agenda Viva
+                  {module.buttonLabel || "Abrir módulo"}
                 </Link>
               )}
             </article>
