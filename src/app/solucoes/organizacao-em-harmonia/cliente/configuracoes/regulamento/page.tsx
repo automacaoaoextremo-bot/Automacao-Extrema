@@ -66,7 +66,7 @@ export default function ConfiguracaoRegulamentoTucxaPage() {
     setContent((current) => ({ ...current, [key]: value }));
   }
 
-  function updateModule(module: "atendimentoEmHarmonia" | "correnteEmDia", field: keyof TucxaPublicContent["atendimentoEmHarmonia"], value: string) {
+  function updateModule(module: "atendimentoEmHarmonia" | "agendaViva" | "correnteEmDia", field: keyof TucxaPublicContent["atendimentoEmHarmonia"], value: string) {
     setContent((current) => ({
       ...current,
       [module]: { ...current[module], [field]: value },
@@ -141,7 +141,7 @@ export default function ConfiguracaoRegulamentoTucxaPage() {
             onChange={(index, field, value) => updateCard("consulenteGuidelines", index, field, value)}
           />
 
-          <section className="grid gap-5 lg:grid-cols-2">
+          <section className="grid gap-5 lg:grid-cols-3">
             <ModuleCard
               title="Módulo Atendimento em Harmonia"
               labelValue={content.atendimentoEmHarmonia.shortLabel}
@@ -149,6 +149,14 @@ export default function ConfiguracaoRegulamentoTucxaPage() {
               descriptionValue={content.atendimentoEmHarmonia.description}
               ctaValue={content.atendimentoEmHarmonia.callToAction}
               onChange={(field, value) => updateModule("atendimentoEmHarmonia", field, value)}
+            />
+            <ModuleCard
+              title="Módulo Agenda Viva"
+              labelValue={content.agendaViva.shortLabel}
+              headlineValue={content.agendaViva.title}
+              descriptionValue={content.agendaViva.description}
+              ctaValue={content.agendaViva.callToAction}
+              onChange={(field, value) => updateModule("agendaViva", field, value)}
             />
             <ModuleCard
               title="Módulo Corrente em Dia"

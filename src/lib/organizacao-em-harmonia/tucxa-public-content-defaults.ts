@@ -13,6 +13,12 @@ export type TucxaPublicContent = {
     description: string;
     callToAction: string;
   };
+  agendaViva: {
+    title: string;
+    shortLabel: string;
+    description: string;
+    callToAction: string;
+  };
   correnteEmDia: {
     title: string;
     shortLabel: string;
@@ -30,6 +36,13 @@ export const defaultTucxaPublicContent: TucxaPublicContent = {
     description:
       "Consulte orientações, entre com seu cadastro validado e solicite agendamento, alteração ou cancelamento de atendimento conforme calendário da casa.",
     callToAction: "Entrar no Atendimento em Harmonia",
+  },
+  agendaViva: {
+    title: "Agenda Viva",
+    shortLabel: "Agenda Viva",
+    description:
+      "Consulte calendário, eventos, grupos, atividades culturais e orientações divulgadas pelo Tucxa de acordo com seu cadastro e permissões.",
+    callToAction: "Acessar Agenda Viva",
   },
   correnteEmDia: {
     title: "Corrente em Dia",

@@ -8,6 +8,8 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Role = { id: string; name: string; active: boolean };
 type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean; notes: string | null; auth_user_id?: string | null };
+type Entity = { id: string; name: string; active: boolean; attends_consulentes?: boolean | null };
+type PersonEntityLink = { id: string; person_id: string; entity_id: string; relationship_type: string; is_primary_for_attendance: boolean; active: boolean };
 type Profile = {
   isCavalinho?: boolean;
   entityNames?: string[];
@@ -28,7 +30,14 @@ type Profile = {
   attendanceNotes?: string;
 };
 type Membership = { id: string; person_id: string; role_id: string | null; module_slugs: string[] | null; active: boolean; status?: string | null; agenda_viva_profile?: Profile | null };
-type Payload = { people: Person[]; roles: Role[]; memberships: Membership[]; modules: Array<{ module_slug: string; enabled: boolean }> };
+type Payload = {
+  people: Person[];
+  roles: Role[];
+  memberships: Membership[];
+  modules: Array<{ module_slug: string; enabled: boolean }>;
+  entities?: Entity[];
+  entityLinks?: PersonEntityLink[];
+};
 
 type Filters = {
   search: string;
@@ -62,6 +71,8 @@ type Form = {
   notes: string;
   isCavalinho: boolean;
   entityNames: string;
+  linkedEntityIds: string[];
+  primaryEntityId: string;
   spiritualLines: string;
   isCambono: boolean;
   cambonoEntityNames: string;
@@ -93,6 +104,8 @@ const emptyForm: Form = {
   notes: "",
   isCavalinho: false,
   entityNames: "",
+  linkedEntityIds: [],
+  primaryEntityId: "",
   spiritualLines: "",
   isCambono: false,
   cambonoEntityNames: "",
@@ -235,6 +248,9 @@ function profileHasDay(profile: Profile | null | undefined, day: string) {
 function membershipFor(personId: string, memberships: Membership[]) {
   return memberships.find((item) => item.person_id === personId) ?? null;
 }
+function entityLinksFor(personId: string, links: PersonEntityLink[]) {
+  return links.filter((item) => item.person_id === personId && item.active !== false && item.relationship_type === "recebe");
+}
 function listToText(value: string[] | undefined) {
   return Array.isArray(value) ? value.join(", ") : "";
 }
@@ -375,7 +391,12 @@ export default function EnvolvidosPage() {
           active: form.active,
           notes: form.notes,
           isCavalinho: form.isCavalinho,
-          entityNames: textToList(form.entityNames),
+          entityNames: (payload?.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => entity.name),
+          entityLinks: form.linkedEntityIds.map((entityId) => ({
+            entityId,
+            relationshipType: "recebe",
+            isPrimaryForAttendance: entityId === form.primaryEntityId,
+          })),
           spiritualLines: textToList(form.spiritualLines),
           isCambono: form.isCambono,
           cambonoEntityNames: textToList(form.cambonoEntityNames),
@@ -491,6 +512,8 @@ export default function EnvolvidosPage() {
       notes: person.notes ?? "",
       isCavalinho: Boolean(profile.isCavalinho),
       entityNames: listToText(profile.entityNames),
+      linkedEntityIds: entityLinksFor(person.id, payload?.entityLinks ?? []).map((item) => item.entity_id),
+      primaryEntityId: entityLinksFor(person.id, payload?.entityLinks ?? []).find((item) => item.is_primary_for_attendance)?.entity_id ?? "",
       spiritualLines: listToText(profile.spiritualLines),
       isCambono: Boolean(profile.isCambono),
       cambonoEntityNames: listToText(profile.cambonoEntityNames),
@@ -569,7 +592,36 @@ export default function EnvolvidosPage() {
                 <Check label="Pode ver relatórios" checked={form.canViewReports} onChange={(checked) => update("canViewReports", checked)} />
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <Input label="Entidades que recebe" value={form.entityNames} onChange={(value) => update("entityNames", value)} placeholder="Ex.: Caboclo..., Preto Velho..." />
+                <div className="grid gap-2 md:col-span-2">
+                  <span className="text-sm font-black text-[#00334E]">Entidades que recebe</span>
+                  <div className="grid gap-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100 sm:grid-cols-2">
+                    {(payload.entities ?? []).filter((entity) => entity.active !== false).map((entity) => (
+                      <label key={entity.id} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-rose-100">
+                        <input
+                          type="checkbox"
+                          checked={form.linkedEntityIds.includes(entity.id)}
+                          onChange={(event) => {
+                            const linkedEntityIds = event.target.checked
+                              ? [...form.linkedEntityIds, entity.id]
+                              : form.linkedEntityIds.filter((id) => id !== entity.id);
+                            update("linkedEntityIds", linkedEntityIds);
+                            if (!linkedEntityIds.includes(form.primaryEntityId)) update("primaryEntityId", "");
+                          }}
+                          className="h-5 w-5"
+                        />
+                        <span>{entity.name}{entity.attends_consulentes ? " · atende Consulentes" : ""}</span>
+                      </label>
+                    ))}
+                    {(payload.entities ?? []).length === 0 && <p className="text-sm font-semibold text-slate-500">Cadastre as entidades antes de criar os vínculos.</p>}
+                  </div>
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Entidade principal para atendimento</span>
+                  <select value={form.primaryEntityId} onChange={(event) => update("primaryEntityId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <option value="">Sem entidade principal</option>
+                    {(payload.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                  </select>
+                </label>
                 <Input label="Linhas de trabalho" value={form.spiritualLines} onChange={(value) => update("spiritualLines", value)} placeholder="Ex.: Oxóssi, Ogum, Xangô" />
                 <Input label="Entidades que costuma cambonar" value={form.cambonoEntityNames} onChange={(value) => update("cambonoEntityNames", value)} />
                 <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo de quinta-feira</span><select value={form.thursdayGroup} onChange={(event) => update("thursdayGroup", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="ambos">Grupo 1 e Grupo 2</option></select></label>

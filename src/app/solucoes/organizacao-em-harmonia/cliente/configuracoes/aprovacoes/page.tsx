@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean | null };
 type ApprovalRule = { id: string; scope: string; label: string; responsible_person_id: string | null; fallback_email: string | null; fallback_whatsapp: string | null; active: boolean | null };
@@ -29,14 +30,37 @@ export default function ConfiguracoesAprovacoesPage() {
   }
 
   useEffect(() => {
-    fetch("/api/organizacao-em-harmonia/cliente/aprovacoes")
-      .then(async (response) => {
-        const payload = (await response.json()) as Payload;
-        if (!response.ok) throw new Error(payload.error || "Erro ao carregar aprovações.");
-        hydrate(payload);
-      })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Erro ao carregar aprovações."))
-      .finally(() => setLoading(false));
+    let active = true;
+
+    async function load() {
+      const { data: sessionData } = await supabaseBrowser.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        throw new Error("Acesso não autenticado. Entre novamente como gestor para configurar os responsáveis por aprovação.");
+      }
+
+      const response = await fetch("/api/organizacao-em-harmonia/cliente/aprovacoes", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = (await response.json()) as Payload;
+      if (!response.ok) throw new Error(payload.error || "Erro ao carregar aprovações.");
+      if (active) hydrate(payload);
+    }
+
+    const timer = window.setTimeout(() => {
+      load()
+        .catch((err: unknown) => {
+          if (active) setError(err instanceof Error ? err.message : "Erro ao carregar aprovações.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>, scope: string, defaultLabel: string) {
@@ -56,9 +80,13 @@ export default function ConfiguracoesAprovacoesPage() {
     };
 
     try {
+      const { data: sessionData } = await supabaseBrowser.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Sessão expirada. Entre novamente como gestor.");
+
       const response = await fetch("/api/organizacao-em-harmonia/cliente/aprovacoes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       });
       const payload = (await response.json()) as Payload;

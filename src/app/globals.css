@@ -33,3 +33,29 @@ textarea,
 button {
   font: inherit;
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  [data-agenda-pdf],
+  [data-agenda-pdf] * {
+    visibility: visible !important;
+  }
+
+  [data-agenda-pdf] {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .agenda-no-print {
+    display: none !important;
+  }
+}

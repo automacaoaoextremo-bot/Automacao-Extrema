@@ -40,6 +40,7 @@ export function normalizeTucxaPublicContent(value: unknown): TucxaPublicContent 
     consulenteServices: mergeCards(defaultTucxaPublicContent.consulenteServices, record.consulenteServices),
     consulenteGuidelines: mergeCards(defaultTucxaPublicContent.consulenteGuidelines, record.consulenteGuidelines),
     atendimentoEmHarmonia: mergeModule(defaultTucxaPublicContent.atendimentoEmHarmonia, record.atendimentoEmHarmonia),
+    agendaViva: mergeModule(defaultTucxaPublicContent.agendaViva, record.agendaViva),
     correnteEmDia: mergeModule(defaultTucxaPublicContent.correnteEmDia, record.correnteEmDia),
   };
 }
