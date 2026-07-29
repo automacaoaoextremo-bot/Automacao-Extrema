@@ -7,9 +7,8 @@ import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-pu
 type ConsulenteResponse = { ok?: boolean; message?: string; error?: string; whatsappUrl?: string; redirectUrl?: string; statusUrl?: string };
 
 const headerActions = [
-  { label: "É novo por aqui", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "primary" as const },
-  { label: "Atendimento em Harmonia", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login?destino=agenda", variant: "secondary" as const },
-  { label: "Site do Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" as const },
+  { label: "Início", href: "#inicio", variant: "primary" as const },
+  { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo", variant: "secondary" as const },
 ];
 
 function onlyDigits(value: string) {
@@ -22,6 +21,8 @@ export default function CadastroConsulenteTucxaPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [privacyNoticeAccepted, setPrivacyNoticeAccepted] = useState(false);
+  const [communicationsOptIn, setCommunicationsOptIn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -34,7 +35,7 @@ export default function CadastroConsulenteTucxaPage() {
     setWhatsappUrl("");
 
     if (!name.trim()) {
-      setError("Informe seu nome completo para que a organização possa validar seu cadastro com segurança.");
+      setError("Informe seu nome completo para liberar seu acesso com segurança.");
       return;
     }
     if (onlyDigits(whatsapp).length < 10) {
@@ -49,13 +50,27 @@ export default function CadastroConsulenteTucxaPage() {
       setError("Crie uma senha com pelo menos 8 caracteres para os próximos acessos.");
       return;
     }
+    if (!privacyNoticeAccepted) {
+      setError("Leia o Aviso de Privacidade e confirme que está ciente do tratamento dos seus dados.");
+      return;
+    }
 
     setLoading(true);
     try {
       const response = await fetch("/api/organizacao-em-harmonia/site-tucxa/consulentes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "submit-cadastro", requestType: "cadastro-consulente", name, whatsapp, email, password }),
+        body: JSON.stringify({
+          action: "submit-cadastro",
+          requestType: "cadastro-consulente",
+          name,
+          whatsapp,
+          email,
+          password,
+          privacyNoticeAccepted,
+          privacyNoticeVersion: "2026-07-19",
+          communicationsOptIn,
+        }),
       });
       const result = (await response.json()) as ConsulenteResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar suas informações.");
@@ -63,7 +78,7 @@ export default function CadastroConsulenteTucxaPage() {
         window.location.href = result.redirectUrl;
         return;
       }
-      setMessage(result.message || "Cadastro recebido. A organização do Tucxa fará a validação e retornará pelo WhatsApp informado e e-mail, se preenchido.");
+      setMessage(result.message || "Cadastro recebido. Seu acesso já está liberado para entrar com WhatsApp ou e-mail e a senha cadastrada.");
       setWhatsappUrl(result.whatsappUrl || result.statusUrl || "");
       setPassword("");
     } catch (err) {
@@ -74,7 +89,7 @@ export default function CadastroConsulenteTucxaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader actions={headerActions} navLabel="Menu de cadastro de consulentes do Tucxa" />
 
       <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
@@ -82,7 +97,7 @@ export default function CadastroConsulenteTucxaPage() {
           <p className="text-xs font-black tracking-[0.22em] text-[#2F6B43] sm:text-sm">Cadastro de consulente</p>
           <h1 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">Faça seu primeiro cadastro para orientação e próximos acessos.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-            Preencha somente o essencial. Seu cadastro será validado pela organização do Tucxa e o retorno será feito pelo WhatsApp informado e por e-mail, caso você preencha esse canal também.
+            Preencha somente o essencial. Ao enviar, seu acesso de Consulente / Filho de Fora já fica liberado para entrar com WhatsApp ou e-mail e a senha cadastrada.
           </p>
 
           <form onSubmit={submit} className="mt-5 grid gap-4">
@@ -105,7 +120,7 @@ export default function CadastroConsulenteTucxaPage() {
                 className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
                 placeholder="(19) 99999-9999"
               />
-              <span className="text-xs font-semibold text-slate-600">Este será o canal principal para retorno, validação e orientações de atendimento.</span>
+              <span className="text-xs font-semibold text-slate-600">Este será o canal principal para orientações de atendimento, avisos e confirmação de cadastro.</span>
             </label>
 
             <label className="grid gap-1">
@@ -136,16 +151,50 @@ export default function CadastroConsulenteTucxaPage() {
               </div>
             </label>
 
+            <section className="grid gap-3 rounded-3xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={privacyNoticeAccepted}
+                  onChange={(event) => setPrivacyNoticeAccepted(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span className="text-sm font-semibold leading-6 text-[#123D2C]">
+                  Li o{" "}
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/tucxa/consulente/privacidade"
+                    target="_blank"
+                    className="font-black underline underline-offset-4"
+                  >
+                    Aviso de Privacidade
+                  </Link>{" "}
+                  e estou ciente do tratamento dos meus dados para cadastro, acesso e agendamento no TUCXA. *
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 border-t border-[#123D2C]/10 pt-3">
+                <input
+                  type="checkbox"
+                  checked={communicationsOptIn}
+                  onChange={(event) => setCommunicationsOptIn(event.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0"
+                />
+                <span className="text-sm font-semibold leading-6 text-[#123D2C]">
+                  Aceito receber futuras informações da Organização em Harmonia do TUCXA por e-mail. Esta opção é facultativa e pode ser revogada.
+                </span>
+              </label>
+            </section>
+
             <div className="rounded-3xl bg-[#E9F2E7] p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
               <p className="font-black">Depois de enviar</p>
-              <p>As informações serão conferidas pela organização do Tucxa. Depois da validação, o retorno será feito pelo WhatsApp informado e por e-mail, se ele tiver sido preenchido.</p>
+              <p>Seu acesso será liberado automaticamente. Use o WhatsApp ou e-mail cadastrado e a senha criada para entrar na área do Consulente / Filho de Fora.</p>
             </div>
 
             {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
             {message && <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
 
             <button disabled={loading} className="rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:opacity-60">
-              {loading ? "Enviando..." : "Enviar cadastro para validação"}
+              {loading ? "Enviando..." : "Criar cadastro e liberar acesso"}
             </button>
 
             {whatsappUrl && (

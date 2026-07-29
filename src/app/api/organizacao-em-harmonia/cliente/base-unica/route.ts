@@ -7,11 +7,20 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 function asBool(value: unknown, fallback = true) {
   if (typeof value === "boolean") return value;
   const text = asText(value).toLowerCase();
   if (!text) return fallback;
   return ["sim", "s", "yes", "true", "1", "ativo"].includes(text);
+}
+
+function asNumber(value: unknown, fallback: number) {
+  const numberValue = typeof value === "number" ? value : Number(asText(value).replace(",", "."));
+  return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
 
@@ -108,6 +117,19 @@ function normalizeModules(value: unknown) {
     .filter(Boolean);
 }
 
+
+async function filhoDaCorrenteRoleId(organizationId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_roles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("slug", "filho-da-corrente")
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.id as string | undefined) ?? null;
+}
+
 function asTextList(value: unknown) {
   if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
   return asText(value)
@@ -146,7 +168,7 @@ function mergeProfile(current: unknown, patch: Record<string, unknown>) {
 }
 
 async function listPayload(organizationId: string) {
-  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult] = await Promise.all([
+  const [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult, locationsResult, entitiesResult, entityLinksResult, validationRequestsResult] = await Promise.all([
     supabaseAdmin
       .from("oh_organizations")
       .select("id, name, slug, organization_type, email, whatsapp, enabled_modules, status")
@@ -179,9 +201,19 @@ async function listPayload(organizationId: string) {
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, slug, line, entity_type, usual_materials, usual_days, notes, active")
+      .select("id, name, slug, line, entity_type, description, usual_materials, usual_days, daily_capacity, appointment_enabled, appointment_notes, attends_consulentes, primary_medium_person_id, notes, active")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
+    supabaseAdmin
+      .from("oh_person_entity_links")
+      .select("id, person_id, entity_id, relationship_type, is_primary_for_attendance, active, notes")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
+    supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .select("id, person_id, status, summary, created_at, updated_at")
+      .eq("organization_id", organizationId)
+      .order("updated_at", { ascending: false }),
   ]);
 
   for (const result of [organizationResult, peopleResult, rolesResult, membershipsResult, moduleSettingsResult]) {
@@ -196,11 +228,42 @@ async function listPayload(organizationId: string) {
     modules: moduleSettingsResult.data ?? [],
     locations: locationsResult.status === 200 && !locationsResult.error ? locationsResult.data ?? [] : [],
     entities: entitiesResult.status === 200 && !entitiesResult.error ? entitiesResult.data ?? [] : [],
+    entityLinks: entityLinksResult.status === 200 && !entityLinksResult.error ? entityLinksResult.data ?? [] : [],
+    validationRequests: validationRequestsResult.status === 200 && !validationRequestsResult.error ? validationRequestsResult.data ?? [] : [],
     warnings: [
       locationsResult.error ? `Localidades: ${locationsResult.error.message}` : "",
       entitiesResult.error ? `Entidades: ${entitiesResult.error.message}` : "",
+      entityLinksResult.error ? `Vínculos pessoa-entidade: ${entityLinksResult.error.message}` : "",
+      validationRequestsResult.error ? `Validações: ${validationRequestsResult.error.message}` : "",
     ].filter(Boolean),
   };
+}
+
+type EntityLinkInput = {
+  entityId: string;
+  relationshipType: string;
+  isPrimaryForAttendance: boolean;
+};
+
+function entityLinksFromBody(value: unknown): EntityLinkInput[] {
+  if (!Array.isArray(value)) return [];
+  const links = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const entityId = asText(record.entityId ?? record.entity_id);
+    if (!entityId) return [];
+    return [{
+      entityId,
+      relationshipType: asText(record.relationshipType ?? record.relationship_type) || "recebe",
+      isPrimaryForAttendance: asBool(record.isPrimaryForAttendance ?? record.is_primary_for_attendance, false),
+    }];
+  });
+  let primaryFound = false;
+  return links.map((link) => {
+    const isPrimary = link.isPrimaryForAttendance && !primaryFound;
+    if (isPrimary) primaryFound = true;
+    return { ...link, isPrimaryForAttendance: isPrimary };
+  });
 }
 
 async function upsertPerson(organizationId: string, body: Record<string, unknown>) {
@@ -289,8 +352,10 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
       role_id: roleId || null,
       module_slugs: moduleSlugs.length > 0 ? moduleSlugs : DEFAULT_MODULE_SLUGS,
       active,
-      status: active ? "ativo" : "inativo",
-      agenda_viva_profile: agendaVivaProfile,
+      // Cadastro na Base Única não equivale a Primeiro Acesso aprovado.
+      // A aprovação dos Filhos da Corrente só acontece pelo fluxo de validação.
+      status: active ? "cadastro_base_unica" : "inativo",
+      agenda_viva_profile: mergeProfile(agendaVivaProfile, { validationStatus: active ? "pendente_primeiro_acesso" : "inativo" }),
       updated_at: new Date().toISOString(),
     };
 
@@ -300,6 +365,32 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
     } else {
       const { error } = await supabaseAdmin.from("oh_memberships").insert(membershipPayload);
       if (error) throw error;
+    }
+  }
+
+  if (selectedPersonId && Object.prototype.hasOwnProperty.call(body, "entityLinks")) {
+    const links = entityLinksFromBody(body.entityLinks);
+    const { error: deleteLinksError } = await supabaseAdmin
+      .from("oh_person_entity_links")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("person_id", selectedPersonId)
+      .eq("relationship_type", "recebe");
+    if (deleteLinksError) throw deleteLinksError;
+
+    if (links.length > 0) {
+      const { error: linksError } = await supabaseAdmin
+        .from("oh_person_entity_links")
+        .insert(links.map((link) => ({
+          organization_id: organizationId,
+          person_id: selectedPersonId,
+          entity_id: link.entityId,
+          relationship_type: "recebe",
+          is_primary_for_attendance: link.isPrimaryForAttendance,
+          active: true,
+          updated_at: new Date().toISOString(),
+        })));
+      if (linksError) throw linksError;
     }
   }
 
@@ -359,21 +450,43 @@ async function upsertEntity(organizationId: string, body: Record<string, unknown
   const entityId = asText(body.entityId ?? body.id);
   const name = asText(body.name);
   if (!name) throw new Error("Informe o nome da entidade.");
+
+  const usualDays = normalizeModules(body.usualDays ?? body.usual_days);
+  const active = asBool(body.active, false);
+  const requestedAppointmentEnabled = asBool(body.appointmentEnabled ?? body.appointment_enabled, false);
+
+  if (active && usualDays.length === 0) {
+    throw new Error("Para manter a entidade ativa, defina pelo menos um dia em que ela costuma atender.");
+  }
+  if (requestedAppointmentEnabled && (!active || usualDays.length === 0)) {
+    throw new Error("O agendamento só pode ser habilitado para uma entidade ativa e com pelo menos um dia de atendimento.");
+  }
+
   const payload = {
     organization_id: organizationId,
     name,
     slug: slugify(asText(body.slug) || name),
     line: asText(body.line) || null,
     entity_type: asText(body.entityType ?? body.entity_type) || null,
+    description: asText(body.description) || null,
     usual_materials: asText(body.usualMaterials ?? body.usual_materials) || null,
-    usual_days: normalizeModules(body.usualDays ?? body.usual_days),
+    usual_days: usualDays,
+    daily_capacity: Math.max(1, Math.trunc(asNumber(body.dailyCapacity ?? body.daily_capacity, 4))),
+    appointment_enabled: active && usualDays.length > 0 && requestedAppointmentEnabled,
+    appointment_notes: asText(body.appointmentNotes ?? body.appointment_notes) || null,
+    attends_consulentes: asBool(body.attendsConsulentes ?? body.attends_consulentes, false),
+    primary_medium_person_id: nullableText(body.primaryMediumPersonId ?? body.primary_medium_person_id),
     notes: asText(body.notes) || null,
-    active: asBool(body.active, true),
+    active,
     updated_at: new Date().toISOString(),
   };
 
   if (entityId) {
-    const { error } = await supabaseAdmin.from("oh_spiritual_entities").update(payload).eq("id", entityId).eq("organization_id", organizationId);
+    const { error } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .update(payload)
+      .eq("id", entityId)
+      .eq("organization_id", organizationId);
     if (error) throw error;
     return;
   }
@@ -386,9 +499,28 @@ async function toggleEntity(organizationId: string, body: Record<string, unknown
   const entityId = asText(body.entityId);
   const active = asBool(body.active, true);
   if (!entityId) throw new Error("Entidade não informada.");
+
+  const { data: entity, error: entityError } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .select("id, usual_days")
+    .eq("id", entityId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (entityError) throw entityError;
+  if (!entity?.id) throw new Error("Entidade não localizada.");
+
+  const usualDays = normalizeModules(entity.usual_days);
+  if (active && usualDays.length === 0) {
+    throw new Error("Defina pelo menos um dia de atendimento antes de ativar esta entidade.");
+  }
+
   const { error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .update({ active, updated_at: new Date().toISOString() })
+    .update({
+      active,
+      appointment_enabled: active && usualDays.length > 0,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", entityId)
     .eq("organization_id", organizationId);
   if (error) throw error;
@@ -399,7 +531,7 @@ async function deleteEntity(organizationId: string, body: Record<string, unknown
   if (!entityId) throw new Error("Entidade não informada.");
   const { error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .update({ active: false, updated_at: new Date().toISOString() })
+    .update({ active: false, appointment_enabled: false, updated_at: new Date().toISOString() })
     .eq("id", entityId)
     .eq("organization_id", organizationId);
   if (error) throw error;
@@ -530,6 +662,60 @@ async function bulkUpdateProfiles(organizationId: string, body: Record<string, u
   }
 }
 
+
+async function syncCavalinhoEntityLinks(
+  organizationId: string,
+  personId: string,
+  entityIdsValue: unknown,
+  primaryEntityIdValue: unknown,
+) {
+  const entityIds = Array.from(new Set(asTextList(entityIdsValue)));
+  const primaryEntityId = asText(primaryEntityIdValue);
+  if (primaryEntityId && !entityIds.includes(primaryEntityId)) {
+    throw new Error("A entidade que atende Consulentes precisa estar entre as entidades recebidas.");
+  }
+  const relationshipTypes = ["recebe", "cavalinho", "incorporates_for_consulente"];
+  const now = new Date().toISOString();
+
+  if (entityIds.length > 0) {
+    const { data: entities, error: entityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .in("id", entityIds);
+    if (entityError) throw entityError;
+    if ((entities ?? []).length !== entityIds.length) {
+      throw new Error("Uma ou mais entidades selecionadas não estão ativas ou não pertencem à organização.");
+    }
+  }
+
+  const { error: deactivateError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .update({ active: false, updated_at: now })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .in("relationship_type", relationshipTypes);
+  if (deactivateError) throw deactivateError;
+
+  if (entityIds.length === 0) return;
+
+  const rows = entityIds.map((entityId) => ({
+    organization_id: organizationId,
+    person_id: personId,
+    entity_id: entityId,
+    relationship_type: "recebe",
+    is_primary_for_attendance: entityId === primaryEntityId,
+    active: true,
+    updated_at: now,
+  }));
+
+  const { error: upsertError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .upsert(rows, { onConflict: "organization_id,person_id,entity_id,relationship_type" });
+  if (upsertError) throw upsertError;
+}
+
 async function updateAccessStatus(organizationId: string, body: Record<string, unknown>, approved: boolean) {
   const personId = asText(body.personId);
   const reviewNotes = asText(body.reviewNotes ?? body.notes);
@@ -537,13 +723,235 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
 
   const { data: person, error: personError } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, email, whatsapp, auth_user_id")
+    .select("id, full_name, email, whatsapp, notes, auth_user_id, active")
     .eq("id", personId)
     .eq("organization_id", organizationId)
     .maybeSingle();
-
   if (personError) throw personError;
   if (!person?.id) throw new Error("Envolvido não localizado na Base Única.");
+
+  const { data: currentMembership, error: currentMembershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id, agenda_viva_profile, active, status, module_slugs")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentMembershipError) throw currentMembershipError;
+  if (!currentMembership?.id) throw new Error("Vínculo do envolvido não localizado.");
+
+  const { data: validationRequest, error: validationRequestError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .select("id, status, summary, full_name, whatsapp, email, function_slugs, agenda_slugs")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (validationRequestError) throw validationRequestError;
+
+  const requestSummary = asRecord(validationRequest?.summary);
+  const requestType = asText(requestSummary.requestType);
+  const now = new Date().toISOString();
+
+  if (requestType === "profile_update") {
+    if (!validationRequest?.id) throw new Error("Solicitação de atualização cadastral não localizada.");
+    const currentProfile = asRecord(currentMembership.agenda_viva_profile);
+    const requestedPerson = asRecord(requestSummary.requestedPerson);
+    const requestedProfile = asRecord(requestSummary.requestedProfile);
+    const requestedFunctionSlugs = asTextList(requestedProfile.functionSlugs ?? validationRequest?.function_slugs);
+    const requestedAgendaSlugs = asTextList(requestedProfile.agendaSlugs ?? validationRequest?.agenda_slugs);
+    const requestedSelectedFunctions = Array.isArray(requestedProfile.selectedFunctions)
+      ? requestedProfile.selectedFunctions
+      : Array.isArray(requestSummary.selectedFunctions)
+        ? requestSummary.selectedFunctions
+        : [];
+    const requestedSelectedAgenda = Array.isArray(requestedProfile.selectedAgenda)
+      ? requestedProfile.selectedAgenda
+      : Array.isArray(requestSummary.selectedAgenda)
+        ? requestSummary.selectedAgenda
+        : [];
+    const requestedEntityIds = asTextList(
+      requestedProfile.selectedEntityIds ??
+      requestedProfile.cavalinhoEntityIds ??
+      requestSummary.selectedEntityIds ??
+      requestSummary.cavalinhoEntityIds,
+    );
+    const requestedSelectedEntities = Array.isArray(requestedProfile.selectedEntities)
+      ? requestedProfile.selectedEntities
+      : Array.isArray(requestSummary.selectedEntities)
+        ? requestSummary.selectedEntities
+        : [];
+    const requestedCavalinhoConsulenteEntityId = asText(
+      requestedProfile.cavalinhoConsulenteEntityId ?? requestSummary.cavalinhoConsulenteEntityId,
+    );
+    const requestedCavalinhoConsulenteDefinitionCompleted =
+      requestedProfile.cavalinhoConsulenteDefinitionCompleted === true ||
+      requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
+    const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
+    const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
+    const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
+    const requestedNotes = asText(requestedPerson.notes ?? requestSummary.notes);
+
+    if (approved) {
+      const { error: approvedPersonError } = await supabaseAdmin
+        .from("oh_people")
+        .update({
+          full_name: requestedFullName,
+          whatsapp: requestedWhatsapp,
+          email: requestedEmail || person.email,
+          notes: requestedNotes || null,
+          active: true,
+          updated_at: now,
+        })
+        .eq("id", personId)
+        .eq("organization_id", organizationId);
+      if (approvedPersonError) throw approvedPersonError;
+
+      const approvedSnapshot = {
+        person: {
+          fullName: requestedFullName,
+          whatsapp: requestedWhatsapp,
+          email: requestedEmail,
+          notes: requestedNotes,
+        },
+        profile: {
+          functionSlugs: requestedFunctionSlugs,
+          agendaSlugs: requestedAgendaSlugs,
+          selectedFunctions: requestedSelectedFunctions,
+          selectedAgenda: requestedSelectedAgenda,
+          selectedEntityIds: requestedEntityIds,
+          selectedEntities: requestedSelectedEntities,
+          cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
+          cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
+        },
+        approvedAt: now,
+      };
+      const nextProfile = mergeProfile(currentProfile, {
+        functionSlugs: requestedFunctionSlugs,
+        agendaSlugs: requestedAgendaSlugs,
+        selectedFunctions: requestedSelectedFunctions,
+        selectedAgenda: requestedSelectedAgenda,
+        selectedEntityIds: requestedEntityIds,
+        selectedEntities: requestedSelectedEntities,
+        cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
+        cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
+        validationStatus: "ativo",
+        profileUpdateStatus: "aprovado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+        approvedProfileSnapshot: approvedSnapshot,
+        lastProfileUpdateAt: now,
+        reviewedAt: now,
+        reviewNotes: reviewNotes || "",
+      });
+
+      const { error: approvedMembershipError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({
+          active: true,
+          status: "ativo",
+          module_slugs: Array.isArray(currentMembership.module_slugs) && currentMembership.module_slugs.length
+            ? currentMembership.module_slugs
+            : DEFAULT_MODULE_SLUGS,
+          agenda_viva_profile: nextProfile,
+          updated_at: now,
+        })
+        .eq("id", currentMembership.id);
+      if (approvedMembershipError) throw approvedMembershipError;
+      await syncCavalinhoEntityLinks(organizationId, personId, requestedEntityIds, requestedCavalinhoConsulenteEntityId);
+    } else {
+      const nextProfile = mergeProfile(currentProfile, {
+        validationStatus: "ativo",
+        profileUpdateStatus: "ajuste_solicitado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+        lastRejectedProfileUpdate: requestSummary,
+        reviewedAt: now,
+        reviewNotes: reviewNotes || "",
+      });
+      const { error: rejectedMembershipError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({
+          active: true,
+          status: "ativo",
+          agenda_viva_profile: nextProfile,
+          updated_at: now,
+        })
+        .eq("id", currentMembership.id);
+      if (rejectedMembershipError) throw rejectedMembershipError;
+    }
+
+    await supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .update({ status: approved ? "aprovado" : "ajuste_solicitado", updated_at: now })
+      .eq("id", validationRequest.id);
+
+    if (person.auth_user_id) {
+      const metadataPatch: Record<string, unknown> = {
+        full_name: approved ? requestedFullName : person.full_name,
+        whatsapp: approved ? requestedWhatsapp : person.whatsapp,
+        organization_id: organizationId,
+        oh_profile: "filho-da-corrente",
+        oh_access_status: "ativo",
+        profile_update_status: approved ? "aprovado" : "ajuste_solicitado",
+      };
+      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
+        user_metadata: metadataPatch,
+      });
+      if (authError) throw authError;
+    }
+
+    const currentEmail = displayEmail(approved ? requestedEmail || person.email : person.email);
+    const panelUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel`;
+    const updateMessage = approved
+      ? [
+          `Olá, ${firstName(approved ? requestedFullName : person.full_name)}.`,
+          "",
+          "Sua atualização cadastral no Tucxa em Harmonia foi aprovada.",
+          "As funções, agendas e dados aprovados já estão disponíveis no seu acesso.",
+          "",
+          "Acesse seu painel para conferir as informações atualizadas.",
+          panelUrl,
+          "",
+          "Tucxa em Harmonia",
+        ].join("\n")
+      : [
+          `Olá, ${firstName(person.full_name)}.`,
+          "",
+          "Sua atualização cadastral no Tucxa em Harmonia precisa de ajustes.",
+          "Seu acesso anterior continua ativo e as alterações solicitadas não foram aplicadas.",
+          "",
+          reviewNotes || "Revise os dados, funções e agendas e envie uma nova atualização para validação.",
+        ].join("\n");
+
+    if (currentEmail) {
+      await sendAccessEmail({
+        to: currentEmail,
+        cc: internalReviewEmail(),
+        subject: approved ? "Atualização cadastral aprovada - Tucxa em Harmonia" : "Ajuste solicitado na atualização cadastral - Tucxa em Harmonia",
+        text: updateMessage,
+      });
+    }
+
+    return {
+      whatsappUrl: whatsappUrl(approved ? requestedWhatsapp : person.whatsapp, updateMessage),
+      emailSent: Boolean(currentEmail),
+      emailTo: currentEmail,
+      profileUpdateDecision: approved ? "approved" : "adjustment_requested",
+    };
+  }
+
+  const firstAccessEntityIds = asTextList(
+    requestSummary.selectedEntityIds ??
+    requestSummary.cavalinhoEntityIds,
+  );
+  const firstAccessSelectedEntities = Array.isArray(requestSummary.selectedEntities)
+    ? requestSummary.selectedEntities
+    : [];
+  const firstAccessCavalinhoConsulenteEntityId = asText(requestSummary.cavalinhoConsulenteEntityId);
+  const firstAccessCavalinhoConsulenteDefinitionCompleted = requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
 
   const nextStatus = approved ? "ativo" : "ajuste_solicitado";
   const { error: personUpdateError } = await supabaseAdmin
@@ -551,18 +959,52 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     .update({
       active: approved,
       notes: reviewNotes || null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq("id", personId)
     .eq("organization_id", organizationId);
   if (personUpdateError) throw personUpdateError;
 
+  const mergedProfile = mergeProfile(currentMembership.agenda_viva_profile, {
+    source: "primeiro_acesso_filho_corrente",
+    validationStatus: nextStatus,
+    ...(approved
+      ? {
+          selectedEntityIds: firstAccessEntityIds,
+          selectedEntities: firstAccessSelectedEntities,
+          cavalinhoConsulenteEntityId: firstAccessCavalinhoConsulenteEntityId,
+          cavalinhoConsulenteDefinitionCompleted: firstAccessCavalinhoConsulenteDefinitionCompleted,
+        }
+      : {}),
+    reviewedAt: now,
+    reviewNotes: reviewNotes || "",
+  });
+  const primaryRoleId = await filhoDaCorrenteRoleId(organizationId);
+
+  const membershipUpdate = {
+    active: approved,
+    status: nextStatus,
+    ...(primaryRoleId ? { role_id: primaryRoleId } : {}),
+    module_slugs: DEFAULT_MODULE_SLUGS,
+    agenda_viva_profile: mergedProfile,
+    updated_at: now,
+  };
+
   const { error: membershipError } = await supabaseAdmin
     .from("oh_memberships")
-    .update({ active: approved, status: nextStatus, module_slugs: DEFAULT_MODULE_SLUGS, updated_at: new Date().toISOString() })
+    .update(membershipUpdate)
     .eq("organization_id", organizationId)
     .eq("person_id", personId);
   if (membershipError) throw membershipError;
+  if (approved) {
+    await syncCavalinhoEntityLinks(organizationId, personId, firstAccessEntityIds, firstAccessCavalinhoConsulenteEntityId);
+  }
+
+  await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .update({ status: nextStatus, updated_at: now })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
 
   if (person.auth_user_id) {
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(person.auth_user_id as string, {
@@ -570,15 +1012,15 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         full_name: person.full_name,
         whatsapp: person.whatsapp,
         organization_id: organizationId,
+        oh_profile: "filho-da-corrente",
         oh_access_status: nextStatus,
       },
     });
     if (authError) throw authError;
   }
 
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login`;
   const email = displayEmail(person.email);
-
   const emailMessage = approved
     ? [
         `Olá, ${firstName(person.full_name)}.`,
@@ -588,9 +1030,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         "Acesse pelo link abaixo usando seu e-mail ou WhatsApp e a senha cadastrada no primeiro acesso:",
         loginUrl,
         "",
-        "Com a Base Única atualizada, o Tucxa consegue organizar Agenda Viva, Atendimento em Harmonia e Corrente em Dia com menos retrabalho e mais clareza para todos.",
-        "",
-        reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, responda esta mensagem ou fale com o responsável do Tucxa.",
+        reviewNotes ? `Orientação do responsável: ${reviewNotes}` : "Qualquer dúvida, fale com o responsável do Tucxa.",
       ].join("\n")
     : [
         `Olá, ${firstName(person.full_name)}.`,
@@ -612,25 +1052,93 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     });
   }
 
-  const waMessage = approved
-    ? [
-        `Olá, ${firstName(person.full_name)}. Seu acesso à Organização em Harmonia do Tucxa foi liberado.`,
-        "",
-        "Use seu WhatsApp ou e-mail e a senha cadastrada no primeiro acesso:",
-        loginUrl,
-        "",
-        reviewNotes ? `Orientação: ${reviewNotes}` : "Qualquer dúvida, fale com o responsável do Tucxa.",
-      ].join("\n")
-    : [
-        `Olá, ${firstName(person.full_name)}. Conferimos seu cadastro na Organização em Harmonia do Tucxa e precisamos ajustar algumas informações antes de liberar o acesso.`,
-        "",
-        reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
-        "",
-        "Você pode atualizar seus dados pelo primeiro acesso:",
-        loginUrl,
-      ].join("\n");
+  return { whatsappUrl: whatsappUrl(person.whatsapp, emailMessage), emailSent: Boolean(email), emailTo: email };
+}
 
-  return { whatsappUrl: whatsappUrl(person.whatsapp, waMessage), emailSent: Boolean(email), emailTo: email };
+async function deleteAccessValidation(organizationId: string, body: Record<string, unknown>) {
+  const personId = asText(body.personId);
+  if (!personId) throw new Error("Pessoa não informada para excluir o pedido de validação.");
+
+  const { data: latestRequest, error: requestLookupError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .select("id, summary")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (requestLookupError) throw requestLookupError;
+
+  if (asText(asRecord(latestRequest?.summary).requestType) === "profile_update") {
+    const { data: membership, error: membershipLookupError } = await supabaseAdmin
+      .from("oh_memberships")
+      .select("id, agenda_viva_profile")
+      .eq("organization_id", organizationId)
+      .eq("person_id", personId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (membershipLookupError) throw membershipLookupError;
+
+    if (membership?.id) {
+      const profile = mergeProfile(membership.agenda_viva_profile, {
+        profileUpdateStatus: "cancelado",
+        pendingProfileUpdate: null,
+        pendingProfileUpdateAt: null,
+      });
+      const { error: clearError } = await supabaseAdmin
+        .from("oh_memberships")
+        .update({ agenda_viva_profile: profile, updated_at: new Date().toISOString() })
+        .eq("id", membership.id);
+      if (clearError) throw clearError;
+    }
+
+    if (latestRequest?.id) {
+      const { error: deleteRequestError } = await supabaseAdmin
+        .from("oh_first_access_validation_requests")
+        .delete()
+        .eq("id", latestRequest.id);
+      if (deleteRequestError) throw deleteRequestError;
+    }
+
+    return { deletedValidation: true, preservedExistingAccess: true };
+  }
+
+  const { data: person, error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, auth_user_id, full_name")
+    .eq("id", personId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (personError) throw personError;
+  if (!person?.id) throw new Error("Pedido de validação não localizado.");
+
+  const { error: requestsError } = await supabaseAdmin
+    .from("oh_first_access_validation_requests")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (requestsError) throw requestsError;
+
+  const { error: membershipsError } = await supabaseAdmin
+    .from("oh_memberships")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (membershipsError) throw membershipsError;
+
+  const { error: personDeleteError } = await supabaseAdmin
+    .from("oh_people")
+    .delete()
+    .eq("id", personId)
+    .eq("organization_id", organizationId);
+  if (personDeleteError) throw personDeleteError;
+
+  if (person.auth_user_id) {
+    await supabaseAdmin.auth.admin.deleteUser(person.auth_user_id as string).catch(() => undefined);
+  }
+
+  return { deletedValidation: true, deletedPersonName: person.full_name };
 }
 
 export async function GET(request: Request) {
@@ -672,7 +1180,7 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       const { error: membershipError } = await supabaseAdmin
         .from("oh_memberships")
-        .update({ active, status: active ? "ativo" : "inativo", updated_at: new Date().toISOString() })
+        .update({ active, status: active ? "cadastro_base_unica" : "inativo", updated_at: new Date().toISOString() })
         .eq("organization_id", auth.context.organizationId)
         .eq("person_id", personId);
       if (membershipError) throw membershipError;
@@ -680,6 +1188,8 @@ export async function POST(request: Request) {
       actionResult = await updateAccessStatus(auth.context.organizationId, body, true);
     } else if (action === "requestAccessAdjustment") {
       actionResult = await updateAccessStatus(auth.context.organizationId, body, false);
+    } else if (action === "deleteAccessValidation") {
+      actionResult = await deleteAccessValidation(auth.context.organizationId, body);
     } else if (action === "upsertRole") {
       await upsertRole(auth.context.organizationId, body);
     } else if (action === "toggleRole") {

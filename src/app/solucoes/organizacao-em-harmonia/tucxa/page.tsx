@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
-import { tucxaNavigation } from "./tucxa-content";
 import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +13,44 @@ const benefits = [
 
 const headerActions = [
   {
-    label: "Filho da corrente",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente",
+    label: "Início",
+    href: "#inicio",
     variant: "primary" as const,
   },
   {
+    label: "Cadastro",
+    href: "#cadastro",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Visão",
+    href: "#visao",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Módulos",
+    href: "#modulos",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Dúvidas?",
+    href: "#duvidas",
+    variant: "secondary" as const,
+    action: "supportWhatsapp" as const,
+  },
+  {
+    label: "Filhos da Corrente",
+    href: "#corrente",
+    variant: "secondary" as const,
+  },
+  {
     label: "Consulente",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente",
+    href: "#consulentes",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Como funciona",
+    href: "#como-funciona",
     variant: "secondary" as const,
   },
 ];
@@ -31,6 +61,7 @@ export default async function TucxaSitePage() {
     {
       title: "Agenda Viva",
       text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
     },
     {
       title: content.atendimentoEmHarmonia.title,
@@ -43,10 +74,10 @@ export default async function TucxaSitePage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} sectionLinks={tucxaNavigation} />
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+      <TucxaPublicHeader actions={headerActions} showSupport={false} />
 
-      <section className="mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
+      <section className="scroll-mt-48 mx-auto grid max-w-6xl gap-5 px-4 py-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-6">
         <div className="space-y-4">
           <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
             Organização em Harmonia no Tucxa
@@ -58,17 +89,17 @@ export default async function TucxaSitePage() {
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
+            <Link href="#cadastro" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
               Sou Filho da Corrente
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
+            <Link href="#consulentes" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
               Sou Consulente / Filho de Fora
             </Link>
           </div>
         </div>
 
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+          <div id="cadastro" className="scroll-mt-48 rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que atualizar os dados?</p>
             <h2 className="mt-2 text-xl font-black text-[#123D2C] sm:text-2xl">Para receber a orientação certa, no canal certo, sem retrabalho.</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
@@ -76,6 +107,12 @@ export default async function TucxaSitePage() {
             </p>
           </div>
           <div className="mt-4 grid gap-2.5">
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:text-base">
+              Começar Primeiro Acesso do Filho da Corrente
+            </Link>
+            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
+              Já tenho acesso liberado
+            </Link>
             {benefits.map((benefit) => (
               <div key={benefit} className="rounded-2xl border border-[#123D2C]/10 bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] sm:p-4 sm:text-base">
                 {benefit}
@@ -105,12 +142,20 @@ export default async function TucxaSitePage() {
             <article key={module.title} className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
               <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">{module.title}</h3>
               <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">{module.text}</p>
+              {"href" in module && module.href && (
+                <Link
+                  href={module.href}
+                  className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+                >
+                  Abrir Agenda Viva
+                </Link>
+              )}
             </article>
           ))}
         </div>
       </section>
 
-      <section id="corrente" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section id="corrente" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">Filhos da Corrente</p>
@@ -124,14 +169,19 @@ export default async function TucxaSitePage() {
             <p className="mt-3 text-base leading-7 text-slate-700">
               Ao preencher os dados, o cadastro fica aguardando validação. Depois da conferência, o responsável libera o acesso e envia as orientações por e-mail, quando informado, e por WhatsApp.
             </p>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente" className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
-              Ir para Filho da Corrente
-            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso" className="inline-flex rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
+                Fazer Primeiro Acesso
+              </Link>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="inline-flex rounded-2xl bg-white px-5 py-3.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
+                Acesso liberado
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="consulentes" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section id="consulentes" className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -143,10 +193,13 @@ export default async function TucxaSitePage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-80 lg:grid-cols-1">
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente" className="rounded-2xl bg-[#123D2C] px-5 py-3.5 text-center text-sm font-black text-white transition hover:-translate-y-0.5 sm:text-base">
-                Entender os atendimentos
+                Acessar página do Consulente
               </Link>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
-                Cadastro / contribuição
+                Fazer cadastro / contribuição
+              </Link>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
+                Já tenho cadastro
               </Link>
             </div>
           </div>
