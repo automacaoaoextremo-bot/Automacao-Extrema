@@ -369,7 +369,7 @@ export default function FilhoDaCorrenteTucxaPage() {
       <TucxaPublicHeader
         actions={[
           { label: "Primeiro acesso", href: "#primeiro-acesso", variant: "primary" },
-          { label: "Site Tucxa", href: "/solucoes/organizacao-em-harmonia/tucxa", variant: "secondary" },
+          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#corrente", variant: "secondary" },
           { label: "Acesso liberado", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "secondary" },
         ]}
         navLabel="Menu dos Filhos da Corrente do Tucxa"

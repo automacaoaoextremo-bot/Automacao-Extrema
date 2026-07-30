@@ -38,6 +38,21 @@ type Entry = {
     | null;
 };
 
+type FinancialPeriodRow = {
+  competence_month: string;
+  opening_balance: number | string;
+  closing_balance: number | string | null;
+  status: string;
+  needs_update: boolean;
+  source_label: string | null;
+  notes: string | null;
+  updated_at: string | null;
+};
+
+type SnapshotIdentity = {
+  id: string;
+};
+
 function categoryFrom(value: Entry["category"]) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
@@ -70,19 +85,35 @@ async function buildPublicPayload(organizationId: string) {
   const settings = normalizeFinancialSettings(rawSettings);
   const months = last12Months();
 
-  const { data, error } = await supabaseAdmin
-    .from("oh_financial_entries")
-    .select(
-      "id, entry_type, competence_month, description_public, amount, status, is_provisional, needs_update, category:oh_financial_categories(name, public_name, group_name, public_visible)",
-    )
-    .eq("organization_id", organizationId)
-    .gte("competence_month", months[0])
-    .neq("status", "cancelado")
-    .eq("public_visible", true)
-    .order("competence_month", { ascending: true });
+  const [entriesResult, periodsResult] = await Promise.all([
+    supabaseAdmin
+      .from("oh_financial_entries")
+      .select(
+        "id, entry_type, competence_month, description_public, amount, status, is_provisional, needs_update, category:oh_financial_categories(name, public_name, group_name, public_visible)",
+      )
+      .eq("organization_id", organizationId)
+      .gte("competence_month", months[0])
+      .neq("status", "cancelado")
+      .eq("public_visible", true)
+      .order("competence_month", { ascending: true }),
+    supabaseAdmin
+      .from("oh_financial_periods")
+      .select(
+        "competence_month, opening_balance, closing_balance, status, needs_update, source_label, notes, updated_at",
+      )
+      .eq("organization_id", organizationId)
+      .gte("competence_month", months[0])
+      .order("competence_month", { ascending: true }),
+  ]);
 
-  if (error) throw error;
-  const entries = (data ?? []) as Entry[];
+  if (entriesResult.error) throw entriesResult.error;
+  if (periodsResult.error) throw periodsResult.error;
+
+  const entries = (entriesResult.data ?? []) as Entry[];
+  const periods = (periodsResult.data ?? []) as FinancialPeriodRow[];
+  const periodsByMonth = new Map(
+    periods.map((period) => [period.competence_month, period]),
+  );
 
   const usableEntries = entries.filter((entry) => {
     if (
@@ -95,6 +126,7 @@ async function buildPublicPayload(organizationId: string) {
     return category?.public_visible !== false;
   });
 
+  let runningBalance = asNumber(periodsByMonth.get(months[0])?.opening_balance);
   const monthly = months.map((month) => {
     const rows = usableEntries.filter(
       (entry) => entry.competence_month === month,
@@ -105,18 +137,38 @@ async function buildPublicPayload(organizationId: string) {
     const expenses = rows
       .filter((entry) => entry.entry_type === "despesa")
       .reduce((sum, entry) => sum + asNumber(entry.amount), 0);
+    const result = revenues - expenses;
+    const period = periodsByMonth.get(month);
+    const openingBalance = period
+      ? asNumber(period.opening_balance, runningBalance)
+      : runningBalance;
+    const calculatedClosingBalance = openingBalance + result;
+    const closingBalance =
+      period?.closing_balance == null
+        ? calculatedClosingBalance
+        : asNumber(period.closing_balance, calculatedClosingBalance);
+    runningBalance = closingBalance;
 
     return {
       month,
       revenues,
       expenses,
-      result: revenues - expenses,
-      provisional: rows.some(
-        (entry) =>
-          entry.is_provisional ||
-          entry.needs_update ||
-          entry.status === "provisorio",
-      ),
+      result,
+      openingBalance,
+      closingBalance,
+      balanceDivergence:
+        Math.abs(closingBalance - calculatedClosingBalance) >= 0.01,
+      provisional:
+        period?.status === "provisorio" ||
+        period?.needs_update === true ||
+        rows.some(
+          (entry) =>
+            entry.is_provisional ||
+            entry.needs_update ||
+            entry.status === "provisorio",
+        ),
+      sourceLabel: period?.source_label ?? null,
+      updatedAt: period?.updated_at ?? null,
     };
   });
 
@@ -176,8 +228,19 @@ async function buildPublicPayload(organizationId: string) {
     revenues: 0,
     expenses: 0,
     result: 0,
+    openingBalance: 0,
+    closingBalance: 0,
+    balanceDivergence: false,
     provisional: false,
+    sourceLabel: null,
+    updatedAt: null,
   };
+  const previous = monthly[monthly.length - 2] ?? null;
+  const resultDifference = previous ? latest.result - previous.result : 0;
+  const resultComparisonPercentage =
+    previous && Math.abs(previous.result) > 0
+      ? Math.round((resultDifference / Math.abs(previous.result)) * 1000) / 10
+      : null;
 
   const confirmedMonths = monthly.filter((item) => !item.provisional).length;
 
@@ -202,6 +265,13 @@ async function buildPublicPayload(organizationId: string) {
     groups: grouped,
     totals,
     latest,
+    accumulatedBalance: latest.closingBalance,
+    comparison: {
+      previousMonth: previous?.month ?? null,
+      previousResult: previous?.result ?? null,
+      resultDifference,
+      resultComparisonPercentage,
+    },
     confirmedPercentage:
       monthly.length > 0
         ? Math.round((confirmedMonths / monthly.length) * 100)
@@ -282,7 +352,7 @@ export async function POST(request: Request) {
           })
           .in(
             "id",
-            (existing ?? []).map((item) => item.id),
+            ((existing ?? []) as SnapshotIdentity[]).map((item) => item.id),
           );
         if (replaceError) throw replaceError;
       }

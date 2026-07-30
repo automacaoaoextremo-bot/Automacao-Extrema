@@ -68,17 +68,19 @@ export default async function TucxaSitePage() {
       title: "Agenda Viva",
       text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
-      buttonLabel: "Abrir Agenda Viva",
+      buttonLabel: "Acessar",
     },
     {
       title: content.atendimentoEmHarmonia.title,
       text: content.atendimentoEmHarmonia.description,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/atendimento-em-harmonia",
+      buttonLabel: "Acessar",
     },
     {
       title: content.correnteEmDia.title,
       text: content.correnteEmDia.description,
-      href: "/solucoes/organizacao-em-harmonia/tucxa/transparencia",
-      buttonLabel: "Ver Transparência em Harmonia",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/corrente-em-dia",
+      buttonLabel: "Acessar",
     },
   ];
 
@@ -206,7 +208,7 @@ export default async function TucxaSitePage() {
                 Acessar página do Consulente
               </Link>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:text-base">
-                Fazer cadastro / contribuição
+                Fazer cadastro
               </Link>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login" className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
                 Já tenho cadastro

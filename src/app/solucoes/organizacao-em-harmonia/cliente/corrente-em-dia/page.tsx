@@ -58,6 +58,12 @@ const shortcuts = [
     href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos",
   },
   {
+    title: "Balancete mensal",
+    description:
+      "Preencha receitas, despesas, saldo inicial e saldo final no formato das planilhas mensais.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes",
+  },
+  {
     title: "Importar e conciliar",
     description:
       "CSV, XLSX, OFX, extratos bancários, Google Sheets e documentos com OCR.",

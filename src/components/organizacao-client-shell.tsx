@@ -91,6 +91,7 @@ const sidebarGroups: NavGroup[] = [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
       { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Visão financeira, indicadores e pendências." },
       { label: "Lançamentos", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", description: "Receitas, despesas, documentos e aprovação." },
+      { label: "Balancete mensal", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes", description: "Cadastro mensal no formato das planilhas de receitas e despesas." },
       { label: "Importações", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/importacoes", description: "CSV, XLSX, OFX, Google Sheets e OCR." },
       { label: "Conciliação", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/reconciliacao", description: "Associe movimentos bancários ou crie lançamentos." },
       { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Pontuais, recorrentes, identificadas ou não." },

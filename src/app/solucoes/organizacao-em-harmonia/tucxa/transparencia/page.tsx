@@ -9,7 +9,12 @@ type Monthly = {
   revenues: number;
   expenses: number;
   result: number;
+  openingBalance?: number;
+  closingBalance?: number;
+  balanceDivergence?: boolean;
   provisional: boolean;
+  sourceLabel?: string | null;
+  updatedAt?: string | null;
 };
 
 type Group = {
@@ -38,6 +43,13 @@ type PublicPayload = {
   groups: Group[];
   totals: { revenues: number; expenses: number; result: number };
   latest: Monthly;
+  accumulatedBalance?: number;
+  comparison?: {
+    previousMonth: string | null;
+    previousResult: number | null;
+    resultDifference: number;
+    resultComparisonPercentage: number | null;
+  };
   confirmedPercentage: number;
   provisionalNotice: string | null;
 };
@@ -57,6 +69,11 @@ type ApiPayload = {
 
 const actions = [
   {
+    label: "Corrente em Dia",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/corrente-em-dia",
+    variant: "secondary" as const,
+  },
+  {
     label: "Início",
     href: "/solucoes/organizacao-em-harmonia/tucxa",
     variant: "secondary" as const,
@@ -74,11 +91,11 @@ const actions = [
   },
 ];
 
-function money(value: number) {
+function money(value: number | undefined) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(value || 0);
+  }).format(Number(value) || 0);
 }
 
 function monthLabel(value: string) {
@@ -92,7 +109,7 @@ function monthLabel(value: string) {
     .replace(".", "");
 }
 
-function dateTime(value: string | null) {
+function dateTime(value: string | null | undefined) {
   if (!value) return "Ainda não publicado";
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
@@ -100,10 +117,25 @@ function dateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function comparisonText(data: PublicPayload) {
+  const comparison = data.comparison;
+  if (!comparison || comparison.previousResult == null) {
+    return "Ainda não há mês anterior suficiente para comparação.";
+  }
+
+  const direction = comparison.resultDifference >= 0 ? "melhor" : "pior";
+  const percentage = comparison.resultComparisonPercentage;
+  return percentage == null
+    ? `O resultado ficou ${money(Math.abs(comparison.resultDifference))} ${direction} que no mês anterior.`
+    : `O resultado ficou ${Math.abs(percentage).toLocaleString("pt-BR")}% ${direction} que no mês anterior.`;
+}
+
 export default function TucxaTransparenciaPage() {
   const [payload, setPayload] = useState<ApiPayload>({});
   const [loading, setLoading] = useState(true);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [simulatorPeople, setSimulatorPeople] = useState("10");
+  const [simulatorAmount, setSimulatorAmount] = useState("50");
 
   useEffect(() => {
     let active = true;
@@ -159,6 +191,12 @@ export default function TucxaTransparenciaPage() {
         .slice(0, 5),
     [data?.groups],
   );
+
+  const simulatorTotal =
+    Math.max(0, Number(simulatorPeople) || 0) *
+    Math.max(0, Number(simulatorAmount.replace(",", ".")) || 0);
+  const latestGap = data ? Math.max(0, data.latest.expenses - data.latest.revenues) : 0;
+  const simulatorRemaining = Math.max(0, latestGap - simulatorTotal);
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -226,41 +264,88 @@ export default function TucxaTransparenciaPage() {
               </section>
             )}
 
+            {data.latest.balanceDivergence && (
+              <section className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-200">
+                <p className="font-black">Saldo em conferência</p>
+                <p className="mt-1 text-sm leading-6">
+                  O saldo informado no balancete possui diferença em relação ao saldo calculado pelas receitas e despesas. A Tesouraria preservou o valor original para conferência.
+                </p>
+              </section>
+            )}
+
             <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Receitas
+                  Receitas do mês
                 </p>
-                <p className="mt-2 text-xl font-black text-[#123D2C]">
-                  {money(data.totals.revenues)}
-                </p>
-              </article>
-              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Despesas
-                </p>
-                <p className="mt-2 text-xl font-black text-[#123D2C]">
-                  {money(data.totals.expenses)}
+                <p className="mt-2 text-xl font-black text-emerald-800">
+                  {money(data.latest.revenues)}
                 </p>
               </article>
               <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Resultado
+                  Despesas do mês
+                </p>
+                <p className="mt-2 text-xl font-black text-amber-800">
+                  {money(data.latest.expenses)}
+                </p>
+              </article>
+              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
+                  Resultado do mês
                 </p>
                 <p
                   className={`mt-2 text-xl font-black ${
-                    data.totals.result < 0 ? "text-red-700" : "text-[#123D2C]"
+                    data.latest.result < 0 ? "text-red-700" : "text-[#123D2C]"
                   }`}
                 >
-                  {money(data.totals.result)}
+                  {money(data.latest.result)}
                 </p>
               </article>
               <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Confirmado
+                  Dados confirmados
                 </p>
                 <p className="mt-2 text-xl font-black text-[#123D2C]">
                   {data.confirmedPercentage}%
+                </p>
+              </article>
+            </section>
+
+            <section className="grid gap-3 lg:grid-cols-3">
+              {data.settings.showAccumulatedBalance && (
+                <article className="rounded-[1.5rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10">
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                    Saldo acumulado
+                  </p>
+                  <p
+                    className={`mt-2 text-2xl font-black ${
+                      (data.accumulatedBalance ?? 0) < 0
+                        ? "text-red-700"
+                        : "text-[#123D2C]"
+                    }`}
+                  >
+                    {money(data.accumulatedBalance)}
+                  </p>
+                </article>
+              )}
+              <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                  Comparação mensal
+                </p>
+                <p className="mt-2 text-sm font-bold leading-6 text-slate-700">
+                  {comparisonText(data)}
+                </p>
+              </article>
+              <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                  Origem e atualização
+                </p>
+                <p className="mt-2 text-sm font-bold leading-6 text-slate-700">
+                  {data.latest.sourceLabel || "Dados revisados pela Tesouraria/Financeiro."}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Atualizado em {dateTime(data.latest.updatedAt || data.generatedAt)}
                 </p>
               </article>
             </section>
@@ -271,36 +356,36 @@ export default function TucxaTransparenciaPage() {
                   Histórico dos últimos 12 meses
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Verde representa receitas; a segunda barra representa despesas.
-                  Meses provisórios são identificados abaixo.
+                  Verde representa receitas e dourado representa despesas. Meses provisórios são identificados abaixo.
                 </p>
                 <div className="mt-5 flex gap-2 overflow-x-auto pb-3">
                   {data.monthly.map((item) => (
-                    <div key={item.month} className="min-w-[76px] text-center">
+                    <div key={item.month} className="min-w-[82px] text-center">
                       <div className="flex h-44 items-end justify-center gap-1 rounded-2xl bg-[#F7FAF2] p-2">
                         <div
                           className="w-3 rounded-t-lg bg-[#2F6B43]"
                           style={{
-                            height: `${Math.max(
-                              3,
-                              (item.revenues / maxValue) * 100,
-                            )}%`,
+                            height: `${Math.max(3, (item.revenues / maxValue) * 100)}%`,
                           }}
                           title={`Receitas: ${money(item.revenues)}`}
                         />
                         <div
                           className="w-3 rounded-t-lg bg-[#C7A55B]"
                           style={{
-                            height: `${Math.max(
-                              3,
-                              (item.expenses / maxValue) * 100,
-                            )}%`,
+                            height: `${Math.max(3, (item.expenses / maxValue) * 100)}%`,
                           }}
                           title={`Despesas: ${money(item.expenses)}`}
                         />
                       </div>
                       <p className="mt-2 text-xs font-black text-[#123D2C]">
                         {monthLabel(item.month)}
+                      </p>
+                      <p
+                        className={`mt-1 text-[0.68rem] font-black ${
+                          item.result < 0 ? "text-red-700" : "text-emerald-800"
+                        }`}
+                      >
+                        {money(item.result)}
                       </p>
                       {item.provisional && (
                         <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-1 text-[0.65rem] font-black text-amber-800">
@@ -318,12 +403,12 @@ export default function TucxaTransparenciaPage() {
                 {[
                   {
                     title: "Como os recursos foram aplicados",
-                    items: topExpenses,
+                    items: data.settings.showTopExpenses ? topExpenses : [],
                     type: "despesa" as const,
                   },
                   {
                     title: "De onde vieram os recursos",
-                    items: topRevenues,
+                    items: data.settings.showTopRevenues ? topRevenues : [],
                     type: "receita" as const,
                   },
                 ].map((section) => (
@@ -371,9 +456,7 @@ export default function TucxaTransparenciaPage() {
                                     key={item.name}
                                     className="flex items-start justify-between gap-3 text-sm"
                                   >
-                                    <span className="text-slate-600">
-                                      {item.name}
-                                    </span>
+                                    <span className="text-slate-600">{item.name}</span>
                                     <span className="shrink-0 font-bold text-[#123D2C]">
                                       {money(item.total)}
                                     </span>
@@ -384,9 +467,77 @@ export default function TucxaTransparenciaPage() {
                           </div>
                         );
                       })}
+                      {section.items.length === 0 && (
+                        <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                          Este destaque foi desativado pela Tesouraria/Financeiro.
+                        </p>
+                      )}
                     </div>
                   </article>
                 ))}
+              </section>
+            )}
+
+            {data.settings.showNegativeResults && data.latest.result < 0 && (
+              <section className="rounded-[2rem] bg-red-50 p-5 text-red-900 ring-1 ring-red-100 sm:p-6">
+                <p className="text-xs font-black uppercase tracking-[0.18em]">
+                  Atenção do mês
+                </p>
+                <h2 className="mt-2 text-xl font-black">
+                  As despesas superaram as receitas em {money(Math.abs(data.latest.result))}.
+                </h2>
+                <p className="mt-2 text-sm leading-6">
+                  O destaque ajuda a comunidade a compreender a situação sem expor contribuições individuais.
+                </p>
+              </section>
+            )}
+
+            {data.settings.showSimulator && (
+              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-7">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+                  Simulação de equilíbrio
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
+                  Pequenas participações podem reduzir uma diferença coletiva.
+                </h2>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                  Esta simulação não cria cobrança e não substitui a prestação de contas. Ela apenas mostra o impacto matemático de um grupo contribuindo com um mesmo valor.
+                </p>
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-2 font-black text-[#123D2C]">
+                    Quantidade de pessoas
+                    <input
+                      type="number"
+                      min="0"
+                      value={simulatorPeople}
+                      onChange={(event) => setSimulatorPeople(event.target.value)}
+                      className="rounded-2xl border border-slate-200 p-4"
+                    />
+                  </label>
+                  <label className="grid gap-2 font-black text-[#123D2C]">
+                    Valor médio por pessoa
+                    <input
+                      value={simulatorAmount}
+                      onChange={(event) => setSimulatorAmount(event.target.value)}
+                      inputMode="decimal"
+                      className="rounded-2xl border border-slate-200 p-4"
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Impacto simulado</p>
+                    <p className="mt-2 text-xl font-black text-[#123D2C]">{money(simulatorTotal)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Diferença atual</p>
+                    <p className="mt-2 text-xl font-black text-red-700">{money(latestGap)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Diferença restante</p>
+                    <p className="mt-2 text-xl font-black text-[#123D2C]">{money(simulatorRemaining)}</p>
+                  </div>
+                </div>
               </section>
             )}
 
@@ -395,8 +546,7 @@ export default function TucxaTransparenciaPage() {
                 Manter a Casa em harmonia também é cuidar de cada trabalho.
               </h2>
               <p className="mx-auto mt-3 max-w-3xl leading-7 text-slate-700">
-                Você escolhe o valor, se deseja se identificar e se prefere
-                contribuir uma vez ou organizar uma contribuição recorrente.
+                Você escolhe o valor, se deseja se identificar e se prefere contribuir uma vez ou organizar uma contribuição recorrente.
               </p>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao"
