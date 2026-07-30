@@ -4,17 +4,24 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
-type Monthly = {
+type MonthSummary = {
   month: string;
-  revenues: number;
-  expenses: number;
-  result: number;
-  openingBalance?: number;
-  closingBalance?: number;
-  balanceDivergence?: boolean;
-  provisional: boolean;
-  sourceLabel?: string | null;
-  updatedAt?: string | null;
+  workflowStatus: string;
+  finalized: boolean;
+  current: boolean;
+  hasData: boolean;
+  revenues: number | null;
+  expenses: number | null;
+  result: number | null;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  bankBalance: number | null;
+  realizedRevenues: number;
+  realizedExpenses: number;
+  estimatedRevenues: number;
+  estimatedExpenses: number;
+  sourceLabel: string | null;
+  updatedAt: string | null;
 };
 
 type Group = {
@@ -24,7 +31,7 @@ type Group = {
   items: Array<{ name: string; total: number }>;
 };
 
-type PublicPayload = {
+type LivePayload = {
   generatedAt: string;
   settings: {
     detailLevel: "resumido" | "grupos" | "itens";
@@ -34,36 +41,19 @@ type PublicPayload = {
     showTopRevenues: boolean;
     showNegativeResults: boolean;
     showAccumulatedBalance: boolean;
-    showSimulator: boolean;
-    showProvisionalData: boolean;
     headline: string;
     message: string;
   };
-  monthly: Monthly[];
-  groups: Group[];
-  totals: { revenues: number; expenses: number; result: number };
-  latest: Monthly;
-  accumulatedBalance?: number;
-  comparison?: {
-    previousMonth: string | null;
-    previousResult: number | null;
-    resultDifference: number;
-    resultComparisonPercentage: number | null;
-  };
-  confirmedPercentage: number;
-  provisionalNotice: string | null;
-};
-
-type Snapshot = {
-  id: string;
-  reference_month: string;
-  payload: PublicPayload;
-  published_at: string | null;
+  latestFinalized: MonthSummary | null;
+  currentForecast: MonthSummary;
+  finalizedMonthly: MonthSummary[];
+  history: MonthSummary[];
+  latestFinalizedGroups: Group[];
+  currentGroups: Group[];
 };
 
 type ApiPayload = {
-  snapshot?: Snapshot | null;
-  message?: string;
+  live?: LivePayload;
   error?: string;
 };
 
@@ -91,112 +81,154 @@ const actions = [
   },
 ];
 
-function money(value: number | undefined) {
+function money(value: number | null | undefined) {
+  if (value == null) return "—";
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(Number(value) || 0);
 }
 
-function monthLabel(value: string) {
-  const normalized = value.length >= 10 ? value.slice(0, 10) : `${value}-01`;
+function monthLabel(value: string, format: "short" | "long" = "short") {
   return new Intl.DateTimeFormat("pt-BR", {
-    month: "short",
-    year: "2-digit",
+    month: format,
+    year: "numeric",
     timeZone: "UTC",
   })
-    .format(new Date(`${normalized}T12:00:00Z`))
+    .format(new Date(`${value.slice(0, 10)}T12:00:00Z`))
     .replace(".", "");
 }
 
-function dateTime(value: string | null | undefined) {
-  if (!value) return "Ainda não publicado";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+function MetricCard({
+  label,
+  value,
+  tone = "text-[#123D2C]",
+}: {
+  label: string;
+  value: number | null;
+  tone?: string;
+}) {
+  return (
+    <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
+        {label}
+      </p>
+      <p className={`mt-2 text-xl font-black ${tone}`}>{money(value)}</p>
+    </article>
+  );
 }
 
-function comparisonText(data: PublicPayload) {
-  const comparison = data.comparison;
-  if (!comparison || comparison.previousResult == null) {
-    return "Ainda não há mês anterior suficiente para comparação.";
-  }
-
-  const direction = comparison.resultDifference >= 0 ? "melhor" : "pior";
-  const percentage = comparison.resultComparisonPercentage;
-  return percentage == null
-    ? `O resultado ficou ${money(Math.abs(comparison.resultDifference))} ${direction} que no mês anterior.`
-    : `O resultado ficou ${Math.abs(percentage).toLocaleString("pt-BR")}% ${direction} que no mês anterior.`;
+function FinancialSummary({
+  title,
+  subtitle,
+  month,
+}: {
+  title: string;
+  subtitle: string;
+  month: MonthSummary;
+}) {
+  return (
+    <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+        {title}
+      </p>
+      <h2 className="mt-1 text-2xl font-black capitalize text-[#123D2C]">
+        {monthLabel(month.month, "long")}
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <MetricCard label="Receitas" value={month.revenues} tone="text-emerald-800" />
+        <MetricCard label="Despesas" value={month.expenses} tone="text-amber-800" />
+        <MetricCard
+          label="Resultado"
+          value={month.result}
+          tone={(month.result ?? 0) < 0 ? "text-red-700" : "text-[#123D2C]"}
+        />
+        <MetricCard
+          label="Saldo no banco"
+          value={month.bankBalance}
+          tone={(month.bankBalance ?? 0) < 0 ? "text-red-700" : "text-[#123D2C]"}
+        />
+      </div>
+    </section>
+  );
 }
 
 export default function TucxaTransparenciaPage() {
   const [payload, setPayload] = useState<ApiPayload>({});
   const [loading, setLoading] = useState(true);
+  const [averageWindow, setAverageWindow] = useState<"3" | "6" | "all">("3");
+  const [detailScope, setDetailScope] = useState<"finalized" | "current">("finalized");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const [simulatorPeople, setSimulatorPeople] = useState("10");
-  const [simulatorAmount, setSimulatorAmount] = useState("50");
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/organizacao-em-harmonia/site-tucxa/transparencia", {
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        const result = (await response.json()) as ApiPayload;
-        if (!active) return;
-        setPayload(result);
+    const timerId = window.setTimeout(() => {
+      void fetch("/api/organizacao-em-harmonia/site-tucxa/transparencia", {
+        cache: "no-store",
       })
-      .catch(() => {
-        if (active) {
-          setPayload({ error: "Não foi possível carregar a prestação de contas." });
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+        .then(async (response) => {
+          const result = (await response.json()) as ApiPayload;
+          if (!active) return;
+          setPayload(result);
+        })
+        .catch(() => {
+          if (active) {
+            setPayload({ error: "Não foi possível carregar a prestação de contas." });
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(timerId);
     };
   }, []);
 
-  const snapshot = payload.snapshot;
-  const data = snapshot?.payload;
-  const maxValue = useMemo(
-    () =>
-      Math.max(
-        1,
-        ...(data?.monthly ?? []).flatMap((item) => [
-          item.revenues,
-          item.expenses,
-        ]),
-      ),
-    [data?.monthly],
-  );
+  const data = payload.live;
+  const averageMonths = useMemo(() => {
+    const finalized = data?.finalizedMonthly ?? [];
+    if (averageWindow === "all") return finalized;
+    return finalized.slice(-Number(averageWindow));
+  }, [averageWindow, data?.finalizedMonthly]);
 
-  const topExpenses = useMemo(
-    () =>
-      (data?.groups ?? [])
-        .filter((group) => group.type === "despesa")
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 5),
-    [data?.groups],
-  );
-  const topRevenues = useMemo(
-    () =>
-      (data?.groups ?? [])
-        .filter((group) => group.type === "receita")
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 5),
-    [data?.groups],
-  );
+  const averages = useMemo(() => {
+    if (averageMonths.length === 0) {
+      return { revenues: 0, expenses: 0, result: 0 };
+    }
+    const totals = averageMonths.reduce(
+      (current, month) => ({
+        revenues: current.revenues + (month.revenues ?? 0),
+        expenses: current.expenses + (month.expenses ?? 0),
+        result: current.result + (month.result ?? 0),
+      }),
+      { revenues: 0, expenses: 0, result: 0 },
+    );
+    return {
+      revenues: totals.revenues / averageMonths.length,
+      expenses: totals.expenses / averageMonths.length,
+      result: totals.result / averageMonths.length,
+    };
+  }, [averageMonths]);
 
-  const simulatorTotal =
-    Math.max(0, Number(simulatorPeople) || 0) *
-    Math.max(0, Number(simulatorAmount.replace(",", ".")) || 0);
-  const latestGap = data ? Math.max(0, data.latest.expenses - data.latest.revenues) : 0;
-  const simulatorRemaining = Math.max(0, latestGap - simulatorTotal);
+  const historyNewestFirst = useMemo(() => {
+    const previousMonths = (data?.history ?? []).filter((month) => !month.current);
+    const finalized = previousMonths
+      .filter((month) => month.finalized)
+      .sort((left, right) => right.month.localeCompare(left.month));
+    const unfinished = previousMonths
+      .filter((month) => !month.finalized)
+      .sort((left, right) => right.month.localeCompare(left.month));
+    return [...finalized, ...unfinished];
+  }, [data?.history]);
+
+  const detailGroups =
+    detailScope === "current"
+      ? data?.currentGroups ?? []
+      : data?.latestFinalizedGroups ?? [];
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -212,17 +244,12 @@ export default function TucxaTransparenciaPage() {
             Transparência em Harmonia
           </p>
           <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">
-            {data?.settings.headline || "Transparência fortalece a confiança."}
+            {data?.settings.headline || "Fortalecendo a confiança"}
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             {data?.settings.message ||
-              "Acompanhe a aplicação coletiva dos recursos sem exposição de quem contribuiu."}
+              "Acompanhe o último mês finalizado e os valores registrados para o mês atual."}
           </p>
-          {snapshot && (
-            <p className="mt-4 text-xs font-bold text-[#CFE2C7]">
-              Última publicação: {dateTime(snapshot.published_at)}
-            </p>
-          )}
         </header>
 
         {loading && (
@@ -237,117 +264,62 @@ export default function TucxaTransparenciaPage() {
           </p>
         )}
 
-        {!loading && !snapshot && !payload.error && (
-          <section className="rounded-[2rem] bg-white p-6 text-center shadow ring-1 ring-[#123D2C]/10">
-            <h2 className="text-2xl font-black text-[#123D2C]">
-              Prestação em preparação
-            </h2>
-            <p className="mt-3 leading-7 text-slate-600">
-              {payload.message ||
-                "A Tesouraria/Financeiro ainda está revisando os dados para a primeira publicação."}
-            </p>
-            <Link
-              href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao"
-              className="mt-5 inline-flex rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white"
-            >
-              Contribuir com a Casa
-            </Link>
-          </section>
-        )}
-
         {data && (
           <>
-            {data.provisionalNotice && (
-              <section className="rounded-2xl bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200">
-                <p className="font-black">Dados provisórios</p>
-                <p className="mt-1 text-sm leading-6">{data.provisionalNotice}</p>
-              </section>
-            )}
-
-            {data.latest.balanceDivergence && (
-              <section className="rounded-2xl bg-blue-50 p-4 text-blue-900 ring-1 ring-blue-200">
-                <p className="font-black">Saldo em conferência</p>
-                <p className="mt-1 text-sm leading-6">
-                  O saldo informado no balancete possui diferença em relação ao saldo calculado pelas receitas e despesas. A Tesouraria preservou o valor original para conferência.
-                </p>
-              </section>
-            )}
-
-            <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Receitas do mês
-                </p>
-                <p className="mt-2 text-xl font-black text-emerald-800">
-                  {money(data.latest.revenues)}
-                </p>
-              </article>
-              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Despesas do mês
-                </p>
-                <p className="mt-2 text-xl font-black text-amber-800">
-                  {money(data.latest.expenses)}
-                </p>
-              </article>
-              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Resultado do mês
-                </p>
-                <p
-                  className={`mt-2 text-xl font-black ${
-                    data.latest.result < 0 ? "text-red-700" : "text-[#123D2C]"
-                  }`}
-                >
-                  {money(data.latest.result)}
-                </p>
-              </article>
-              <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Dados confirmados
-                </p>
-                <p className="mt-2 text-xl font-black text-[#123D2C]">
-                  {data.confirmedPercentage}%
-                </p>
-              </article>
-            </section>
-
-            <section className="grid gap-3 lg:grid-cols-3">
-              {data.settings.showAccumulatedBalance && (
-                <article className="rounded-[1.5rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                    Saldo acumulado
-                  </p>
-                  <p
-                    className={`mt-2 text-2xl font-black ${
-                      (data.accumulatedBalance ?? 0) < 0
-                        ? "text-red-700"
-                        : "text-[#123D2C]"
-                    }`}
-                  >
-                    {money(data.accumulatedBalance)}
-                  </p>
-                </article>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {data.latestFinalized ? (
+                <FinancialSummary
+                  title="Último mês finalizado"
+                  subtitle="Valores conferidos e encerrados pela Tesouraria/Financeiro."
+                  month={data.latestFinalized}
+                />
+              ) : (
+                <section className="rounded-[2rem] bg-amber-50 p-5 font-bold leading-7 text-amber-900 ring-1 ring-amber-200">
+                  Ainda não existe uma competência finalizada para exibição pública.
+                </section>
               )}
-              <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                  Comparação mensal
-                </p>
-                <p className="mt-2 text-sm font-bold leading-6 text-slate-700">
-                  {comparisonText(data)}
-                </p>
-              </article>
-              <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                  Origem e atualização
-                </p>
-                <p className="mt-2 text-sm font-bold leading-6 text-slate-700">
-                  {data.latest.sourceLabel || "Dados revisados pela Tesouraria/Financeiro."}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Atualizado em {dateTime(data.latest.updatedAt || data.generatedAt)}
-                </p>
-              </article>
+              <FinancialSummary
+                title="Previsão do mês atual"
+                subtitle="Receitas e despesas registradas até a consulta, incluindo estimativas cadastradas."
+                month={data.currentForecast}
+              />
+            </div>
+
+            <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+                    Médias dos meses finalizados
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-[#123D2C]">
+                    Escolha o período usado como referência
+                  </h2>
+                </div>
+                <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+                  Período da média
+                  <select
+                    value={averageWindow}
+                    onChange={(event) =>
+                      setAverageWindow(event.target.value as "3" | "6" | "all")
+                    }
+                    className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4"
+                  >
+                    <option value="3">Últimos 3 meses finalizados</option>
+                    <option value="6">Últimos 6 meses finalizados</option>
+                    <option value="all">Todos os meses finalizados</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <MetricCard label="Média receitas" value={averages.revenues} tone="text-emerald-800" />
+                <MetricCard label="Média despesas" value={averages.expenses} tone="text-amber-800" />
+                <MetricCard
+                  label="Média resultado"
+                  value={averages.result}
+                  tone={averages.result < 0 ? "text-red-700" : "text-[#123D2C]"}
+                />
+              </div>
             </section>
 
             {data.settings.showLast12Months && (
@@ -356,187 +328,122 @@ export default function TucxaTransparenciaPage() {
                   Histórico dos últimos 12 meses
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Verde representa receitas e dourado representa despesas. Meses provisórios são identificados abaixo.
+                  Meses anteriores sem fechamento permanecem sem valores. Arraste horizontalmente para consultar os demais meses.
                 </p>
-                <div className="mt-5 flex gap-2 overflow-x-auto pb-3">
-                  {data.monthly.map((item) => (
-                    <div key={item.month} className="min-w-[82px] text-center">
-                      <div className="flex h-44 items-end justify-center gap-1 rounded-2xl bg-[#F7FAF2] p-2">
-                        <div
-                          className="w-3 rounded-t-lg bg-[#2F6B43]"
-                          style={{
-                            height: `${Math.max(3, (item.revenues / maxValue) * 100)}%`,
-                          }}
-                          title={`Receitas: ${money(item.revenues)}`}
-                        />
-                        <div
-                          className="w-3 rounded-t-lg bg-[#C7A55B]"
-                          style={{
-                            height: `${Math.max(3, (item.expenses / maxValue) * 100)}%`,
-                          }}
-                          title={`Despesas: ${money(item.expenses)}`}
-                        />
-                      </div>
-                      <p className="mt-2 text-xs font-black text-[#123D2C]">
-                        {monthLabel(item.month)}
-                      </p>
-                      <p
-                        className={`mt-1 text-[0.68rem] font-black ${
-                          item.result < 0 ? "text-red-700" : "text-emerald-800"
-                        }`}
+
+                <div className="mt-5 overflow-x-auto pb-3">
+                  <div className="flex min-w-max gap-3">
+                    <article className="w-36 shrink-0 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-800">Média receitas</p>
+                      <p className="mt-2 font-black text-emerald-900">{money(averages.revenues)}</p>
+                    </article>
+                    <article className="w-36 shrink-0 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100">
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-amber-800">Média despesas</p>
+                      <p className="mt-2 font-black text-amber-900">{money(averages.expenses)}</p>
+                    </article>
+                    <article className="w-36 shrink-0 rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Média resultado</p>
+                      <p className={`mt-2 font-black ${averages.result < 0 ? "text-red-700" : "text-[#123D2C]"}`}>{money(averages.result)}</p>
+                    </article>
+
+                    {historyNewestFirst.map((month) => (
+                      <article
+                        key={month.month}
+                        className="w-40 shrink-0 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
                       >
-                        {money(item.result)}
-                      </p>
-                      {item.provisional && (
-                        <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-1 text-[0.65rem] font-black text-amber-800">
-                          Provisório
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                        <p className="text-sm font-black capitalize text-[#123D2C]">
+                          {monthLabel(month.month)}
+                        </p>
+                        {month.finalized || month.current ? (
+                          <div className="mt-3 grid gap-2 text-xs">
+                            <p className="flex justify-between gap-2"><span>Receitas</span><strong>{money(month.revenues)}</strong></p>
+                            <p className="flex justify-between gap-2"><span>Despesas</span><strong>{money(month.expenses)}</strong></p>
+                            <p className="flex justify-between gap-2"><span>Resultado</span><strong>{money(month.result)}</strong></p>
+                            <div className="mt-1 rounded-xl bg-white p-2">
+                              <p className="font-black text-[#2F6B43]">Saldo no banco</p>
+                              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className={`h-full rounded-full ${(month.bankBalance ?? 0) < 0 ? "bg-red-500" : "bg-[#2F6B43]"}`}
+                                  style={{ width: `${Math.min(100, Math.max(8, Math.abs(month.bankBalance ?? 0) / 250))}%` }}
+                                />
+                              </div>
+                              <p className={`mt-1 font-black ${(month.bankBalance ?? 0) < 0 ? "text-red-700" : "text-[#123D2C]"}`}>{money(month.bankBalance)}</p>
+                            </div>
+                            {month.current && (
+                              <span className="rounded-full bg-blue-100 px-2 py-1 text-center font-black text-blue-800">Mês atual</span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="mt-4 rounded-xl bg-white p-3 text-center text-xs font-bold leading-5 text-slate-400">
+                            Financeiro ainda não finalizado
+                          </p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
                 </div>
               </section>
             )}
 
             {data.settings.detailLevel !== "resumido" && (
-              <section className="grid gap-4 lg:grid-cols-2">
-                {[
-                  {
-                    title: "Como os recursos foram aplicados",
-                    items: data.settings.showTopExpenses ? topExpenses : [],
-                    type: "despesa" as const,
-                  },
-                  {
-                    title: "De onde vieram os recursos",
-                    items: data.settings.showTopRevenues ? topRevenues : [],
-                    type: "receita" as const,
-                  },
-                ].map((section) => (
-                  <article
-                    key={section.type}
-                    className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6"
+              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Detalhamento</p>
+                    <h2 className="mt-1 text-xl font-black text-[#123D2C]">Categorias e itens</h2>
+                  </div>
+                  <select
+                    value={detailScope}
+                    onChange={(event) => setDetailScope(event.target.value as "finalized" | "current")}
+                    className="min-h-12 rounded-2xl border border-slate-200 bg-white px-4 font-black text-[#123D2C]"
                   >
-                    <h2 className="text-xl font-black text-[#123D2C]">
-                      {section.title}
-                    </h2>
-                    <div className="mt-4 grid gap-3">
-                      {section.items.map((group) => {
-                        const key = `${section.type}:${group.group}`;
-                        const canOpen =
-                          data.settings.showDrilldown &&
-                          data.settings.detailLevel === "itens" &&
-                          group.items.length > 0;
-                        return (
-                          <div
-                            key={key}
-                            className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
-                          >
-                            <button
-                              type="button"
-                              disabled={!canOpen}
-                              onClick={() =>
-                                setOpenGroups((current) => ({
-                                  ...current,
-                                  [key]: !current[key],
-                                }))
-                              }
-                              className="flex w-full items-center justify-between gap-3 text-left"
-                            >
-                              <span className="font-black text-[#123D2C]">
-                                {group.group}
-                              </span>
-                              <span className="shrink-0 font-black text-[#123D2C]">
-                                {money(group.total)}
-                              </span>
-                            </button>
-                            {canOpen && openGroups[key] && (
-                              <div className="mt-3 grid gap-2 border-t border-[#123D2C]/10 pt-3">
-                                {group.items.map((item) => (
-                                  <div
-                                    key={item.name}
-                                    className="flex items-start justify-between gap-3 text-sm"
-                                  >
-                                    <span className="text-slate-600">{item.name}</span>
-                                    <span className="shrink-0 font-bold text-[#123D2C]">
-                                      {money(item.total)}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {section.items.length === 0 && (
-                        <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
-                          Este destaque foi desativado pela Tesouraria/Financeiro.
-                        </p>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </section>
-            )}
-
-            {data.settings.showNegativeResults && data.latest.result < 0 && (
-              <section className="rounded-[2rem] bg-red-50 p-5 text-red-900 ring-1 ring-red-100 sm:p-6">
-                <p className="text-xs font-black uppercase tracking-[0.18em]">
-                  Atenção do mês
-                </p>
-                <h2 className="mt-2 text-xl font-black">
-                  As despesas superaram as receitas em {money(Math.abs(data.latest.result))}.
-                </h2>
-                <p className="mt-2 text-sm leading-6">
-                  O destaque ajuda a comunidade a compreender a situação sem expor contribuições individuais.
-                </p>
-              </section>
-            )}
-
-            {data.settings.showSimulator && (
-              <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-7">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-                  Simulação de equilíbrio
-                </p>
-                <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-                  Pequenas participações podem reduzir uma diferença coletiva.
-                </h2>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                  Esta simulação não cria cobrança e não substitui a prestação de contas. Ela apenas mostra o impacto matemático de um grupo contribuindo com um mesmo valor.
-                </p>
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2 font-black text-[#123D2C]">
-                    Quantidade de pessoas
-                    <input
-                      type="number"
-                      min="0"
-                      value={simulatorPeople}
-                      onChange={(event) => setSimulatorPeople(event.target.value)}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    />
-                  </label>
-                  <label className="grid gap-2 font-black text-[#123D2C]">
-                    Valor médio por pessoa
-                    <input
-                      value={simulatorAmount}
-                      onChange={(event) => setSimulatorAmount(event.target.value)}
-                      inputMode="decimal"
-                      className="rounded-2xl border border-slate-200 p-4"
-                    />
-                  </label>
+                    <option value="finalized">Último mês finalizado</option>
+                    <option value="current">Mês atual</option>
+                  </select>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Impacto simulado</p>
-                    <p className="mt-2 text-xl font-black text-[#123D2C]">{money(simulatorTotal)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Diferença atual</p>
-                    <p className="mt-2 text-xl font-black text-red-700">{money(latestGap)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Diferença restante</p>
-                    <p className="mt-2 text-xl font-black text-[#123D2C]">{money(simulatorRemaining)}</p>
-                  </div>
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  {(["receita", "despesa"] as const).map((type) => (
+                    <article key={type} className="rounded-[1.5rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                      <h3 className="text-lg font-black text-[#123D2C]">
+                        {type === "receita" ? "Receitas" : "Despesas"}
+                      </h3>
+                      <div className="mt-3 grid gap-2">
+                        {detailGroups
+                          .filter((group) => group.type === type)
+                          .map((group) => {
+                            const key = `${detailScope}:${type}:${group.group}`;
+                            const canOpen = data.settings.showDrilldown && data.settings.detailLevel === "itens";
+                            return (
+                              <div key={key} className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+                                <button
+                                  type="button"
+                                  disabled={!canOpen}
+                                  onClick={() => setOpenGroups((current) => ({ ...current, [key]: !current[key] }))}
+                                  className="flex w-full items-center justify-between gap-3 text-left"
+                                >
+                                  <span className="font-black text-[#123D2C]">{group.group}</span>
+                                  <span className="shrink-0 font-black text-[#123D2C]">{money(group.total)}</span>
+                                </button>
+                                {canOpen && openGroups[key] && (
+                                  <div className="mt-3 grid gap-2 border-t border-[#123D2C]/10 pt-3">
+                                    {group.items.map((item) => (
+                                      <p key={item.name} className="flex justify-between gap-3 text-sm text-slate-600">
+                                        <span>{item.name}</span>
+                                        <strong className="shrink-0 text-[#123D2C]">{money(item.total)}</strong>
+                                      </p>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        {detailGroups.filter((group) => group.type === type).length === 0 && (
+                          <p className="rounded-2xl bg-white p-4 text-sm font-bold text-slate-500">Nenhum valor registrado para este período.</p>
+                        )}
+                      </div>
+                    </article>
+                  ))}
                 </div>
               </section>
             )}
@@ -546,13 +453,13 @@ export default function TucxaTransparenciaPage() {
                 Manter a Casa em harmonia também é cuidar de cada trabalho.
               </h2>
               <p className="mx-auto mt-3 max-w-3xl leading-7 text-slate-700">
-                Você escolhe o valor, se deseja se identificar e se prefere contribuir uma vez ou organizar uma contribuição recorrente.
+                Você escolhe o valor, se deseja se identificar e como prefere organizar sua contribuição.
               </p>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao"
                 className="mt-5 inline-flex rounded-2xl bg-[#123D2C] px-6 py-4 font-black text-white"
               >
-                Contribuir com sigilo
+                Contribuir
               </Link>
             </section>
           </>

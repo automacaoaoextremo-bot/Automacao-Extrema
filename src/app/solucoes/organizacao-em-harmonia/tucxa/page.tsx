@@ -24,13 +24,18 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
-    label: "Visão",
-    href: "#visao",
+    label: "Módulos",
+    href: "#modulos",
     variant: "secondary" as const,
   },
   {
-    label: "Módulos",
-    href: "#modulos",
+    label: "Como funciona",
+    href: "#como-funciona",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Prestação de Contas",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/transparencia",
     variant: "secondary" as const,
   },
   {
@@ -38,21 +43,6 @@ const headerActions = [
     href: "#duvidas",
     variant: "secondary" as const,
     action: "supportWhatsapp" as const,
-  },
-  {
-    label: "Filhos da Corrente",
-    href: "#corrente",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Consulente",
-    href: "#consulentes",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Como funciona",
-    href: "#como-funciona",
-    variant: "secondary" as const,
   },
 ];
 
@@ -101,7 +91,7 @@ export default async function TucxaSitePage() {
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Link href="#cadastro" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
+            <Link href="#corrente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
               Sou Filho da Corrente
             </Link>
             <Link href="#consulentes" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
@@ -112,18 +102,18 @@ export default async function TucxaSitePage() {
 
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
           <div id="cadastro" className="scroll-mt-48 rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que atualizar os dados?</p>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que se cadastrar?</p>
             <h2 className="mt-2 text-xl font-black text-[#123D2C] sm:text-2xl">Para receber a orientação certa, no canal certo, sem retrabalho.</h2>
             <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
               Nome completo e WhatsApp ajudam a casa a reconhecer cada filho. O e-mail é opcional, mas recomendado para reforçar comunicados importantes e evitar que uma orientação se perca no volume de mensagens.
             </p>
           </div>
-          <div className="mt-4 grid gap-2.5">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:text-base">
-              Começar Primeiro Acesso do Filho da Corrente
+          <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+            <Link href="#corrente" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base">
+              Sou Filho da Corrente
             </Link>
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:text-base">
-              Já tenho acesso liberado
+            <Link href="#consulentes" className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base">
+              Sou Consulente / Filho de Fora
             </Link>
             {benefits.map((benefit) => (
               <div key={benefit} className="rounded-2xl border border-[#123D2C]/10 bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C] sm:p-4 sm:text-base">

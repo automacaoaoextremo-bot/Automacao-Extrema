@@ -25,6 +25,7 @@ type Settings = {
   publicShowAccumulatedBalance: boolean;
   publicShowSimulator: boolean;
   publicShowProvisionalData: boolean;
+  publicPopupAutoOpen: boolean;
   publicPopupFrequency:
     | "every_access"
     | "once_per_session"
@@ -76,12 +77,13 @@ const defaults: Settings = {
   publicShowTopRevenues: true,
   publicShowNegativeResults: true,
   publicShowAccumulatedBalance: true,
-  publicShowSimulator: true,
-  publicShowProvisionalData: true,
+  publicShowSimulator: false,
+  publicShowProvisionalData: false,
+  publicPopupAutoOpen: true,
   publicPopupFrequency: "once_per_session",
-  publicHeadline: "Transparência fortalece a confiança.",
+  publicHeadline: "Fortalecendo a confiança",
   publicMessage:
-    "Cada contribuição ajuda a manter a Casa aberta, acolhedora e preparada para realizar seus trabalhos. Nenhum nome ou valor individual é exibido.",
+    "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo.",
   googleSheetsUrl: "",
   googleSheetsTab: "",
   googleSheetsLastSyncAt: null,
@@ -591,6 +593,14 @@ export default function CorrenteConfiguracoesPage() {
           </h2>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <Toggle
+                checked={settings.publicPopupAutoOpen}
+                onChange={(value) => update("publicPopupAutoOpen", value)}
+                label="Abrir a prestação de contas automaticamente"
+                description="Quando desativado, o conteúdo continua disponível pelo link Prestação de Contas no site público do Tucxa."
+              />
+            </div>
             <label className="grid gap-2 font-black text-[#123D2C]">
               Nível de detalhamento
               <select
@@ -609,8 +619,9 @@ export default function CorrenteConfiguracoesPage() {
               </select>
             </label>
             <label className="grid gap-2 font-black text-[#123D2C]">
-              Frequência do popup
+              Frequência quando a abertura automática estiver ativa
               <select
+                disabled={!settings.publicPopupAutoOpen}
                 value={settings.publicPopupFrequency}
                 onChange={(event) =>
                   update(
@@ -618,7 +629,7 @@ export default function CorrenteConfiguracoesPage() {
                     event.target.value as Settings["publicPopupFrequency"],
                   )
                 }
-                className="rounded-2xl border border-slate-200 p-4"
+                className="rounded-2xl border border-slate-200 p-4 disabled:bg-slate-100 disabled:text-slate-400"
               >
                 <option value="every_access">A cada acesso</option>
                 <option value="once_per_session">Uma vez por sessão</option>
@@ -658,8 +669,6 @@ export default function CorrenteConfiguracoesPage() {
               ["publicShowTopRevenues", "Melhores receitas"],
               ["publicShowNegativeResults", "Resultados negativos destacados"],
               ["publicShowAccumulatedBalance", "Saldo acumulado"],
-              ["publicShowSimulator", "Simulador de equilíbrio"],
-              ["publicShowProvisionalData", "Exibir dados provisórios"],
             ].map(([key, label]) => (
               <Toggle
                 key={key}
@@ -671,6 +680,10 @@ export default function CorrenteConfiguracoesPage() {
               />
             ))}
           </div>
+
+          <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">
+            A Simulação de equilíbrio fica restrita à Gestão Financeira. Meses anteriores só aparecem publicamente quando o financeiro estiver finalizado; o mês atual mostra apenas os valores registrados até a consulta.
+          </p>
         </section>
 
         <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">

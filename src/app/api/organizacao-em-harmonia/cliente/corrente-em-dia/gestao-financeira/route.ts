@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const auth = await getFinancialAuthContext(request, "view");
+    const auth = await getFinancialAuthContext(request, "manage");
     if (!auth.ok) return auth.response;
 
     return NextResponse.json({
@@ -19,19 +19,9 @@ export async function GET(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Erro ao preparar a prestação de contas.",
+            : "Erro ao carregar a Gestão Financeira.",
       },
       { status: 500 },
     );
   }
-}
-
-export async function POST() {
-  return NextResponse.json(
-    {
-      error:
-        "A prestação de contas agora usa os dados financeiros em tempo real. Não é mais necessário publicar snapshots manualmente.",
-    },
-    { status: 410 },
-  );
 }

@@ -52,15 +52,21 @@ function monthLabel(value: string) {
 
 const shortcuts = [
   {
+    title: "Gestão Financeira",
+    description:
+      "Acompanhe indicadores, valide a visão pública e simule cenários de sustentabilidade.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/gestao-financeira",
+  },
+  {
     title: "Lançamentos",
     description:
-      "Cadastre receitas e despesas, revise dados provisórios e aprove competências.",
+      "Registre receitas e despesas separando competência, vencimento e movimento financeiro.",
     href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos",
   },
   {
     title: "Balancete mensal",
     description:
-      "Preencha receitas, despesas, saldo inicial e saldo final no formato das planilhas mensais.",
+      "Feche a competência mensal com receitas, despesas, resultado e saldo bancário.",
     href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes",
   },
   {
@@ -90,7 +96,7 @@ const shortcuts = [
   {
     title: "Prestação pública",
     description:
-      "Revise o painel agregado e publique um snapshot sem expor nenhuma pessoa.",
+      "Valide exatamente o que aparece no popup e no painel público em tempo real.",
     href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/prestacao-contas",
   },
   {

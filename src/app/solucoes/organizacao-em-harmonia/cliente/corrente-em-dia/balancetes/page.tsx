@@ -32,6 +32,8 @@ type Period = {
   id: string;
   competence_month: string;
   status: string;
+  workflow_status: string;
+  data_nature: "realizado" | "estimado";
   opening_balance: number;
   closing_balance: number | null;
   needs_update: boolean;
@@ -113,13 +115,11 @@ function money(value: number) {
 
 function statusLabel(status: string | undefined) {
   const labels: Record<string, string> = {
-    aberto: "Aberto",
-    importado: "Importado",
-    provisorio: "Provisório",
+    rascunho: "Rascunho",
+    em_andamento: "Em andamento",
     em_revisao: "Em revisão",
-    confirmado: "Confirmado",
-    com_divergencia: "Com divergência",
-    fechado: "Fechado",
+    finalizado: "Finalizado",
+    reaberto: "Reaberto",
   };
   return status ? labels[status] ?? status : "Novo mês";
 }
@@ -132,7 +132,8 @@ export default function BalanceteMensalPage() {
   const [closingBalance, setClosingBalance] = useState("");
   const [sourceLabel, setSourceLabel] = useState("Cadastro manual pela Tesouraria");
   const [notes, setNotes] = useState("");
-  const [isProvisional, setIsProvisional] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState("em_revisao");
+  const [dataNature, setDataNature] = useState<"realizado" | "estimado">("realizado");
   const [needsUpdate, setNeedsUpdate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -186,7 +187,8 @@ export default function BalanceteMensalPage() {
       result.period?.source_label || "Cadastro manual pela Tesouraria",
     );
     setNotes(result.period?.notes || "");
-    setIsProvisional(result.period?.status === "provisorio");
+    setWorkflowStatus(result.period?.workflow_status || "em_revisao");
+    setDataNature(result.period?.data_nature || "realizado");
     setNeedsUpdate(result.period?.needs_update === true);
   }, [accessToken, month]);
 
@@ -290,7 +292,8 @@ export default function BalanceteMensalPage() {
         closingBalance: closingBalance || String(calculatedClosing),
         sourceLabel,
         notes,
-        isProvisional,
+        workflowStatus,
+        dataNature,
         needsUpdate,
         rows: rows.map((row) => ({
           ...row,
@@ -309,10 +312,10 @@ export default function BalanceteMensalPage() {
     }
   }
 
-  async function confirmMonth() {
+  async function finalizeMonth() {
     if (
       !window.confirm(
-        "Confirmar este mês? Os lançamentos deixarão de ser provisórios e passarão a compor a prestação revisada.",
+        "Finalizar esta competência? Ela passará a ser a referência oficial da prestação de contas.",
       )
     ) {
       return;
@@ -323,16 +326,38 @@ export default function BalanceteMensalPage() {
     setMessage("");
     try {
       const result = await post({
-        action: "confirm_month",
+        action: "finalize_month",
         competenceMonth: `${month}-01`,
       });
-      setMessage(result.message || "Balancete confirmado.");
+      setMessage(result.message || "Competência finalizada.");
       await load();
     } catch (reason) {
       setError(
         reason instanceof Error
           ? reason.message
-          : "Erro ao confirmar o balancete.",
+          : "Erro ao finalizar a competência.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reopenMonth() {
+    if (!window.confirm("Reabrir esta competência para correção?")) return;
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await post({
+        action: "reopen_month",
+        competenceMonth: `${month}-01`,
+      });
+      setMessage(result.message || "Competência reaberta.");
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Erro ao reabrir a competência.",
       );
     } finally {
       setSaving(false);
@@ -376,7 +401,7 @@ export default function BalanceteMensalPage() {
               Situação
             </p>
             <p className="mt-2 font-black text-[#123D2C]">
-              {statusLabel(payload.period?.status)}
+              {statusLabel(payload.period?.workflow_status)}
             </p>
           </div>
           <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
@@ -488,25 +513,34 @@ export default function BalanceteMensalPage() {
                 />
               </label>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="flex items-start gap-3 rounded-2xl bg-amber-50 p-4">
-                <input
-                  type="checkbox"
-                  checked={isProvisional}
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-4 font-black text-[#123D2C]">
+                Etapa do fechamento
+                <select
+                  value={workflowStatus === "finalizado" ? "em_revisao" : workflowStatus}
+                  onChange={(event) => setWorkflowStatus(event.target.value)}
+                  className="rounded-2xl border border-slate-200 bg-white p-3"
+                >
+                  <option value="rascunho">Rascunho</option>
+                  <option value="em_andamento">Em andamento</option>
+                  <option value="em_revisao">Em revisão</option>
+                  <option value="reaberto">Reaberto</option>
+                </select>
+              </label>
+              <label className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-4 font-black text-[#123D2C]">
+                Natureza dos valores
+                <select
+                  value={dataNature}
                   onChange={(event) => {
-                    setIsProvisional(event.target.checked);
-                    if (event.target.checked) setNeedsUpdate(true);
+                    const value = event.target.value as "realizado" | "estimado";
+                    setDataNature(value);
+                    if (value === "estimado") setNeedsUpdate(true);
                   }}
-                  className="mt-1 h-5 w-5"
-                />
-                <span>
-                  <span className="block font-black text-amber-900">
-                    Valores provisórios
-                  </span>
-                  <span className="mt-1 block text-xs font-semibold leading-5 text-amber-800">
-                    Use quando os números ainda precisam ser substituídos pelos realizados.
-                  </span>
-                </span>
+                  className="rounded-2xl border border-slate-200 bg-white p-3"
+                >
+                  <option value="realizado">Realizado</option>
+                  <option value="estimado">Estimado</option>
+                </select>
               </label>
               <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4">
                 <input
@@ -709,14 +743,25 @@ export default function BalanceteMensalPage() {
               >
                 {saving ? "Salvando..." : "Salvar para revisão"}
               </button>
-              <button
-                type="button"
-                disabled={saving || !payload.period}
-                onClick={confirmMonth}
-                className="rounded-2xl bg-emerald-50 px-5 py-4 font-black text-emerald-800 ring-1 ring-emerald-100 disabled:opacity-50"
-              >
-                Confirmar competência
-              </button>
+              {payload.period?.workflow_status === "finalizado" ? (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={reopenMonth}
+                  className="rounded-2xl bg-amber-50 px-5 py-4 font-black text-amber-900 ring-1 ring-amber-100 disabled:opacity-50"
+                >
+                  Reabrir competência
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={saving || !payload.period}
+                  onClick={finalizeMonth}
+                  className="rounded-2xl bg-emerald-50 px-5 py-4 font-black text-emerald-800 ring-1 ring-emerald-100 disabled:opacity-50"
+                >
+                  Finalizar competência
+                </button>
+              )}
               <p className="flex items-center justify-center rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] sm:col-span-2 lg:col-span-1">
                 Saldo calculado: {money(calculatedClosing)}
               </p>

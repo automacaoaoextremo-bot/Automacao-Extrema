@@ -1,110 +1,106 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Monthly = {
+type MonthSummary = {
   month: string;
-  revenues: number;
-  expenses: number;
-  result: number;
-  provisional: boolean;
-};
-
-type Group = {
-  type: "receita" | "despesa";
-  group: string;
-  total: number;
-  items: Array<{ name: string; total: number }>;
-};
-
-type Preview = {
-  generatedAt: string;
-  settings: {
-    detailLevel: "resumido" | "grupos" | "itens";
-    showDrilldown: boolean;
-    showTopExpenses: boolean;
-    showTopRevenues: boolean;
-    showSimulator: boolean;
-    headline: string;
-    message: string;
-  };
-  monthly: Monthly[];
-  groups: Group[];
-  totals: { revenues: number; expenses: number; result: number };
-  latest: Monthly;
-  confirmedPercentage: number;
-  provisionalNotice: string | null;
-};
-
-type Snapshot = {
-  id: string;
-  reference_month: string;
-  detail_level: string;
-  status: string;
-  published_at: string | null;
-  created_at: string;
+  revenues: number | null;
+  expenses: number | null;
+  result: number | null;
+  bankBalance: number | null;
 };
 
 type Payload = {
   canManage?: boolean;
-  preview?: Preview;
-  snapshots?: Snapshot[];
+  live?: {
+    latestFinalized: MonthSummary | null;
+    currentForecast: MonthSummary;
+    settings: {
+      popupAutoOpen: boolean;
+      headline: string;
+    };
+  };
   error?: string;
 };
 
-function money(value: number) {
+function money(value: number | null | undefined) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(value || 0);
+  }).format(Number(value) || 0);
 }
 
 function monthLabel(value: string) {
   return new Intl.DateTimeFormat("pt-BR", {
-    month: "short",
+    month: "long",
     year: "numeric",
     timeZone: "UTC",
-  })
-    .format(new Date(`${value.slice(0, 10)}T12:00:00Z`))
-    .replace(".", "");
+  }).format(new Date(`${value.slice(0, 10)}T12:00:00Z`));
+}
+
+function Summary({ title, month }: { title: string; month: MonthSummary }) {
+  return (
+    <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+        {title}
+      </p>
+      <h2 className="mt-1 text-xl font-black capitalize text-[#123D2C]">
+        {monthLabel(month.month)}
+      </h2>
+      <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          ["Receitas", month.revenues, "text-emerald-800"],
+          ["Despesas", month.expenses, "text-amber-800"],
+          [
+            "Resultado",
+            month.result,
+            (month.result ?? 0) < 0 ? "text-red-700" : "text-[#123D2C]",
+          ],
+          [
+            "Saldo no banco",
+            month.bankBalance,
+            (month.bankBalance ?? 0) < 0
+              ? "text-red-700"
+              : "text-[#123D2C]",
+          ],
+        ].map(([label, value, tone]) => (
+          <div key={String(label)} className="rounded-2xl bg-[#F7FAF2] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+              {label}
+            </p>
+            <p className={`mt-2 text-lg font-black ${tone}`}>
+              {money(value as number | null)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
 }
 
 export default function PrestacaoContasPage() {
   const [payload, setPayload] = useState<Payload>({});
   const [loading, setLoading] = useState(true);
-  const [publishing, setPublishing] = useState(false);
-  const [simulationContributors, setSimulationContributors] = useState("100");
-  const [simulationValue, setSimulationValue] = useState("50");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const token = useCallback(async () => {
-    const { data } = await supabaseBrowser.auth.getSession();
-    return data.session?.access_token ?? "";
-  }, []);
 
   const load = useCallback(async () => {
-    const accessToken = await token();
+    const { data } = await supabaseBrowser.auth.getSession();
+    const token = data.session?.access_token;
     const response = await fetch(
       "/api/organizacao-em-harmonia/cliente/corrente-em-dia/prestacao-contas",
       {
-        headers: accessToken
-          ? { Authorization: `Bearer ${accessToken}` }
-          : undefined,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         cache: "no-store",
       },
     );
     const result = (await response.json()) as Payload;
     if (!response.ok) {
-      throw new Error(
-        result.error || "Não foi possível preparar a prestação de contas.",
-      );
+      throw new Error(result.error || "Não foi possível carregar a prestação.");
     }
     setPayload(result);
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -112,11 +108,12 @@ export default function PrestacaoContasPage() {
       void load()
         .catch((reason) => {
           if (active) {
-            setError(
-              reason instanceof Error
-                ? reason.message
-                : "Erro ao carregar a prévia.",
-            );
+            setPayload({
+              error:
+                reason instanceof Error
+                  ? reason.message
+                  : "Erro ao carregar a prestação de contas.",
+            });
           }
         })
         .finally(() => {
@@ -130,381 +127,82 @@ export default function PrestacaoContasPage() {
     };
   }, [load]);
 
-  async function publish() {
-    if (
-      !window.confirm(
-        "Publicar esta versão agregada no painel público? Nenhum nome ou valor individual será exposto.",
-      )
-    ) {
-      return;
-    }
-
-    setPublishing(true);
-    setError("");
-    setMessage("");
-    try {
-      const accessToken = await token();
-      const response = await fetch(
-        "/api/organizacao-em-harmonia/cliente/corrente-em-dia/prestacao-contas",
-        {
-          method: "POST",
-          headers: {
-            ...(accessToken
-              ? { Authorization: `Bearer ${accessToken}` }
-              : {}),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action: "publish" }),
-        },
-      );
-      const result = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-      };
-      if (!response.ok) {
-        throw new Error(result.error || "Não foi possível publicar.");
-      }
-      setMessage(result.message || "Prestação de contas publicada.");
-      await load();
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "Erro ao publicar prestação de contas.",
-      );
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  const preview = payload.preview;
-  const maxValue = useMemo(
-    () =>
-      Math.max(
-        1,
-        ...(preview?.monthly ?? []).flatMap((item) => [
-          item.revenues,
-          item.expenses,
-        ]),
-      ),
-    [preview?.monthly],
-  );
-
-  const simulation = useMemo(() => {
-    const contributors = Number(simulationContributors) || 0;
-    const amount = Number(simulationValue.replace(",", ".")) || 0;
-    const projected = contributors * amount;
-    const expenses = preview?.latest.expenses ?? 0;
-    return {
-      projected,
-      difference: projected - expenses,
-      contributorsNeeded: amount > 0 ? Math.ceil(expenses / amount) : 0,
-    };
-  }, [preview?.latest.expenses, simulationContributors, simulationValue]);
+  const live = payload.live;
 
   return (
     <OrganizacaoClientShell
-      title="Prestação pública de contas"
-      description="Revise uma visão agregada, sem nomes, contatos ou valores individuais. A publicação cria um snapshot que não muda enquanto os lançamentos internos continuam sendo trabalhados."
+      title="Validação da prestação de contas"
+      description="Confira exatamente o que aparece no popup e no painel público. Os valores agora são atualizados pelo financeiro finalizado e pelos registros do mês atual, sem publicação manual."
     >
       {loading && (
-        <p className="rounded-2xl bg-white p-4 font-bold text-slate-500 shadow">
-          Preparando a prévia...
-        </p>
-      )}
-      {error && (
-        <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700">
-          {error}
-        </p>
-      )}
-      {message && (
-        <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">
-          {message}
+        <p className="rounded-2xl bg-white p-5 font-bold text-slate-500 shadow">
+          Carregando a visão pública...
         </p>
       )}
 
-      {preview && (
+      {payload.error && (
+        <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700">
+          {payload.error}
+        </p>
+      )}
+
+      {live && (
         <>
-          <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow sm:p-7">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#CFE2C7]">
-              Prévia pública
+          <section className="rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+              Funcionamento atual
             </p>
-            <h2 className="mt-2 text-2xl font-black">{preview.settings.headline}</h2>
-            <p className="mt-3 max-w-4xl text-sm leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-              {preview.settings.message}
+            <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
+              Dados públicos sem etapa manual de publicação
+            </h2>
+            <p className="mt-3 max-w-4xl leading-7 text-slate-700">
+              O último mês finalizado é apresentado como resultado oficial. O
+              mês atual mostra o que já foi registrado e as estimativas ativas.
+              Meses anteriores ainda não finalizados permanecem sem valores na
+              área pública.
             </p>
-            <p className="mt-4 rounded-2xl bg-white/10 p-3 text-sm font-bold">
-              Nenhum nome, contato, situação individual ou comprovante é incluído nesta publicação.
+            <p className="mt-3 text-sm font-bold text-[#123D2C]">
+              Popup automático: {live.settings.popupAutoOpen ? "ativado" : "desativado"}
             </p>
           </section>
 
-          {preview.provisionalNotice && (
-            <section className="rounded-[1.5rem] bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200">
-              <p className="font-black">Dados provisórios</p>
-              <p className="mt-1 text-sm leading-6">{preview.provisionalNotice}</p>
-            </section>
-          )}
+          <div className="grid gap-4 xl:grid-cols-2">
+            {live.latestFinalized ? (
+              <Summary title="Último mês finalizado" month={live.latestFinalized} />
+            ) : (
+              <p className="rounded-[2rem] bg-amber-50 p-5 font-bold text-amber-900">
+                Ainda não existe uma competência marcada como finalizada.
+              </p>
+            )}
+            <Summary title="Previsão do mês atual" month={live.currentForecast} />
+          </div>
 
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                Receitas — 12 meses
-              </p>
-              <p className="mt-2 text-xl font-black text-[#123D2C]">
-                {money(preview.totals.revenues)}
-              </p>
-            </article>
-            <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                Despesas — 12 meses
-              </p>
-              <p className="mt-2 text-xl font-black text-[#123D2C]">
-                {money(preview.totals.expenses)}
-              </p>
-            </article>
-            <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                Resultado
-              </p>
-              <p
-                className={`mt-2 text-xl font-black ${
-                  preview.totals.result < 0 ? "text-red-700" : "text-[#123D2C]"
-                }`}
-              >
-                {money(preview.totals.result)}
-              </p>
-            </article>
-            <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                Dados confirmados
-              </p>
-              <p className="mt-2 text-xl font-black text-[#123D2C]">
-                {preview.confirmedPercentage}%
-              </p>
-            </article>
-          </section>
-
-          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-                  Histórico
-                </p>
-                <h2 className="mt-1 text-xl font-black text-[#00334E]">
-                  Receitas e despesas por mês
-                </h2>
-              </div>
-              <p className="text-sm font-bold text-slate-500">
-                Nível: {preview.settings.detailLevel}
-              </p>
-            </div>
-
-            <div className="mt-5 flex gap-2 overflow-x-auto pb-2">
-              {preview.monthly.map((item) => (
-                <div key={item.month} className="min-w-[74px]">
-                  <div className="flex h-40 items-end justify-center gap-1 rounded-2xl bg-[#F7FAF2] p-2">
-                    <div
-                      className="w-3 rounded-t-lg bg-[#2F6B43]"
-                      style={{
-                        height: `${Math.max(
-                          3,
-                          (item.revenues / maxValue) * 100,
-                        )}%`,
-                      }}
-                    />
-                    <div
-                      className="w-3 rounded-t-lg bg-[#D99B42]"
-                      style={{
-                        height: `${Math.max(
-                          3,
-                          (item.expenses / maxValue) * 100,
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="mt-2 text-center text-[11px] font-black text-slate-500">
-                    {monthLabel(item.month)}
-                  </p>
-                  {item.provisional && (
-                    <p className="text-center text-[10px] font-black text-amber-700">
-                      Provisório
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {preview.settings.detailLevel !== "resumido" && (
-            <section className="grid gap-4 lg:grid-cols-2">
-              {(["receita", "despesa"] as const).map((type) => (
-                <article
-                  key={type}
-                  className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6"
-                >
-                  <h2 className="text-xl font-black text-[#00334E]">
-                    {type === "receita" ? "Receitas por grupo" : "Despesas por grupo"}
-                  </h2>
-                  <div className="mt-4 grid gap-3">
-                    {preview.groups
-                      .filter((group) => group.type === type)
-                      .map((group) => (
-                        <details
-                          key={`${type}-${group.group}`}
-                          className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
-                          open={preview.settings.detailLevel === "itens"}
-                        >
-                          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-black text-[#123D2C]">
-                            <span>{group.group}</span>
-                            <span>{money(group.total)}</span>
-                          </summary>
-                          {preview.settings.detailLevel === "itens" && (
-                            <div className="mt-3 grid gap-2">
-                              {group.items.map((item) => (
-                                <div
-                                  key={item.name}
-                                  className="flex justify-between gap-3 rounded-xl bg-white p-3 text-sm"
-                                >
-                                  <span>{item.name}</span>
-                                  <span className="font-black">{money(item.total)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </details>
-                      ))}
-                  </div>
-                </article>
-              ))}
-            </section>
-          )}
-
-          {preview.settings.showSimulator && (
-            <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-                Simulação interna
-              </p>
-              <h2 className="mt-2 text-xl font-black text-[#00334E]">
-                Quantas contribuições ajudam a cobrir as despesas atuais?
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Esta simulação não substitui uma decisão da Diretoria. Ela ajuda a Tesouraria a compreender cenários sem expor ninguém.
-              </p>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2 font-black text-[#123D2C]">
-                  Quantidade de contribuintes
-                  <input
-                    value={simulationContributors}
-                    onChange={(event) =>
-                      setSimulationContributors(event.target.value)
-                    }
-                    inputMode="numeric"
-                    className="rounded-2xl border border-slate-200 p-4"
-                  />
-                </label>
-                <label className="grid gap-2 font-black text-[#123D2C]">
-                  Valor médio
-                  <input
-                    value={simulationValue}
-                    onChange={(event) => setSimulationValue(event.target.value)}
-                    inputMode="decimal"
-                    className="rounded-2xl border border-slate-200 p-4"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl bg-[#F7FAF2] p-4">
-                  <p className="text-sm font-black text-[#123D2C]">
-                    Receita projetada
-                  </p>
-                  <p className="mt-1 text-xl font-black">
-                    {money(simulation.projected)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-[#F7FAF2] p-4">
-                  <p className="text-sm font-black text-[#123D2C]">
-                    Diferença para despesas
-                  </p>
-                  <p
-                    className={`mt-1 text-xl font-black ${
-                      simulation.difference < 0 ? "text-red-700" : "text-emerald-800"
-                    }`}
-                  >
-                    {money(simulation.difference)}
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-[#F7FAF2] p-4">
-                  <p className="text-sm font-black text-[#123D2C]">
-                    Pessoas necessárias
-                  </p>
-                  <p className="mt-1 text-xl font-black">
-                    {simulation.contributorsNeeded}
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-xl font-black text-[#00334E]">
-                  Publicação controlada
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  A publicação cria uma cópia aprovada. Alterações internas posteriores não mudam o painel até uma nova publicação.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Link
-                  href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
-                  target="_blank"
-                  className="rounded-2xl bg-slate-100 px-5 py-3 text-center font-black text-[#123D2C]"
-                >
-                  Abrir painel público
-                </Link>
-                {payload.canManage && (
-                  <button
-                    type="button"
-                    onClick={publish}
-                    disabled={publishing}
-                    className="rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white disabled:opacity-50"
-                  >
-                    {publishing ? "Publicando..." : "Publicar esta versão"}
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
-            <h2 className="text-xl font-black text-[#00334E]">
-              Histórico de snapshots
-            </h2>
-            <div className="mt-4 grid gap-2">
-              {(payload.snapshots ?? []).map((snapshot) => (
-                <div
-                  key={snapshot.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#F7FAF2] p-4"
-                >
-                  <div>
-                    <p className="font-black text-[#123D2C]">
-                      {monthLabel(snapshot.reference_month)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {snapshot.published_at
-                        ? new Date(snapshot.published_at).toLocaleString("pt-BR")
-                        : "Ainda não publicado"}
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C]">
-                    {snapshot.status}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
+              target="_blank"
+              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+            >
+              Abrir painel público
+            </Link>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/gestao-financeira"
+              className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C]"
+            >
+              Gestão Financeira
+            </Link>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes"
+              className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] shadow ring-1 ring-slate-100"
+            >
+              Finalizar competências
+            </Link>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes"
+              className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] shadow ring-1 ring-slate-100"
+            >
+              Configurar popup e painel
+            </Link>
           </section>
         </>
       )}

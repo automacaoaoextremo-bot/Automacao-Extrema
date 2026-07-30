@@ -38,6 +38,7 @@ export type CorrenteFinancialSettings = {
   publicShowAccumulatedBalance: boolean;
   publicShowSimulator: boolean;
   publicShowProvisionalData: boolean;
+  publicPopupAutoOpen: boolean;
   publicPopupFrequency: PublicPopupFrequency;
   publicHeadline: string;
   publicMessage: string;
@@ -68,10 +69,11 @@ export const DEFAULT_CORRENTE_FINANCIAL_SETTINGS: CorrenteFinancialSettings = {
   publicShowAccumulatedBalance: true,
   publicShowSimulator: true,
   publicShowProvisionalData: true,
+  publicPopupAutoOpen: true,
   publicPopupFrequency: "once_per_session",
-  publicHeadline: "Transparência fortalece a confiança.",
+  publicHeadline: "Fortalecendo a confiança",
   publicMessage:
-    "Cada contribuição ajuda a manter a Casa aberta, acolhedora e preparada para realizar seus trabalhos. Nenhum nome ou valor individual é exibido.",
+    "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo.",
   googleSheetsUrl: "",
   googleSheetsTab: "",
   googleSheetsLastSyncAt: null,
@@ -251,6 +253,10 @@ export function normalizeFinancialSettings(value: unknown): CorrenteFinancialSet
       row.public_show_provisional_data ?? row.publicShowProvisionalData,
       DEFAULT_CORRENTE_FINANCIAL_SETTINGS.publicShowProvisionalData,
     ),
+    publicPopupAutoOpen: asBoolean(
+      row.public_popup_auto_open ?? row.publicPopupAutoOpen,
+      DEFAULT_CORRENTE_FINANCIAL_SETTINGS.publicPopupAutoOpen,
+    ),
     publicPopupFrequency: [
       "every_access",
       "once_per_session",
@@ -308,6 +314,7 @@ export function settingsToDatabase(
     public_show_accumulated_balance: settings.publicShowAccumulatedBalance,
     public_show_simulator: settings.publicShowSimulator,
     public_show_provisional_data: settings.publicShowProvisionalData,
+    public_popup_auto_open: settings.publicPopupAutoOpen,
     public_popup_frequency: settings.publicPopupFrequency,
     public_headline: settings.publicHeadline,
     public_message: settings.publicMessage,
@@ -354,6 +361,9 @@ export function statusLabel(value: string) {
     cancelado: "Cancelado",
     aberto: "Aberto",
     fechado: "Fechado",
+    em_andamento: "Em andamento",
+    finalizado: "Finalizado",
+    reaberto: "Reaberto",
   };
   return labels[value] ?? value;
 }

@@ -17,6 +17,9 @@ type Entry = {
   category_id: string | null;
   entry_type: "receita" | "despesa";
   entry_date: string;
+  due_date: string | null;
+  financial_date: string | null;
+  financial_month: string | null;
   competence_month: string;
   description_internal: string;
   description_public: string | null;
@@ -25,6 +28,8 @@ type Entry = {
   financial_account: string | null;
   counterparty_name: string | null;
   status: string;
+  workflow_status: string;
+  data_nature: "realizado" | "estimado";
   is_provisional: boolean;
   needs_update: boolean;
   public_visible: boolean;
@@ -43,6 +48,9 @@ type FormState = {
   id: string;
   entryType: "receita" | "despesa";
   entryDate: string;
+  dueDate: string;
+  financialDate: string;
+  financialMonth: string;
   competenceMonth: string;
   categoryId: string;
   descriptionInternal: string;
@@ -51,7 +59,8 @@ type FormState = {
   paymentMethod: string;
   financialAccount: string;
   counterpartyName: string;
-  status: string;
+  workflowStatus: string;
+  dataNature: "realizado" | "estimado";
   isProvisional: boolean;
   needsUpdate: boolean;
   publicVisible: boolean;
@@ -70,6 +79,9 @@ const emptyForm: FormState = {
   id: "",
   entryType: "despesa",
   entryDate: today(),
+  dueDate: today(),
+  financialDate: today(),
+  financialMonth: monthOf(today()),
   competenceMonth: monthOf(today()),
   categoryId: "",
   descriptionInternal: "",
@@ -78,7 +90,8 @@ const emptyForm: FormState = {
   paymentMethod: "pix",
   financialAccount: "",
   counterpartyName: "",
-  status: "em_revisao",
+  workflowStatus: "em_revisao",
+  dataNature: "realizado",
   isProvisional: false,
   needsUpdate: false,
   publicVisible: true,
@@ -87,11 +100,10 @@ const emptyForm: FormState = {
 
 const statusLabels: Record<string, string> = {
   rascunho: "Rascunho",
-  importado: "Importado",
-  provisorio: "Provisório",
+  em_andamento: "Em andamento",
   em_revisao: "Em revisão",
-  confirmado: "Confirmado",
-  com_divergencia: "Com divergência",
+  finalizado: "Finalizado",
+  reaberto: "Reaberto",
 };
 
 function money(value: number) {
@@ -112,6 +124,7 @@ export default function LancamentosPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [monthFilter, setMonthFilter] = useState("");
+  const [financialMonthFilter, setFinancialMonthFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [query, setQuery] = useState("");
@@ -129,6 +142,9 @@ export default function LancamentosPage() {
     const token = await accessToken();
     const params = new URLSearchParams();
     if (monthFilter) params.set("month", `${monthFilter}-01`);
+    if (financialMonthFilter) {
+      params.set("financialMonth", `${financialMonthFilter}-01`);
+    }
     if (typeFilter) params.set("type", typeFilter);
     if (statusFilter) params.set("status", statusFilter);
     if (query.trim()) params.set("q", query.trim());
@@ -145,7 +161,14 @@ export default function LancamentosPage() {
       throw new Error(result.error || "Não foi possível carregar os lançamentos.");
     }
     setPayload(result);
-  }, [accessToken, monthFilter, query, statusFilter, typeFilter]);
+  }, [
+    accessToken,
+    financialMonthFilter,
+    monthFilter,
+    query,
+    statusFilter,
+    typeFilter,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -197,6 +220,9 @@ export default function LancamentosPage() {
       id: entry.id,
       entryType: entry.entry_type,
       entryDate: entry.entry_date,
+      dueDate: entry.due_date ?? entry.entry_date,
+      financialDate: entry.financial_date ?? entry.entry_date,
+      financialMonth: entry.financial_month ?? monthOf(entry.entry_date),
       competenceMonth: entry.competence_month,
       categoryId: entry.category_id ?? "",
       descriptionInternal: entry.description_internal,
@@ -205,8 +231,9 @@ export default function LancamentosPage() {
       paymentMethod: entry.payment_method ?? "",
       financialAccount: entry.financial_account ?? "",
       counterpartyName: entry.counterparty_name ?? "",
-      status: entry.status,
-      isProvisional: entry.is_provisional,
+      workflowStatus: entry.workflow_status || "em_revisao",
+      dataNature: entry.data_nature || "realizado",
+      isProvisional: entry.data_nature === "estimado",
       needsUpdate: entry.needs_update,
       publicVisible: entry.public_visible,
       notesInternal: entry.notes_internal ?? "",
@@ -216,7 +243,14 @@ export default function LancamentosPage() {
   }
 
   function resetForm() {
-    setForm({ ...emptyForm, entryDate: today(), competenceMonth: monthOf(today()) });
+    setForm({
+      ...emptyForm,
+      entryDate: today(),
+      dueDate: today(),
+      financialDate: today(),
+      financialMonth: monthOf(today()),
+      competenceMonth: monthOf(today()),
+    });
     setShowForm(false);
   }
 
@@ -250,6 +284,7 @@ export default function LancamentosPage() {
       const result = await post({
         action: "save",
         ...form,
+        isProvisional: form.dataNature === "estimado",
         amount: Number(form.amount.replace(",", ".")),
       });
       setMessage(result.message || "Lançamento salvo.");
@@ -269,7 +304,7 @@ export default function LancamentosPage() {
     setError("");
     try {
       const result = await post({ action: "approve", id: entry.id });
-      setMessage(result.message || "Lançamento confirmado.");
+      setMessage(result.message || "Lançamento conferido.");
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Erro ao aprovar.");
@@ -347,13 +382,25 @@ export default function LancamentosPage() {
       </section>
 
       <section className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-5">
-        <div className="grid gap-3 md:grid-cols-5">
-          <input
-            type="month"
-            value={monthFilter}
-            onChange={(event) => setMonthFilter(event.target.value)}
-            className="min-h-12 rounded-2xl border border-slate-200 px-4"
-          />
+        <div className="grid gap-3 md:grid-cols-6">
+          <label className="grid gap-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+            Competência
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(event) => setMonthFilter(event.target.value)}
+              className="min-h-12 rounded-2xl border border-slate-200 px-4 text-sm normal-case tracking-normal text-[#123D2C]"
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+            Mês financeiro
+            <input
+              type="month"
+              value={financialMonthFilter}
+              onChange={(event) => setFinancialMonthFilter(event.target.value)}
+              className="min-h-12 rounded-2xl border border-slate-200 px-4 text-sm normal-case tracking-normal text-[#123D2C]"
+            />
+          </label>
           <select
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value)}
@@ -387,7 +434,14 @@ export default function LancamentosPage() {
           <button
             type="button"
             onClick={() => {
-              setForm({ ...emptyForm, entryDate: today(), competenceMonth: monthOf(today()) });
+              setForm({
+                ...emptyForm,
+                entryDate: today(),
+                dueDate: today(),
+                financialDate: today(),
+                financialMonth: monthOf(today()),
+                competenceMonth: monthOf(today()),
+              });
               setShowForm((current) => !current);
             }}
             className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white sm:w-fit"
@@ -436,7 +490,7 @@ export default function LancamentosPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 font-black text-[#123D2C]">
-              Data
+              Data do registro
               <input
                 type="date"
                 value={form.entryDate}
@@ -444,7 +498,6 @@ export default function LancamentosPage() {
                   setForm((current) => ({
                     ...current,
                     entryDate: event.target.value,
-                    competenceMonth: monthOf(event.target.value),
                   }))
                 }
                 className="rounded-2xl border border-slate-200 p-4"
@@ -459,6 +512,55 @@ export default function LancamentosPage() {
                   setForm((current) => ({
                     ...current,
                     competenceMonth: `${event.target.value}-01`,
+                  }))
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Mês ao qual a receita ou despesa pertence.
+              </span>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Vencimento
+              <input
+                type="date"
+                value={form.dueDate}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    dueDate: event.target.value,
+                  }))
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Data financeira
+              <input
+                type="date"
+                value={form.financialDate}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    financialDate: event.target.value,
+                    financialMonth: monthOf(event.target.value),
+                  }))
+                }
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Data em que o valor movimentou ou deverá movimentar o banco.
+              </span>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Mês financeiro
+              <input
+                type="month"
+                value={form.financialMonth.slice(0, 7)}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    financialMonth: `${event.target.value}-01`,
                   }))
                 }
                 className="rounded-2xl border border-slate-200 p-4"
@@ -576,23 +678,23 @@ export default function LancamentosPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="flex items-start gap-3 rounded-2xl bg-amber-50 p-4">
-              <input
-                type="checkbox"
-                checked={form.isProvisional}
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Natureza do valor
+              <select
+                value={form.dataNature}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    isProvisional: event.target.checked,
-                    needsUpdate: event.target.checked,
-                    status: event.target.checked
-                      ? "provisorio"
-                      : "em_revisao",
+                    dataNature: event.target.value as "realizado" | "estimado",
+                    isProvisional: event.target.value === "estimado",
+                    needsUpdate: event.target.value === "estimado",
                   }))
                 }
-                className="mt-1 h-5 w-5"
-              />
-              <span className="font-black text-amber-900">Valor provisório</span>
+                className="rounded-2xl border border-slate-200 p-3"
+              >
+                <option value="realizado">Realizado</option>
+                <option value="estimado">Estimado</option>
+              </select>
             </label>
             <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4">
               <input
@@ -611,13 +713,13 @@ export default function LancamentosPage() {
               </span>
             </label>
             <label className="grid gap-2 font-black text-[#123D2C]">
-              Situação
+              Etapa do fluxo
               <select
-                value={form.status}
+                value={form.workflowStatus}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    status: event.target.value,
+                    workflowStatus: event.target.value,
                   }))
                 }
                 className="rounded-2xl border border-slate-200 p-3"
@@ -690,20 +792,26 @@ export default function LancamentosPage() {
                       {entry.entry_type === "receita" ? "Receita" : "Despesa"}
                     </span>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                      {statusLabels[entry.status] ?? entry.status}
+                      {statusLabels[entry.workflow_status] ?? entry.workflow_status}
                     </span>
-                    {entry.is_provisional && (
-                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900">
-                        Precisa ser atualizado
-                      </span>
-                    )}
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-black ${
+                        entry.data_nature === "estimado"
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-blue-50 text-blue-800"
+                      }`}
+                    >
+                      {entry.data_nature === "estimado" ? "Estimado" : "Realizado"}
+                    </span>
                   </div>
                   <h3 className="mt-3 break-words text-lg font-black text-[#00334E]">
                     {entry.description_internal}
                   </h3>
                   <p className="mt-1 text-sm font-semibold text-slate-500">
-                    {entry.entry_date} · {category?.group_name ?? "Sem grupo"} ·{" "}
-                    {category?.name ?? "Sem categoria"}
+                    Competência {entry.competence_month.slice(0, 7)} · Financeiro {(entry.financial_month ?? entry.competence_month).slice(0, 7)}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Vencimento {entry.due_date ?? "não informado"} · Movimento {entry.financial_date ?? entry.entry_date} · {category?.group_name ?? "Sem grupo"} · {category?.name ?? "Sem categoria"}
                   </p>
                   {entry.counterparty_name && (
                     <p className="mt-1 text-sm text-slate-600">
@@ -731,14 +839,14 @@ export default function LancamentosPage() {
                   >
                     Editar
                   </button>
-                  {entry.status !== "confirmado" && (
+                  {entry.workflow_status !== "finalizado" && (
                     <button
                       type="button"
                       disabled={saving}
                       onClick={() => approve(entry)}
                       className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800"
                     >
-                      Confirmar
+                      Conferir
                     </button>
                   )}
                   <button

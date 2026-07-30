@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildLiveFinancialTransparency } from "@/lib/organizacao-em-harmonia/live-financial-transparency";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -26,28 +27,8 @@ export async function GET() {
       );
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("oh_public_financial_snapshots")
-      .select(
-        "id, reference_month, detail_level, payload, published_at",
-      )
-      .eq("organization_id", id)
-      .eq("status", "publicado")
-      .order("published_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    if (!data) {
-      return NextResponse.json({
-        snapshot: null,
-        message:
-          "A prestação de contas ainda está sendo preparada pela Tesouraria/Financeiro.",
-      });
-    }
-
-    return NextResponse.json({ snapshot: data });
+    const live = await buildLiveFinancialTransparency(id);
+    return NextResponse.json({ live });
   } catch (error) {
     return NextResponse.json(
       {

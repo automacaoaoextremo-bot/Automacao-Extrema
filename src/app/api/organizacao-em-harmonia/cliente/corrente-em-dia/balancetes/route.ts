@@ -67,7 +67,7 @@ async function loadMonth(organizationId: string, competenceMonth: string) {
     supabaseAdmin
       .from("oh_financial_periods")
       .select(
-        "id, competence_month, status, opening_balance, closing_balance, needs_update, source_label, notes, updated_at",
+        "id, competence_month, status, workflow_status, data_nature, opening_balance, closing_balance, needs_update, source_label, notes, finalized_at, reopened_at, updated_at",
       )
       .eq("organization_id", organizationId)
       .eq("competence_month", competenceMonth)
@@ -75,7 +75,7 @@ async function loadMonth(organizationId: string, competenceMonth: string) {
     supabaseAdmin
       .from("oh_financial_entries")
       .select(
-        "id, category_id, entry_type, entry_date, competence_month, description_internal, description_public, amount, source_type, source_reference, status, is_provisional, needs_update, public_visible, metadata, category:oh_financial_categories(id, name, public_name, group_name)",
+        "id, category_id, entry_type, entry_date, due_date, financial_date, financial_month, competence_month, description_internal, description_public, amount, source_type, source_reference, status, workflow_status, data_nature, is_provisional, needs_update, public_visible, metadata, category:oh_financial_categories(id, name, public_name, group_name)",
       )
       .eq("organization_id", organizationId)
       .eq("competence_month", competenceMonth)
@@ -236,7 +236,14 @@ export async function POST(request: Request) {
         }
       }
 
-      const isProvisional = asBoolean(body.isProvisional);
+      const dataNature = asText(body.dataNature) === "estimado" ? "estimado" : "realizado";
+      const requestedWorkflowStatus = asText(body.workflowStatus);
+      const workflowStatus = ["rascunho", "em_andamento", "em_revisao", "reaberto"].includes(
+        requestedWorkflowStatus,
+      )
+        ? requestedWorkflowStatus
+        : "em_revisao";
+      const isProvisional = dataNature === "estimado";
       const needsUpdate = asBoolean(body.needsUpdate, isProvisional);
       const openingBalance = asNumber(body.openingBalance);
       const totals = rows.reduce(
@@ -253,7 +260,11 @@ export async function POST(request: Request) {
         asText(body.closingBalance) === ""
           ? calculatedClosing
           : asNumber(body.closingBalance, calculatedClosing);
-      const periodStatus = isProvisional ? "provisorio" : "em_revisao";
+      const periodStatus = isProvisional
+        ? "provisorio"
+        : workflowStatus === "rascunho"
+          ? "rascunho"
+          : "em_revisao";
 
       const { data: period, error: periodError } = await supabaseAdmin
         .from("oh_financial_periods")
@@ -262,6 +273,8 @@ export async function POST(request: Request) {
             organization_id: auth.context.organizationId,
             competence_month: competenceMonth,
             status: periodStatus,
+            workflow_status: workflowStatus,
+            data_nature: dataNature,
             opening_balance: openingBalance,
             closing_balance: closingBalance,
             needs_update: needsUpdate,
@@ -273,6 +286,7 @@ export async function POST(request: Request) {
             notes: asText(body.notes) || null,
             approved_by: null,
             approved_at: null,
+            finalized_at: null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "organization_id,competence_month" },
@@ -310,6 +324,9 @@ export async function POST(request: Request) {
           category_id: row.categoryId || null,
           entry_type: row.entryType,
           entry_date: endOfMonth(competenceMonth),
+          due_date: endOfMonth(competenceMonth),
+          financial_date: endOfMonth(competenceMonth),
+          financial_month: competenceMonth,
           competence_month: competenceMonth,
           description_internal: row.descriptionInternal,
           description_public: row.descriptionPublic,
@@ -319,6 +336,8 @@ export async function POST(request: Request) {
             previous?.source_reference ||
             `balancete-manual:${competenceMonth.slice(0, 7)}:${row.clientKey}`,
           status: periodStatus,
+          workflow_status: workflowStatus,
+          data_nature: dataNature,
           is_provisional: isProvisional,
           needs_update: needsUpdate,
           public_visible: row.publicVisible,
@@ -380,7 +399,8 @@ export async function POST(request: Request) {
           expenses: totals.expenses,
           result: totals.revenues - totals.expenses,
           rows: rows.length,
-          isProvisional,
+          workflowStatus,
+          dataNature,
           needsUpdate,
         },
       });
@@ -397,14 +417,18 @@ export async function POST(request: Request) {
       });
     }
 
-    if (action === "confirm_month") {
+    if (action === "finalize_month") {
       const { data: period, error: periodError } = await supabaseAdmin
         .from("oh_financial_periods")
         .update({
           status: "confirmado",
+          workflow_status: "finalizado",
+          data_nature: "realizado",
           needs_update: false,
           approved_by: auth.context.personId,
           approved_at: new Date().toISOString(),
+          finalized_at: new Date().toISOString(),
+          reopened_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq("organization_id", auth.context.organizationId)
@@ -424,6 +448,8 @@ export async function POST(request: Request) {
         .from("oh_financial_entries")
         .update({
           status: "confirmado",
+          workflow_status: "finalizado",
+          data_nature: "realizado",
           is_provisional: false,
           needs_update: false,
           approved_by: auth.context.personId,
@@ -440,15 +466,72 @@ export async function POST(request: Request) {
       await writeFinancialAudit({
         organizationId: auth.context.organizationId,
         personId: auth.context.personId,
-        action: "balancete_mensal_confirmado",
+        action: "balancete_mensal_finalizado",
         entityType: "oh_financial_periods",
         entityId: period.id,
-        afterData: { competenceMonth, status: "confirmado" },
+        afterData: { competenceMonth, workflowStatus: "finalizado" },
       });
 
       return NextResponse.json({
         ok: true,
-        message: "Balancete mensal confirmado.",
+        message: "Competência finalizada. Os valores passam a compor a prestação oficial.",
+      });
+    }
+
+    if (action === "reopen_month") {
+      const now = new Date().toISOString();
+      const { data: period, error: periodError } = await supabaseAdmin
+        .from("oh_financial_periods")
+        .update({
+          status: "em_revisao",
+          workflow_status: "reaberto",
+          approved_by: null,
+          approved_at: null,
+          finalized_at: null,
+          reopened_at: now,
+          updated_at: now,
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("competence_month", competenceMonth)
+        .select("id")
+        .maybeSingle();
+
+      if (periodError) throw periodError;
+      if (!period) {
+        return NextResponse.json(
+          { error: "Competência não localizada para reabertura." },
+          { status: 404 },
+        );
+      }
+
+      const { error: entriesError } = await supabaseAdmin
+        .from("oh_financial_entries")
+        .update({
+          status: "em_revisao",
+          workflow_status: "reaberto",
+          approved_by: null,
+          approved_at: null,
+          updated_at: now,
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("financial_month", competenceMonth)
+        .in("source_type", BALANCE_SOURCE_TYPES)
+        .neq("status", "cancelado");
+
+      if (entriesError) throw entriesError;
+
+      await writeFinancialAudit({
+        organizationId: auth.context.organizationId,
+        personId: auth.context.personId,
+        action: "balancete_mensal_reaberto",
+        entityType: "oh_financial_periods",
+        entityId: period.id,
+        afterData: { competenceMonth, workflowStatus: "reaberto" },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Competência reaberta para correção.",
       });
     }
 
