@@ -2,8 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+
+type ContributionMode = "anonymous" | "identified";
 
 type RecurringOption = {
   value: string;
@@ -54,6 +62,8 @@ type SubmitPayload = {
     id: string;
     status: string;
     due_date: string;
+    recurrence_start_date?: string | null;
+    recurrence_occurrences?: number | null;
   };
   uploadToken?: string;
   pixCopyPaste?: string | null;
@@ -74,40 +84,16 @@ type UploadPayload = {
   error?: string;
 };
 
-const headerActions = [
-  {
-    label: "Início",
-    href: "#inicio",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Voltar",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/transparencia",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Contribuir",
-    href: "#contribuir",
-    variant: "primary" as const,
-  },
-  {
-    label: "Com cadastro",
-    href: "#com-cadastro",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Dúvidas?",
-    href: "#duvidas",
-    variant: "secondary" as const,
-    action: "supportWhatsapp" as const,
-  },
-];
+type PublicContributionJourneyProps = {
+  mode?: ContributionMode;
+};
 
-function initialAnonymous() {
-  if (typeof window === "undefined") return true;
-
-  const type = new URLSearchParams(window.location.search).get("tipo");
-  return type !== "identificada";
+function todayLocal() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function money(value: number) {
@@ -129,10 +115,7 @@ function parseMoney(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function methodLabel(
-  settings: ContributionSettings | null,
-  value: string,
-) {
+function methodLabel(settings: ContributionSettings | null, value: string) {
   return (
     settings?.paymentMethods.find((method) => method.value === value)?.label ||
     value
@@ -179,12 +162,14 @@ function InfoCard({
   );
 }
 
-export function PublicContributionJourney() {
+export function PublicContributionJourney({
+  mode = "anonymous",
+}: PublicContributionJourneyProps) {
+  const anonymous = mode === "anonymous";
   const [settings, setSettings] = useState<ContributionSettings | null>(null);
   const [receptionContacts, setReceptionContacts] = useState<
     ReceptionContact[]
   >([]);
-  const [anonymous, setAnonymous] = useState(initialAnonymous);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -194,8 +179,8 @@ export function PublicContributionJourney() {
   const [selectedAmount, setSelectedAmount] = useState(0);
   const [customAmount, setCustomAmount] = useState("");
   const [recurrenceType, setRecurrenceType] = useState("pontual");
-  const [preferredDueDay, setPreferredDueDay] = useState("10");
-  const [reminderDays, setReminderDays] = useState<number[]>([3, 1]);
+  const [recurrenceStartDate, setRecurrenceStartDate] = useState(todayLocal);
+  const [recurrenceOccurrences, setRecurrenceOccurrences] = useState("12");
   const [paymentMethod, setPaymentMethod] = useState<
     PaymentMethodOption["value"]
   >("pix");
@@ -209,52 +194,111 @@ export function PublicContributionJourney() {
   const [success, setSuccess] = useState<SubmitPayload | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const headerActions = useMemo(
+    () => [
+      {
+        label: "Início",
+        href: "#inicio",
+        variant: "secondary" as const,
+      },
+      {
+        label: "Voltar",
+        href: "/solucoes/organizacao-em-harmonia/tucxa/transparencia",
+        variant: "secondary" as const,
+      },
+      {
+        label: "Seu cuidado",
+        href: "#seu-cuidado",
+        variant: "secondary" as const,
+      },
+      {
+        label: "Impacto",
+        href: "#impacto",
+        variant: "secondary" as const,
+      },
+      {
+        label: anonymous ? "Contribuição Anônima" : "Contribuição Identificada",
+        href: "#contribuicao-anonima",
+        variant: "secondary" as const,
+      },
+      {
+        label: anonymous ? "Contribuir Anônimo" : "Contribuir",
+        href: "#form-contribuicao",
+        variant: "primary" as const,
+      },
+      {
+        label: "Contribuir com Cadastro",
+        href: "#com-cadastro",
+        variant: "secondary" as const,
+      },
+      {
+        label: "Dúvidas?",
+        href: "#duvidas",
+        variant: "secondary" as const,
+        action: "supportWhatsapp" as const,
+      },
+    ],
+    [anonymous],
+  );
+
   useEffect(() => {
     let active = true;
-
-    void fetch("/api/organizacao-em-harmonia/site-tucxa/contribuicoes", {
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        const result = (await response.json()) as ApiPayload;
-
-        if (!response.ok) {
-          throw new Error(
-            result.error || "Não foi possível carregar as opções.",
-          );
-        }
-
-        if (!active || !result.settings) return;
-
-        setSettings(result.settings);
-        setReceptionContacts(result.receptionContacts ?? []);
-        setPreferredDueDay(String(result.settings.defaultDueDay));
-        setSelectedAmount(
-          result.settings.suggestedAmounts.includes(
-            result.settings.defaultMonthlyAmount,
-          )
-            ? result.settings.defaultMonthlyAmount
-            : result.settings.suggestedAmounts[0] ||
-                result.settings.defaultMonthlyAmount,
-        );
+    const timerId = window.setTimeout(() => {
+      void fetch("/api/organizacao-em-harmonia/site-tucxa/contribuicoes", {
+        cache: "no-store",
       })
-      .catch((reason) => {
-        if (active) {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Erro ao carregar contribuição.",
+        .then(async (response) => {
+          const result = (await response.json()) as ApiPayload;
+
+          if (!response.ok) {
+            throw new Error(
+              result.error || "Não foi possível carregar as opções.",
+            );
+          }
+
+          if (!active || !result.settings) return;
+
+          setSettings(result.settings);
+          setReceptionContacts(result.receptionContacts ?? []);
+          setSelectedAmount(
+            result.settings.suggestedAmounts.includes(
+              result.settings.defaultMonthlyAmount,
+            )
+              ? result.settings.defaultMonthlyAmount
+              : result.settings.suggestedAmounts[0] ||
+                  result.settings.defaultMonthlyAmount,
           );
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+        })
+        .catch((reason) => {
+          if (active) {
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Erro ao carregar contribuição.",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
 
     return () => {
       active = false;
+      window.clearTimeout(timerId);
     };
   }, []);
+
+  useEffect(() => {
+    if (!success?.ok) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [success?.ok]);
 
   const amount = useMemo(() => {
     if (!settings) return 0;
@@ -280,14 +324,6 @@ export function PublicContributionJourney() {
     [recurrenceType, settings],
   );
 
-  function toggleReminder(day: number) {
-    setReminderDays((current) =>
-      current.includes(day)
-        ? current.filter((item) => item !== day)
-        : [...current, day].sort((left, right) => right - left),
-    );
-  }
-
   function selectPaymentMethod(value: PaymentMethodOption["value"]) {
     setPaymentMethod(value);
 
@@ -311,15 +347,27 @@ export function PublicContributionJourney() {
     }
 
     if (!anonymous && !name.trim()) {
-      setError("Informe seu nome ou escolha contribuir de forma anônima.");
+      setError("Informe seu nome para registrar a contribuição identificada.");
       return;
     }
 
     if (selectedRecurring && !selectedRecurring.available) {
-      setError(
-        "Essa forma recorrente ainda depende da integração com um provedor.",
-      );
+      setError("Essa forma recorrente ainda não está disponível.");
       return;
+    }
+
+    if (recurrenceType === "pix_agendado") {
+      const occurrences = Math.trunc(Number(recurrenceOccurrences));
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)) {
+        setError("Informe a data da primeira contribuição recorrente.");
+        return;
+      }
+
+      if (!Number.isFinite(occurrences) || occurrences < 2 || occurrences > 120) {
+        setError("Informe uma quantidade entre 2 e 120 contribuições.");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -337,8 +385,14 @@ export function PublicContributionJourney() {
             whatsapp,
             amount,
             recurrenceType,
-            preferredDueDay: Number(preferredDueDay),
-            reminderDaysBefore: reminderDays,
+            recurrenceStartDate:
+              recurrenceType === "pix_agendado"
+                ? recurrenceStartDate
+                : null,
+            recurrenceOccurrences:
+              recurrenceType === "pix_agendado"
+                ? Math.trunc(Number(recurrenceOccurrences))
+                : null,
             paymentMethod,
             notes,
           }),
@@ -351,11 +405,6 @@ export function PublicContributionJourney() {
       }
 
       setSuccess(result);
-      window.setTimeout(() => {
-        document
-          .getElementById("contribuicao-concluida")
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 0);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -388,9 +437,8 @@ export function PublicContributionJourney() {
       return;
     }
 
-    setError("");
-    setProofMessage("");
     setUploading(true);
+    setError("");
 
     try {
       const formData = new FormData();
@@ -413,11 +461,7 @@ export function PublicContributionJourney() {
         );
       }
 
-      setProofMessage(
-        result.message ||
-          "Comprovante enviado para conferência da Tesouraria/Financeiro.",
-      );
-      setProofFile(null);
+      setProofMessage(result.message || "Comprovante enviado.");
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -448,47 +492,80 @@ export function PublicContributionJourney() {
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             {settings?.publicContributionMessage ||
-              "Sua contribuição continua na água, na energia, na limpeza, na segurança e nos materiais que acolhem cada trabalho. Escolha uma forma simples e participe desse cuidado com liberdade, sigilo e transparência."}
+              "Sua contribuição continua na água, na energia, na limpeza, na segurança e nos materiais que acolhem cada trabalho. Escolha uma forma simples e participe desse cuidado com liberdade e transparência."}
           </p>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
-              <p className="font-black">Você escolhe o valor</p>
-              <p className="mt-1 text-sm leading-6 text-[#EEF7EA]">
-                Um valor possível é melhor do que um cuidado adiado.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
-              <p className="font-black">Sua identidade é respeitada</p>
-              <p className="mt-1 text-sm leading-6 text-[#EEF7EA]">
-                A contribuição pode ser anônima e os dados individuais não
-                aparecem na prestação pública.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15">
-              <p className="font-black">O cuidado vira continuidade</p>
-              <p className="mt-1 text-sm leading-6 text-[#EEF7EA]">
-                Cada gesto ajuda a Casa a seguir preparada para acolher e
-                servir.
-              </p>
-            </div>
-          </div>
         </header>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <InfoCard eyebrow="Estrutura" title="O que precisa continuar funcionando">
-            Água, energia, limpeza, segurança, conservação e comunicação
-            sustentam os trabalhos mesmo quando quase ninguém percebe.
-          </InfoCard>
-          <InfoCard eyebrow="Cuidado" title="Por que sua contribuição existe">
-            Para transformar um valor possível em previsibilidade, organização
-            e tranquilidade para a Casa cuidar melhor de cada pessoa.
-          </InfoCard>
-          <InfoCard eyebrow="Resultado" title="O que esse gesto torna possível">
-            Uma Casa preparada, acolhedora e disponível para que o cuidado
-            espiritual não seja interrompido por falta de estrutura.
-          </InfoCard>
-        </div>
+        <section
+          id="seu-cuidado"
+          className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
+        >
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+            Seu cuidado, do seu jeito
+          </p>
+          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
+            Liberdade para contribuir. Respeito à sua escolha. Continuidade para a Casa.
+          </h2>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <InfoCard eyebrow="Liberdade" title="Você escolhe o valor">
+              Um valor possível é melhor do que um cuidado adiado. Você decide o
+              que cabe no seu momento.
+            </InfoCard>
+            <InfoCard eyebrow="Respeito" title="Sua identidade é respeitada">
+              Na contribuição anônima, nenhum nome é solicitado ou associado à
+              intenção registrada no sistema.
+            </InfoCard>
+            <InfoCard eyebrow="Continuidade" title="O cuidado segue adiante">
+              Cada gesto ajuda o Tucxa a manter estrutura, materiais e serviços
+              prontos para acolher.
+            </InfoCard>
+          </div>
+        </section>
+
+        <section
+          id="impacto"
+          className="scroll-mt-48 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-7"
+        >
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+            O impacto do seu cuidado
+          </p>
+          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
+            Um gesto financeiro se transforma em estrutura, cuidado e resultado.
+          </h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <InfoCard eyebrow="Estrutura" title="O que precisa continuar funcionando">
+              Água, energia, limpeza, segurança, conservação e comunicação
+              sustentam os trabalhos mesmo quando quase ninguém percebe.
+            </InfoCard>
+            <InfoCard eyebrow="Cuidado" title="Por que sua contribuição existe">
+              Para transformar um valor possível em previsibilidade, organização
+              e tranquilidade para a Casa cuidar melhor de cada pessoa.
+            </InfoCard>
+            <InfoCard eyebrow="Resultado" title="O que esse gesto torna possível">
+              Uma Casa preparada, acolhedora e disponível para que o cuidado
+              espiritual não seja interrompido por falta de estrutura.
+            </InfoCard>
+          </div>
+        </section>
+
+        <section
+          id="contribuicao-anonima"
+          className="scroll-mt-48 rounded-[2rem] bg-[#123D2C] p-5 text-white shadow sm:p-7"
+        >
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#CFE2C7]">
+            {anonymous ? "Contribuição Anônima" : "Contribuição Identificada"}
+          </p>
+          <h2 className="mt-2 text-2xl font-black">
+            {anonymous
+              ? "Escolha como participar sem informar sua identidade."
+              : "Registre sua contribuição com seus dados para acompanhamento."}
+          </h2>
+          <p className="mt-3 max-w-4xl leading-7 text-[#EEF7EA]">
+            {anonymous
+              ? "O sistema registra apenas o valor, a forma escolhida e a situação do comprovante para que a Tesouraria/Financeiro possa realizar a conferência."
+              : "Seus dados serão usados somente no acompanhamento autorizado da contribuição e não serão exibidos na prestação pública."}
+          </p>
+        </section>
 
         {loading && (
           <p className="rounded-2xl bg-white p-5 font-bold text-slate-500 shadow">
@@ -507,77 +584,14 @@ export function PublicContributionJourney() {
 
         {!loading && settings && (
           <form
-            id="contribuir"
+            id="form-contribuicao"
             onSubmit={submit}
             className="scroll-mt-48 grid gap-5 lg:grid-cols-2"
           >
             <section className="space-y-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  1. Sigilo
-                </p>
-                <h2 className="mt-1 text-xl font-black text-[#123D2C]">
-                  Como você prefere participar?
-                </h2>
-              </div>
-
-              <div className="grid gap-3">
-                <label
-                  className={`rounded-2xl p-4 ring-1 ${
-                    anonymous
-                      ? "bg-[#E9F2E7] ring-[#123D2C]/20"
-                      : "bg-white ring-[#123D2C]/10"
-                  }`}
-                >
-                  <span className="flex items-start gap-3">
-                    <input
-                      type="radio"
-                      checked={anonymous}
-                      onChange={() => setAnonymous(true)}
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span>
-                      <span className="block font-black text-[#123D2C]">
-                        Quero contribuir de forma anônima
-                      </span>
-                      <span className="mt-1 block text-sm leading-6 text-slate-600">
-                        Nenhum nome será associado à intenção no sistema.
-                        Instituições financeiras ainda podem registrar os dados
-                        da transação.
-                      </span>
-                    </span>
-                  </span>
-                </label>
-
-                <label
-                  className={`rounded-2xl p-4 ring-1 ${
-                    !anonymous
-                      ? "bg-[#E9F2E7] ring-[#123D2C]/20"
-                      : "bg-white ring-[#123D2C]/10"
-                  }`}
-                >
-                  <span className="flex items-start gap-3">
-                    <input
-                      type="radio"
-                      checked={!anonymous}
-                      onChange={() => setAnonymous(false)}
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span>
-                      <span className="block font-black text-[#123D2C]">
-                        Quero me identificar para a Tesouraria
-                      </span>
-                      <span className="mt-1 block text-sm leading-6 text-slate-600">
-                        Seus dados ficam restritos às pessoas autorizadas e não
-                        aparecem no painel público.
-                      </span>
-                    </span>
-                  </span>
-                </label>
-              </div>
-
               {!anonymous && (
-                <div className="grid gap-3">
+                <div className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                  <p className="font-black text-[#123D2C]">Seus dados</p>
                   <label className="grid gap-1 font-black text-[#123D2C]">
                     Nome
                     <input
@@ -587,7 +601,6 @@ export function PublicContributionJourney() {
                       placeholder="Seu nome completo"
                     />
                   </label>
-
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 font-black text-[#123D2C]">
                       WhatsApp
@@ -615,7 +628,7 @@ export function PublicContributionJourney() {
 
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  2. Valor
+                  1. Valor
                 </p>
                 <h2 className="mt-1 text-xl font-black text-[#123D2C]">
                   Escolha um valor possível hoje
@@ -635,8 +648,7 @@ export function PublicContributionJourney() {
                         setSelectedAmount(value);
                       }}
                       className={`rounded-2xl px-3 py-4 font-black ring-1 ${
-                        amountMode === "suggested" &&
-                        selectedAmount === value
+                        amountMode === "suggested" && selectedAmount === value
                           ? "bg-[#123D2C] text-white ring-[#123D2C]"
                           : "bg-white text-[#123D2C] ring-[#123D2C]/10"
                       }`}
@@ -665,9 +677,7 @@ export function PublicContributionJourney() {
                     Valor escolhido
                     <input
                       value={customAmount}
-                      onChange={(event) =>
-                        setCustomAmount(event.target.value)
-                      }
+                      onChange={(event) => setCustomAmount(event.target.value)}
                       inputMode="decimal"
                       className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
                       placeholder="Ex.: 35,00"
@@ -680,7 +690,7 @@ export function PublicContributionJourney() {
             <section className="space-y-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  3. Forma
+                  2. Forma
                 </p>
                 <h2 className="mt-1 text-xl font-black text-[#123D2C]">
                   Como deseja concluir?
@@ -715,9 +725,7 @@ export function PublicContributionJourney() {
                   <p className="font-black">
                     Esta forma é concluída com a Recepção.
                   </p>
-                  <p className="mt-1">
-                    {settings.receptionPaymentMessage}
-                  </p>
+                  <p className="mt-1">{settings.receptionPaymentMessage}</p>
                   {receptionContacts.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {receptionContacts.map((contact) => (
@@ -736,12 +744,15 @@ export function PublicContributionJourney() {
               {paymentMethod === "pix" && (
                 <>
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                      4. Frequência
-                    </p>
-                    <h2 className="mt-1 text-xl font-black text-[#123D2C]">
+                    <p className="font-black text-[#123D2C]">
                       Uma vez ou de forma recorrente?
-                    </h2>
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Uma contribuição única já sustenta um cuidado. Quando você
+                      agenda a recorrência no seu banco, ajuda a Casa a planejar
+                      água, energia, limpeza, segurança e materiais com mais
+                      tranquilidade, sem depender apenas das urgências de cada mês.
+                    </p>
                   </div>
 
                   <div className="grid gap-2">
@@ -759,9 +770,7 @@ export function PublicContributionJourney() {
                             type="radio"
                             checked={recurrenceType === option.value}
                             disabled={!option.available}
-                            onChange={() =>
-                              setRecurrenceType(option.value)
-                            }
+                            onChange={() => setRecurrenceType(option.value)}
                             className="mt-1 h-5 w-5"
                           />
                           <span>
@@ -781,56 +790,43 @@ export function PublicContributionJourney() {
                 </>
               )}
 
-              {paymentMethod === "pix" &&
-                recurrenceType === "pix_agendado" && (
-                  <>
-                    <div>
-                      <p className="font-black text-[#123D2C]">
-                        Melhor dia para contribuir
-                      </p>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
-                        {settings.allowedDueDays.map((day) => (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() =>
-                              setPreferredDueDay(String(day))
-                            }
-                            className={`rounded-2xl px-3 py-3 font-black ring-1 ${
-                              preferredDueDay === String(day)
-                                ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                                : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                            }`}
-                          >
-                            Dia {day}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="font-black text-[#123D2C]">
-                        Lembretes antes da data
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {[7, 5, 3, 1].map((day) => (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() => toggleReminder(day)}
-                            className={`rounded-full px-4 py-2 text-sm font-black ring-1 ${
-                              reminderDays.includes(day)
-                                ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                                : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                            }`}
-                          >
-                            {day} {day === 1 ? "dia" : "dias"} antes
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
+              {paymentMethod === "pix" && recurrenceType === "pix_agendado" && (
+                <div className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 sm:grid-cols-2">
+                  <label className="grid gap-1 font-black text-[#123D2C]">
+                    Data da primeira contribuição
+                    <input
+                      type="date"
+                      min={todayLocal()}
+                      value={recurrenceStartDate}
+                      onChange={(event) =>
+                        setRecurrenceStartDate(event.target.value)
+                      }
+                      className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
+                    />
+                  </label>
+                  <label className="grid gap-1 font-black text-[#123D2C]">
+                    Por quantas vezes?
+                    <input
+                      type="number"
+                      min={2}
+                      max={120}
+                      inputMode="numeric"
+                      value={recurrenceOccurrences}
+                      onChange={(event) =>
+                        setRecurrenceOccurrences(event.target.value)
+                      }
+                      className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
+                      placeholder="Ex.: 12"
+                    />
+                  </label>
+                  <p className="text-xs leading-5 text-slate-600 sm:col-span-2">
+                    O agendamento é feito por você no aplicativo do banco. O
+                    sistema registra a data inicial e a quantidade planejada para
+                    que a Tesouraria compreenda a previsão sem identificar quem
+                    contribuiu.
+                  </p>
+                </div>
+              )}
 
               <label className="grid gap-1 font-black text-[#123D2C]">
                 Observação opcional
@@ -841,12 +837,6 @@ export function PublicContributionJourney() {
                   placeholder="Ex.: contribuição referente ao mês atual"
                 />
               </label>
-
-              <div className="rounded-2xl bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">
-                A contribuição é tratada com sigilo. Valores individuais ficam
-                restritos às pessoas autorizadas da Diretoria e da
-                Tesouraria/Financeiro.
-              </div>
 
               <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
                 <p className="text-sm font-bold text-slate-600">
@@ -871,18 +861,69 @@ export function PublicContributionJourney() {
           </form>
         )}
 
-        {success?.ok && (
-          <section
-            id="contribuicao-concluida"
-            className="scroll-mt-48 rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-[#123D2C]/10 sm:p-7"
-          >
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-              Intenção registrada
-            </p>
-            <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-              Obrigado por transformar um valor possível em continuidade para
-              a Casa.
-            </h2>
+        <section
+          id="com-cadastro"
+          className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
+        >
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+            Contribuir com cadastro
+          </p>
+          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
+            Prefere organizar histórico e preferências no seu acesso?
+          </h2>
+          <p className="mt-3 max-w-4xl leading-7 text-slate-700">
+            Acesse o caminho correspondente ao seu vínculo para entrar ou fazer
+            cadastro. Assim, sua contribuição pode ser acompanhada dentro do seu
+            próprio fluxo no Corrente em Dia.
+          </p>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa#corrente"
+              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+            >
+              Sou Filho da Corrente
+            </Link>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa#consulentes"
+              className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+            >
+              Sou Consulente / Filho de Fora
+            </Link>
+          </div>
+        </section>
+      </section>
+
+      {success?.ok && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="intencao-registrada-titulo"
+        >
+          <section className="max-h-[94vh] w-full max-w-4xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+                  Intenção registrada
+                </p>
+                <h2
+                  id="intencao-registrada-titulo"
+                  className="mt-2 text-2xl font-black text-[#123D2C]"
+                >
+                  Obrigado por transformar um valor possível em continuidade para a Casa.
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSuccess(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                aria-label="Fechar intenção registrada"
+              >
+                ×
+              </button>
+            </div>
+
             <p className="mt-3 leading-7 text-slate-700">{success.message}</p>
 
             {success.qrCodeDataUrl && success.pixCopyPaste && success.pix && (
@@ -890,9 +931,7 @@ export function PublicContributionJourney() {
                 <div className="mx-auto rounded-2xl bg-white p-3 shadow ring-1 ring-[#123D2C]/10">
                   <Image
                     src={success.qrCodeDataUrl}
-                    alt={`QR Code Pix no valor de ${money(
-                      success.pix.amount,
-                    )}`}
+                    alt={`QR Code Pix no valor de ${money(success.pix.amount)}`}
                     width={420}
                     height={420}
                     unoptimized
@@ -921,8 +960,10 @@ export function PublicContributionJourney() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="font-black text-[#123D2C]">Chave</dt>
-                      <dd className="break-all text-slate-600">
+                      <dt className="font-black text-[#123D2C]">
+                        Chave Pix Tucxa
+                      </dt>
+                      <dd className="break-all font-bold text-slate-700">
                         {success.pix.key}
                       </dd>
                     </div>
@@ -941,9 +982,14 @@ export function PublicContributionJourney() {
 
                   {recurrenceType === "pix_agendado" && (
                     <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Depois do primeiro pagamento, use o aplicativo do seu
-                      banco para repetir ou agendar o Pix no dia escolhido. O
-                      controle da recorrência fica no próprio banco.
+                      No aplicativo do banco, programe o primeiro Pix para {" "}
+                      {new Intl.DateTimeFormat("pt-BR", {
+                        dateStyle: "short",
+                        timeZone: "UTC",
+                      }).format(
+                        new Date(`${recurrenceStartDate}T12:00:00Z`),
+                      )}{" "}
+                      e configure {recurrenceOccurrences} repetições.
                     </p>
                   )}
                 </div>
@@ -994,8 +1040,9 @@ export function PublicContributionJourney() {
                   Enviar comprovante
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Depois de concluir o pagamento, envie uma imagem ou PDF. O
-                  arquivo fica privado e disponível somente para conferência.
+                  A Tesouraria/Financeiro já enxerga esta contribuição como
+                  aguardando comprovante. Depois do pagamento, envie uma imagem
+                  ou PDF para permitir a conferência.
                 </p>
                 <input
                   type="file"
@@ -1032,48 +1079,17 @@ export function PublicContributionJourney() {
               >
                 Ver prestação de contas
               </Link>
-              <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa"
+              <button
+                type="button"
+                onClick={() => setSuccess(null)}
                 className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
               >
-                Voltar ao site do Tucxa
-              </Link>
+                Fechar
+              </button>
             </div>
           </section>
-        )}
-
-        <section
-          id="com-cadastro"
-          className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
-        >
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-            Contribuir com cadastro
-          </p>
-          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-            Prefere ter histórico, lembretes e organização recorrente?
-          </h2>
-          <p className="mt-3 max-w-4xl leading-7 text-slate-700">
-            Acesse o caminho correspondente ao seu vínculo. O cadastro permite
-            organizar contribuições identificadas, preferências de vencimento,
-            lembretes e acompanhamento com sigilo.
-          </p>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Link
-              href="/solucoes/organizacao-em-harmonia/tucxa#corrente"
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
-            >
-              Sou Filho da Corrente
-            </Link>
-            <Link
-              href="/solucoes/organizacao-em-harmonia/tucxa#consulentes"
-              className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-            >
-              Sou Consulente / Filho de Fora
-            </Link>
-          </div>
-        </section>
-      </section>
+        </div>
+      )}
     </main>
   );
 }

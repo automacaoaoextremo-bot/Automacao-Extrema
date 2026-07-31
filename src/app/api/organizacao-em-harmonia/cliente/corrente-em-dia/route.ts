@@ -97,7 +97,7 @@ async function loadPayload(organizationId: string, canManage: boolean) {
     supabaseAdmin
       .from("oh_contributions")
       .select(
-        "id, person_id, contributor_name, contributor_email, contributor_whatsapp, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, is_anonymous, recurrence_type, preferred_due_day, public_identification_mode",
+        "id, person_id, contributor_name, contributor_email, contributor_whatsapp, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, is_anonymous, recurrence_type, preferred_due_day, recurrence_start_date, recurrence_occurrences, public_identification_mode, metadata, created_at, updated_at",
       )
       .eq("organization_id", organizationId)
       .order("due_date", { ascending: false })

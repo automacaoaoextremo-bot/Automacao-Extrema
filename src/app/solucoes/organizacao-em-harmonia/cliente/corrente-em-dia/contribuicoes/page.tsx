@@ -23,7 +23,12 @@ type Contribution = {
   is_anonymous: boolean;
   recurrence_type: string | null;
   preferred_due_day: number | null;
+  recurrence_start_date: string | null;
+  recurrence_occurrences: number | null;
   public_identification_mode: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type Payload = {
@@ -36,6 +41,8 @@ type Payload = {
 const statusLabels: Record<string, string> = {
   intencao_registrada: "Intenção registrada",
   aguardando_pagamento: "Aguardando pagamento",
+  aguardando_comprovante: "Aguardando comprovante",
+  aguardando_recepcao: "Aguardando Recepção",
   comprovante_enviado: "Comprovante enviado",
   em_revisao: "Em revisão",
   confirmado: "Confirmado",
@@ -363,8 +370,13 @@ export default function CorrenteContribuicoesPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap gap-2">
                       <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                        {item.is_anonymous ? "Não identificada" : "Sigilosa"}
+                        {item.is_anonymous ? "Contribuição anônima" : "Identificada"}
                       </span>
+                      {item.status === "aguardando_comprovante" && (
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900 ring-1 ring-amber-200">
+                          Aguardando upload do comprovante
+                        </span>
+                      )}
                       <span className="rounded-full bg-[#E9F2E7] px-3 py-1 text-xs font-black text-[#123D2C]">
                         {recurring ? "Recorrente" : "Pontual"}
                       </span>
@@ -413,6 +425,25 @@ export default function CorrenteContribuicoesPage() {
                     </p>
                   </div>
                 </div>
+
+                {item.recurrence_type === "pix_agendado" && (
+                  <div className="mt-3 grid gap-2 rounded-2xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10 sm:grid-cols-2">
+                    <div>
+                      <p className="font-black text-[#2F6B43]">Primeira contribuição</p>
+                      <p className="mt-1 font-semibold text-slate-700">
+                        {date(item.recurrence_start_date)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-black text-[#2F6B43]">Programação</p>
+                      <p className="mt-1 font-semibold text-slate-700">
+                        {item.recurrence_occurrences
+                          ? `${item.recurrence_occurrences} contribuições planejadas`
+                          : "Quantidade não informada"}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {item.notes && (
                   <p className="mt-3 rounded-2xl bg-white p-3 text-sm leading-6 text-slate-600">

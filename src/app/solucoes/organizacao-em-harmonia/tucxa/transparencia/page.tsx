@@ -128,6 +128,21 @@ function MetricCard({
   );
 }
 
+function ContributionAnchorButton({
+  className = "",
+}: {
+  className?: string;
+}) {
+  return (
+    <Link
+      href="#contribuir"
+      className={`inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white shadow-sm ${className}`}
+    >
+      Contribuir
+    </Link>
+  );
+}
+
 function FinancialSummary({
   id,
   title,
@@ -175,6 +190,7 @@ function FinancialSummary({
           }
         />
       </div>
+      <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
     </section>
   );
 }
@@ -233,8 +249,9 @@ export default function TucxaTransparenciaPage() {
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             {data?.settings.message ||
-              "Acompanhe o último mês finalizado, o mês atual e a evolução detalhada das receitas, despesas e saldos."}
+              "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo."}
           </p>
+          <ContributionAnchorButton className="mt-5 w-full bg-white text-[#123D2C] sm:w-auto" />
         </header>
 
         {loading && (
@@ -264,8 +281,11 @@ export default function TucxaTransparenciaPage() {
                   id="finalizado"
                   className="scroll-mt-48 rounded-[2rem] bg-amber-50 p-5 font-bold leading-7 text-amber-900 ring-1 ring-amber-200"
                 >
-                  Ainda não existe uma competência finalizada para exibição
-                  pública.
+                  <p>
+                    Ainda não existe uma competência finalizada para exibição
+                    pública.
+                  </p>
+                  <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
                 </section>
               )}
 
@@ -279,6 +299,7 @@ export default function TucxaTransparenciaPage() {
 
             <div id="detalhado" className="scroll-mt-48">
               <FinancialTransparencyMatrix matrix={data.matrix} />
+              <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
             </div>
 
             <section
@@ -299,55 +320,12 @@ export default function TucxaTransparenciaPage() {
                 disponível, organizado e pronto para cuidar.
               </p>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                <article className="rounded-2xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                    Sem cadastro
-                  </p>
-                  <h3 className="mt-2 text-xl font-black text-[#123D2C]">
-                    Contribua de forma anônima e escolha o que cabe no seu
-                    momento.
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Defina um valor livre ou sugerido, gere um QR Code Pix,
-                    organize um Pix recorrente pelo seu banco ou receba a
-                    orientação da Recepção para cartão, débito ou dinheiro.
-                  </p>
-                  <Link
-                    href="/solucoes/organizacao-em-harmonia/tucxa/contribuir?tipo=anonima"
-                    className="mt-4 inline-flex w-full justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
-                  >
-                    Contribuir de forma anônima
-                  </Link>
-                </article>
-
-                <article className="rounded-2xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-                    Com cadastro
-                  </p>
-                  <h3 className="mt-2 text-xl font-black text-[#123D2C]">
-                    Organize histórico, lembretes e preferências com sigilo.
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Escolha o caminho correspondente ao seu vínculo para fazer
-                    cadastro, entrar no sistema e acompanhar suas contribuições.
-                  </p>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <Link
-                      href="/solucoes/organizacao-em-harmonia/tucxa#corrente"
-                      className="rounded-2xl bg-[#123D2C] px-4 py-4 text-center font-black text-white"
-                    >
-                      Filho da Corrente
-                    </Link>
-                    <Link
-                      href="/solucoes/organizacao-em-harmonia/tucxa#consulentes"
-                      className="rounded-2xl bg-[#E9F2E7] px-4 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                    >
-                      Consulente / Filho de Fora
-                    </Link>
-                  </div>
-                </article>
-              </div>
+              <Link
+                href="/solucoes/organizacao-em-harmonia/tucxa/contribuir"
+                className="mt-5 inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#123D2C] px-6 py-4 text-center text-lg font-black text-white shadow sm:w-auto"
+              >
+                Acessar formas de contribuição
+              </Link>
             </section>
           </>
         )}

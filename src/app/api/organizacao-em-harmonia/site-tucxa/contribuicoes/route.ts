@@ -11,6 +11,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
+const TUCXA_PIX_KEY = "58.392.598/0001-91";
+
 type ReceptionContact = {
   name: string;
   whatsapp: string;
@@ -157,7 +159,7 @@ async function settingsFor(organizationId: string) {
 
   return {
     ...financial,
-    pixKey: asText(legacy.pixKey) || "tucxacentro@gmail.com",
+    pixKey: TUCXA_PIX_KEY,
     pixReceiverName: asText(legacy.pixReceiverName) || "TUCXA",
     pixCity: asText(legacy.pixCity) || "CAMPINAS",
     suggestedAmounts:
@@ -292,6 +294,13 @@ function crc16Ccitt(value: string) {
   return crc.toString(16).toUpperCase().padStart(4, "0");
 }
 
+function pixPayloadKey(value: string) {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+
+  return digits.length === 14 ? digits : trimmed;
+}
+
 function buildPixPayload(input: {
   key: string;
   receiverName: string;
@@ -301,7 +310,7 @@ function buildPixPayload(input: {
 }) {
   const merchantAccount = [
     emv("00", "BR.GOV.BCB.PIX"),
-    emv("01", input.key),
+    emv("01", pixPayloadKey(input.key)),
   ].join("");
   const additionalData = emv(
     "05",
@@ -382,12 +391,6 @@ export async function GET() {
             label: "Pix recorrente agendado no meu banco",
             available: true,
             note: "O agendamento e a repetição são controlados pelo aplicativo do seu banco.",
-          },
-          {
-            value: "pix_automatico",
-            label: "Pix Automático",
-            available: false,
-            note: "Será habilitado quando houver integração com um provedor de pagamentos.",
           },
         ],
         paymentMethods: [
@@ -487,11 +490,54 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestedDueDay = Math.trunc(
-      asNumber(body.preferredDueDay, settings.defaultDueDay),
+    const recurrenceStartDate = asText(body.recurrenceStartDate).slice(0, 10);
+    const recurrenceOccurrences = Math.trunc(
+      asNumber(body.recurrenceOccurrences, 0),
     );
-    const preferredDueDay = settings.allowedDueDays.includes(requestedDueDay)
-      ? requestedDueDay
+
+    if (recurrenceType === "pix_agendado") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)) {
+        return NextResponse.json(
+          { error: "Informe a data da primeira contribuição recorrente." },
+          { status: 400 },
+        );
+      }
+
+      const scheduledDate = new Date(`${recurrenceStartDate}T12:00:00Z`);
+      if (Number.isNaN(scheduledDate.getTime())) {
+        return NextResponse.json(
+          { error: "A data da primeira contribuição é inválida." },
+          { status: 400 },
+        );
+      }
+
+      const todayInSaoPaulo = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+
+      if (recurrenceStartDate < todayInSaoPaulo) {
+        return NextResponse.json(
+          {
+            error:
+              "A data da primeira contribuição recorrente não pode estar no passado.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (recurrenceOccurrences < 2 || recurrenceOccurrences > 120) {
+        return NextResponse.json(
+          { error: "Informe uma quantidade entre 2 e 120 contribuições." },
+          { status: 400 },
+        );
+      }
+    }
+
+    const preferredDueDay = recurrenceType === "pix_agendado"
+      ? Number(recurrenceStartDate.slice(8, 10))
       : settings.defaultDueDay;
     const contributorName = anonymous
       ? null
@@ -514,29 +560,42 @@ export async function POST(request: Request) {
         contributor_email: email || null,
         contributor_whatsapp: whatsapp || null,
         amount,
-        due_date: dueDateFor(preferredDueDay),
+        due_date:
+          recurrenceType === "pix_agendado"
+            ? recurrenceStartDate
+            : dueDateFor(preferredDueDay),
         status: requiresReception
           ? "aguardando_recepcao"
-          : "intencao_registrada",
+          : "aguardando_comprovante",
         payment_method: paymentMethod,
         notes: asText(body.notes) || null,
         contribution_kind:
           recurrenceType === "pontual" ? "pontual" : "recorrente",
         is_anonymous: anonymous,
         recurrence_type: recurrenceType,
-        preferred_due_day: preferredDueDay,
+        preferred_due_day:
+          recurrenceType === "pix_agendado" ? null : preferredDueDay,
+        recurrence_start_date:
+          recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
+        recurrence_occurrences:
+          recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
         public_identification_mode: "sigiloso",
         metadata: {
           source: "site_tucxa_contribuicao_publica",
-          reminderDaysBefore: Array.isArray(body.reminderDaysBefore)
-            ? body.reminderDaysBefore
-            : [],
+          confidential: true,
           proofUploadToken: uploadToken,
+          awaitingProofSince: requiresReception
+            ? null
+            : new Date().toISOString(),
           providerIntegrated: false,
           requiresReception,
+          recurrenceStartDate:
+            recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
+          recurrenceOccurrences:
+            recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
         },
       })
-      .select("id, status, due_date")
+      .select("id, status, due_date, recurrence_start_date, recurrence_occurrences")
       .single();
 
     if (error) throw error;
@@ -576,8 +635,8 @@ export async function POST(request: Request) {
       message: requiresReception
         ? "Sua intenção foi registrada. Procure a Recepção para concluir com segurança."
         : anonymous
-          ? "Sua contribuição anônima foi registrada com sigilo."
-          : "Sua contribuição foi registrada. A Tesouraria/Financeiro poderá conferir o pagamento.",
+          ? "Sua contribuição anônima foi registrada e já aparece para a Tesouraria/Financeiro como aguardando comprovante."
+          : "Sua contribuição foi registrada e aguarda o envio do comprovante para conferência.",
     });
   } catch (error) {
     return NextResponse.json(

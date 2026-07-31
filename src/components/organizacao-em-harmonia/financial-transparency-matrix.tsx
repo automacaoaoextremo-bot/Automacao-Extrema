@@ -205,8 +205,11 @@ export function FinancialTransparencyMatrix({
                   </th>
                 ))}
 
-                <th className="min-w-32 border-b border-r border-white/20 bg-[#123D2C] px-3 py-3 text-right font-black text-white">
-                  Total
+                <th className="min-w-36 border-b border-r border-white/20 bg-[#123D2C] px-3 py-3 text-right font-black text-white">
+                  <span className="block">Total</span>
+                  <span className="mt-1 block text-[9px] font-semibold leading-3 text-[#DDEAD8]">
+                    Saldo do mês finalizado mais recente
+                  </span>
                 </th>
                 <th className="min-w-32 border-b border-r border-white/20 bg-[#123D2C] px-3 py-3 text-right font-black text-white">
                   Média
@@ -357,11 +360,6 @@ export function FinancialTransparencyMatrix({
         </div>
       )}
 
-      <p className="mt-3 text-xs font-semibold leading-5 text-slate-500">
-        Na linha de saldo bancário, “Total” representa o saldo do mês
-        finalizado mais recente; “Média” representa a média dos saldos dos
-        meses exibidos.
-      </p>
     </section>
   );
 }
