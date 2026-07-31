@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
+import {
+  FinancialTransparencyMatrix,
+  type FinancialTransparencyMatrixData,
+} from "@/components/organizacao-em-harmonia/financial-transparency-matrix";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type MonthSummary = {
@@ -18,6 +22,7 @@ type Payload = {
   live?: {
     latestFinalized: MonthSummary | null;
     currentForecast: MonthSummary;
+    matrix: FinancialTransparencyMatrixData;
   };
   error?: string;
 };
@@ -133,6 +138,13 @@ export default function GestaoFinanceiraPage() {
               </article>
             ))}
           </section>
+
+          <FinancialTransparencyMatrix
+            matrix={payload.live.matrix}
+            editable
+            title="Prestação de contas para incluir e atualizar"
+            description="A matriz começa recolhida por Saldo, Receitas e Despesas. Expanda a hierarquia na vertical e navegue pelos blocos de três meses na horizontal. Use Incluir/atualizar no cabeçalho de cada mês para abrir seu balancete completo."
+          />
 
           <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-6">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">

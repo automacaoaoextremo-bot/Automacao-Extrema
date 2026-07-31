@@ -41,6 +41,28 @@ export type LiveFinancialGroup = {
   items: Array<{ name: string; total: number }>;
 };
 
+export type LiveFinancialMatrixItem = {
+  name: string;
+  values: Record<string, number>;
+};
+
+export type LiveFinancialMatrixGroup = {
+  type: "receita" | "despesa";
+  group: string;
+  values: Record<string, number>;
+  items: LiveFinancialMatrixItem[];
+};
+
+export type LiveFinancialMatrix = {
+  months: Array<{
+    month: string;
+    openingBalance: number | null;
+    closingBalance: number | null;
+    bankBalance: number | null;
+  }>;
+  groups: LiveFinancialMatrixGroup[];
+};
+
 type Category = {
   name: string;
   public_name: string | null;
@@ -303,6 +325,83 @@ export async function buildLiveFinancialTransparency(organizationId: string) {
     : [];
   const currentEntries = entriesByFinancialMonth.get(currentMonth) ?? [];
 
+  const matrixMonths = [...finalizedMonthly]
+    .sort((left, right) => right.month.localeCompare(left.month))
+    .map((month) => ({
+      month: month.month,
+      openingBalance: month.openingBalance,
+      closingBalance: month.closingBalance,
+      bankBalance: month.bankBalance,
+    }));
+  const matrixMonthKeys = new Set(matrixMonths.map((month) => month.month));
+  const matrixGroups = new Map<
+    string,
+    {
+      type: "receita" | "despesa";
+      group: string;
+      values: Map<string, number>;
+      items: Map<string, Map<string, number>>;
+    }
+  >();
+
+  for (const entry of entries) {
+    const financialMonth = entry.financial_month || entry.competence_month;
+    if (!matrixMonthKeys.has(financialMonth)) continue;
+
+    const category = categoryFrom(entry.category);
+    if (category?.public_visible === false || !entry.public_visible) continue;
+
+    const groupName = category?.group_name || "Outros";
+    const itemName =
+      category?.public_name ||
+      category?.name ||
+      entry.description_public ||
+      "Outros";
+    const key = `${entry.entry_type}:${groupName}`;
+    const group = matrixGroups.get(key) ?? {
+      type: entry.entry_type,
+      group: groupName,
+      values: new Map<string, number>(),
+      items: new Map<string, Map<string, number>>(),
+    };
+    const amount = asNumber(entry.amount);
+
+    group.values.set(
+      financialMonth,
+      (group.values.get(financialMonth) ?? 0) + amount,
+    );
+
+    const itemValues = group.items.get(itemName) ?? new Map<string, number>();
+    itemValues.set(
+      financialMonth,
+      (itemValues.get(financialMonth) ?? 0) + amount,
+    );
+    group.items.set(itemName, itemValues);
+    matrixGroups.set(key, group);
+  }
+
+  const matrix: LiveFinancialMatrix = {
+    months: matrixMonths,
+    groups: Array.from(matrixGroups.values())
+      .map((group) => ({
+        type: group.type,
+        group: group.group,
+        values: Object.fromEntries(group.values.entries()),
+        items: Array.from(group.items.entries())
+          .map(([name, values]) => ({
+            name,
+            values: Object.fromEntries(values.entries()),
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name, "pt-BR")),
+      }))
+      .sort((left, right) => {
+        if (left.type !== right.type) {
+          return left.type === "receita" ? -1 : 1;
+        }
+        return left.group.localeCompare(right.group, "pt-BR");
+      }),
+  };
+
   const updateToken = [
     latestFinalized?.updatedAt,
     currentForecast.updatedAt,
@@ -334,5 +433,6 @@ export async function buildLiveFinancialTransparency(organizationId: string) {
     history,
     latestFinalizedGroups: groupsFor(latestEntries),
     currentGroups: groupsFor(currentEntries),
+    matrix,
   };
 }

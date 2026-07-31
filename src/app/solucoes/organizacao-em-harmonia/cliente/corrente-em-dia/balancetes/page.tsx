@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -124,8 +125,14 @@ function statusLabel(status: string | undefined) {
   return status ? labels[status] ?? status : "Novo mês";
 }
 
-export default function BalanceteMensalPage() {
-  const [month, setMonth] = useState(currentMonth());
+function BalanceteMensalContent() {
+  const searchParams = useSearchParams();
+  const [month, setMonth] = useState(() => {
+    const requestedMonth = searchParams.get("month") ?? "";
+    return /^\d{4}-\d{2}$/.test(requestedMonth)
+      ? requestedMonth
+      : currentMonth();
+  });
   const [payload, setPayload] = useState<ApiPayload>({});
   const [rows, setRows] = useState<BalanceRow[]>([]);
   const [openingBalance, setOpeningBalance] = useState("0,00");
@@ -770,5 +777,24 @@ export default function BalanceteMensalPage() {
         </form>
       )}
     </OrganizacaoClientShell>
+  );
+}
+
+export default function BalanceteMensalPage() {
+  return (
+    <Suspense
+      fallback={
+        <OrganizacaoClientShell
+          title="Balancete mensal"
+          description="Carregando a competência selecionada..."
+        >
+          <p className="rounded-2xl bg-white p-5 font-bold text-slate-500 shadow">
+            Carregando o balancete...
+          </p>
+        </OrganizacaoClientShell>
+      }
+    >
+      <BalanceteMensalContent />
+    </Suspense>
   );
 }
