@@ -99,6 +99,20 @@ function categoryFrom(value: Entry["category"]) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function entryCategoryKey(entry: Entry) {
+  const category = categoryFrom(entry.category);
+  return [
+    entry.entry_type,
+    category?.group_name || "Outros",
+    category?.public_name ||
+      category?.name ||
+      entry.description_public ||
+      "Outros",
+  ]
+    .join("|")
+    .toLocaleLowerCase("pt-BR");
+}
+
 function workflowFrom(period: Period | undefined): FinancialWorkflowStatus {
   const explicit = period?.workflow_status;
   if (
@@ -233,6 +247,24 @@ export async function buildLiveFinancialTransparency(organizationId: string) {
     entriesByFinancialMonth.set(financialMonth, currentRows);
   }
 
+  const effectiveEntriesForMonth = (month: string) => {
+    const rows = entriesByFinancialMonth.get(month) ?? [];
+
+    if (month !== currentMonth) return rows;
+
+    const realizedCategoryKeys = new Set(
+      rows
+        .filter((entry) => natureFrom(entry.data_nature) === "realizado")
+        .map(entryCategoryKey),
+    );
+
+    return rows.filter(
+      (entry) =>
+        natureFrom(entry.data_nature) === "realizado" ||
+        !realizedCategoryKeys.has(entryCategoryKey(entry)),
+    );
+  };
+
   const finalizedPeriods = periods
     .filter((period) => workflowFrom(period) === "finalizado")
     .sort((left, right) =>
@@ -249,7 +281,7 @@ export async function buildLiveFinancialTransparency(organizationId: string) {
         : workflowFrom(period);
     const current = month === currentMonth;
     const finalized = workflowStatus === "finalizado";
-    const rows = entriesByFinancialMonth.get(month) ?? [];
+    const rows = effectiveEntriesForMonth(month);
     const hasData = rows.length > 0 || Boolean(period);
 
     const realizedRows = rows.filter(
@@ -323,7 +355,7 @@ export async function buildLiveFinancialTransparency(organizationId: string) {
   const latestEntries = latestFinalizedMonth
     ? entriesByFinancialMonth.get(latestFinalizedMonth) ?? []
     : [];
-  const currentEntries = entriesByFinancialMonth.get(currentMonth) ?? [];
+  const currentEntries = effectiveEntriesForMonth(currentMonth);
 
   const matrixMonths = [...finalizedMonthly]
     .sort((left, right) => right.month.localeCompare(left.month))

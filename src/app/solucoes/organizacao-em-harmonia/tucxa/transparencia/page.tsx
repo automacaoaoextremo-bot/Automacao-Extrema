@@ -63,6 +63,21 @@ const actions = [
     variant: "secondary" as const,
   },
   {
+    label: "Finalizado",
+    href: "#finalizado",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Atual",
+    href: "#atual",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Detalhado",
+    href: "#detalhado",
+    variant: "secondary" as const,
+  },
+  {
     label: "Contribuir",
     href: "#contribuir",
     variant: "primary" as const,
@@ -77,6 +92,7 @@ const actions = [
 
 function money(value: number | null | undefined) {
   if (value == null) return "—";
+
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
@@ -113,16 +129,21 @@ function MetricCard({
 }
 
 function FinancialSummary({
+  id,
   title,
   subtitle,
   month,
 }: {
+  id: string;
   title: string;
   subtitle: string;
   month: MonthSummary;
 }) {
   return (
-    <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
+    <section
+      id={id}
+      className="scroll-mt-48 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6"
+    >
       <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
         {title}
       </p>
@@ -170,6 +191,7 @@ export default function TucxaTransparenciaPage() {
       })
         .then(async (response) => {
           const result = (await response.json()) as ApiPayload;
+
           if (!active) return;
           setPayload(result);
         })
@@ -232,40 +254,100 @@ export default function TucxaTransparenciaPage() {
             <div className="grid gap-4 lg:grid-cols-2">
               {data.latestFinalized ? (
                 <FinancialSummary
+                  id="finalizado"
                   title="Último mês finalizado"
                   subtitle="Valores conferidos e encerrados pela Tesouraria/Financeiro."
                   month={data.latestFinalized}
                 />
               ) : (
-                <section className="rounded-[2rem] bg-amber-50 p-5 font-bold leading-7 text-amber-900 ring-1 ring-amber-200">
-                  Ainda não existe uma competência finalizada para exibição pública.
+                <section
+                  id="finalizado"
+                  className="scroll-mt-48 rounded-[2rem] bg-amber-50 p-5 font-bold leading-7 text-amber-900 ring-1 ring-amber-200"
+                >
+                  Ainda não existe uma competência finalizada para exibição
+                  pública.
                 </section>
               )}
+
               <FinancialSummary
+                id="atual"
                 title="Mês atual"
-                subtitle="Receitas e despesas registradas até a consulta, incluindo estimativas cadastradas."
+                subtitle="Média das receitas, despesas e saldo no banco consideradas como estimativa para o mês atual."
                 month={data.currentForecast}
               />
             </div>
 
-            <FinancialTransparencyMatrix matrix={data.matrix} />
+            <div id="detalhado" className="scroll-mt-48">
+              <FinancialTransparencyMatrix matrix={data.matrix} />
+            </div>
 
             <section
               id="contribuir"
-              className="scroll-mt-40 rounded-[2rem] bg-[#E9F2E7] p-5 text-center ring-1 ring-[#123D2C]/10 sm:p-7"
+              className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
             >
-              <h2 className="text-2xl font-black text-[#123D2C]">
-                Manter a Casa em harmonia também é cuidar de cada trabalho.
-              </h2>
-              <p className="mx-auto mt-3 max-w-3xl leading-7 text-slate-700">
-                Você escolhe o valor, se deseja se identificar e como prefere organizar sua contribuição.
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                Um cuidado que continua depois do clique
               </p>
-              <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa/consulente/contribuicao"
-                className="mt-5 inline-flex rounded-2xl bg-[#123D2C] px-6 py-4 font-black text-white"
-              >
-                Contribuir
-              </Link>
+              <h2 className="mt-2 max-w-4xl text-2xl font-black leading-tight text-[#123D2C] sm:text-3xl">
+                O que mantém a Casa preparada nem sempre aparece, mas faz
+                diferença em cada trabalho.
+              </h2>
+              <p className="mt-3 max-w-4xl leading-7 text-slate-700">
+                Água, energia, limpeza, segurança, conservação e materiais
+                transformam estrutura em acolhimento. Sua contribuição não é
+                apenas um valor: é uma forma prática de ajudar o Tucxa a seguir
+                disponível, organizado e pronto para cuidar.
+              </p>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                <article className="rounded-2xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                    Sem cadastro
+                  </p>
+                  <h3 className="mt-2 text-xl font-black text-[#123D2C]">
+                    Contribua de forma anônima e escolha o que cabe no seu
+                    momento.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Defina um valor livre ou sugerido, gere um QR Code Pix,
+                    organize um Pix recorrente pelo seu banco ou receba a
+                    orientação da Recepção para cartão, débito ou dinheiro.
+                  </p>
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/tucxa/contribuir?tipo=anonima"
+                    className="mt-4 inline-flex w-full justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+                  >
+                    Contribuir de forma anônima
+                  </Link>
+                </article>
+
+                <article className="rounded-2xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                    Com cadastro
+                  </p>
+                  <h3 className="mt-2 text-xl font-black text-[#123D2C]">
+                    Organize histórico, lembretes e preferências com sigilo.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Escolha o caminho correspondente ao seu vínculo para fazer
+                    cadastro, entrar no sistema e acompanhar suas contribuições.
+                  </p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <Link
+                      href="/solucoes/organizacao-em-harmonia/tucxa#corrente"
+                      className="rounded-2xl bg-[#123D2C] px-4 py-4 text-center font-black text-white"
+                    >
+                      Filho da Corrente
+                    </Link>
+                    <Link
+                      href="/solucoes/organizacao-em-harmonia/tucxa#consulentes"
+                      className="rounded-2xl bg-[#E9F2E7] px-4 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    >
+                      Consulente / Filho de Fora
+                    </Link>
+                  </div>
+                </article>
+              </div>
             </section>
           </>
         )}
