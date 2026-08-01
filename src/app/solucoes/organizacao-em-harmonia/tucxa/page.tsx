@@ -82,27 +82,27 @@ export default async function TucxaSitePage() {
       <TucxaPublicHeader actions={headerActions} showSupport={false} />
       <FinancialTransparencyPopup />
 
-      <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
-        <div className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-7">
-          <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
+      <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
+        <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <p className="inline-flex rounded-full bg-[#E9F2E7] px-3 py-1.5 text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:text-xs">
             Organização em Harmonia no Tucxa
           </p>
-          <h1 className="mt-4 max-w-4xl text-3xl font-black leading-tight tracking-tight text-[#123D2C] sm:text-4xl lg:text-[2.8rem]">
+          <h1 className="mt-2.5 max-w-4xl text-[1.72rem] font-black leading-tight tracking-tight text-[#123D2C] sm:text-4xl lg:text-[2.8rem]">
             Um ponto simples para orientar, organizar e cuidar melhor da nossa corrente.
           </h1>
-          <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700 sm:text-[1.05rem] sm:leading-8">
+          <p className="mt-2.5 max-w-4xl text-[0.95rem] leading-6 text-slate-700 sm:text-[1.05rem] sm:leading-8">
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             <Link
               href="#corrente"
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base"
+              className="rounded-2xl bg-[#123D2C] px-5 py-3 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base"
             >
               Sou Filho da Corrente
             </Link>
             <Link
               href="#consulentes"
-              className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 sm:text-base"
+              className="rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 sm:text-base"
             >
               Sou Consulente / Filho de Fora
             </Link>

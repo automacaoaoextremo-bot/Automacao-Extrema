@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
 import {
@@ -84,6 +84,59 @@ function toggleValue(values: string[], value: string) {
     : [...values, value];
 }
 
+type RegistrationDialog = "cadastro" | "dados" | "funcao" | "agenda" | null;
+
+type RegistrationStep = "dados" | "funcao" | "agenda";
+
+type RegistrationStepState = Record<RegistrationStep, boolean>;
+
+type RegistrationModalProps = {
+  eyebrow: string;
+  title: string;
+  children: ReactNode;
+  footer: ReactNode;
+  onClose: () => void;
+};
+
+function RegistrationModal({
+  eyebrow,
+  title,
+  children,
+  footer,
+  onClose,
+}: RegistrationModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+            {eyebrow}
+          </p>
+          <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-3 min-h-10 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+          >
+            Fechar
+          </button>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div>
+        <footer className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+          {footer}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
   const [fullName, setFullName] = useState("");
@@ -105,6 +158,12 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [foundPerson] = useState<AccessPerson | null>(null);
+  const [activeDialog, setActiveDialog] = useState<RegistrationDialog>(null);
+  const [completedSteps, setCompletedSteps] = useState<RegistrationStepState>({
+    dados: false,
+    funcao: false,
+    agenda: false,
+  });
 
   useEffect(() => {
     let active = true;
@@ -214,6 +273,11 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
         setCavalinhoEntityIds(Array.isArray(draft.cavalinhoEntityIds) ? draft.cavalinhoEntityIds.filter((item): item is string => typeof item === "string") : []);
         setCavalinhoConsulenteEntityId(typeof draft.cavalinhoConsulenteEntityId === "string" ? draft.cavalinhoConsulenteEntityId : "");
         setCavalinhoConsulenteDefinitionCompleted(draft.cavalinhoConsulenteDefinitionCompleted === true);
+        setCompletedSteps({
+          dados: true,
+          funcao: true,
+          agenda: true,
+        });
       } catch {
         window.sessionStorage.removeItem(FIRST_ACCESS_DRAFT_KEY);
       }
@@ -281,6 +345,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   );
 
   function toggleFunction(slug: string) {
+    setCompletedSteps((current) => ({ ...current, funcao: false }));
     const selected = functionSlugs.includes(slug);
     setFunctionSlugs((current) => toggleValue(current, slug));
 
@@ -295,10 +360,108 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
     }
   }
 
+  function invalidateStep(step: RegistrationStep) {
+    setCompletedSteps((current) =>
+      current[step] ? { ...current, [step]: false } : current,
+    );
+  }
+
+  function validateDataStep() {
+    if (!fullName.trim()) return "Informe seu nome completo.";
+    if (onlyDigits(whatsapp).length < 10) {
+      return "Informe seu WhatsApp com DDD. Este é o principal canal de orientação do Tucxa.";
+    }
+    if (signupPassword.length < 8) {
+      return "Crie uma senha com pelo menos 8 caracteres para os próximos acessos.";
+    }
+    if (email && !email.includes("@")) {
+      return "Confira o e-mail informado ou deixe o campo em branco.";
+    }
+    return "";
+  }
+
+  function validateFunctionStep() {
+    if (hasCavalinho && cavalinhoEntityIds.length === 0) {
+      return "Selecione pelo menos uma entidade que você recebe.";
+    }
+    if (hasCavalinho && !cavalinhoConsulenteDefinitionCompleted) {
+      return "Informe se alguma das entidades selecionadas atende Consulentes.";
+    }
+    if (
+      hasCavalinho &&
+      cavalinhoConsulenteEntityId &&
+      !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)
+    ) {
+      return "A entidade que atende Consulentes precisa estar entre as entidades que você recebe.";
+    }
+    return "";
+  }
+
+  function confirmDataStep() {
+    const validationError = validateDataStep();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setError("");
+    setCompletedSteps((current) => ({ ...current, dados: true }));
+    setActiveDialog("funcao");
+  }
+
+  function confirmFunctionStep() {
+    const validationError = validateFunctionStep();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (functionSlugs.length === 0) {
+      const confirmed = window.confirm(
+        "Você não marcou nenhuma função além de Filho da Corrente. Confirma que atualmente é somente Filho da Corrente e não participa de nenhuma outra função listada?",
+      );
+      if (!confirmed) return;
+    }
+
+    setError("");
+    setCompletedSteps((current) => ({ ...current, funcao: true }));
+    setActiveDialog("agenda");
+  }
+
+  function confirmAgendaStep() {
+    setError("");
+    setCompletedSteps((current) => ({ ...current, agenda: true }));
+    setActiveDialog(null);
+  }
+
+  const allStepsCompleted =
+    completedSteps.dados && completedSteps.funcao && completedSteps.agenda;
+
+  const dataSummary = completedSteps.dados
+    ? `${fullName.trim()} • ${whatsapp.trim()}`
+    : "Nome, WhatsApp, e-mail, senha e observação";
+
+  const functionSummary = completedSteps.funcao
+    ? selectedFunctions.length > 0
+      ? `${selectedFunctions.length} função(ões) adicional(is)`
+      : "Somente Filho da Corrente"
+    : "Informe as funções adicionais que você exerce";
+
+  const agendaSummary = completedSteps.agenda
+    ? selectedAgenda.length > 0
+      ? `${selectedAgenda.length} item(ns) selecionado(s)`
+      : "Nenhum item de agenda selecionado"
+    : "Informe os grupos, atendimentos, estudos e ações";
+
   async function submitFirstAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setMessage("");
+
+    if (!allStepsCompleted) {
+      setError("Conclua e confirme as etapas Dados, Função e Agenda antes de enviar.");
+      return;
+    }
 
     if (!fullName.trim()) {
       setError("Informe seu nome completo.");
@@ -365,52 +528,51 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Primeiro acesso", href: "#primeiro-acesso", variant: "primary" },
-          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#corrente", variant: "secondary" },
-          { label: "Acesso liberado", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login", variant: "secondary" },
+          { label: "Início", href: "#inicio", variant: "primary" },
+          {
+            label: "Voltar",
+            href: "/solucoes/organizacao-em-harmonia/tucxa#corrente",
+            variant: "secondary",
+          },
+          {
+            label: "Acesso liberado",
+            href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login",
+            variant: "secondary",
+          },
         ]}
         navLabel="Menu dos Filhos da Corrente do Tucxa"
       />
 
-      <section
-        id="inicio"
-        className="mx-auto grid max-w-6xl scroll-mt-48 gap-5 px-4 py-5 sm:scroll-mt-44 sm:px-6 lg:px-8 lg:py-8"
-      >
+      <section className="mx-auto grid max-w-6xl scroll-mt-48 gap-4 px-4 py-4 sm:scroll-mt-44 sm:px-6 lg:px-8 lg:py-6">
+        <div className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-5 lg:max-w-3xl lg:mx-auto lg:w-full">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">
+            Importante
+          </p>
+          <h1 className="mt-2 text-xl font-black sm:text-2xl">
+            Informe somente o que se aplica a você.
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
+            As funções adicionais e a agenda ajudam a casa a orientar melhor
+            cada filho, organizar grupos, evitar chamadas duplicadas e preparar
+            os módulos Agenda Viva, Atendimento em Harmonia e Corrente em Dia
+            com mais segurança.
+          </p>
+        </div>
+
         <div
           id="primeiro-acesso"
-          className="order-2 scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:max-w-3xl lg:mx-auto"
+          className="scroll-mt-48 rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:scroll-mt-44 sm:p-6 lg:max-w-3xl lg:mx-auto lg:w-full"
         >
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">
-              Primeiro acesso
-            </p>
-            <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-              Confirme seus dados para validação
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              Nome completo e WhatsApp são obrigatórios. O e-mail é opcional,
-              mas recomendado para receber orientações também fora do grupo de
-              recados do WhatsApp.
-            </p>
-          </div>
-
-          <div className="mt-4 rounded-3xl bg-[#123D2C] p-4 text-white shadow-lg shadow-green-900/10">
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">
-              Importante
-            </p>
-            <h2 className="mt-2 text-xl font-black">
-              Informe somente o que se aplica a você.
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
-              As funções adicionais e a agenda ajudam a casa a orientar melhor
-              cada filho, organizar grupos, evitar chamadas duplicadas e
-              preparar os módulos Agenda Viva, Atendimento em Harmonia e
-              Corrente em Dia com mais segurança.
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveDialog("cadastro")}
+            className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-4 text-base font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5"
+          >
+            Cadastro
+          </button>
 
           {foundPerson && (
             <div className="mt-4 rounded-3xl bg-blue-50 p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-blue-100">
@@ -423,190 +585,83 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             </div>
           )}
 
-          <form onSubmit={submitFirstAccess} className="mt-5 grid gap-4">
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">
-                Nome completo *
+          <form onSubmit={submitFirstAccess} className="mt-4 grid gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveDialog("dados")}
+              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.dados
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="text-sm font-black uppercase tracking-[0.16em]">
+                  {completedSteps.dados ? "✓ " : ""}Dados
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.dados ? "Editar" : "Abrir"}
+                </span>
               </span>
-              <input
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
-                placeholder="Seu nome completo"
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">
-                Celular/WhatsApp *
+              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
+                {dataSummary}
               </span>
-              <input
-                value={whatsapp}
-                onChange={(event) => setWhatsapp(event.target.value)}
-                inputMode="tel"
-                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
-                placeholder="(19) 99999-9999"
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">E-mail</span>
-              <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
-                placeholder="Opcional, mas recomendado"
-              />
-              <span className="text-xs font-semibold text-slate-600">
-                Com o e-mail, você recebe comunicados importantes em dois canais
-                e reduz o risco de perder alguma orientação.
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDialog("funcao")}
+              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.funcao
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="text-sm font-black uppercase tracking-[0.16em]">
+                  {completedSteps.funcao ? "✓ " : ""}Função
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.funcao ? "Editar" : "Abrir"}
+                </span>
               </span>
-            </label>
-
-            <div className="rounded-3xl border border-[#123D2C]/10 bg-[#F7FAF2] p-4">
-              <p className="text-sm font-black text-[#123D2C]">Função</p>
-              <p className="mt-1 text-xs font-semibold text-slate-600">
-                Marque somente as funções adicionais que você exerce. Se você
-                for apenas Filho da Corrente, deixe sem marcar.
-              </p>
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                O vínculo de Filho da Corrente já fica registrado
-                automaticamente neste cadastro.
-              </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {filhoDaCorrenteFunctions.map((item) => (
-                  <label
-                    key={item.slug}
-                    className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={functionSlugs.includes(item.slug)}
-                      onChange={() => toggleFunction(item.slug)}
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span className="text-sm font-bold text-[#123D2C]">
-                      {item.label}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {hasCavalinho && (
-                <CavalinhoEntitySelector
-                  entities={entityOptions}
-                  selectedEntityIds={cavalinhoEntityIds}
-                  consulenteEntityId={cavalinhoConsulenteEntityId}
-                  consulenteDefinitionCompleted={cavalinhoConsulenteDefinitionCompleted}
-                  onChange={(value) => {
-                    setCavalinhoEntityIds(value.selectedEntityIds);
-                    setCavalinhoConsulenteEntityId(value.consulenteEntityId);
-                    setCavalinhoConsulenteDefinitionCompleted(value.consulenteDefinitionCompleted);
-                  }}
-                />
-              )}
-            </div>
-
-            <div className="rounded-3xl border border-[#123D2C]/10 bg-[#F7FAF2] p-4">
-              <p className="text-sm font-black text-[#123D2C]">Agenda</p>
-              <p className="mt-1 text-xs font-semibold text-slate-600">
-                Informe também os atendimentos, grupos, estudos e ações em que
-                você está envolvido.
-              </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {agendaOptions.map((item, index) => (
-                  <label
-                    key={`${item.slug}-${index}`}
-                    className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={agendaSlugs.includes(item.slug)}
-                      onChange={() =>
-                        setAgendaSlugs((current) =>
-                          toggleValue(current, item.slug),
-                        )
-                      }
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-bold text-[#123D2C]">
-                        {item.label}
-                      </span>
-                      {(item.description ||
-                        item.recurrenceLabel ||
-                        item.dateLabel ||
-                        item.timeLabel) && (
-                        <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
-                          {(
-                            item.description ||
-                            [
-                              item.recurrenceLabel,
-                              item.dateLabel,
-                              item.timeLabel,
-                            ]
-                              .filter(Boolean)
-                              .join(" • ") +
-                              (item.locationLabel
-                                ? ` Local: ${item.locationLabel}`
-                                : "")
-                          )
-                            .split("\n")
-                            .map((line) => (
-                              <span key={line} className="block">
-                                {line}
-                              </span>
-                            ))}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">
-                Crie uma senha para os próximos acessos *
+              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
+                {functionSummary}
               </span>
-              <div className="flex rounded-2xl border border-[#123D2C]/15 bg-white focus-within:border-[#2F6B43] focus-within:ring-4 focus-within:ring-[#E9F2E7]">
-                <input
-                  value={signupPassword}
-                  onChange={(event) => setSignupPassword(event.target.value)}
-                  type={signupShowPassword ? "text" : "password"}
-                  className="min-w-0 flex-1 rounded-2xl bg-transparent p-4 text-base outline-none"
-                  placeholder="Mínimo 8 caracteres"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSignupShowPassword((value) => !value)}
-                  className="shrink-0 px-4 text-sm font-black text-[#123D2C]"
-                >
-                  {signupShowPassword ? "Ocultar" : "Mostrar"}
-                </button>
-              </div>
-            </label>
+            </button>
 
-            <label className="grid gap-1">
-              <span className="text-sm font-black text-[#123D2C]">
-                Observação para facilitar a validação
+            <button
+              type="button"
+              onClick={() => setActiveDialog("agenda")}
+              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.agenda
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="text-sm font-black uppercase tracking-[0.16em]">
+                  {completedSteps.agenda ? "✓ " : ""}Agenda
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.agenda ? "Editar" : "Abrir"}
+                </span>
               </span>
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
-                placeholder="Ex.: meu nome está abreviado no WhatsApp; participo do grupo 1; ajudo no Sementinha..."
-              />
-            </label>
+              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
+                {agendaSummary}
+              </span>
+            </button>
 
-            {(selectedSummary.functions > 0 || selectedSummary.agenda > 0) && (
+            {allStepsCompleted && (
               <div className="rounded-3xl bg-[#E9F2E7] p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                <p className="font-black">Resumo preliminar</p>
+                <p className="font-black">Cadastro pronto para revisão final</p>
                 <p>
                   {selectedSummary.functions} função(ões) adicional(is) e{" "}
                   {selectedSummary.agenda} item(ns) de agenda selecionado(s).
                 </p>
                 <p className="mt-1 text-xs font-semibold text-[#123D2C]/70">
-                  Na próxima etapa você verá tudo organizado por seção antes de
-                  confirmar o envio para validação do Tucxa.
+                  Você ainda pode tocar em qualquer etapa para editar antes de
+                  enviar.
                 </p>
               </div>
             )}
@@ -631,15 +686,299 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             )}
 
             <button
-              disabled={submitLoading}
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:opacity-60"
+              disabled={submitLoading || !allStepsCompleted}
+              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {submitLoading ? "Enviando..." : "Enviar para validação do Tucxa"}
+              {submitLoading
+                ? "Enviando..."
+                : "Enviar para validação do Tucxa"}
             </button>
           </form>
         </div>
       </section>
 
+      {activeDialog === "cadastro" && (
+        <RegistrationModal
+          eyebrow="Primeiro acesso"
+          title="Confirme seus dados para validação"
+          onClose={() => setActiveDialog(null)}
+          footer={
+            <button
+              type="button"
+              onClick={() => setActiveDialog("dados")}
+              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+            >
+              Começar pelos dados
+            </button>
+          }
+        >
+          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="text-sm leading-6 text-slate-700">
+              Nome completo e WhatsApp são obrigatórios. O e-mail é opcional,
+              mas recomendado para receber orientações também fora do grupo de
+              recados do WhatsApp.
+            </p>
+          </div>
+          <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            O cadastro será organizado em três etapas: Dados, Função e Agenda.
+            Você poderá revisar qualquer uma delas antes do envio.
+          </div>
+        </RegistrationModal>
+      )}
+
+      {activeDialog === "dados" && (
+        <RegistrationModal
+          eyebrow="1 de 3"
+          title="Dados"
+          onClose={() => setActiveDialog(null)}
+          footer={
+            <button
+              type="button"
+              onClick={confirmDataStep}
+              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+            >
+              Confirmar dados e continuar
+            </button>
+          }
+        >
+          <div className="grid gap-4">
+            <label className="grid gap-1">
+              <span className="text-sm font-black text-[#123D2C]">
+                Nome completo *
+              </span>
+              <input
+                value={fullName}
+                onChange={(event) => {
+                  setFullName(event.target.value);
+                  invalidateStep("dados");
+                }}
+                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
+                placeholder="Seu nome completo"
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-sm font-black text-[#123D2C]">
+                Celular/WhatsApp *
+              </span>
+              <input
+                value={whatsapp}
+                onChange={(event) => {
+                  setWhatsapp(event.target.value);
+                  invalidateStep("dados");
+                }}
+                inputMode="tel"
+                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
+                placeholder="(19) 99999-9999"
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-sm font-black text-[#123D2C]">E-mail</span>
+              <input
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  invalidateStep("dados");
+                }}
+                type="email"
+                className="rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
+                placeholder="Opcional, mas recomendado"
+              />
+              <span className="text-xs font-semibold text-slate-600">
+                Com o e-mail, você recebe comunicados importantes em dois canais
+                e reduz o risco de perder alguma orientação.
+              </span>
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-sm font-black text-[#123D2C]">
+                Crie uma senha para os próximos acessos *
+              </span>
+              <div className="flex rounded-2xl border border-[#123D2C]/15 bg-white focus-within:border-[#2F6B43] focus-within:ring-4 focus-within:ring-[#E9F2E7]">
+                <input
+                  value={signupPassword}
+                  onChange={(event) => {
+                    setSignupPassword(event.target.value);
+                    invalidateStep("dados");
+                  }}
+                  type={signupShowPassword ? "text" : "password"}
+                  className="min-w-0 flex-1 rounded-2xl bg-transparent p-4 text-base outline-none"
+                  placeholder="Mínimo 8 caracteres"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSignupShowPassword((value) => !value)}
+                  className="shrink-0 px-4 text-sm font-black text-[#123D2C]"
+                >
+                  {signupShowPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-sm font-black text-[#123D2C]">
+                Observação para facilitar a validação
+              </span>
+              <textarea
+                value={notes}
+                onChange={(event) => {
+                  setNotes(event.target.value);
+                  invalidateStep("dados");
+                }}
+                className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 text-base outline-none focus:border-[#2F6B43] focus:ring-4 focus:ring-[#E9F2E7]"
+                placeholder="Ex.: meu nome está abreviado no WhatsApp; participo do grupo 1; ajudo no Sementinha..."
+              />
+            </label>
+
+            {error && (
+              <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {error}
+              </p>
+            )}
+          </div>
+        </RegistrationModal>
+      )}
+
+      {activeDialog === "funcao" && (
+        <RegistrationModal
+          eyebrow="2 de 3"
+          title="Função"
+          onClose={() => setActiveDialog(null)}
+          footer={
+            <button
+              type="button"
+              onClick={confirmFunctionStep}
+              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+            >
+              Confirmar função e continuar
+            </button>
+          }
+        >
+          <p className="text-sm font-semibold leading-6 text-slate-600">
+            Marque somente as funções adicionais que você exerce. O vínculo de
+            Filho da Corrente já fica registrado automaticamente.
+          </p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {filhoDaCorrenteFunctions.map((item) => (
+              <label
+                key={item.slug}
+                className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10"
+              >
+                <input
+                  type="checkbox"
+                  checked={functionSlugs.includes(item.slug)}
+                  onChange={() => toggleFunction(item.slug)}
+                  className="mt-1 h-5 w-5"
+                />
+                <span className="text-sm font-bold text-[#123D2C]">
+                  {item.label}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {hasCavalinho && (
+            <CavalinhoEntitySelector
+              entities={entityOptions}
+              selectedEntityIds={cavalinhoEntityIds}
+              consulenteEntityId={cavalinhoConsulenteEntityId}
+              consulenteDefinitionCompleted={
+                cavalinhoConsulenteDefinitionCompleted
+              }
+              onChange={(value) => {
+                invalidateStep("funcao");
+                setCavalinhoEntityIds(value.selectedEntityIds);
+                setCavalinhoConsulenteEntityId(value.consulenteEntityId);
+                setCavalinhoConsulenteDefinitionCompleted(
+                  value.consulenteDefinitionCompleted,
+                );
+              }}
+            />
+          )}
+
+          {error && (
+            <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              {error}
+            </p>
+          )}
+        </RegistrationModal>
+      )}
+
+      {activeDialog === "agenda" && (
+        <RegistrationModal
+          eyebrow="3 de 3"
+          title="Agenda"
+          onClose={() => setActiveDialog(null)}
+          footer={
+            <button
+              type="button"
+              onClick={confirmAgendaStep}
+              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+            >
+              Confirmar agenda
+            </button>
+          }
+        >
+          <p className="text-sm font-semibold leading-6 text-slate-600">
+            Informe os atendimentos, grupos, estudos e ações em que você está
+            envolvido. Caso nenhum item se aplique, confirme a etapa sem marcar.
+          </p>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {agendaOptions.map((item, index) => (
+              <label
+                key={`${item.slug}-${index}`}
+                className="flex items-start gap-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10"
+              >
+                <input
+                  type="checkbox"
+                  checked={agendaSlugs.includes(item.slug)}
+                  onChange={() => {
+                    invalidateStep("agenda");
+                    setAgendaSlugs((current) =>
+                      toggleValue(current, item.slug),
+                    );
+                  }}
+                  className="mt-1 h-5 w-5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-[#123D2C]">
+                    {item.label}
+                  </span>
+                  {(item.description ||
+                    item.recurrenceLabel ||
+                    item.dateLabel ||
+                    item.timeLabel) && (
+                    <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+                      {(
+                        item.description ||
+                        [
+                          item.recurrenceLabel,
+                          item.dateLabel,
+                          item.timeLabel,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ") +
+                          (item.locationLabel
+                            ? ` Local: ${item.locationLabel}`
+                            : "")
+                      )
+                        .split("\n")
+                        .map((line) => (
+                          <span key={line} className="block">
+                            {line}
+                          </span>
+                        ))}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        </RegistrationModal>
+      )}
     </main>
   );
 }

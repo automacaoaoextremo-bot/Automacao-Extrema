@@ -8,12 +8,12 @@ export default async function NovoConsulenteTucxaPage() {
   const content = await getTucxaPublicContent();
   const headerActions = [
     { label: "Início", href: "#inicio", variant: "primary" as const },
+    { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente", variant: "secondary" as const },
     { label: "Auxílio", href: "#auxilio", variant: "secondary" as const },
     { label: "Atendimentos", href: "#atendimentos", variant: "secondary" as const },
     { label: "Orientação", href: "#orientacao", variant: "secondary" as const },
     { label: "Respeito", href: "#respeito", variant: "secondary" as const },
     { label: "Cadastro", href: "#cadastro", variant: "secondary" as const },
-    { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente", variant: "secondary" as const },
   ];
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">

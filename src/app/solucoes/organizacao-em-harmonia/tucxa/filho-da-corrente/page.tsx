@@ -32,6 +32,9 @@ const preparation = [
   "Atue com responsabilidade, discrição, silêncio, respeito e cuidado com todos os envolvidos.",
 ];
 
+const moduleButtonClass =
+  "mt-auto inline-flex w-full items-center justify-center rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#2F6B43]";
+
 export default async function FilhoDaCorrentePublicPage() {
   const content = await getTucxaPublicContent();
 
@@ -40,6 +43,11 @@ export default async function FilhoDaCorrentePublicPage() {
       label: "Início",
       href: "#inicio",
       variant: "primary" as const,
+    },
+    {
+      label: "Voltar",
+      href: "/solucoes/organizacao-em-harmonia/tucxa#corrente",
+      variant: "secondary" as const,
     },
     {
       label: "Compromisso",
@@ -66,10 +74,23 @@ export default async function FilhoDaCorrentePublicPage() {
       href: "#preparacao",
       variant: "secondary" as const,
     },
+  ];
+
+  const modules = [
     {
-      label: "Voltar",
-      href: "/solucoes/organizacao-em-harmonia/tucxa#corrente",
-      variant: "secondary" as const,
+      title: content.atendimentoEmHarmonia.title,
+      description: content.atendimentoEmHarmonia.description,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/atendimento-em-harmonia",
+    },
+    {
+      title: content.agendaViva.title,
+      description: content.agendaViva.description,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
+    },
+    {
+      title: content.correnteEmDia.title,
+      description: content.correnteEmDia.description,
+      href: "/solucoes/organizacao-em-harmonia/tucxa/corrente-em-dia",
     },
   ];
 
@@ -134,30 +155,20 @@ export default async function FilhoDaCorrentePublicPage() {
             </h2>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
-            {[
-              {
-                title: content.atendimentoEmHarmonia.title,
-                description: content.atendimentoEmHarmonia.description,
-              },
-              {
-                title: content.agendaViva.title,
-                description: content.agendaViva.description,
-              },
-              {
-                title: content.correnteEmDia.title,
-                description: content.correnteEmDia.description,
-              },
-            ].map((module) => (
+            {modules.map((module) => (
               <article
                 key={module.title}
-                className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
+                className="flex min-h-full flex-col rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
               >
                 <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">
                   {module.title}
                 </h3>
-                <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
+                <p className="mt-3 pb-5 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
                   {module.description}
                 </p>
+                <Link href={module.href} className={moduleButtonClass}>
+                  Acessar
+                </Link>
               </article>
             ))}
           </div>
