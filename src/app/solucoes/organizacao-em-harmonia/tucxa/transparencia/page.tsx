@@ -113,18 +113,47 @@ function MetricCard({
   );
 }
 
-function ContributionAnchorButton({
+function ContributionChoiceButtons({
   className = "",
+  inverse = false,
 }: {
   className?: string;
+  inverse?: boolean;
 }) {
+  const items = [
+    {
+      label: "Contribuição Anônima",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/contribuir#contribuicao-anonima",
+    },
+    {
+      label: "Contribuição com Cadastro",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/contribuir#com-cadastro",
+    },
+  ];
+
   return (
-    <Link
-      href="#contribuir"
-      className={`inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white shadow-sm ${className}`}
+    <nav
+      aria-label="Formas de contribuição"
+      className={`grid w-full grid-cols-2 gap-2 ${className}`}
     >
-      Contribuir
-    </Link>
+      {items.map((item, index) => (
+        <Link
+          key={item.href}
+          href={item.href}
+          className={`inline-flex min-h-12 items-center justify-center rounded-2xl px-3 py-3 text-center text-sm font-black shadow-sm ring-1 transition hover:-translate-y-0.5 ${
+            inverse
+              ? index === 0
+                ? "bg-[#CFE2C7] text-[#123D2C] ring-white/20 hover:bg-white"
+                : "bg-white text-[#123D2C] ring-white/20 hover:bg-[#EEF7EA]"
+              : index === 0
+                ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                : "bg-white text-[#123D2C] ring-[#123D2C]/15 hover:bg-[#F7FAF2]"
+          }`}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 
@@ -200,7 +229,7 @@ function FinancialSummary({
           }
         />
       </div>
-      <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
+      <ContributionChoiceButtons className="mt-4" />
     </section>
   );
 }
@@ -262,6 +291,7 @@ export default function TucxaTransparenciaPage() {
               "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo."}
           </p>
           <SummaryNavigationButtons />
+          <ContributionChoiceButtons className="mt-3" inverse />
         </header>
 
         {loading && (
@@ -295,7 +325,7 @@ export default function TucxaTransparenciaPage() {
                     Ainda não existe uma competência finalizada para exibição
                     pública.
                   </p>
-                  <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
+                  <ContributionChoiceButtons className="mt-4" />
                 </section>
               )}
 
@@ -309,7 +339,7 @@ export default function TucxaTransparenciaPage() {
 
             <div id="detalhado" className="scroll-mt-48">
               <FinancialTransparencyMatrix matrix={data.matrix} />
-              <ContributionAnchorButton className="mt-4 w-full sm:w-auto" />
+              <ContributionChoiceButtons className="mt-4" />
             </div>
 
             <section

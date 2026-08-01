@@ -85,6 +85,8 @@ type SubmitPayload = {
   requiresReception?: boolean;
   message?: string;
   error?: string;
+  code?: string;
+  referenceId?: string;
 };
 
 type UploadPayload = {
@@ -105,6 +107,7 @@ type SavedPendingContribution = {
 };
 
 type InformationModal = "care" | "impact" | null;
+type ContributionStep = "amount" | "payment" | null;
 
 const PENDING_CONTRIBUTION_STORAGE_KEY =
   "tucxa-corrente-em-dia-pending-contribution";
@@ -296,6 +299,9 @@ export function PublicContributionJourney({
   >("");
   const [informationModal, setInformationModal] =
     useState<InformationModal>(null);
+  const [activeStep, setActiveStep] = useState<ContributionStep>(null);
+  const [amountConfirmed, setAmountConfirmed] = useState(false);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryLoading, setRecoveryLoading] = useState(false);
@@ -456,7 +462,9 @@ export function PublicContributionJourney({
   }, [resumeContribution]);
 
   useEffect(() => {
-    if (!success?.ok && !informationModal && !recoveryOpen) return;
+    if (!success?.ok && !informationModal && !recoveryOpen && !activeStep) {
+      return;
+    }
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -464,7 +472,7 @@ export function PublicContributionJourney({
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [informationModal, recoveryOpen, success?.ok]);
+  }, [activeStep, informationModal, recoveryOpen, success?.ok]);
 
   const amount = useMemo(() => {
     if (!settings) return 0;
@@ -490,12 +498,124 @@ export function PublicContributionJourney({
     [recurrenceType, settings],
   );
 
+  const paymentSummary = useMemo(() => {
+    if (!settings || !selectedPaymentMethod) return "Ainda não escolhida";
+
+    const parts = [selectedPaymentMethod.label];
+
+    if (paymentMethod === "pix") {
+      const recurringDate =
+        recurrenceType === "pix_agendado" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)
+          ? new Intl.DateTimeFormat("pt-BR", {
+              dateStyle: "short",
+              timeZone: "UTC",
+            }).format(new Date(`${recurrenceStartDate}T12:00:00Z`))
+          : "";
+
+      parts.push(
+        recurrenceType === "pix_agendado"
+          ? recurringDate
+            ? `recorrente a partir de ${recurringDate}`
+            : "recorrente — data pendente"
+          : "contribuição única",
+      );
+    }
+
+    return parts.join(" — ");
+  }, [
+    paymentMethod,
+    recurrenceStartDate,
+    recurrenceType,
+    selectedPaymentMethod,
+    settings,
+  ]);
+
   function selectPaymentMethod(value: PaymentMethodOption["value"]) {
     setPaymentMethod(value);
+    setPaymentConfirmed(false);
 
     if (value !== "pix") {
       setRecurrenceType("pontual");
+      setRecurrenceStartDate(todayLocal());
+      setRecurrenceOccurrences("12");
     }
+  }
+
+  function validateAmountStep() {
+    if (!settings) {
+      setError("As opções de contribuição ainda estão carregando.");
+      return false;
+    }
+
+    if (amount < 1) {
+      setError("Informe um valor de contribuição maior que zero.");
+      return false;
+    }
+
+    if (!anonymous && !name.trim()) {
+      setError("Informe seu nome para registrar a contribuição identificada.");
+      return false;
+    }
+
+    return true;
+  }
+
+  function validatePaymentStep() {
+    if (!settings || !selectedPaymentMethod) {
+      setError("Escolha uma forma de pagamento disponível.");
+      return false;
+    }
+
+    if (selectedRecurring && !selectedRecurring.available) {
+      setError("Essa forma recorrente ainda não está disponível.");
+      return false;
+    }
+
+    if (recurrenceType === "pix_agendado") {
+      const occurrences = Math.trunc(Number(recurrenceOccurrences));
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)) {
+        setError("Informe a data da primeira contribuição recorrente.");
+        return false;
+      }
+
+      if (recurrenceStartDate < todayLocal()) {
+        setError(
+          "A data da primeira contribuição recorrente não pode estar no passado.",
+        );
+        return false;
+      }
+
+      if (
+        !Number.isFinite(occurrences) ||
+        occurrences < 2 ||
+        occurrences > 120
+      ) {
+        setError("Informe uma quantidade entre 2 e 120 contribuições.");
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function confirmAmountStep() {
+    setError("");
+
+    if (!validateAmountStep()) return;
+
+    setAmountConfirmed(true);
+    setActiveStep("payment");
+  }
+
+  function confirmPaymentStep() {
+    setError("");
+
+    if (!validatePaymentStep()) return;
+
+    setPaymentConfirmed(true);
+    setActiveStep(null);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -508,6 +628,18 @@ export function PublicContributionJourney({
     setProofFile(null);
 
     if (!settings) return;
+
+    if (!amountConfirmed) {
+      setError("Conclua a etapa 1. Valor antes de registrar.");
+      setActiveStep("amount");
+      return;
+    }
+
+    if (!paymentConfirmed) {
+      setError("Conclua a etapa 2. Forma de pagamento antes de registrar.");
+      setActiveStep("payment");
+      return;
+    }
 
     if (amount < 1) {
       setError("Informe um valor de contribuição maior que zero.");
@@ -570,10 +702,27 @@ export function PublicContributionJourney({
           }),
         },
       );
-      const result = (await response.json()) as SubmitPayload;
+      const responseText = await response.text();
+      let result: SubmitPayload = {};
+
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText) as SubmitPayload;
+        } catch {
+          result = {
+            error:
+              "O servidor não retornou uma resposta válida para o registro.",
+          };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || "Não foi possível registrar.");
+        const reference = result.referenceId
+          ? ` Referência: ${result.referenceId}.`
+          : "";
+        throw new Error(
+          `${result.error || "Não foi possível registrar."}${reference}`,
+        );
       }
 
       setSuccess(result);
@@ -777,288 +926,118 @@ export function PublicContributionJourney({
           <form
             id="form-contribuicao"
             onSubmit={submit}
-            className="scroll-mt-48 grid gap-5 lg:grid-cols-2"
+            className="scroll-mt-48 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6"
           >
-            <section className="space-y-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-              {!anonymous && (
-                <div className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                  <p className="font-black text-[#123D2C]">Seus dados</p>
-                  <label className="grid gap-1 font-black text-[#123D2C]">
-                    Nome
-                    <input
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                      placeholder="Seu nome completo"
-                    />
-                  </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 font-black text-[#123D2C]">
-                      WhatsApp
-                      <input
-                        value={whatsapp}
-                        onChange={(event) => setWhatsapp(event.target.value)}
-                        inputMode="tel"
-                        className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                        placeholder="(19) 99999-9999"
-                      />
-                    </label>
-                    <label className="grid gap-1 font-black text-[#123D2C]">
-                      E-mail opcional
-                      <input
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        inputMode="email"
-                        className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                        placeholder="seu@email.com"
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  1. Valor
-                </p>
-                <h2 className="mt-1 text-xl font-black text-[#123D2C]">
-                  Escolha um valor possível hoje
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Não existe comparação entre gestos. Escolha com liberdade o
-                  valor que cabe no seu momento.
-                </p>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {settings.suggestedAmounts.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => {
-                        setAmountMode("suggested");
-                        setSelectedAmount(value);
-                      }}
-                      className={`rounded-2xl px-3 py-4 font-black ring-1 ${
-                        amountMode === "suggested" && selectedAmount === value
-                          ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                          : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                      }`}
-                    >
-                      {money(value)}
-                    </button>
-                  ))}
-
-                  {settings.allowCustomAmount && (
-                    <button
-                      type="button"
-                      onClick={() => setAmountMode("custom")}
-                      className={`rounded-2xl px-3 py-4 font-black ring-1 ${
-                        amountMode === "custom"
-                          ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                          : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                      }`}
-                    >
-                      Outro valor
-                    </button>
-                  )}
-                </div>
-
-                {amountMode === "custom" && (
-                  <label className="mt-3 grid gap-1 font-black text-[#123D2C]">
-                    Valor escolhido
-                    <input
-                      value={customAmount}
-                      onChange={(event) => setCustomAmount(event.target.value)}
-                      inputMode="decimal"
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                      placeholder="Ex.: 35,00"
-                    />
-                  </label>
-                )}
-              </div>
-            </section>
-
-            <section className="space-y-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  2. Forma
-                </p>
-                <h2 className="mt-1 text-xl font-black text-[#123D2C]">
-                  Como deseja concluir?
-                </h2>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                {settings.paymentMethods.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    disabled={!option.available}
-                    onClick={() => selectPaymentMethod(option.value)}
-                    className={`rounded-2xl px-3 py-4 text-sm font-black ring-1 ${
-                      paymentMethod === option.value
-                        ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                        : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                    } disabled:cursor-not-allowed disabled:opacity-50`}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setActiveStep("amount");
+                }}
+                className={`rounded-2xl p-4 text-left ring-1 transition ${
+                  amountConfirmed
+                    ? "bg-emerald-50 ring-emerald-200"
+                    : "bg-[#F7FAF2] ring-[#123D2C]/10"
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-black uppercase tracking-[0.14em] text-[#123D2C]">
+                    1. Valor
+                  </span>
+                  <span
+                    className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-black ${
+                      amountConfirmed
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    }`}
                   >
-                    {option.label}
-                    {option.needsReception && (
-                      <span className="mt-1 block text-[11px] font-bold opacity-80">
-                        Pela Recepção
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              {selectedPaymentMethod?.needsReception && (
-                <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900 ring-1 ring-amber-200">
-                  <p className="font-black">
-                    Esta forma é concluída com a Recepção.
-                  </p>
-                  <p className="mt-1">{settings.receptionPaymentMessage}</p>
-                  {receptionContacts.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {receptionContacts.map((contact) => (
-                        <a
-                          key={contact.whatsapp}
-                          href={receptionContactUrl({
-                            contact,
-                            amount,
-                            paymentMethod,
-                            settings,
-                            registered: false,
-                          })}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#123D2C] underline decoration-amber-400 underline-offset-4 ring-1 ring-amber-200"
-                        >
-                          {contact.name}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {paymentMethod === "pix" && (
-                <>
-                  <div className="rounded-2xl bg-gradient-to-br from-[#123D2C] to-[#2F6B43] p-4 text-white shadow-sm">
-                    <p className="text-xs font-black uppercase tracking-[0.16em] text-[#CFE2C7]">
-                      Um cuidado que ganha continuidade
-                    </p>
-                    <h3 className="mt-2 text-xl font-black leading-tight">
-                      Transforme um gesto possível em tranquilidade para todos os
-                      meses.
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
-                      {settings.scheduledPixMessage}
-                    </p>
-                  </div>
-
-                  <div className="grid gap-2">
-                    {settings.recurringOptions.map((option) => (
-                      <label
-                        key={option.value}
-                        className={`rounded-2xl p-4 ring-1 ${
-                          recurrenceType === option.value
-                            ? "bg-[#E9F2E7] ring-[#123D2C]/20"
-                            : "bg-white ring-[#123D2C]/10"
-                        } ${!option.available ? "opacity-60" : ""}`}
-                      >
-                        <span className="flex items-start gap-3">
-                          <input
-                            type="radio"
-                            checked={recurrenceType === option.value}
-                            disabled={!option.available}
-                            onChange={() => setRecurrenceType(option.value)}
-                            className="mt-1 h-5 w-5"
-                          />
-                          <span>
-                            <span className="block font-black text-[#123D2C]">
-                              {option.label}
-                            </span>
-                            {option.note && (
-                              <span className="mt-1 block text-xs leading-5 text-slate-600">
-                                {option.note}
-                              </span>
-                            )}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {paymentMethod === "pix" && recurrenceType === "pix_agendado" && (
-                <div className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 sm:grid-cols-2">
-                  <label className="grid gap-1 font-black text-[#123D2C]">
-                    Data da primeira contribuição
-                    <input
-                      type="date"
-                      min={todayLocal()}
-                      value={recurrenceStartDate}
-                      onChange={(event) =>
-                        setRecurrenceStartDate(event.target.value)
-                      }
-                      className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
-                    />
-                  </label>
-                  <label className="grid gap-1 font-black text-[#123D2C]">
-                    Por quantas vezes?
-                    <input
-                      type="number"
-                      min={2}
-                      max={120}
-                      inputMode="numeric"
-                      value={recurrenceOccurrences}
-                      onChange={(event) =>
-                        setRecurrenceOccurrences(event.target.value)
-                      }
-                      className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
-                      placeholder="Ex.: 12"
-                    />
-                  </label>
-                  <p className="text-xs leading-5 text-slate-600 sm:col-span-2">
-                    O agendamento é feito por você no aplicativo do banco. O
-                    sistema registra a data inicial e a quantidade planejada para
-                    que a Tesouraria compreenda a previsão sem identificar quem
-                    contribuiu.
-                  </p>
-                </div>
-              )}
-
-              <label className="grid gap-1 font-black text-[#123D2C]">
-                Observação opcional
-                <textarea
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                  placeholder="Ex.: contribuição referente ao mês atual"
-                />
-              </label>
-
-              <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                <p className="text-sm font-bold text-slate-600">
-                  Valor escolhido
-                </p>
-                <p className="mt-1 text-2xl font-black text-[#123D2C]">
-                  {money(amount)}
-                </p>
-              </div>
+                    {amountConfirmed ? "✓" : "Abrir"}
+                  </span>
+                </span>
+                <span className="mt-3 block text-lg font-black text-[#123D2C]">
+                  {amountConfirmed ? money(amount) : "Escolher valor"}
+                </span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  {amountConfirmed
+                    ? "Etapa concluída. Toque para editar."
+                    : "Escolha um valor sugerido ou informe outro valor."}
+                </span>
+              </button>
 
               <button
-                disabled={submitting}
-                className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white disabled:opacity-60"
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setActiveStep("payment");
+                }}
+                className={`rounded-2xl p-4 text-left ring-1 transition ${
+                  paymentConfirmed
+                    ? "bg-emerald-50 ring-emerald-200"
+                    : "bg-[#F7FAF2] ring-[#123D2C]/10"
+                }`}
               >
-                {submitting
-                  ? "Registrando..."
-                  : selectedPaymentMethod?.needsReception
-                    ? "Registrar e falar com a Recepção"
-                    : "Gerar Pix e registrar"}
+                <span className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-black uppercase tracking-[0.14em] text-[#123D2C]">
+                    2. Forma de pagamento
+                  </span>
+                  <span
+                    className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-black ${
+                      paymentConfirmed
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    }`}
+                  >
+                    {paymentConfirmed ? "✓" : "Abrir"}
+                  </span>
+                </span>
+                <span className="mt-3 block text-lg font-black text-[#123D2C]">
+                  {paymentConfirmed
+                    ? selectedPaymentMethod?.label || "Forma escolhida"
+                    : "Escolher forma"}
+                </span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  {paymentConfirmed
+                    ? `${paymentSummary}. Toque para editar.`
+                    : "Pix inicia selecionado e pode ser alterado."}
+                </span>
               </button>
-            </section>
+            </div>
+
+            {!amountConfirmed || !paymentConfirmed ? (
+              <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-200">
+                Conclua as duas etapas. Depois, o botão para registrar a
+                contribuição será liberado.
+              </p>
+            ) : (
+              <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
+                  Revise antes de registrar
+                </p>
+                <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="font-black text-[#123D2C]">Valor</dt>
+                    <dd className="text-slate-600">{money(amount)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-black text-[#123D2C]">
+                      Forma de pagamento
+                    </dt>
+                    <dd className="text-slate-600">{paymentSummary}</dd>
+                  </div>
+                </dl>
+                <button
+                  disabled={submitting}
+                  className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white disabled:opacity-60"
+                >
+                  {submitting
+                    ? "Registrando..."
+                    : selectedPaymentMethod?.needsReception
+                      ? "Registrar intenção e falar com a Recepção"
+                      : "Gerar Pix e registrar"}
+                </button>
+              </div>
+            )}
           </form>
         )}
 
@@ -1094,6 +1073,388 @@ export function PublicContributionJourney({
           </div>
         </section>
       </section>
+
+      {activeStep === "amount" && settings && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="etapa-valor-titulo"
+        >
+          <section className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                  Etapa 1
+                </p>
+                <h2
+                  id="etapa-valor-titulo"
+                  className="mt-2 text-2xl font-black text-[#123D2C]"
+                >
+                  Escolha um valor possível hoje
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Não existe comparação entre gestos. Escolha com liberdade o
+                  valor que cabe no seu momento.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveStep(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                aria-label="Fechar etapa de valor"
+              >
+                ×
+              </button>
+            </div>
+
+            {!anonymous && (
+              <div className="mt-5 grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#123D2C]">Seus dados</p>
+                <label className="grid gap-1 font-black text-[#123D2C]">
+                  Nome
+                  <input
+                    value={name}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setAmountConfirmed(false);
+                    }}
+                    className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
+                    placeholder="Seu nome completo"
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1 font-black text-[#123D2C]">
+                    WhatsApp
+                    <input
+                      value={whatsapp}
+                      onChange={(event) => {
+                        setWhatsapp(event.target.value);
+                        setAmountConfirmed(false);
+                      }}
+                      inputMode="tel"
+                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
+                      placeholder="(19) 99999-9999"
+                    />
+                  </label>
+                  <label className="grid gap-1 font-black text-[#123D2C]">
+                    E-mail opcional
+                    <input
+                      value={email}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setAmountConfirmed(false);
+                      }}
+                      inputMode="email"
+                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
+                      placeholder="seu@email.com"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {settings.suggestedAmounts.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setAmountMode("suggested");
+                    setSelectedAmount(value);
+                    setAmountConfirmed(false);
+                  }}
+                  className={`rounded-2xl px-3 py-4 font-black ring-1 ${
+                    amountMode === "suggested" && selectedAmount === value
+                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/10"
+                  }`}
+                >
+                  {money(value)}
+                </button>
+              ))}
+
+              {settings.allowCustomAmount && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAmountMode("custom");
+                    setAmountConfirmed(false);
+                  }}
+                  className={`rounded-2xl px-3 py-4 font-black ring-1 ${
+                    amountMode === "custom"
+                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/10"
+                  }`}
+                >
+                  Outro valor
+                </button>
+              )}
+            </div>
+
+            {amountMode === "custom" && (
+              <label className="mt-4 grid gap-1 font-black text-[#123D2C]">
+                Valor escolhido
+                <input
+                  value={customAmount}
+                  onChange={(event) => {
+                    setCustomAmount(event.target.value);
+                    setAmountConfirmed(false);
+                  }}
+                  inputMode="decimal"
+                  className="rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
+                  placeholder="Ex.: 35,00"
+                />
+              </label>
+            )}
+
+            <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <p className="text-sm font-bold text-slate-600">
+                Valor selecionado
+              </p>
+              <p className="mt-1 text-2xl font-black text-[#123D2C]">
+                {money(amount)}
+              </p>
+            </div>
+
+            {error && (
+              <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={confirmAmountStep}
+              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white"
+            >
+              Confirmar valor e continuar
+            </button>
+          </section>
+        </div>
+      )}
+
+      {activeStep === "payment" && settings && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="etapa-pagamento-titulo"
+        >
+          <section className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                  Etapa 2
+                </p>
+                <h2
+                  id="etapa-pagamento-titulo"
+                  className="mt-2 text-2xl font-black text-[#123D2C]"
+                >
+                  Escolha a forma de pagamento
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Pix começa selecionado. Você pode alterar esta etapa antes do
+                  registro final.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveStep(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                aria-label="Fechar etapa de forma de pagamento"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              {settings.paymentMethods.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  disabled={!option.available}
+                  onClick={() => selectPaymentMethod(option.value)}
+                  className={`rounded-2xl px-3 py-4 text-sm font-black ring-1 ${
+                    paymentMethod === option.value
+                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/10"
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  {option.label}
+                  {option.needsReception && (
+                    <span className="mt-1 block text-[11px] font-bold opacity-80">
+                      Pela Recepção
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {selectedPaymentMethod?.needsReception && (
+              <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900 ring-1 ring-amber-200">
+                <p className="font-black">
+                  Esta forma é concluída com a Recepção.
+                </p>
+                <p className="mt-1">{settings.receptionPaymentMessage}</p>
+                {receptionContacts.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {receptionContacts.map((contact) => (
+                      <a
+                        key={contact.whatsapp}
+                        href={receptionContactUrl({
+                          contact,
+                          amount,
+                          paymentMethod,
+                          settings,
+                          registered: false,
+                        })}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#123D2C] underline decoration-amber-400 underline-offset-4 ring-1 ring-amber-200"
+                      >
+                        {contact.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {paymentMethod === "pix" && (
+              <>
+                <div className="mt-4 rounded-2xl bg-gradient-to-br from-[#123D2C] to-[#2F6B43] p-4 text-white shadow-sm">
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#CFE2C7]">
+                    Um cuidado que ganha continuidade
+                  </p>
+                  <h3 className="mt-2 text-xl font-black leading-tight">
+                    Transforme um gesto possível em tranquilidade para todos os
+                    meses.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
+                    {settings.scheduledPixMessage}
+                  </p>
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {settings.recurringOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`rounded-2xl p-4 ring-1 ${
+                        recurrenceType === option.value
+                          ? "bg-[#E9F2E7] ring-[#123D2C]/20"
+                          : "bg-white ring-[#123D2C]/10"
+                      } ${!option.available ? "opacity-60" : ""}`}
+                    >
+                      <span className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          checked={recurrenceType === option.value}
+                          disabled={!option.available}
+                          onChange={() => {
+                            setRecurrenceType(option.value);
+                            setPaymentConfirmed(false);
+                          }}
+                          className="mt-1 h-5 w-5"
+                        />
+                        <span>
+                          <span className="block font-black text-[#123D2C]">
+                            {option.label}
+                          </span>
+                          {option.note && (
+                            <span className="mt-1 block text-xs leading-5 text-slate-600">
+                              {option.note}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {paymentMethod === "pix" && recurrenceType === "pix_agendado" && (
+              <div className="mt-4 grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 sm:grid-cols-2">
+                <label className="grid gap-1 font-black text-[#123D2C]">
+                  Data da primeira contribuição
+                  <input
+                    type="date"
+                    min={todayLocal()}
+                    value={recurrenceStartDate}
+                    onChange={(event) => {
+                      setRecurrenceStartDate(event.target.value);
+                      setPaymentConfirmed(false);
+                    }}
+                    className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
+                  />
+                </label>
+                <label className="grid gap-1 font-black text-[#123D2C]">
+                  Por quantas vezes?
+                  <input
+                    type="number"
+                    min={2}
+                    max={120}
+                    inputMode="numeric"
+                    value={recurrenceOccurrences}
+                    onChange={(event) => {
+                      setRecurrenceOccurrences(event.target.value);
+                      setPaymentConfirmed(false);
+                    }}
+                    className="rounded-2xl border border-[#123D2C]/15 bg-white p-4 font-normal"
+                    placeholder="Ex.: 12"
+                  />
+                </label>
+                <p className="text-xs leading-5 text-slate-600 sm:col-span-2">
+                  O agendamento é feito por você no aplicativo do banco. O
+                  sistema registra a data inicial e a quantidade planejada para
+                  que a Tesouraria compreenda a previsão sem identificar quem
+                  contribuiu.
+                </p>
+              </div>
+            )}
+
+            <label className="mt-4 grid gap-1 font-black text-[#123D2C]">
+              Observação opcional
+              <textarea
+                value={notes}
+                onChange={(event) => {
+                  setNotes(event.target.value);
+                  setPaymentConfirmed(false);
+                }}
+                className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
+                placeholder="Ex.: contribuição referente ao mês atual"
+              />
+            </label>
+
+            <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <p className="text-sm font-bold text-slate-600">
+                Resumo desta etapa
+              </p>
+              <p className="mt-1 font-black text-[#123D2C]">
+                {paymentSummary}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Valor considerado: {money(amount)}
+              </p>
+            </div>
+
+            {error && (
+              <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={confirmPaymentStep}
+              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white"
+            >
+              Confirmar forma de pagamento
+            </button>
+          </section>
+        </div>
+      )}
 
       {informationModal && (
         <div

@@ -42,6 +42,85 @@ type RoleRow = {
   active: boolean | null;
 };
 
+type RouteErrorInfo = {
+  code: string;
+  message: string;
+  details: string;
+  hint: string;
+};
+
+function routeErrorInfo(error: unknown): RouteErrorInfo {
+  const value =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+
+  return {
+    code: asText(value.code),
+    message: error instanceof Error ? error.message : asText(value.message),
+    details: asText(value.details),
+    hint: asText(value.hint),
+  };
+}
+
+function isContributionSchemaMismatch(info: RouteErrorInfo) {
+  const token = normalizeToken(
+    [info.code, info.message, info.details, info.hint].join(" "),
+  );
+
+  return (
+    ["pgrst204", "pgrst205", "42703", "42p01"].includes(
+      info.code.toLowerCase(),
+    ) ||
+    token.includes("schema cache") ||
+    (token.includes("column") && token.includes("oh_contributions")) ||
+    (token.includes("relation") && token.includes("oh_contributions"))
+  );
+}
+
+function contributionErrorResponse(error: unknown, referenceId: string) {
+  const info = routeErrorInfo(error);
+
+  console.error("[corrente-em-dia][contribuicao-publica]", {
+    referenceId,
+    ...info,
+  });
+
+  if (isContributionSchemaMismatch(info)) {
+    return NextResponse.json(
+      {
+        error:
+          "O banco de dados deste ambiente ainda não recebeu a atualização necessária para registrar a contribuição. A Tesouraria/Financeiro deve aplicar a migration de compatibilidade e tentar novamente.",
+        code: "CONTRIBUTION_SCHEMA_OUTDATED",
+        referenceId,
+      },
+      { status: 503 },
+    );
+  }
+
+  if (info.code === "23514") {
+    return NextResponse.json(
+      {
+        error:
+          "A contribuição contém uma combinação de status ou recorrência não aceita pelo banco. Atualize as migrations e revise as opções escolhidas.",
+        code: "CONTRIBUTION_CONSTRAINT_REJECTED",
+        referenceId,
+      },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error:
+        "Não foi possível registrar a contribuição neste momento. Tente novamente e, se persistir, informe o código de referência à Tesouraria/Financeiro.",
+      code: info.code || "CONTRIBUTION_REGISTRATION_FAILED",
+      referenceId,
+    },
+    { status: 500 },
+  );
+}
+
 function normalizeToken(value: unknown) {
   return asText(value)
     .normalize("NFD")
@@ -474,6 +553,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const referenceId = randomUUID();
+
   try {
     const org = await organization();
     const settings = await settingsFor(org.id);
@@ -582,15 +663,42 @@ export async function POST(request: Request) {
     const whatsapp = anonymous
       ? ""
       : asText(body.whatsapp).replace(/\D/g, "");
+    const contributionId = randomUUID();
     const uploadToken = randomUUID();
     const resumeToken = randomBytes(32).toString("base64url");
     const trackingCode = randomTrackingCode();
     const resumeExpiresAt = addDaysIso(settings.receiptRecoveryDays);
     const requiresReception = paymentMethod !== "pix";
+    let pixCopyPaste: string | null = null;
+    let qrCodeDataUrl: string | null = null;
+
+    if (paymentMethod === "pix") {
+      pixCopyPaste = buildPixPayload({
+        key: settings.pixKey,
+        receiverName: settings.pixReceiverName,
+        city: settings.pixCity,
+        amount,
+        txid: contributionId.replace(/-/g, "").slice(0, 25),
+      });
+
+      try {
+        qrCodeDataUrl = await QRCode.toDataURL(pixCopyPaste, {
+          margin: 1,
+          width: 420,
+          errorCorrectionLevel: "M",
+        });
+      } catch (qrError) {
+        console.warn("[corrente-em-dia][pix-qrcode]", {
+          referenceId,
+          ...routeErrorInfo(qrError),
+        });
+      }
+    }
 
     const { data, error } = await supabaseAdmin
       .from("oh_contributions")
       .insert({
+        id: contributionId,
         organization_id: org.id,
         person_id: null,
         contributor_name: contributorName,
@@ -645,24 +753,6 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    let pixCopyPaste: string | null = null;
-    let qrCodeDataUrl: string | null = null;
-
-    if (paymentMethod === "pix") {
-      pixCopyPaste = buildPixPayload({
-        key: settings.pixKey,
-        receiverName: settings.pixReceiverName,
-        city: settings.pixCity,
-        amount,
-        txid: data.id.replace(/-/g, "").slice(0, 25),
-      });
-      qrCodeDataUrl = await QRCode.toDataURL(pixCopyPaste, {
-        margin: 1,
-        width: 420,
-        errorCorrectionLevel: "M",
-      });
-    }
-
     const resumeUrl = new URL(
       `/solucoes/organizacao-em-harmonia/tucxa/contribuir?retomar=${encodeURIComponent(
         resumeToken,
@@ -694,14 +784,6 @@ export async function POST(request: Request) {
           : "Sua contribuição foi registrada e aguarda o envio do comprovante para conferência.",
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erro ao registrar contribuição.",
-      },
-      { status: 500 },
-    );
+    return contributionErrorResponse(error, referenceId);
   }
 }
