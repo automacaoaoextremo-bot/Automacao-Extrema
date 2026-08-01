@@ -22,7 +22,7 @@ type RecurringOption = {
 };
 
 type PaymentMethodOption = {
-  value: "pix" | "cartao_credito" | "cartao_debito" | "dinheiro";
+  value: "pix" | "recepcao";
   label: string;
   online: boolean;
   available: boolean;
@@ -104,6 +104,13 @@ type SavedPendingContribution = {
   resumeUrl: string;
   amount: number;
   createdAt: string;
+};
+
+type EditableContribution = {
+  id: string;
+  resumeToken: string;
+  trackingCode: string;
+  resumeUrl: string;
 };
 
 type InformationModal = "care" | "impact" | null;
@@ -308,6 +315,8 @@ export function PublicContributionJourney({
   const [recoveryError, setRecoveryError] = useState("");
   const [savedPending, setSavedPending] =
     useState<SavedPendingContribution | null>(null);
+  const [editingContribution, setEditingContribution] =
+    useState<EditableContribution | null>(null);
 
   const headerActions = useMemo(
     () => [
@@ -699,6 +708,9 @@ export function PublicContributionJourney({
                 : null,
             paymentMethod,
             notes,
+            contributionId: editingContribution?.id || null,
+            resumeToken: editingContribution?.resumeToken || null,
+            trackingCode: editingContribution?.trackingCode || null,
           }),
         },
       );
@@ -727,6 +739,22 @@ export function PublicContributionJourney({
 
       setSuccess(result);
 
+      if (
+        result.contribution?.id &&
+        result.trackingCode &&
+        result.resumeUrl
+      ) {
+        const resumeToken = resumeTokenFromUrl(result.resumeUrl);
+        if (resumeToken) {
+          setEditingContribution({
+            id: result.contribution.id,
+            resumeToken,
+            trackingCode: result.trackingCode,
+            resumeUrl: result.resumeUrl,
+          });
+        }
+      }
+
       if (result.trackingCode && result.resumeUrl) {
         const pending = {
           trackingCode: result.trackingCode,
@@ -750,6 +778,68 @@ export function PublicContributionJourney({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function resetJourneyAfterCompletion() {
+    setSuccess(null);
+    setEditingContribution(null);
+    setAmountConfirmed(false);
+    setPaymentConfirmed(false);
+    setActiveStep(null);
+    setAmountMode("suggested");
+    setSelectedAmount(
+      settings?.suggestedAmounts.includes(settings.defaultMonthlyAmount)
+        ? settings.defaultMonthlyAmount
+        : settings?.suggestedAmounts[0] || settings?.defaultMonthlyAmount || 0,
+    );
+    setCustomAmount("");
+    setPaymentMethod("pix");
+    setRecurrenceType("pontual");
+    setRecurrenceStartDate(todayLocal());
+    setRecurrenceOccurrences("12");
+    setNotes("");
+    setProofFile(null);
+    setProofMessage("");
+    setCopied(false);
+    setCopiedRecovery("");
+    setError("");
+
+    if (!anonymous) {
+      setName("");
+      setEmail("");
+      setWhatsapp("");
+    }
+  }
+
+  function returnToEditContribution() {
+    if (
+      !success?.contribution?.id ||
+      !success.trackingCode ||
+      !success.resumeUrl
+    ) {
+      setSuccess(null);
+      return;
+    }
+
+    const resumeToken = resumeTokenFromUrl(success.resumeUrl);
+    if (!resumeToken) {
+      setError(
+        "Não foi possível preparar a edição desta intenção. Feche e retome pelo código de acompanhamento.",
+      );
+      return;
+    }
+
+    setEditingContribution({
+      id: success.contribution.id,
+      resumeToken,
+      trackingCode: success.trackingCode,
+      resumeUrl: success.resumeUrl,
+    });
+    setProofFile(null);
+    setProofMessage("");
+    setCopied(false);
+    setCopiedRecovery("");
+    setSuccess(null);
   }
 
   async function copyPix() {
@@ -943,7 +1033,7 @@ export function PublicContributionJourney({
               >
                 <span className="flex items-center justify-between gap-3">
                   <span className="text-sm font-black uppercase tracking-[0.14em] text-[#123D2C]">
-                    1. Valor
+                    1. Escolher valor
                   </span>
                   <span
                     className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-black ${
@@ -955,14 +1045,16 @@ export function PublicContributionJourney({
                     {amountConfirmed ? "✓" : "Abrir"}
                   </span>
                 </span>
-                <span className="mt-3 block text-lg font-black text-[#123D2C]">
-                  {amountConfirmed ? money(amount) : "Escolher valor"}
-                </span>
-                <span className="mt-1 block text-sm text-slate-600">
-                  {amountConfirmed
-                    ? "Etapa concluída. Toque para editar."
-                    : "Escolha um valor sugerido ou informe outro valor."}
-                </span>
+                {amountConfirmed && (
+                  <>
+                    <span className="mt-3 block text-lg font-black text-[#123D2C]">
+                      {money(amount)}
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-600">
+                      Etapa concluída. Toque para editar.
+                    </span>
+                  </>
+                )}
               </button>
 
               <button
@@ -991,16 +1083,16 @@ export function PublicContributionJourney({
                     {paymentConfirmed ? "✓" : "Abrir"}
                   </span>
                 </span>
-                <span className="mt-3 block text-lg font-black text-[#123D2C]">
-                  {paymentConfirmed
-                    ? selectedPaymentMethod?.label || "Forma escolhida"
-                    : "Escolher forma"}
-                </span>
-                <span className="mt-1 block text-sm text-slate-600">
-                  {paymentConfirmed
-                    ? `${paymentSummary}. Toque para editar.`
-                    : "Pix inicia selecionado e pode ser alterado."}
-                </span>
+                {paymentConfirmed && (
+                  <>
+                    <span className="mt-3 block text-lg font-black text-[#123D2C]">
+                      {selectedPaymentMethod?.label || "Forma escolhida"}
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-600">
+                      {paymentSummary}. Toque para editar.
+                    </span>
+                  </>
+                )}
               </button>
             </div>
 
@@ -1041,11 +1133,11 @@ export function PublicContributionJourney({
           </form>
         )}
 
-        <section
-          id="com-cadastro"
-          className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
-        >
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+        <section className="rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7">
+          <p
+            id="com-cadastro"
+            className="scroll-mt-[22rem] text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43] sm:scroll-mt-56"
+          >
             Contribuição com cadastro
           </p>
           <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
@@ -1282,44 +1374,9 @@ export function PublicContributionJourney({
                   } disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   {option.label}
-                  {option.needsReception && (
-                    <span className="mt-1 block text-[11px] font-bold opacity-80">
-                      Pela Recepção
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
-
-            {selectedPaymentMethod?.needsReception && (
-              <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900 ring-1 ring-amber-200">
-                <p className="font-black">
-                  Esta forma é concluída com a Recepção.
-                </p>
-                <p className="mt-1">{settings.receptionPaymentMessage}</p>
-                {receptionContacts.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {receptionContacts.map((contact) => (
-                      <a
-                        key={contact.whatsapp}
-                        href={receptionContactUrl({
-                          contact,
-                          amount,
-                          paymentMethod,
-                          settings,
-                          registered: false,
-                        })}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#123D2C] underline decoration-amber-400 underline-offset-4 ring-1 ring-amber-200"
-                      >
-                        {contact.name}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
 
             {paymentMethod === "pix" && (
               <>
@@ -1423,7 +1480,7 @@ export function PublicContributionJourney({
                   setPaymentConfirmed(false);
                 }}
                 className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 font-normal"
-                placeholder="Ex.: contribuição referente ao mês atual"
+                placeholder="Ex.: inclua uma observação somente quando considerar necessário"
               />
             </label>
 
@@ -1621,7 +1678,7 @@ export function PublicContributionJourney({
               </div>
               <button
                 type="button"
-                onClick={() => setSuccess(null)}
+                onClick={resetJourneyAfterCompletion}
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
                 aria-label="Fechar intenção registrada"
               >
@@ -1821,15 +1878,26 @@ export function PublicContributionJourney({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => setSuccess(null)}
-              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
-            >
-              {success.uploadToken && !proofMessage
-                ? "Fechar e enviar comprovante depois"
-                : "Fechar"}
-            </button>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              {editingContribution && !proofMessage && !success.alreadyUploaded && (
+                <button
+                  type="button"
+                  onClick={returnToEditContribution}
+                  className="w-full rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                >
+                  Voltar e Editar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={resetJourneyAfterCompletion}
+                className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+              >
+                {success.uploadToken && !proofMessage
+                  ? "Fechar e enviar comprovante depois"
+                  : "Fechar"}
+              </button>
+            </div>
           </section>
         </div>
       )}

@@ -472,7 +472,6 @@ export async function GET() {
     const org = await organization();
     const settings = await settingsFor(org.id);
     const contacts = await receptionContacts(org.id, org.whatsapp);
-    const onlineCardAvailable = false;
 
     return NextResponse.json({
       organization: {
@@ -515,22 +514,8 @@ export async function GET() {
             needsReception: false,
           },
           {
-            value: "cartao_credito",
-            label: "Cartão de crédito",
-            online: onlineCardAvailable,
-            available: true,
-            needsReception: !onlineCardAvailable,
-          },
-          {
-            value: "cartao_debito",
-            label: "Cartão de débito",
-            online: false,
-            available: true,
-            needsReception: true,
-          },
-          {
-            value: "dinheiro",
-            label: "Dinheiro",
+            value: "recepcao",
+            label: "Cartão de Crédito, Débito ou Dinheiro",
             online: false,
             available: true,
             needsReception: true,
@@ -584,11 +569,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      !["pix", "cartao_credito", "cartao_debito", "dinheiro"].includes(
-        paymentMethod,
-      )
-    ) {
+    if (!["pix", "recepcao"].includes(paymentMethod)) {
       return NextResponse.json(
         { error: "Forma de contribuição inválida." },
         { status: 400 },
@@ -663,11 +644,116 @@ export async function POST(request: Request) {
     const whatsapp = anonymous
       ? ""
       : asText(body.whatsapp).replace(/\D/g, "");
-    const contributionId = randomUUID();
+    const requestedContributionId = asText(body.contributionId);
+    const requestedResumeToken = asText(body.resumeToken);
+    const requestedTrackingCode = asText(body.trackingCode);
+    const editingExisting = Boolean(
+      requestedContributionId ||
+      requestedResumeToken ||
+      requestedTrackingCode,
+    );
+
+    if (
+      editingExisting &&
+      (!requestedContributionId ||
+        !requestedResumeToken ||
+        !requestedTrackingCode)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Não foi possível validar a intenção que será editada. Retome pelo código de acompanhamento e tente novamente.",
+        },
+        { status: 400 },
+      );
+    }
+
+    let existingMetadata: Record<string, unknown> = {};
+    let resumeExpiresAt = addDaysIso(settings.receiptRecoveryDays);
+
+    if (editingExisting) {
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from("oh_contributions")
+        .select(
+          "id, organization_id, status, public_tracking_code_hash, receipt_resume_token_hash, receipt_resume_expires_at, receipt_uploaded_at, metadata",
+        )
+        .eq("id", requestedContributionId)
+        .eq("organization_id", org.id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+
+      if (!existing?.id) {
+        return NextResponse.json(
+          { error: "A intenção que seria editada não foi localizada." },
+          { status: 404 },
+        );
+      }
+
+      const normalizedTrackingCode = requestedTrackingCode
+        .replace(/[^A-Za-z0-9]/g, "")
+        .toUpperCase();
+      const validResumeToken =
+        existing.receipt_resume_token_hash === sha256(requestedResumeToken);
+      const validTrackingCode =
+        existing.public_tracking_code_hash === sha256(normalizedTrackingCode);
+
+      if (!validResumeToken || !validTrackingCode) {
+        return NextResponse.json(
+          { error: "A autorização para editar esta intenção é inválida." },
+          { status: 403 },
+        );
+      }
+
+      if (existing.receipt_uploaded_at) {
+        return NextResponse.json(
+          {
+            error:
+              "O comprovante desta contribuição já foi enviado. A edição deve ser tratada pela Tesouraria/Financeiro.",
+          },
+          { status: 409 },
+        );
+      }
+
+      if (
+        ["confirmado", "pago", "cancelado", "comprovante_enviado"].includes(
+          asText(existing.status),
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Esta contribuição não pode mais ser editada pelo acesso público.",
+          },
+          { status: 409 },
+        );
+      }
+
+      if (
+        existing.receipt_resume_expires_at &&
+        new Date(existing.receipt_resume_expires_at).getTime() < Date.now()
+      ) {
+        return NextResponse.json(
+          { error: "O prazo público para editar esta intenção expirou." },
+          { status: 410 },
+        );
+      }
+
+      existingMetadata = asObject(existing.metadata);
+      resumeExpiresAt =
+        asText(existing.receipt_resume_expires_at) || resumeExpiresAt;
+    }
+
+    const contributionId = editingExisting
+      ? requestedContributionId
+      : randomUUID();
     const uploadToken = randomUUID();
-    const resumeToken = randomBytes(32).toString("base64url");
-    const trackingCode = randomTrackingCode();
-    const resumeExpiresAt = addDaysIso(settings.receiptRecoveryDays);
+    const resumeToken = editingExisting
+      ? requestedResumeToken
+      : randomBytes(32).toString("base64url");
+    const trackingCode = editingExisting
+      ? requestedTrackingCode
+      : randomTrackingCode();
     const requiresReception = paymentMethod !== "pix";
     let pixCopyPaste: string | null = null;
     let qrCodeDataUrl: string | null = null;
@@ -695,57 +781,70 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("oh_contributions")
-      .insert({
-        id: contributionId,
-        organization_id: org.id,
-        person_id: null,
-        contributor_name: contributorName,
-        contributor_email: email || null,
-        contributor_whatsapp: whatsapp || null,
-        amount,
-        due_date:
-          recurrenceType === "pix_agendado"
-            ? recurrenceStartDate
-            : dueDateFor(preferredDueDay),
-        status: requiresReception
-          ? "aguardando_recepcao"
-          : "aguardando_comprovante",
-        payment_method: paymentMethod,
-        notes: asText(body.notes) || null,
-        contribution_kind:
-          recurrenceType === "pontual" ? "pontual" : "recorrente",
-        is_anonymous: anonymous,
-        recurrence_type: recurrenceType,
-        preferred_due_day:
-          recurrenceType === "pix_agendado" ? null : preferredDueDay,
-        recurrence_start_date:
+    const contributionValues = {
+      person_id: null,
+      contributor_name: contributorName,
+      contributor_email: email || null,
+      contributor_whatsapp: whatsapp || null,
+      amount,
+      due_date:
+        recurrenceType === "pix_agendado"
+          ? recurrenceStartDate
+          : dueDateFor(preferredDueDay),
+      status: requiresReception
+        ? "aguardando_recepcao"
+        : "aguardando_comprovante",
+      payment_method: paymentMethod,
+      notes: asText(body.notes) || null,
+      contribution_kind:
+        recurrenceType === "pontual" ? "pontual" : "recorrente",
+      is_anonymous: anonymous,
+      recurrence_type: recurrenceType,
+      preferred_due_day:
+        recurrenceType === "pix_agendado" ? null : preferredDueDay,
+      recurrence_start_date:
+        recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
+      recurrence_occurrences:
+        recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
+      public_identification_mode: "sigiloso",
+      updated_at: new Date().toISOString(),
+      metadata: {
+        ...existingMetadata,
+        source: "site_tucxa_contribuicao_publica",
+        confidential: true,
+        proofUploadToken: uploadToken,
+        awaitingProofSince: requiresReception
+          ? null
+          : new Date().toISOString(),
+        providerIntegrated: false,
+        requiresReception,
+        recurrenceStartDate:
           recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
-        recurrence_occurrences:
+        recurrenceOccurrences:
           recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
-        public_identification_mode: "sigiloso",
-        public_tracking_code_hash: sha256(
-          trackingCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
-        ),
-        receipt_resume_token_hash: sha256(resumeToken),
-        receipt_resume_created_at: new Date().toISOString(),
-        receipt_resume_expires_at: resumeExpiresAt,
-        metadata: {
-          source: "site_tucxa_contribuicao_publica",
-          confidential: true,
-          proofUploadToken: uploadToken,
-          awaitingProofSince: requiresReception
-            ? null
-            : new Date().toISOString(),
-          providerIntegrated: false,
-          requiresReception,
-          recurrenceStartDate:
-            recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
-          recurrenceOccurrences:
-            recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
-        },
-      })
+        publicEditedAt: editingExisting ? new Date().toISOString() : null,
+      },
+    };
+
+    const query = editingExisting
+      ? supabaseAdmin
+          .from("oh_contributions")
+          .update(contributionValues)
+          .eq("id", contributionId)
+          .eq("organization_id", org.id)
+      : supabaseAdmin.from("oh_contributions").insert({
+          id: contributionId,
+          organization_id: org.id,
+          ...contributionValues,
+          public_tracking_code_hash: sha256(
+            trackingCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
+          ),
+          receipt_resume_token_hash: sha256(resumeToken),
+          receipt_resume_created_at: new Date().toISOString(),
+          receipt_resume_expires_at: resumeExpiresAt,
+        });
+
+    const { data, error } = await query
       .select(
         "id, status, due_date, recurrence_start_date, recurrence_occurrences, receipt_resume_expires_at",
       )
@@ -777,11 +876,15 @@ export async function POST(request: Request) {
           }
         : null,
       requiresReception,
-      message: requiresReception
-        ? "Sua intenção foi registrada. Procure a Recepção para concluir com segurança."
-        : anonymous
-          ? "Sua contribuição anônima foi registrada e já aparece para a Tesouraria/Financeiro como aguardando comprovante."
-          : "Sua contribuição foi registrada e aguarda o envio do comprovante para conferência.",
+      message: editingExisting
+        ? requiresReception
+          ? "Sua intenção foi atualizada. Procure a Recepção para concluir com segurança."
+          : "Sua intenção foi atualizada e continua aguardando o comprovante para conferência."
+        : requiresReception
+          ? "Sua intenção foi registrada. Procure a Recepção para concluir com segurança."
+          : anonymous
+            ? "Sua contribuição anônima foi registrada e já aparece para a Tesouraria/Financeiro como aguardando comprovante."
+            : "Sua contribuição foi registrada e aguarda o envio do comprovante para conferência.",
     });
   } catch (error) {
     return contributionErrorResponse(error, referenceId);

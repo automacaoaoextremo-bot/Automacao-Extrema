@@ -164,12 +164,11 @@ export function FinancialTransparencyMatrix({
         )}
       </div>
 
-      <div className="mt-4 grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold leading-6 text-[#123D2C] sm:grid-cols-2">
+      <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold leading-6 text-[#123D2C]">
         <p>
-          ↕ Toque nos sinais de + para expandir Saldo, Receitas, Despesas,
-          grupos e itens.
+          ↕ Toque nos sinais de + para expandir ↔ Arraste a tabela ou use a
+          barra de rolagem.
         </p>
-        <p>↔ Arraste a tabela ou use a barra de rolagem para avançar.</p>
       </div>
 
       {months.length === 0 ? (
