@@ -152,6 +152,7 @@ export async function POST(request: Request) {
       .update({
         proof_url: storagePath,
         status: "comprovante_enviado",
+        receipt_uploaded_at: new Date().toISOString(),
         metadata: {
           ...metadata,
           proofUploadToken: null,

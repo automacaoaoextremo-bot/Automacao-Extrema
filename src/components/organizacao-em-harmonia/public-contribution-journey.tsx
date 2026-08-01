@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   type FormEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -46,6 +47,8 @@ type ContributionSettings = {
   publicContributionHeadline: string;
   publicContributionMessage: string;
   receptionPaymentMessage: string;
+  scheduledPixMessage: string;
+  receiptRecoveryMessage: string;
   recurringOptions: RecurringOption[];
   paymentMethods: PaymentMethodOption[];
 };
@@ -66,6 +69,12 @@ type SubmitPayload = {
     recurrence_occurrences?: number | null;
   };
   uploadToken?: string;
+  trackingCode?: string;
+  resumeUrl?: string;
+  resumeExpiresAt?: string;
+  alreadyUploaded?: boolean;
+  amount?: number;
+  paymentMethod?: string;
   pixCopyPaste?: string | null;
   qrCodeDataUrl?: string | null;
   pix?: {
@@ -87,6 +96,49 @@ type UploadPayload = {
 type PublicContributionJourneyProps = {
   mode?: ContributionMode;
 };
+
+type SavedPendingContribution = {
+  trackingCode: string;
+  resumeUrl: string;
+  amount: number;
+  createdAt: string;
+};
+
+type InformationModal = "care" | "impact" | null;
+
+const PENDING_CONTRIBUTION_STORAGE_KEY =
+  "tucxa-corrente-em-dia-pending-contribution";
+
+function readSavedPendingContribution() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(PENDING_CONTRIBUTION_STORAGE_KEY) || "null",
+    ) as Partial<SavedPendingContribution> | null;
+
+    if (!parsed?.trackingCode || !parsed.resumeUrl) return null;
+
+    return {
+      trackingCode: parsed.trackingCode,
+      resumeUrl: parsed.resumeUrl,
+      amount: Number(parsed.amount) || 0,
+      createdAt: parsed.createdAt || new Date().toISOString(),
+    } satisfies SavedPendingContribution;
+  } catch {
+    return null;
+  }
+}
+
+function resumeTokenFromUrl(value: string) {
+  try {
+    return (
+      new URL(value, window.location.origin).searchParams.get("retomar") || ""
+    );
+  } catch {
+    return "";
+  }
+}
 
 function todayLocal() {
   const now = new Date();
@@ -127,17 +179,25 @@ function receptionContactUrl(input: {
   amount: number;
   paymentMethod: string;
   settings: ContributionSettings;
+  registered?: boolean;
+  trackingCode?: string;
 }) {
   const message = [
-    `Olá, ${input.contact.name}!`,
+    `Olá, ${input.contact.name}.`,
     "",
-    "Vim pelo Corrente em Dia do Tucxa.",
-    `Gostaria de contribuir com ${money(input.amount)} por ${methodLabel(
+    "Estou no Corrente em Dia do Tucxa.",
+    `Quero contribuir com ${money(input.amount)} por ${methodLabel(
       input.settings,
       input.paymentMethod,
     )}.`,
-    "Minha intenção já foi registrada no sistema.",
-  ].join("\n");
+    input.registered
+      ? "A intenção já foi registrada no sistema."
+      : "Vou registrar a intenção no sistema antes de concluir.",
+    input.trackingCode ? `Código de acompanhamento: ${input.trackingCode}.` : "",
+    "Poderia me orientar para concluir a contribuição?",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return `${input.contact.whatsappUrl}?text=${encodeURIComponent(message)}`;
 }
@@ -159,6 +219,44 @@ function InfoCard({
       <h3 className="mt-2 text-lg font-black text-[#123D2C]">{title}</h3>
       <div className="mt-2 text-sm leading-6 text-slate-600">{children}</div>
     </article>
+  );
+}
+
+function CareInformation() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      <InfoCard eyebrow="Liberdade" title="Você escolhe o valor">
+        Um valor possível é melhor do que um cuidado adiado. Você decide o que
+        cabe no seu momento.
+      </InfoCard>
+      <InfoCard eyebrow="Respeito" title="Sua identidade é respeitada">
+        Na contribuição anônima, nenhum nome é solicitado ou associado à
+        intenção registrada no sistema.
+      </InfoCard>
+      <InfoCard eyebrow="Continuidade" title="O cuidado segue adiante">
+        Cada gesto ajuda o Tucxa a manter estrutura, materiais e serviços
+        prontos para acolher.
+      </InfoCard>
+    </div>
+  );
+}
+
+function ImpactInformation() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      <InfoCard eyebrow="Estrutura" title="O que precisa continuar funcionando">
+        Água, energia, limpeza, segurança, conservação e comunicação sustentam
+        os trabalhos mesmo quando quase ninguém percebe.
+      </InfoCard>
+      <InfoCard eyebrow="Cuidado" title="Por que sua contribuição existe">
+        Para transformar um valor possível em previsibilidade, organização e
+        tranquilidade para a Casa cuidar melhor de cada pessoa.
+      </InfoCard>
+      <InfoCard eyebrow="Resultado" title="O que esse gesto torna possível">
+        Uma Casa preparada, acolhedora e disponível para que o cuidado
+        espiritual não seja interrompido por falta de estrutura.
+      </InfoCard>
+    </div>
   );
 }
 
@@ -193,6 +291,17 @@ export function PublicContributionJourney({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<SubmitPayload | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedRecovery, setCopiedRecovery] = useState<
+    "code" | "link" | ""
+  >("");
+  const [informationModal, setInformationModal] =
+    useState<InformationModal>(null);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [savedPending, setSavedPending] =
+    useState<SavedPendingContribution | null>(null);
 
   const headerActions = useMemo(
     () => [
@@ -207,27 +316,12 @@ export function PublicContributionJourney({
         variant: "secondary" as const,
       },
       {
-        label: "Seu cuidado",
-        href: "#seu-cuidado",
-        variant: "secondary" as const,
-      },
-      {
-        label: "Impacto",
-        href: "#impacto",
-        variant: "secondary" as const,
-      },
-      {
         label: anonymous ? "Contribuição Anônima" : "Contribuição Identificada",
         href: "#contribuicao-anonima",
-        variant: "secondary" as const,
-      },
-      {
-        label: anonymous ? "Contribuir Anônimo" : "Contribuir",
-        href: "#form-contribuicao",
         variant: "primary" as const,
       },
       {
-        label: "Contribuir com Cadastro",
+        label: "Contribuição com Cadastro",
         href: "#com-cadastro",
         variant: "secondary" as const,
       },
@@ -239,6 +333,63 @@ export function PublicContributionJourney({
       },
     ],
     [anonymous],
+  );
+
+  const resumeContribution = useCallback(
+    async (input: { resumeToken?: string; trackingCode?: string }) => {
+      setRecoveryLoading(true);
+      setRecoveryError("");
+      setError("");
+
+      try {
+        const response = await fetch(
+          "/api/organizacao-em-harmonia/site-tucxa/contribuicoes/retomar",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          },
+        );
+        const result = (await response.json()) as SubmitPayload;
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Não foi possível localizar a contribuição.",
+          );
+        }
+
+        setProofFile(null);
+        setProofMessage("");
+        setSuccess({ ...result, ok: true });
+        setRecoveryOpen(false);
+        setRecoveryCode("");
+
+        if (result.alreadyUploaded) {
+          window.localStorage.removeItem(PENDING_CONTRIBUTION_STORAGE_KEY);
+          setSavedPending(null);
+        }
+
+        if (typeof window !== "undefined" && input.resumeToken) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("retomar");
+          window.history.replaceState(
+            null,
+            "",
+            `${url.pathname}${url.search}${url.hash}`,
+          );
+        }
+      } catch (reason) {
+        setRecoveryError(
+          reason instanceof Error
+            ? reason.message
+            : "Não foi possível retomar o comprovante.",
+        );
+        setRecoveryOpen(true);
+      } finally {
+        setRecoveryLoading(false);
+      }
+    },
+    [],
   );
 
   useEffect(() => {
@@ -290,7 +441,22 @@ export function PublicContributionJourney({
   }, []);
 
   useEffect(() => {
-    if (!success?.ok) return;
+    const timerId = window.setTimeout(() => {
+      setSavedPending(readSavedPendingContribution());
+
+      const resumeToken = new URLSearchParams(window.location.search).get(
+        "retomar",
+      );
+      if (resumeToken) {
+        void resumeContribution({ resumeToken });
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [resumeContribution]);
+
+  useEffect(() => {
+    if (!success?.ok && !informationModal && !recoveryOpen) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -298,7 +464,7 @@ export function PublicContributionJourney({
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [success?.ok]);
+  }, [informationModal, recoveryOpen, success?.ok]);
 
   const amount = useMemo(() => {
     if (!settings) return 0;
@@ -338,6 +504,8 @@ export function PublicContributionJourney({
     setProofMessage("");
     setSuccess(null);
     setCopied(false);
+    setCopiedRecovery("");
+    setProofFile(null);
 
     if (!settings) return;
 
@@ -364,7 +532,11 @@ export function PublicContributionJourney({
         return;
       }
 
-      if (!Number.isFinite(occurrences) || occurrences < 2 || occurrences > 120) {
+      if (
+        !Number.isFinite(occurrences) ||
+        occurrences < 2 ||
+        occurrences > 120
+      ) {
         setError("Informe uma quantidade entre 2 e 120 contribuições.");
         return;
       }
@@ -405,6 +577,21 @@ export function PublicContributionJourney({
       }
 
       setSuccess(result);
+
+      if (result.trackingCode && result.resumeUrl) {
+        const pending = {
+          trackingCode: result.trackingCode,
+          resumeUrl: result.resumeUrl,
+          amount,
+          createdAt: new Date().toISOString(),
+        } satisfies SavedPendingContribution;
+
+        window.localStorage.setItem(
+          PENDING_CONTRIBUTION_STORAGE_KEY,
+          JSON.stringify(pending),
+        );
+        setSavedPending(pending);
+      }
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -425,6 +612,35 @@ export function PublicContributionJourney({
     } catch {
       setError("Não foi possível copiar automaticamente. Selecione o código.");
     }
+  }
+
+  async function copyRecoveryValue(
+    value: string | undefined,
+    kind: "code" | "link",
+  ) {
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedRecovery(kind);
+    } catch {
+      setError("Não foi possível copiar automaticamente. Selecione o conteúdo.");
+    }
+  }
+
+  function resumeSavedPending() {
+    if (!savedPending) return;
+
+    const resumeToken = resumeTokenFromUrl(savedPending.resumeUrl);
+    if (!resumeToken) {
+      setRecoveryError(
+        "O link salvo neste aparelho não é mais válido. Use o código de acompanhamento.",
+      );
+      setRecoveryOpen(true);
+      return;
+    }
+
+    void resumeContribution({ resumeToken });
   }
 
   async function uploadProof() {
@@ -462,6 +678,8 @@ export function PublicContributionJourney({
       }
 
       setProofMessage(result.message || "Comprovante enviado.");
+      window.localStorage.removeItem(PENDING_CONTRIBUTION_STORAGE_KEY);
+      setSavedPending(null);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -492,61 +710,34 @@ export function PublicContributionJourney({
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
             {settings?.publicContributionMessage ||
-              "Sua contribuição continua na água, na energia, na limpeza, na segurança e nos materiais que acolhem cada trabalho. Escolha uma forma simples e participe desse cuidado com liberdade e transparência."}
+              "Sua contribuição continua na água, na energia, na limpeza, na segurança e nos materiais que acolhem cada trabalho. Você escolhe como participar e ajuda a Casa a seguir preparada."}
           </p>
+
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => setInformationModal("care")}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-4 py-3 text-center font-black text-[#123D2C] shadow-sm"
+            >
+              Seu cuidado
+            </button>
+            <button
+              type="button"
+              onClick={() => setInformationModal("impact")}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center font-black text-[#123D2C] shadow-sm ring-1 ring-white/20"
+            >
+              Impacto
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setRecoveryOpen(true)}
+            className="mt-3 text-left text-sm font-black text-[#EEF7EA] underline decoration-[#CFE2C7] underline-offset-4"
+          >
+            Tenho um comprovante para enviar
+          </button>
         </header>
-
-        <section
-          id="seu-cuidado"
-          className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
-        >
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-            Seu cuidado, do seu jeito
-          </p>
-          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-            Liberdade para contribuir. Respeito à sua escolha. Continuidade para a Casa.
-          </h2>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <InfoCard eyebrow="Liberdade" title="Você escolhe o valor">
-              Um valor possível é melhor do que um cuidado adiado. Você decide o
-              que cabe no seu momento.
-            </InfoCard>
-            <InfoCard eyebrow="Respeito" title="Sua identidade é respeitada">
-              Na contribuição anônima, nenhum nome é solicitado ou associado à
-              intenção registrada no sistema.
-            </InfoCard>
-            <InfoCard eyebrow="Continuidade" title="O cuidado segue adiante">
-              Cada gesto ajuda o Tucxa a manter estrutura, materiais e serviços
-              prontos para acolher.
-            </InfoCard>
-          </div>
-        </section>
-
-        <section
-          id="impacto"
-          className="scroll-mt-48 rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-7"
-        >
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-            O impacto do seu cuidado
-          </p>
-          <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
-            Um gesto financeiro se transforma em estrutura, cuidado e resultado.
-          </h2>
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-            <InfoCard eyebrow="Estrutura" title="O que precisa continuar funcionando">
-              Água, energia, limpeza, segurança, conservação e comunicação
-              sustentam os trabalhos mesmo quando quase ninguém percebe.
-            </InfoCard>
-            <InfoCard eyebrow="Cuidado" title="Por que sua contribuição existe">
-              Para transformar um valor possível em previsibilidade, organização
-              e tranquilidade para a Casa cuidar melhor de cada pessoa.
-            </InfoCard>
-            <InfoCard eyebrow="Resultado" title="O que esse gesto torna possível">
-              Uma Casa preparada, acolhedora e disponível para que o cuidado
-              espiritual não seja interrompido por falta de estrutura.
-            </InfoCard>
-          </div>
-        </section>
 
         <section
           id="contribuicao-anonima"
@@ -729,12 +920,21 @@ export function PublicContributionJourney({
                   {receptionContacts.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {receptionContacts.map((contact) => (
-                        <span
+                        <a
                           key={contact.whatsapp}
-                          className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-amber-200"
+                          href={receptionContactUrl({
+                            contact,
+                            amount,
+                            paymentMethod,
+                            settings,
+                            registered: false,
+                          })}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#123D2C] underline decoration-amber-400 underline-offset-4 ring-1 ring-amber-200"
                         >
                           {contact.name}
-                        </span>
+                        </a>
                       ))}
                     </div>
                   )}
@@ -743,15 +943,16 @@ export function PublicContributionJourney({
 
               {paymentMethod === "pix" && (
                 <>
-                  <div>
-                    <p className="font-black text-[#123D2C]">
-                      Uma vez ou de forma recorrente?
+                  <div className="rounded-2xl bg-gradient-to-br from-[#123D2C] to-[#2F6B43] p-4 text-white shadow-sm">
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-[#CFE2C7]">
+                      Um cuidado que ganha continuidade
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Uma contribuição única já sustenta um cuidado. Quando você
-                      agenda a recorrência no seu banco, ajuda a Casa a planejar
-                      água, energia, limpeza, segurança e materiais com mais
-                      tranquilidade, sem depender apenas das urgências de cada mês.
+                    <h3 className="mt-2 text-xl font-black leading-tight">
+                      Transforme um gesto possível em tranquilidade para todos os
+                      meses.
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
+                      {settings.scheduledPixMessage}
                     </p>
                   </div>
 
@@ -866,7 +1067,7 @@ export function PublicContributionJourney({
           className="scroll-mt-48 rounded-[2rem] bg-[#E9F2E7] p-5 ring-1 ring-[#123D2C]/10 sm:p-7"
         >
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-            Contribuir com cadastro
+            Contribuição com cadastro
           </p>
           <h2 className="mt-2 text-2xl font-black text-[#123D2C]">
             Prefere organizar histórico e preferências no seu acesso?
@@ -894,6 +1095,148 @@ export function PublicContributionJourney({
         </section>
       </section>
 
+      {informationModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="informacao-contribuicao-titulo"
+        >
+          <section className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-t-[2rem] bg-[#F7FAF2] p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                  {informationModal === "care"
+                    ? "Seu cuidado, do seu jeito"
+                    : "O impacto do seu cuidado"}
+                </p>
+                <h2
+                  id="informacao-contribuicao-titulo"
+                  className="mt-2 text-2xl font-black leading-tight text-[#123D2C]"
+                >
+                  {informationModal === "care"
+                    ? "Liberdade para contribuir. Respeito à sua escolha. Continuidade para a Casa."
+                    : "Um gesto financeiro se transforma em estrutura, cuidado e resultado."}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInformationModal(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xl font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10"
+                aria-label="Fechar informações"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5">
+              {informationModal === "care" ? (
+                <CareInformation />
+              ) : (
+                <ImpactInformation />
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setInformationModal(null)}
+              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white"
+            >
+              Continuar
+            </button>
+          </section>
+        </div>
+      )}
+
+      {recoveryOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="retomar-comprovante-titulo"
+        >
+          <section className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                  Comprovante pendente
+                </p>
+                <h2
+                  id="retomar-comprovante-titulo"
+                  className="mt-2 text-2xl font-black text-[#123D2C]"
+                >
+                  Conclua o envio sem precisar se identificar.
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecoveryOpen(false)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                aria-label="Fechar retomada do comprovante"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Use o código que apareceu depois do registro ou abra o link salvo
+              no mesmo aparelho. O código não revela seu nome nem seus dados.
+            </p>
+
+            {savedPending && (
+              <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
+                  Encontrado neste aparelho
+                </p>
+                <p className="mt-2 font-black text-[#123D2C]">
+                  Código {savedPending.trackingCode}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Valor registrado: {money(savedPending.amount)}
+                </p>
+                <button
+                  type="button"
+                  disabled={recoveryLoading}
+                  onClick={resumeSavedPending}
+                  className="mt-3 w-full rounded-2xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50"
+                >
+                  Retomar última contribuição
+                </button>
+              </div>
+            )}
+
+            <label className="mt-4 grid gap-1 font-black text-[#123D2C]">
+              Código de acompanhamento
+              <input
+                value={recoveryCode}
+                onChange={(event) => setRecoveryCode(event.target.value)}
+                autoCapitalize="characters"
+                autoComplete="off"
+                className="rounded-2xl border border-[#123D2C]/15 p-4 font-mono font-bold uppercase tracking-wider"
+                placeholder="ABCD-EFGH-JKLM"
+              />
+            </label>
+
+            {recoveryError && (
+              <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {recoveryError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              disabled={recoveryLoading || !recoveryCode.trim()}
+              onClick={() =>
+                void resumeContribution({ trackingCode: recoveryCode })
+              }
+              className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-50"
+            >
+              {recoveryLoading ? "Localizando..." : "Retomar envio"}
+            </button>
+          </section>
+        </div>
+      )}
+
       {success?.ok && (
         <div
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
@@ -911,7 +1254,8 @@ export function PublicContributionJourney({
                   id="intencao-registrada-titulo"
                   className="mt-2 text-2xl font-black text-[#123D2C]"
                 >
-                  Obrigado por transformar um valor possível em continuidade para a Casa.
+                  Obrigado por transformar um valor possível em continuidade
+                  para a Casa.
                 </h2>
               </div>
               <button
@@ -925,6 +1269,48 @@ export function PublicContributionJourney({
             </div>
 
             <p className="mt-3 leading-7 text-slate-700">{success.message}</p>
+
+            {success.trackingCode && success.resumeUrl && (
+              <div className="mt-5 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200 sm:p-5">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-800">
+                  Envie o comprovante agora ou depois
+                </p>
+                <h3 className="mt-2 text-xl font-black text-amber-950">
+                  Guarde seu código de acompanhamento
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-amber-900">
+                  {settings?.receiptRecoveryMessage ||
+                    "Ainda não está com o comprovante? Guarde o código ou copie o link para concluir depois, sem precisar se identificar."}
+                </p>
+                <p className="mt-3 rounded-xl bg-white p-3 text-center font-mono text-lg font-black tracking-wider text-[#123D2C] ring-1 ring-amber-200">
+                  {success.trackingCode}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyRecoveryValue(success.trackingCode, "code")
+                    }
+                    className="rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] ring-1 ring-amber-200"
+                  >
+                    {copiedRecovery === "code"
+                      ? "Código copiado"
+                      : "Copiar código"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void copyRecoveryValue(success.resumeUrl, "link")
+                    }
+                    className="rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                  >
+                    {copiedRecovery === "link"
+                      ? "Link copiado"
+                      : "Copiar link"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {success.qrCodeDataUrl && success.pixCopyPaste && success.pix && (
               <div className="mt-5 grid gap-5 rounded-[2rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10 md:grid-cols-[18rem_1fr] md:p-5">
@@ -982,7 +1368,7 @@ export function PublicContributionJourney({
 
                   {recurrenceType === "pix_agendado" && (
                     <p className="mt-3 text-sm leading-6 text-slate-600">
-                      No aplicativo do banco, programe o primeiro Pix para {" "}
+                      No aplicativo do banco, programe o primeiro Pix para{" "}
                       {new Intl.DateTimeFormat("pt-BR", {
                         dateStyle: "short",
                         timeZone: "UTC",
@@ -1016,6 +1402,8 @@ export function PublicContributionJourney({
                           amount,
                           paymentMethod,
                           settings,
+                          registered: true,
+                          trackingCode: success.trackingCode,
                         })}
                         target="_blank"
                         rel="noreferrer"
@@ -1072,21 +1460,15 @@ export function PublicContributionJourney({
               </div>
             )}
 
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
-                className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C]"
-              >
-                Ver prestação de contas
-              </Link>
-              <button
-                type="button"
-                onClick={() => setSuccess(null)}
-                className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
-              >
-                Fechar
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setSuccess(null)}
+              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+            >
+              {success.uploadToken && !proofMessage
+                ? "Fechar e enviar comprovante depois"
+                : "Fechar"}
+            </button>
           </section>
         </div>
       )}

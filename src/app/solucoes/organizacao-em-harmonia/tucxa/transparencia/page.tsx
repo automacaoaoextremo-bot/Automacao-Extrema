@@ -63,21 +63,6 @@ const actions = [
     variant: "secondary" as const,
   },
   {
-    label: "Finalizado",
-    href: "#finalizado",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Atual",
-    href: "#atual",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Detalhado",
-    href: "#detalhado",
-    variant: "secondary" as const,
-  },
-  {
     label: "Contribuir",
     href: "#contribuir",
     variant: "primary" as const,
@@ -140,6 +125,31 @@ function ContributionAnchorButton({
     >
       Contribuir
     </Link>
+  );
+}
+
+function SummaryNavigationButtons() {
+  const items = [
+    { label: "Finalizado", href: "#finalizado" },
+    { label: "Atual", href: "#atual" },
+    { label: "Detalhado", href: "#detalhado" },
+  ];
+
+  return (
+    <nav
+      aria-label="Acessos aos quadros financeiros"
+      className="mt-5 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap"
+    >
+      {items.map((item) => (
+        <Link
+          key={item.href}
+          href={item.href}
+          className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-3 py-3 text-center text-sm font-black text-[#123D2C] shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] sm:px-5"
+        >
+          {item.label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 
@@ -251,7 +261,7 @@ export default function TucxaTransparenciaPage() {
             {data?.settings.message ||
               "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo."}
           </p>
-          <ContributionAnchorButton className="mt-5 w-full bg-white text-[#123D2C] sm:w-auto" />
+          <SummaryNavigationButtons />
         </header>
 
         {loading && (

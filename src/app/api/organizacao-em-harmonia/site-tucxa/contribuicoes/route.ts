@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import QRCode from "qrcode";
 import {
@@ -174,7 +174,17 @@ async function settingsFor(organizationId: string) {
       "Sua contribuição continua na água, na energia, na limpeza, na segurança e nos materiais que acolhem cada trabalho. Escolha uma forma simples e participe desse cuidado com liberdade, sigilo e transparência.",
     receptionPaymentMessage:
       asText(legacy.receptionPaymentMessage) ||
-      "Para cartão de crédito, débito ou dinheiro, registre sua intenção e fale com uma pessoa da Recepção.",
+      "Para cartão de crédito, débito ou dinheiro, registre sua intenção e fale com uma pessoa da Recepção clicando no nome.",
+    scheduledPixMessage:
+      asText(legacy.scheduledPixMessage) ||
+      "Transforme um gesto possível em tranquilidade para todos os meses. Ao agendar a recorrência no seu banco, você ajuda o Tucxa a planejar água, energia, limpeza, segurança e materiais antes que virem urgência — e mantém a Casa preparada para acolher quando alguém precisar.",
+    receiptRecoveryMessage:
+      asText(legacy.receiptRecoveryMessage) ||
+      "Ainda não está com o comprovante? Guarde o código ou copie o link para concluir depois, sem precisar se identificar.",
+    receiptRecoveryDays: Math.min(
+      365,
+      Math.max(30, Math.trunc(asNumber(legacy.receiptRecoveryDays, 180))),
+    ),
   };
 }
 
@@ -220,7 +230,7 @@ async function receptionContacts(
       (membership) =>
         membership.active !== false &&
         normalizeToken(membership.status) !== "inativo" &&
-        membership.can_receive_notifications === true,
+        membership.can_receive_notifications !== false,
     )
     .filter((membership) =>
       isReceptionMembership(
@@ -356,6 +366,28 @@ function dueDateFor(preferredDueDay: number) {
   return dueDate.toISOString().slice(0, 10);
 }
 
+const TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function sha256(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function randomTrackingCode() {
+  const bytes = randomBytes(12);
+  const characters = Array.from(
+    bytes,
+    (byte) => TRACKING_ALPHABET[byte % TRACKING_ALPHABET.length],
+  ).join("");
+
+  return `${characters.slice(0, 4)}-${characters.slice(4, 8)}-${characters.slice(8, 12)}`;
+}
+
+function addDaysIso(days: number) {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString();
+}
+
 export async function GET() {
   try {
     const org = await organization();
@@ -380,6 +412,8 @@ export async function GET() {
         publicContributionHeadline: settings.publicContributionHeadline,
         publicContributionMessage: settings.publicContributionMessage,
         receptionPaymentMessage: settings.receptionPaymentMessage,
+        scheduledPixMessage: settings.scheduledPixMessage,
+        receiptRecoveryMessage: settings.receiptRecoveryMessage,
         recurringOptions: [
           {
             value: "pontual",
@@ -549,6 +583,9 @@ export async function POST(request: Request) {
       ? ""
       : asText(body.whatsapp).replace(/\D/g, "");
     const uploadToken = randomUUID();
+    const resumeToken = randomBytes(32).toString("base64url");
+    const trackingCode = randomTrackingCode();
+    const resumeExpiresAt = addDaysIso(settings.receiptRecoveryDays);
     const requiresReception = paymentMethod !== "pix";
 
     const { data, error } = await supabaseAdmin
@@ -580,6 +617,12 @@ export async function POST(request: Request) {
         recurrence_occurrences:
           recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
         public_identification_mode: "sigiloso",
+        public_tracking_code_hash: sha256(
+          trackingCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
+        ),
+        receipt_resume_token_hash: sha256(resumeToken),
+        receipt_resume_created_at: new Date().toISOString(),
+        receipt_resume_expires_at: resumeExpiresAt,
         metadata: {
           source: "site_tucxa_contribuicao_publica",
           confidential: true,
@@ -595,7 +638,9 @@ export async function POST(request: Request) {
             recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
         },
       })
-      .select("id, status, due_date, recurrence_start_date, recurrence_occurrences")
+      .select(
+        "id, status, due_date, recurrence_start_date, recurrence_occurrences, receipt_resume_expires_at",
+      )
       .single();
 
     if (error) throw error;
@@ -618,10 +663,20 @@ export async function POST(request: Request) {
       });
     }
 
+    const resumeUrl = new URL(
+      `/solucoes/organizacao-em-harmonia/tucxa/contribuir?retomar=${encodeURIComponent(
+        resumeToken,
+      )}`,
+      request.url,
+    ).toString();
+
     return NextResponse.json({
       ok: true,
       contribution: data,
       uploadToken,
+      trackingCode,
+      resumeUrl,
+      resumeExpiresAt,
       pixCopyPaste,
       qrCodeDataUrl,
       pix: paymentMethod === "pix"
