@@ -8,6 +8,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/corrente-financeiro";
 import {
   notifyContributionEvent,
+  notifyFamilyContributionEvent,
   receptionContacts,
 } from "@/lib/organizacao-em-harmonia/corrente-notifications";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -1022,8 +1023,12 @@ async function savePreferences(
   const preferredDueDay = Math.trunc(
     asNumber(body.preferredDueDay, settings.defaultDueDay),
   );
-  if (!settings.allowedDueDays.includes(preferredDueDay)) {
-    throw new Error("Escolha um dos dias de contribuição permitidos.");
+  if (
+    !Number.isInteger(preferredDueDay) ||
+    preferredDueDay < 1 ||
+    preferredDueDay > 31
+  ) {
+    throw new Error("Informe um dia do mês entre 1 e 31.");
   }
 
   const { data: currentPreference, error: currentPreferenceError } =
@@ -1046,14 +1051,30 @@ async function savePreferences(
       ? storedRecurringMode
       : "nao_programada";
 
-  const reminderDaysBefore = Array.isArray(body.reminderDaysBefore)
-    ? body.reminderDaysBefore
+  const reminderDaysBefore = Array.from(
+    new Set(
+      (Array.isArray(body.reminderDaysBefore)
+        ? body.reminderDaysBefore
+        : settings.reminderDaysBefore
+      )
         .map((item) => Math.trunc(asNumber(item)))
-        .filter((item) => item >= 0 && item <= 30)
-    : settings.reminderDaysBefore;
-  const reminderChannels = Array.isArray(body.reminderChannels)
-    ? body.reminderChannels.map(asText).filter(Boolean)
-    : settings.reminderChannels;
+        .filter((item) => [7, 5, 3, 1].includes(item)),
+    ),
+  ).sort((left, right) => right - left);
+
+  const notificationEmail = normalizeEmail(context.email);
+  const reminderChannels =
+    reminderDaysBefore.length > 0 && notificationEmail ? ["email"] : [];
+
+  if (notificationEmail) {
+    const { error: emailSyncError } = await supabaseAdmin
+      .from("oh_people")
+      .update({ email: notificationEmail, updated_at: new Date().toISOString() })
+      .eq("organization_id", context.organizationId)
+      .eq("id", context.personId);
+
+    if (emailSyncError) throw emailSyncError;
+  }
 
   const { error } = await supabaseAdmin
     .from("oh_contribution_preferences")
@@ -1079,7 +1100,70 @@ async function savePreferences(
     );
 
   if (error) throw error;
-  return { message: "Organização e lembretes salvos." };
+  return {
+    message: reminderDaysBefore.length === 0
+      ? "Dia de contribuição salvo. Nenhum lembrete foi selecionado."
+      : notificationEmail
+        ? `Organização salva. Os lembretes serão enviados para ${notificationEmail}.`
+        : "Dia e opções salvos. Sem e-mail cadastrado, os lembretes não serão enviados.",
+  };
+}
+
+async function saveNotificationEmail(
+  context: AuthContext,
+  body: Record<string, unknown>,
+) {
+  const email = normalizeEmail(body.email);
+  if (!email) {
+    throw new Error("Informe um e-mail válido.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("oh_people")
+    .update({
+      email,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", context.organizationId)
+    .eq("id", context.personId);
+
+  if (error) throw error;
+
+  const { data: preference, error: preferenceError } = await supabaseAdmin
+    .from("oh_contribution_preferences")
+    .select("reminder_days_before")
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .maybeSingle();
+
+  if (preferenceError) throw preferenceError;
+
+  const reminderDays = Array.isArray(preference?.reminder_days_before)
+    ? preference.reminder_days_before
+        .map((item) => Math.trunc(asNumber(item)))
+        .filter((item) => [7, 5, 3, 1].includes(item))
+    : [];
+
+  if (reminderDays.length > 0) {
+    const { error: channelError } = await supabaseAdmin
+      .from("oh_contribution_preferences")
+      .update({
+        reminder_channels: ["email"],
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", context.organizationId)
+      .eq("person_id", context.personId);
+
+    if (channelError) throw channelError;
+  }
+
+  return {
+    email,
+    message:
+      reminderDays.length > 0
+        ? `E-mail ${email} cadastrado e lembretes por e-mail ativados.`
+        : `E-mail ${email} cadastrado para lembretes e notificações.`,
+  };
 }
 
 async function requestFamilyGroup(
@@ -1089,6 +1173,20 @@ async function requestFamilyGroup(
   const settings = await loadSettings(context.organizationId);
   if (!settings.familyContributionsEnabled) {
     throw new Error("A contribuição familiar não está habilitada.");
+  }
+
+  const responsibleEmail = normalizeEmail(context.email);
+  if (responsibleEmail) {
+    const { error: emailSyncError } = await supabaseAdmin
+      .from("oh_people")
+      .update({
+        email: responsibleEmail,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", context.organizationId)
+      .eq("id", context.personId);
+
+    if (emailSyncError) throw emailSyncError;
   }
 
   const requestedAmount = Math.round(asNumber(body.amount, 0) * 100) / 100;
@@ -1118,11 +1216,20 @@ async function requestFamilyGroup(
     ),
   );
 
+  if (
+    personIds.length !== members.length ||
+    members.some((item) => !asText(item.relationshipTypeId))
+  ) {
+    throw new Error(
+      "Cada integrante deve ser único e possuir um grau de parentesco.",
+    );
+  }
+
   const [peopleResult, relationshipsResult, membershipsResult] =
     await Promise.all([
       supabaseAdmin
         .from("oh_people")
-        .select("id, full_name")
+        .select("id, full_name, email")
         .eq("organization_id", context.organizationId)
         .in("id", personIds)
         .eq("active", true),
@@ -1286,6 +1393,31 @@ async function requestFamilyGroup(
     if (preferenceError) throw preferenceError;
   }
 
+  const peopleById = new Map(
+    (peopleResult.data ?? []).map((item) => [asText(item.id), item]),
+  );
+  await notifyFamilyContributionEvent({
+    organizationId: context.organizationId,
+    familyGroupId: group.id,
+    familyName: groupValues.name,
+    responsibleName: context.fullName,
+    responsibleEmail: responsibleEmail || context.email,
+    requestedAmount,
+    approvedAmount: status === "ativo" ? requestedAmount : null,
+    event: status === "ativo" ? "aprovada" : "solicitada",
+    submittedAt: now,
+    decidedAt: status === "ativo" ? now : null,
+    memberNames: personIds
+      .map((personId) => asText(peopleById.get(personId)?.full_name))
+      .filter(Boolean),
+    memberEmails:
+      status === "ativo"
+        ? personIds
+            .map((personId) => asText(peopleById.get(personId)?.email))
+            .filter(Boolean)
+        : [],
+  });
+
   return {
     message:
       status === "ativo"
@@ -1338,6 +1470,12 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         ...(await savePreferences(context, body)),
+      });
+    }
+    if (action === "saveNotificationEmail") {
+      return NextResponse.json({
+        ok: true,
+        ...(await saveNotificationEmail(context, body)),
       });
     }
     if (action === "requestFamilyGroup") {

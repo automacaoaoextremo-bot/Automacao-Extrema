@@ -61,15 +61,17 @@ type Payload = {
   error?: string;
 };
 
+const ALL_DUE_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
+
 const defaults: Settings = {
   defaultMonthlyAmount: 50,
   amountIsMandatory: false,
   allowCustomAmount: true,
-  allowedDueDays: [1, 5, 10, 15, 20, 30],
+  allowedDueDays: ALL_DUE_DAYS,
   defaultDueDay: 10,
-  reminderDaysBefore: [7, 3, 1],
-  reminderOnDueDate: true,
-  reminderChannels: ["whatsapp", "painel"],
+  reminderDaysBefore: [7, 5, 3, 1],
+  reminderOnDueDate: false,
+  reminderChannels: ["email"],
   familyContributionsEnabled: true,
   familyRequiresMemberConfirmation: true,
   familyRequiresFinancialApproval: true,
@@ -96,8 +98,8 @@ const defaults: Settings = {
   contributionNotificationEmails: ["automacao-ao-extremo@gmail.com"],
 };
 
-const dueDayOptions = [1, 5, 10, 15, 20, 30];
-const reminderOptions = [15, 10, 7, 5, 3, 1];
+const dueDayOptions = ALL_DUE_DAYS;
+const reminderOptions = [7, 5, 3, 1];
 
 function Toggle({
   checked,
@@ -162,7 +164,13 @@ export default function CorrenteConfiguracoesPage() {
         result.error || "Não foi possível carregar as configurações.",
       );
     }
-    setSettings({ ...defaults, ...(result.settings ?? {}) });
+    setSettings({
+      ...defaults,
+      ...(result.settings ?? {}),
+      allowedDueDays: ALL_DUE_DAYS,
+      reminderOnDueDate: false,
+      reminderChannels: ["email"],
+    });
     setRelationships(result.relationshipTypes ?? []);
   }, [token]);
 
@@ -195,7 +203,7 @@ export default function CorrenteConfiguracoesPage() {
   }
 
   function toggleNumber(
-    key: "allowedDueDays" | "reminderDaysBefore",
+    key: "reminderDaysBefore",
     value: number,
   ) {
     setSettings((current) => {
@@ -204,15 +212,6 @@ export default function CorrenteConfiguracoesPage() {
         : [...current[key], value].sort((a, b) => a - b);
       return { ...current, [key]: list };
     });
-  }
-
-  function toggleChannel(value: string) {
-    setSettings((current) => ({
-      ...current,
-      reminderChannels: current.reminderChannels.includes(value)
-        ? current.reminderChannels.filter((item) => item !== value)
-        : [...current.reminderChannels, value],
-    }));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -306,8 +305,8 @@ export default function CorrenteConfiguracoesPage() {
   }
 
   const dueDayHint = useMemo(() => {
-    if (settings.defaultDueDay === 30) {
-      return "Em meses sem dia 30, será utilizado o último dia do mês.";
+    if (settings.defaultDueDay === 31) {
+      return "Em meses sem dia 31, será utilizado o último dia do mês.";
     }
     return `O dia ${settings.defaultDueDay} será sugerido inicialmente.`;
   }, [settings.defaultDueDay]);
@@ -399,26 +398,15 @@ export default function CorrenteConfiguracoesPage() {
             />
           </div>
 
-          <div className="mt-5">
+          <div className="mt-5 rounded-2xl bg-[#F7FAF2] p-4 text-sm leading-6 text-slate-600 ring-1 ring-[#123D2C]/10">
             <p className="font-black text-[#123D2C]">
-              Dias que podem ser escolhidos
+              Dias disponíveis para escolha
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {dueDayOptions.map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => toggleNumber("allowedDueDays", day)}
-                  className={`rounded-2xl px-4 py-3 font-black ring-1 ${
-                    settings.allowedDueDays.includes(day)
-                      ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                      : "bg-white text-[#123D2C] ring-[#123D2C]/15"
-                  }`}
-                >
-                  {day}
-                </button>
-              ))}
-            </div>
+            <p className="mt-1">
+              Os Filhos da Corrente podem escolher livremente qualquer dia entre
+              1 e 31. Quando o mês não possuir o dia escolhido, será considerado
+              o último dia do mês.
+            </p>
           </div>
         </section>
 
@@ -520,35 +508,12 @@ export default function CorrenteConfiguracoesPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <Toggle
-              checked={settings.reminderOnDueDate}
-              onChange={(value) => update("reminderOnDueDate", value)}
-              label="Lembrar no dia escolhido"
-            />
-            <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="font-black text-[#123D2C]">Canais</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {[
-                  ["whatsapp", "WhatsApp"],
-                  ["email", "E-mail"],
-                  ["painel", "Painel"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => toggleChannel(value)}
-                    className={`rounded-xl px-3 py-2 text-sm font-black ${
-                      settings.reminderChannels.includes(value)
-                        ? "bg-[#123D2C] text-white"
-                        : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 text-sm leading-6 text-slate-600 ring-1 ring-[#123D2C]/10">
+            <p className="font-black text-[#123D2C]">Canal dos lembretes</p>
+            <p className="mt-1">
+              Os lembretes selecionados serão enviados por e-mail para o
+              endereço cadastrado pelo Filho da Corrente.
+            </p>
           </div>
         </section>
 

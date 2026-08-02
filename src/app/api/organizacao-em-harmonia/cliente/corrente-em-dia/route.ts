@@ -279,7 +279,16 @@ export async function POST(request: Request) {
 
     if (action === "saveSettings") {
       const before = await loadSettings(auth.context.organizationId);
-      const settings = normalizeFinancialSettings(body.settings ?? body);
+      const normalizedSettings = normalizeFinancialSettings(body.settings ?? body);
+      const settings = {
+        ...normalizedSettings,
+        allowedDueDays: Array.from({ length: 31 }, (_, index) => index + 1),
+        reminderDaysBefore: normalizedSettings.reminderDaysBefore.filter((day) =>
+          [7, 5, 3, 1].includes(day),
+        ),
+        reminderOnDueDate: false,
+        reminderChannels: ["email"],
+      };
       const database = settingsToDatabase(settings);
 
       const { error } = await supabaseAdmin

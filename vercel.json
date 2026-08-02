@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "yarn install --no-lockfile --network-timeout 600000 --ignore-engines",
-  "buildCommand": "yarn build"
+  "buildCommand": "yarn build",
+  "crons": [
+    {
+      "path": "/api/cron/corrente-em-dia-reminders",
+      "schedule": "0 11 * * *"
+    }
+  ]
 }

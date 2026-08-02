@@ -40,6 +40,36 @@ export type ContributionNotificationEvent =
   | "comprovante_enviado"
   | "aprovada";
 
+
+export type FamilyContributionNotificationEvent =
+  | "solicitada"
+  | "aprovada"
+  | "rejeitada";
+
+export type FamilyContributionNotificationInput = {
+  organizationId: string;
+  familyGroupId: string;
+  familyName: string;
+  responsibleName: string;
+  responsibleEmail?: string | null;
+  requestedAmount: number;
+  approvedAmount?: number | null;
+  event: FamilyContributionNotificationEvent;
+  submittedAt?: string | null;
+  decidedAt?: string | null;
+  decisionNotes?: string | null;
+  memberNames?: string[];
+  memberEmails?: string[];
+};
+
+export type ContributionReminderEmailInput = {
+  recipientEmail: string;
+  recipientName: string;
+  dueDate: string;
+  daysBefore: number;
+  contributionUrl: string;
+};
+
 export type ContributionNotificationInput = {
   organizationId: string;
   contributionId: string;
@@ -405,4 +435,132 @@ export async function notifyContributionEvent(
           : "Falha ao enviar notificações.",
     };
   }
+}
+
+
+function familyEventTitle(event: FamilyContributionNotificationEvent) {
+  const titles: Record<FamilyContributionNotificationEvent, string> = {
+    solicitada: "Solicitação de contribuição familiar recebida",
+    aprovada: "Contribuição familiar aprovada",
+    rejeitada: "Solicitação de contribuição familiar não aprovada",
+  };
+  return titles[event];
+}
+
+function dateTime(value: string | null | undefined) {
+  if (!value) return "não informada";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(value));
+}
+
+function familyNotificationText(input: FamilyContributionNotificationInput) {
+  return [
+    familyEventTitle(input.event),
+    "",
+    `Responsável: ${input.responsibleName}`,
+    `Família: ${input.familyName}`,
+    `Valor solicitado: ${money(input.requestedAmount)}`,
+    input.approvedAmount
+      ? `Valor aprovado: ${money(input.approvedAmount)}`
+      : "",
+    input.submittedAt
+      ? `Solicitada em: ${dateTime(input.submittedAt)}`
+      : "",
+    input.decidedAt ? `Analisada em: ${dateTime(input.decidedAt)}` : "",
+    input.memberNames?.length
+      ? `Integrantes: ${input.memberNames.join(", ")}`
+      : "",
+    input.decisionNotes ? `Observação: ${input.decisionNotes}` : "",
+    "",
+    `ID da solicitação: ${input.familyGroupId}`,
+    "",
+    "Os valores individuais permanecem restritos às pessoas autorizadas da Tesouraria/Financeiro.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export async function notifyFamilyContributionEvent(
+  input: FamilyContributionNotificationInput,
+) {
+  try {
+    const internalRecipients = await financialNotificationEmails(
+      input.organizationId,
+      [DEFAULT_INTERNAL_EMAIL],
+    );
+    const responsibleEmail = normalizeFinancialEmail(input.responsibleEmail);
+    const participantRecipients = emailList([
+      responsibleEmail,
+      ...(input.event === "solicitada" ? [] : input.memberEmails ?? []),
+    ]);
+    const title = familyEventTitle(input.event);
+    const text = familyNotificationText(input);
+
+    const results = await Promise.all([
+      sendMail({
+        to: internalRecipients,
+        subject: `[Tucxa] ${title} — ${input.familyName}`,
+        text,
+      }),
+      participantRecipients.length > 0
+        ? sendMail({
+            to: participantRecipients,
+            subject: `Tucxa — ${title}`,
+            text: `${text}\n\nAcompanhe o histórico na área Corrente em Dia.`,
+          })
+        : Promise.resolve({
+            sent: false,
+            reason: "Nenhum e-mail cadastrado entre os envolvidos.",
+          }),
+    ]);
+
+    return { ok: true, results };
+  } catch (error) {
+    console.error("[corrente-em-dia][family-notification-error]", error);
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Falha ao enviar notificações da contribuição familiar.",
+    };
+  }
+}
+
+export async function sendContributionReminderEmail(
+  input: ContributionReminderEmailInput,
+) {
+  const email = normalizeFinancialEmail(input.recipientEmail);
+  if (!email) {
+    return { sent: false, reason: "E-mail do Filho da Corrente não cadastrado." };
+  }
+
+  const dueDate = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "long",
+    timeZone: "UTC",
+  }).format(new Date(`${input.dueDate}T12:00:00Z`));
+  const timing =
+    input.daysBefore === 1
+      ? "falta 1 dia"
+      : `faltam ${input.daysBefore} dias`;
+
+  return sendMail({
+    to: [email],
+    subject: `Tucxa — lembrete da contribuição de ${dueDate}`,
+    text: [
+      `Olá, ${input.recipientName}.`,
+      "",
+      `Este é o lembrete que você solicitou no Corrente em Dia: ${timing} para o dia escolhido para sua contribuição mensal.`,
+      `Data considerada neste mês: ${dueDate}.`,
+      "",
+      `Acesse o Corrente em Dia: ${input.contributionUrl}`,
+      "",
+      "Caso tenha escolhido o dia 31, nos meses com menos dias é considerado o último dia do mês.",
+      "",
+      "Tucxa em Harmonia",
+    ].join("\n"),
+  });
 }

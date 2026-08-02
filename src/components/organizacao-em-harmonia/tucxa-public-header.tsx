@@ -120,10 +120,10 @@ function SupportLink({ href, active, onSelect, label = "Dúvidas?", compactMobil
 
 function headerActionClassName(active: boolean, compactMobile = false) {
   const mobileClass = compactMobile
-    ? "min-h-8 px-1 py-1 text-[0.62rem]"
-    : "min-h-7 px-2.5 py-1 text-[0.72rem]";
+    ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
+    : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
 
-  return `inline-flex w-full items-center justify-center rounded-full border text-center font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
+  return `inline-flex items-center justify-center rounded-full border text-center font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
     active
       ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
       : "border-[#123D2C]/15 bg-white text-[#123D2C] shadow-none ring-1 ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
@@ -188,7 +188,7 @@ function SectionLink({ link, active, onSelect, compactMobile = false }: { link: 
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={`inline-flex w-full items-center justify-center rounded-full text-center font-black shadow-sm ring-1 transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${compactMobile ? "min-h-8 px-1 py-1 text-[0.62rem]" : "min-h-7 px-2.5 py-1 text-[0.72rem]"} ${
+      className={`inline-flex items-center justify-center rounded-full text-center font-black shadow-sm ring-1 transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${compactMobile ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]" : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]"} ${
         active
           ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
           : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
@@ -213,7 +213,7 @@ export function TucxaPublicHeader({
   authenticatedName = "",
   showSessionName = false,
   mobileActionColumns,
-  compactMobileActions = false,
+  compactMobileActions = true,
 }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
   const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
@@ -317,14 +317,16 @@ export function TucxaPublicHeader({
       {(actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
           <div
-            className={`mx-auto max-w-6xl items-stretch justify-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5 ${
-              mobileActionColumns === 4
-                ? "grid grid-cols-4"
-                : mobileActionColumns === 3
-                  ? "grid grid-cols-3"
-                  : mobileActionColumns === 2
-                    ? "grid grid-cols-2"
-                    : "flex flex-wrap items-center"
+            className={`mx-auto max-w-6xl justify-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5 ${
+              compactMobileActions
+                ? "flex flex-wrap items-center"
+                : mobileActionColumns === 4
+                  ? "grid grid-cols-4 items-stretch"
+                  : mobileActionColumns === 3
+                    ? "grid grid-cols-3 items-stretch"
+                    : mobileActionColumns === 2
+                      ? "grid grid-cols-2 items-stretch"
+                      : "flex flex-wrap items-center"
             }`}
           >
             {actions.map((link) =>

@@ -8,9 +8,74 @@ import {
   getFinancialAuthContext,
   writeFinancialAudit,
 } from "@/lib/organizacao-em-harmonia/financial-auth";
+import { notifyFamilyContributionEvent } from "@/lib/organizacao-em-harmonia/corrente-notifications";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
+
+async function loadFamilyNotificationDirectory(input: {
+  organizationId: string;
+  responsiblePersonId: string | null;
+  familyGroupId: string;
+}) {
+  const { data: members, error: membersError } = await supabaseAdmin
+    .from("oh_family_members")
+    .select("person_id")
+    .eq("organization_id", input.organizationId)
+    .eq("family_group_id", input.familyGroupId)
+    .eq("active", true);
+
+  if (membersError) throw membersError;
+
+  const personIds = Array.from(
+    new Set(
+      [
+        input.responsiblePersonId,
+        ...(members ?? []).map((member) => asText(member.person_id)),
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  if (personIds.length === 0) {
+    return {
+      responsibleName: "Filho da Corrente",
+      responsibleEmail: null as string | null,
+      memberNames: [] as string[],
+      memberEmails: [] as string[],
+    };
+  }
+
+  const { data: people, error: peopleError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, email")
+    .eq("organization_id", input.organizationId)
+    .in("id", personIds);
+
+  if (peopleError) throw peopleError;
+
+  const peopleById = new Map(
+    (people ?? []).map((person) => [asText(person.id), person]),
+  );
+  const responsible = input.responsiblePersonId
+    ? peopleById.get(input.responsiblePersonId)
+    : null;
+  const memberPeople = (members ?? []).flatMap((member) => {
+    const person = peopleById.get(asText(member.person_id));
+    return person ? [person] : [];
+  });
+
+  return {
+    responsibleName:
+      asText(responsible?.full_name) || "Filho da Corrente",
+    responsibleEmail: asText(responsible?.email) || null,
+    memberNames: memberPeople
+      .map((person) => asText(person.full_name))
+      .filter(Boolean),
+    memberEmails: memberPeople
+      .map((person) => asText(person.email))
+      .filter(Boolean),
+  };
+}
 
 async function loadPayload(organizationId: string) {
   const [people, relationshipTypes, groups, members] = await Promise.all([
@@ -388,6 +453,26 @@ export async function POST(request: Request) {
           justification: decisionNotes || undefined,
         });
 
+        const recipients = await loadFamilyNotificationDirectory({
+          organizationId: auth.context.organizationId,
+          responsiblePersonId: asText(before.responsible_person_id) || null,
+          familyGroupId: groupId,
+        });
+        await notifyFamilyContributionEvent({
+          organizationId: auth.context.organizationId,
+          familyGroupId: groupId,
+          familyName: asText(before.name) || "Contribuição familiar",
+          responsibleName: recipients.responsibleName,
+          responsibleEmail: recipients.responsibleEmail,
+          requestedAmount: asNumber(before.requested_amount, 0),
+          event: "rejeitada",
+          submittedAt: asText(before.submitted_at) || asText(before.created_at),
+          decidedAt: now,
+          decisionNotes,
+          memberNames: recipients.memberNames,
+          memberEmails: recipients.memberEmails,
+        });
+
         return NextResponse.json({
           ok: true,
           ...(await loadPayload(auth.context.organizationId)),
@@ -472,6 +557,27 @@ export async function POST(request: Request) {
         beforeData: before,
         afterData: data,
         justification: decisionNotes || undefined,
+      });
+
+      const recipients = await loadFamilyNotificationDirectory({
+        organizationId: auth.context.organizationId,
+        responsiblePersonId: asText(before.responsible_person_id) || null,
+        familyGroupId: groupId,
+      });
+      await notifyFamilyContributionEvent({
+        organizationId: auth.context.organizationId,
+        familyGroupId: groupId,
+        familyName: asText(before.name) || "Contribuição familiar",
+        responsibleName: recipients.responsibleName,
+        responsibleEmail: recipients.responsibleEmail,
+        requestedAmount: asNumber(before.requested_amount, 0),
+        approvedAmount,
+        event: "aprovada",
+        submittedAt: asText(before.submitted_at) || asText(before.created_at),
+        decidedAt: now,
+        decisionNotes,
+        memberNames: recipients.memberNames,
+        memberEmails: recipients.memberEmails,
       });
 
       return NextResponse.json({

@@ -51,15 +51,17 @@ export type CorrenteFinancialSettings = {
   contributionNotificationEmails: string[];
 };
 
+const ALL_CONTRIBUTION_DUE_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
+
 export const DEFAULT_CORRENTE_FINANCIAL_SETTINGS: CorrenteFinancialSettings = {
   defaultMonthlyAmount: 50,
   amountIsMandatory: false,
   allowCustomAmount: true,
-  allowedDueDays: [1, 5, 10, 15, 20, 30],
+  allowedDueDays: ALL_CONTRIBUTION_DUE_DAYS,
   defaultDueDay: 10,
-  reminderDaysBefore: [7, 3, 1],
-  reminderOnDueDate: true,
-  reminderChannels: ["whatsapp", "painel"],
+  reminderDaysBefore: [7, 5, 3, 1],
+  reminderOnDueDate: false,
+  reminderChannels: ["email"],
   familyContributionsEnabled: true,
   familyRequiresMemberConfirmation: true,
   familyRequiresFinancialApproval: true,
@@ -154,12 +156,16 @@ export function normalizeFinancialSettings(value: unknown): CorrenteFinancialSet
 
   const allowedDueDays = normalizeIntegerList(
     row.allowed_due_days ?? row.allowedDueDays,
-    [1, 5, 10, 15, 20, 30],
+    ALL_CONTRIBUTION_DUE_DAYS,
   );
 
   const reminderDays = normalizeIntegerList(
     row.reminder_days_before ?? row.reminderDaysBefore,
-  ).filter((item) => item >= 0 && item <= 30);
+    [7, 5, 3, 1],
+  ).sort((left, right) => right - left);
+  const reminderChannels = normalizeStringList(
+    row.reminder_channels ?? row.reminderChannels,
+  ).filter((item) => item === "email");
 
   const detail = asText(row.public_detail_level ?? row.publicDetailLevel);
   const popup = asText(row.public_popup_frequency ?? row.publicPopupFrequency);
@@ -189,7 +195,7 @@ export function normalizeFinancialSettings(value: unknown): CorrenteFinancialSet
     defaultDueDay: Math.max(
       1,
       Math.min(
-        30,
+        31,
         Math.trunc(
           asNumber(
             row.default_due_day ?? row.defaultDueDay,
@@ -207,8 +213,8 @@ export function normalizeFinancialSettings(value: unknown): CorrenteFinancialSet
       DEFAULT_CORRENTE_FINANCIAL_SETTINGS.reminderOnDueDate,
     ),
     reminderChannels:
-      normalizeStringList(row.reminder_channels ?? row.reminderChannels).length > 0
-        ? normalizeStringList(row.reminder_channels ?? row.reminderChannels)
+      reminderChannels.length > 0
+        ? reminderChannels
         : DEFAULT_CORRENTE_FINANCIAL_SETTINGS.reminderChannels,
     familyContributionsEnabled: asBoolean(
       row.family_contributions_enabled ?? row.familyContributionsEnabled,
