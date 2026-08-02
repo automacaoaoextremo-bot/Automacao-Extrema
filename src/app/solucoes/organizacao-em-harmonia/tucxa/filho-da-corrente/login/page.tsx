@@ -99,9 +99,22 @@ export default function LoginFilhoDaCorrentePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         actions={[
-          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#cadastro", variant: "secondary" },
+          {
+            label: "Voltar",
+            href: "/solucoes/organizacao-em-harmonia/tucxa#cadastro",
+            variant: "primary",
+          },
+          {
+            label: "Ajuda",
+            href: "#ajuda",
+            variant: "secondary",
+            action: "supportWhatsapp",
+          },
         ]}
         navLabel="Login dos Filhos da Corrente do Tucxa"
+        showSupport={false}
+        mobileActionColumns={2}
+        compactMobileActions
       />
 
       <section className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">

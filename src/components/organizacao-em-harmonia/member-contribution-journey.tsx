@@ -28,6 +28,17 @@ export type MemberContributionPerson = {
   whatsapp: string | null;
 };
 
+export type MemberFamilyContribution = {
+  id: string;
+  name: string;
+  approvedAmount: number;
+  members: Array<{
+    id: string;
+    fullName: string;
+    relationshipLabel: string;
+  }>;
+};
+
 type IntentResult = {
   contribution?: {
     id: string;
@@ -94,11 +105,13 @@ export function MemberContributionJourney({
   settings,
   person,
   receptionContacts,
+  familyContribution,
   onCompleted,
 }: {
   settings: MemberContributionSettings;
   person: MemberContributionPerson;
   receptionContacts: MemberReceptionContact[];
+  familyContribution?: MemberFamilyContribution | null;
   onCompleted?: () => Promise<void> | void;
 }) {
   const [modal, setModal] = useState<"payment" | "result" | null>(null);
@@ -120,7 +133,7 @@ export function MemberContributionJourney({
   const [result, setResult] = useState<IntentResult | null>(null);
 
   const recurring = recurrenceType === "pix_agendado";
-  const amount = settings.defaultMonthlyAmount;
+  const amount = familyContribution?.approvedAmount || settings.defaultMonthlyAmount;
 
   const paymentSummary = useMemo(() => {
     if (paymentMethod === "recepcao") {
@@ -310,11 +323,34 @@ export function MemberContributionJourney({
           </div>
 
           <div className="mt-4 rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-black text-[#123D2C]">Valor validado para você</p>
-            <p className="mt-1 text-3xl font-black text-[#123D2C]">{money(amount)}</p>
+            <p className="text-sm font-black text-[#123D2C]">
+              {familyContribution
+                ? "Valor familiar aprovado"
+                : "Valor validado para você"}
+            </p>
+            <p className="mt-1 text-3xl font-black text-[#123D2C]">
+              {money(amount)}
+            </p>
             <p className="mt-1 text-sm leading-6 text-slate-600">
               Identificação sigilosa: Filho da Corrente — {person.fullName}.
             </p>
+            {familyContribution && (
+              <div className="mt-3 rounded-xl bg-white/80 p-3">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+                  Agregados considerados nesta contribuição
+                </p>
+                <div className="mt-2 grid gap-1 text-sm font-semibold text-slate-600">
+                  {familyContribution.members.map((member) => (
+                    <p key={member.id}>
+                      ✅ {member.fullName}
+                      {member.relationshipLabel
+                        ? ` · ${member.relationshipLabel}`
+                        : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">

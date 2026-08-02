@@ -95,7 +95,7 @@ function supportContextMessage() {
     "",
     `Página: ${title}`,
     `Link: ${url}`,
-    "Contexto: cliquei em Dúvidas/WhatsApp no site.",
+    "Contexto: cliquei em Ajuda/WhatsApp no site.",
   ].join("\n");
 }
 
@@ -141,6 +141,11 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
     if (link.action === "signOutConsulente") {
       await supabaseBrowser.auth.signOut();
       window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/consulente/login");
+      return;
+    }
+
+    if (link.action === "supportWhatsapp") {
+      window.open(buildSupportWhatsappUrl(), "_blank", "noopener,noreferrer");
     }
   }
 

@@ -22,10 +22,16 @@ type AuthContext = {
   canManageFinance: boolean;
 };
 
-type RelationshipRule = {
+type ApprovedFamilyContribution = {
   id: string;
-  requires_member_confirmation: boolean;
-  requires_financial_approval: boolean;
+  name: string;
+  approvedAmount: number;
+  members: Array<{
+    id: string;
+    personId: string;
+    fullName: string;
+    relationshipLabel: string;
+  }>;
 };
 
 function legacySettings(value: unknown) {
@@ -321,7 +327,7 @@ async function loadFamilyData(context: AuthContext) {
     relationshipsResult,
     ownMembershipsResult,
     responsibleGroupsResult,
-    peopleResult,
+    activeMembershipsResult,
   ] = await Promise.all([
     supabaseAdmin
       .from("oh_family_relationship_types")
@@ -344,22 +350,40 @@ async function loadFamilyData(context: AuthContext) {
       .eq("responsible_person_id", context.personId)
       .neq("status", "cancelado"),
     supabaseAdmin
-      .from("oh_people")
-      .select("id, full_name")
+      .from("oh_memberships")
+      .select("person_id")
       .eq("organization_id", context.organizationId)
       .eq("active", true)
-      .neq("id", context.personId)
-      .order("full_name", { ascending: true })
-      .limit(500),
+      .eq("status", "ativo"),
   ]);
 
-  const failure = [
+  const firstFailure = [
     relationshipsResult,
     ownMembershipsResult,
     responsibleGroupsResult,
-    peopleResult,
+    activeMembershipsResult,
   ].find((result) => result.error);
-  if (failure?.error) throw failure.error;
+  if (firstFailure?.error) throw firstFailure.error;
+
+  const eligiblePersonIds = Array.from(
+    new Set(
+      (activeMembershipsResult.data ?? [])
+        .map((item) => asText(item.person_id))
+        .filter((item) => item && item !== context.personId),
+    ),
+  );
+
+  const peopleResult = eligiblePersonIds.length
+    ? await supabaseAdmin
+        .from("oh_people")
+        .select("id, full_name")
+        .eq("organization_id", context.organizationId)
+        .eq("active", true)
+        .in("id", eligiblePersonIds)
+        .order("full_name", { ascending: true })
+    : { data: [], error: null };
+
+  if (peopleResult.error) throw peopleResult.error;
 
   const groupIds = Array.from(
     new Set([
@@ -373,41 +397,76 @@ async function loadFamilyData(context: AuthContext) {
       relationshipTypes: relationshipsResult.data ?? [],
       people: peopleResult.data ?? [],
       familyGroups: [],
+      approvedFamily: null as ApprovedFamilyContribution | null,
     };
   }
 
-  const [{ data: groups, error: groupsError }, { data: members, error: membersError }] =
-    await Promise.all([
-      supabaseAdmin
-        .from("oh_family_groups")
-        .select(
-          "id, name, responsible_person_id, contribution_mode, status, notes, approved_at",
-        )
-        .eq("organization_id", context.organizationId)
-        .in("id", groupIds)
-        .order("created_at", { ascending: false }),
-      supabaseAdmin
-        .from("oh_family_members")
-        .select(
-          "id, family_group_id, person_id, relationship_type_id, individual_amount, included_in_payment, member_confirmed_at, financial_approved_at, active, person:oh_people(id, full_name), relationship:oh_family_relationship_types(id, label)",
-        )
-        .eq("organization_id", context.organizationId)
-        .in("family_group_id", groupIds)
-        .eq("active", true),
-    ]);
+  const [groupsResult, membersResult] = await Promise.all([
+    supabaseAdmin
+      .from("oh_family_groups")
+      .select(
+        "id, name, responsible_person_id, contribution_mode, status, notes, requested_amount, approved_amount, decision_notes, submitted_at, decided_at, approved_at, created_at",
+      )
+      .eq("organization_id", context.organizationId)
+      .in("id", groupIds)
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("oh_family_members")
+      .select(
+        "id, family_group_id, person_id, relationship_type_id, individual_amount, included_in_payment, member_confirmed_at, financial_approved_at, active, person:oh_people(id, full_name), relationship:oh_family_relationship_types(id, label)",
+      )
+      .eq("organization_id", context.organizationId)
+      .in("family_group_id", groupIds)
+      .eq("active", true),
+  ]);
 
-  if (groupsError) throw groupsError;
-  if (membersError) throw membersError;
+  if (groupsResult.error) throw groupsResult.error;
+  if (membersResult.error) throw membersResult.error;
+
+  const familyGroups = (groupsResult.data ?? []).map((group) => ({
+    ...group,
+    members: (membersResult.data ?? []).filter(
+      (member) => member.family_group_id === group.id,
+    ),
+  }));
+
+  const approvedGroup = familyGroups.find(
+    (group) =>
+      group.responsible_person_id === context.personId &&
+      group.status === "ativo" &&
+      asNumber(group.approved_amount, 0) > 0,
+  );
+
+  const approvedFamily: ApprovedFamilyContribution | null = approvedGroup
+    ? {
+        id: approvedGroup.id,
+        name: approvedGroup.name,
+        approvedAmount: asNumber(approvedGroup.approved_amount, 0),
+        members: approvedGroup.members
+          .filter((member) => member.included_in_payment !== false)
+          .map((member) => {
+            const personValue = Array.isArray(member.person)
+              ? member.person[0] ?? null
+              : member.person;
+            const relationshipValue = Array.isArray(member.relationship)
+              ? member.relationship[0] ?? null
+              : member.relationship;
+
+            return {
+              id: member.id,
+              personId: asText(member.person_id),
+              fullName: asText(personValue?.full_name) || "Filho da Corrente",
+              relationshipLabel: asText(relationshipValue?.label),
+            };
+          }),
+      }
+    : null;
 
   return {
     relationshipTypes: relationshipsResult.data ?? [],
     people: peopleResult.data ?? [],
-    familyGroups: (groups ?? []).map((group) => ({
-      ...group,
-      members: (members ?? []).filter(
-        (member) => member.family_group_id === group.id,
-      ),
-    })),
+    familyGroups,
+    approvedFamily,
   };
 }
 
@@ -419,15 +478,11 @@ async function loadPayload(context: AuthContext) {
     configuredWhatsapp: settings.receptionWhatsapp,
     fallbackWhatsapp: context.organizationWhatsapp,
   });
-  const [
-    contributionsResult,
-    preferenceResult,
-    familyData,
-  ] = await Promise.all([
+  const [contributionsResult, preferenceResult, familyData] = await Promise.all([
     supabaseAdmin
       .from("oh_contributions")
       .select(
-        "id, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, recurrence_type, preferred_due_day, created_at",
+        "id, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, recurrence_type, preferred_due_day, family_group_id, created_at",
       )
       .eq("organization_id", context.organizationId)
       .eq("person_id", context.personId)
@@ -458,12 +513,12 @@ async function loadPayload(context: AuthContext) {
 
   const preferredDay =
     Number(preference.preferred_due_day) || settings.defaultDueDay;
-  const amount = settings.defaultMonthlyAmount;
-  const pixCopyPaste = pixPayload(
-    settings,
-    amount,
-    `Filho da Corrente - ${context.fullName}`,
-  );
+  const amount =
+    familyData.approvedFamily?.approvedAmount || settings.defaultMonthlyAmount;
+  const identification = familyData.approvedFamily
+    ? `Filho da Corrente - ${context.fullName} - ${familyData.approvedFamily.name}`
+    : `Filho da Corrente - ${context.fullName}`;
+  const pixCopyPaste = pixPayload(settings, amount, identification);
   const qrCodeDataUrl = await QRCode.toDataURL(pixCopyPaste, {
     margin: 1,
     width: 360,
@@ -483,7 +538,8 @@ async function loadPayload(context: AuthContext) {
     canManageFinance: context.canManageFinance,
     receptionContacts: contacts,
     settings: {
-      defaultMonthlyAmount: settings.defaultMonthlyAmount,
+      defaultMonthlyAmount: amount,
+      configuredDefaultMonthlyAmount: settings.defaultMonthlyAmount,
       amountIsMandatory: settings.amountIsMandatory,
       allowCustomAmount: settings.allowCustomAmount,
       allowedDueDays: settings.allowedDueDays,
@@ -500,32 +556,14 @@ async function loadPayload(context: AuthContext) {
       persuasiveText: settings.persuasiveText,
       recurringOptions: [
         {
-          value: "nao_programada",
-          label: "Sem programação",
+          value: "pontual",
+          label: "Pix — contribuição única",
           available: true,
         },
         {
           value: "pix_agendado",
-          label: "Pix agendado no meu banco",
+          label: "Pix recorrente agendado no meu banco",
           available: true,
-        },
-        {
-          value: "pix_automatico",
-          label: "Pix Automático",
-          available: false,
-          note: "Disponível depois da integração com o provedor.",
-        },
-        {
-          value: "cartao_recorrente",
-          label: "Cartão recorrente",
-          available: false,
-          note: "Disponível depois da integração com o provedor.",
-        },
-        {
-          value: "boleto_recorrente",
-          label: "Boleto recorrente",
-          available: false,
-          note: "Disponível depois da integração com o provedor.",
         },
       ],
     },
@@ -544,6 +582,8 @@ async function createContributionIntent(
   body: Record<string, unknown>,
 ) {
   const settings = await loadSettings(context.organizationId);
+  const familyData = await loadFamilyData(context);
+  const approvedFamily = familyData.approvedFamily;
   const paymentMethod = asText(body.paymentMethod) || "pix";
   const recurrenceType = asText(body.recurrenceType) || "pontual";
 
@@ -654,7 +694,7 @@ async function createContributionIntent(
   }
 
   const editing = Boolean(existingContribution);
-  const amount = settings.defaultMonthlyAmount;
+  const amount = approvedFamily?.approvedAmount || settings.defaultMonthlyAmount;
   const contributionId = existingContribution?.id ?? randomUUID();
   const uploadToken = editing ? requestedUploadToken : randomUUID();
   const resumeToken = editing
@@ -674,7 +714,9 @@ async function createContributionIntent(
   const status = requiresReception
     ? "aguardando_recepcao"
     : "aguardando_comprovante";
-  const identification = `Filho da Corrente - ${context.fullName}`;
+  const identification = approvedFamily
+    ? `Filho da Corrente - ${context.fullName} - ${approvedFamily.name}`
+    : `Filho da Corrente - ${context.fullName}`;
   let pixCopyPaste: string | null = null;
   let qrCodeDataUrl: string | null = null;
 
@@ -710,6 +752,7 @@ async function createContributionIntent(
       recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
     recurrence_occurrences:
       recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
+    family_group_id: approvedFamily?.id ?? null,
     public_identification_mode: "sigiloso",
     metadata: {
       ...existingMetadata,
@@ -719,6 +762,18 @@ async function createContributionIntent(
       identification,
       emailUpdated,
       requiresReception,
+      familyContribution: approvedFamily
+        ? {
+            id: approvedFamily.id,
+            name: approvedFamily.name,
+            approvedAmount: approvedFamily.approvedAmount,
+            members: approvedFamily.members.map((member) => ({
+              personId: member.personId,
+              fullName: member.fullName,
+              relationshipLabel: member.relationshipLabel,
+            })),
+          }
+        : null,
       assistedPaymentLabel: requiresReception
         ? "Cartão de Crédito, Débito ou Dinheiro"
         : null,
@@ -784,9 +839,12 @@ async function createContributionIntent(
     `Olá, ${reception?.name || "Recepção do Tucxa"}.`,
     `Sou ${context.fullName}, Filho(a) da Corrente.`,
     `Registrei no Corrente em Dia o pagamento de ${amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} por Cartão de Crédito, Débito ou Dinheiro.`,
+    approvedFamily
+      ? `Contribuição familiar: ${approvedFamily.members.map((member) => member.fullName).join(", ")}.`
+      : "",
     `Código: ${trackingCode}.`,
     "Poderia me orientar para concluir o pagamento?",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   const receptionWhatsappUrl = reception
     ? `${reception.whatsappUrl}?text=${encodeURIComponent(receptionMessage)}`
     : null;
@@ -801,10 +859,13 @@ async function createContributionIntent(
     "Tucxa — Corrente em Dia",
     `Contribuição ${editing ? "atualizada" : "registrada"} por ${context.fullName}.`,
     `Valor: ${amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`,
+    approvedFamily
+      ? `Agregados: ${approvedFamily.members.map((member) => member.fullName).join(", ")}.`
+      : "",
     `Forma: ${requiresReception ? "Cartão de Crédito, Débito ou Dinheiro" : "Pix"}.`,
     `Situação: ${requiresReception ? "aguardando atendimento da Recepção" : "aguardando comprovante"}.`,
     `Código de acompanhamento: ${trackingCode}.`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const notification = await notifyContributionEvent({
     organizationId: context.organizationId,
@@ -859,6 +920,8 @@ async function createContribution(
   body: Record<string, unknown>,
 ) {
   const settings = await loadSettings(context.organizationId);
+  const familyData = await loadFamilyData(context);
+  const approvedFamily = familyData.approvedFamily;
   const preferenceResult = await supabaseAdmin
     .from("oh_contribution_preferences")
     .select("preferred_due_day, recurring_mode")
@@ -869,13 +932,16 @@ async function createContribution(
   if (preferenceResult.error) throw preferenceResult.error;
 
   const preference = preferenceResult.data;
+  const familyAmount = approvedFamily?.approvedAmount || 0;
   const requestedAmount = Math.max(
     1,
-    asNumber(body.amount, settings.defaultMonthlyAmount),
+    asNumber(body.amount, familyAmount || settings.defaultMonthlyAmount),
   );
-  const amount = settings.allowCustomAmount
-    ? requestedAmount
-    : settings.defaultMonthlyAmount;
+  const amount = familyAmount
+    ? familyAmount
+    : settings.allowCustomAmount
+      ? requestedAmount
+      : settings.defaultMonthlyAmount;
   const requestedDueDay = Math.trunc(
     asNumber(
       body.preferredDueDay,
@@ -920,11 +986,20 @@ async function createContribution(
       recurrence_type:
         recurringMode === "nao_programada" ? "pontual" : recurringMode,
       preferred_due_day: preferredDueDay,
+      family_group_id: approvedFamily?.id ?? null,
       public_identification_mode: "sigiloso",
       metadata: {
         source: "filho_corrente",
         email: context.email,
         whatsapp: context.whatsapp,
+        familyContribution: approvedFamily
+          ? {
+              id: approvedFamily.id,
+              name: approvedFamily.name,
+              approvedAmount: approvedFamily.approvedAmount,
+              members: approvedFamily.members,
+            }
+          : null,
       },
     })
     .select("id, status")
@@ -951,27 +1026,25 @@ async function savePreferences(
     throw new Error("Escolha um dos dias de contribuição permitidos.");
   }
 
-  const recurringMode = asText(body.recurringMode) || "nao_programada";
-  if (
-    ![
-      "nao_programada",
-      "pix_agendado",
-      "pix_automatico",
-      "cartao_recorrente",
-      "boleto_recorrente",
-    ].includes(recurringMode)
-  ) {
-    throw new Error("Forma recorrente inválida.");
-  }
-  if (
-    ["pix_automatico", "cartao_recorrente", "boleto_recorrente"].includes(
-      recurringMode,
-    )
-  ) {
-    throw new Error(
-      "Essa recorrência ainda depende da integração com um provedor.",
-    );
-  }
+  const { data: currentPreference, error: currentPreferenceError } =
+    await supabaseAdmin
+      .from("oh_contribution_preferences")
+      .select("recurring_mode, recurring_status, family_group_id")
+      .eq("organization_id", context.organizationId)
+      .eq("person_id", context.personId)
+      .maybeSingle();
+
+  if (currentPreferenceError) throw currentPreferenceError;
+
+  const requestedRecurringMode = asText(body.recurringMode);
+  const storedRecurringMode = asText(currentPreference?.recurring_mode);
+  const recurringMode = ["nao_programada", "pix_agendado"].includes(
+    requestedRecurringMode,
+  )
+    ? requestedRecurringMode
+    : ["nao_programada", "pix_agendado"].includes(storedRecurringMode)
+      ? storedRecurringMode
+      : "nao_programada";
 
   const reminderDaysBefore = Array.isArray(body.reminderDaysBefore)
     ? body.reminderDaysBefore
@@ -993,7 +1066,10 @@ async function savePreferences(
         reminder_channels: reminderChannels,
         recurring_mode: recurringMode,
         recurring_status:
-          recurringMode === "nao_programada" ? "inativo" : "programado",
+          recurringMode === "nao_programada"
+            ? asText(currentPreference?.recurring_status) || "inativo"
+            : "programado",
+        family_group_id: currentPreference?.family_group_id ?? null,
         metadata: {
           updatedBy: "filho_corrente",
         },
@@ -1003,7 +1079,7 @@ async function savePreferences(
     );
 
   if (error) throw error;
-  return { message: "Preferências de contribuição salvas." };
+  return { message: "Organização e lembretes salvos." };
 }
 
 async function requestFamilyGroup(
@@ -1013,6 +1089,11 @@ async function requestFamilyGroup(
   const settings = await loadSettings(context.organizationId);
   if (!settings.familyContributionsEnabled) {
     throw new Error("A contribuição familiar não está habilitada.");
+  }
+
+  const requestedAmount = Math.round(asNumber(body.amount, 0) * 100) / 100;
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+    throw new Error("Informe o valor total que você consegue contribuir.");
   }
 
   const members = Array.isArray(body.members)
@@ -1037,7 +1118,7 @@ async function requestFamilyGroup(
     ),
   );
 
-  const [{ data: people, error: peopleError }, { data: relationships, error: relationshipError }] =
+  const [peopleResult, relationshipsResult, membershipsResult] =
     await Promise.all([
       supabaseAdmin
         .from("oh_people")
@@ -1053,61 +1134,133 @@ async function requestFamilyGroup(
         .eq("organization_id", context.organizationId)
         .in("id", relationshipIds)
         .eq("active", true),
+      supabaseAdmin
+        .from("oh_memberships")
+        .select("person_id")
+        .eq("organization_id", context.organizationId)
+        .in("person_id", personIds)
+        .eq("active", true)
+        .eq("status", "ativo"),
     ]);
 
-  if (peopleError) throw peopleError;
-  if (relationshipError) throw relationshipError;
-  if ((people ?? []).length !== personIds.length) {
+  if (peopleResult.error) throw peopleResult.error;
+  if (relationshipsResult.error) throw relationshipsResult.error;
+  if (membershipsResult.error) throw membershipsResult.error;
+
+  if ((peopleResult.data ?? []).length !== personIds.length) {
     throw new Error("Um dos familiares não está disponível.");
   }
-  if ((relationships ?? []).length !== relationshipIds.length) {
+  if ((relationshipsResult.data ?? []).length !== relationshipIds.length) {
     throw new Error("Um dos graus de parentesco não está disponível.");
+  }
+  const activeMemberPersonIds = new Set(
+    (membershipsResult.data ?? [])
+      .map((item) => asText(item.person_id))
+      .filter(Boolean),
+  );
+  if (personIds.some((personId) => !activeMemberPersonIds.has(personId))) {
+    throw new Error(
+      "Todos os integrantes precisam possuir acesso ativo como Filhos da Corrente.",
+    );
   }
 
   const status = settings.familyRequiresFinancialApproval
     ? "aguardando_aprovacao"
     : "ativo";
-  const { data: group, error } = await supabaseAdmin
-    .from("oh_family_groups")
-    .insert({
-      organization_id: context.organizationId,
-      name:
-        asText(body.name) || `Família de ${context.fullName}`,
-      responsible_person_id: context.personId,
-      contribution_mode: asText(body.contributionMode) || "consolidada",
-      status,
-      notes:
-        "Solicitação criada pelo Filho da Corrente. Valores individuais permanecem sigilosos.",
-      created_by: context.personId,
-      approved_at: status === "ativo" ? new Date().toISOString() : null,
-    })
-    .select("*")
-    .single();
+  const now = new Date().toISOString();
 
-  if (error) throw error;
+  const { data: existingPending, error: existingPendingError } =
+    await supabaseAdmin
+      .from("oh_family_groups")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("responsible_person_id", context.personId)
+      .eq("status", "aguardando_aprovacao")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  const relationshipRows = (relationships ?? []) as RelationshipRule[];
-  const relationshipMap = new Map<string, RelationshipRule>(
-    relationshipRows.map((item) => [item.id, item]),
-  );
+  if (existingPendingError) throw existingPendingError;
+
+  const groupValues = {
+    organization_id: context.organizationId,
+    name: asText(body.name) || `Família de ${context.fullName}`,
+    responsible_person_id: context.personId,
+    contribution_mode: "consolidada",
+    status,
+    notes:
+      "Solicitação criada pelo Filho da Corrente para análise do Tucxa em Harmonia.",
+    requested_amount: requestedAmount,
+    approved_amount: status === "ativo" ? requestedAmount : null,
+    submitted_at: now,
+    decision_notes: null,
+    decided_at: status === "ativo" ? now : null,
+    approved_by: status === "ativo" ? context.personId : null,
+    approved_at: status === "ativo" ? now : null,
+    updated_at: now,
+  };
+
+  let group: { id: string };
+
+  if (existingPending?.id) {
+    const { data, error } = await supabaseAdmin
+      .from("oh_family_groups")
+      .update(groupValues)
+      .eq("organization_id", context.organizationId)
+      .eq("id", existingPending.id)
+      .select("id")
+      .single();
+
+    if (error) throw error;
+    group = data;
+
+    const { error: clearMembersError } = await supabaseAdmin
+      .from("oh_family_members")
+      .delete()
+      .eq("organization_id", context.organizationId)
+      .eq("family_group_id", group.id);
+
+    if (clearMembersError) throw clearMembersError;
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from("oh_family_groups")
+      .insert({
+        ...groupValues,
+        created_by: context.personId,
+      })
+      .select("id")
+      .single();
+
+    if (error) throw error;
+    group = data;
+  }
+
+  if (status === "ativo") {
+    const { error: replaceError } = await supabaseAdmin
+      .from("oh_family_groups")
+      .update({
+        status: "substituido",
+        updated_at: now,
+      })
+      .eq("organization_id", context.organizationId)
+      .eq("responsible_person_id", context.personId)
+      .eq("status", "ativo")
+      .neq("id", group.id);
+
+    if (replaceError) throw replaceError;
+  }
 
   const rows = members.map((member) => {
     const relationshipId = asText(member.relationshipTypeId);
-    const relationship = relationshipMap.get(relationshipId);
     return {
       organization_id: context.organizationId,
       family_group_id: group.id,
       person_id: asText(member.personId),
       relationship_type_id: relationshipId,
-      individual_amount: asNumber(member.individualAmount, 0) || null,
-      included_in_payment: member.includedInPayment !== false,
-      member_confirmed_at: relationship?.requires_member_confirmation
-        ? null
-        : new Date().toISOString(),
-      financial_approved_at:
-        status === "ativo" && !relationship?.requires_financial_approval
-          ? new Date().toISOString()
-          : null,
+      individual_amount: null,
+      included_in_payment: true,
+      member_confirmed_at: now,
+      financial_approved_at: status === "ativo" ? now : null,
       active: true,
     };
   });
@@ -1117,23 +1270,29 @@ async function requestFamilyGroup(
     .insert(rows);
   if (memberError) throw memberError;
 
-  await supabaseAdmin
-    .from("oh_contribution_preferences")
-    .upsert(
-      {
-        organization_id: context.organizationId,
-        person_id: context.personId,
-        family_group_id: group.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,person_id" },
-    );
+  if (status === "ativo") {
+    const { error: preferenceError } = await supabaseAdmin
+      .from("oh_contribution_preferences")
+      .upsert(
+        {
+          organization_id: context.organizationId,
+          person_id: context.personId,
+          family_group_id: group.id,
+          updated_at: now,
+        },
+        { onConflict: "organization_id,person_id" },
+      );
+
+    if (preferenceError) throw preferenceError;
+  }
 
   return {
     message:
       status === "ativo"
-        ? "Grupo familiar criado."
-        : "Solicitação familiar enviada para aprovação da Tesouraria/Financeiro.",
+        ? "Contribuição familiar criada e aprovada conforme a configuração atual."
+        : existingPending?.id
+          ? "Sua solicitação familiar pendente foi atualizada e continua aguardando aprovação."
+          : "Solicitação familiar enviada para aprovação do responsável do Tucxa em Harmonia.",
   };
 }
 

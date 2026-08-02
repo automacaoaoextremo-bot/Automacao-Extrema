@@ -28,10 +28,10 @@ async function loadPayload(organizationId: string) {
     supabaseAdmin
       .from("oh_family_groups")
       .select(
-        "id, name, responsible_person_id, contribution_mode, status, notes, approved_at, created_at",
+        "id, name, responsible_person_id, contribution_mode, status, notes, requested_amount, approved_amount, decision_notes, submitted_at, decided_at, approved_at, created_at",
       )
       .eq("organization_id", organizationId)
-      .order("name", { ascending: true }),
+      .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("oh_family_members")
       .select(
@@ -165,6 +165,10 @@ export async function POST(request: Request) {
       const name = asText(body.name);
       const responsiblePersonId = asText(body.responsiblePersonId);
       const mode = asText(body.contributionMode) || "consolidada";
+      const approvedAmount = Math.max(
+        0,
+        Math.round(asNumber(body.approvedAmount, 0) * 100) / 100,
+      );
 
       if (!name || !responsiblePersonId) {
         return NextResponse.json(
@@ -173,6 +177,7 @@ export async function POST(request: Request) {
         );
       }
 
+      const now = new Date().toISOString();
       const { data, error } = await supabaseAdmin
         .from("oh_family_groups")
         .insert({
@@ -182,14 +187,33 @@ export async function POST(request: Request) {
           contribution_mode: mode,
           status: "ativo",
           notes: asText(body.notes) || null,
+          requested_amount: approvedAmount || null,
+          approved_amount: approvedAmount || null,
+          submitted_at: now,
+          decided_at: now,
           created_by: auth.context.personId,
           approved_by: auth.context.personId,
-          approved_at: new Date().toISOString(),
+          approved_at: now,
         })
         .select("*")
         .single();
 
       if (error) throw error;
+
+      if (approvedAmount > 0) {
+        const { error: preferenceError } = await supabaseAdmin
+          .from("oh_contribution_preferences")
+          .upsert(
+            {
+              organization_id: auth.context.organizationId,
+              person_id: responsiblePersonId,
+              family_group_id: data.id,
+              updated_at: now,
+            },
+            { onConflict: "organization_id,person_id" },
+          );
+        if (preferenceError) throw preferenceError;
+      }
 
       await writeFinancialAudit({
         organizationId: auth.context.organizationId,
@@ -238,6 +262,7 @@ export async function POST(request: Request) {
         );
       }
 
+      const now = new Date().toISOString();
       const { data, error } = await supabaseAdmin
         .from("oh_family_members")
         .upsert(
@@ -248,19 +273,15 @@ export async function POST(request: Request) {
             relationship_type_id: relationshipTypeId,
             individual_amount:
               asNumber(body.individualAmount, 0) || null,
-            included_in_payment: asBoolean(
-              body.includedInPayment,
-              true,
-            ),
+            included_in_payment: asBoolean(body.includedInPayment, true),
             member_confirmed_at: relationship.requires_member_confirmation
               ? null
-              : new Date().toISOString(),
-            financial_approved_at:
-              relationship.requires_financial_approval
-                ? new Date().toISOString()
-                : new Date().toISOString(),
+              : now,
+            financial_approved_at: relationship.requires_financial_approval
+              ? null
+              : now,
             active: true,
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           },
           { onConflict: "family_group_id,person_id" },
         )
@@ -282,6 +303,181 @@ export async function POST(request: Request) {
         ok: true,
         member: data,
         message: "Integrante incluído no grupo familiar.",
+      });
+    }
+
+    if (action === "decideGroup") {
+      const groupId = asText(body.groupId);
+      const decision = asText(body.decision);
+      const decisionNotes = asText(body.decisionNotes) || null;
+
+      if (!groupId || !["approve", "reject"].includes(decision)) {
+        return NextResponse.json(
+          { error: "Informe a solicitação e a decisão." },
+          { status: 400 },
+        );
+      }
+
+      const { data: before, error: beforeError } = await supabaseAdmin
+        .from("oh_family_groups")
+        .select("*")
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", groupId)
+        .maybeSingle();
+
+      if (beforeError) throw beforeError;
+      if (!before?.id) {
+        return NextResponse.json(
+          { error: "Solicitação familiar não localizada." },
+          { status: 404 },
+        );
+      }
+      if (before.status !== "aguardando_aprovacao") {
+        return NextResponse.json(
+          { error: "Esta solicitação já foi analisada." },
+          { status: 409 },
+        );
+      }
+
+      const now = new Date().toISOString();
+
+      const { count: activeMemberCount, error: memberCountError } =
+        await supabaseAdmin
+          .from("oh_family_members")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", auth.context.organizationId)
+          .eq("family_group_id", groupId)
+          .eq("active", true)
+          .eq("included_in_payment", true);
+
+      if (memberCountError) throw memberCountError;
+      if (decision === "approve" && !activeMemberCount) {
+        return NextResponse.json(
+          { error: "Inclua pelo menos um agregado antes de aprovar." },
+          { status: 400 },
+        );
+      }
+
+      if (decision === "reject") {
+        const { data, error } = await supabaseAdmin
+          .from("oh_family_groups")
+          .update({
+            status: "rejeitado",
+            decision_notes: decisionNotes,
+            decided_at: now,
+            approved_amount: null,
+            approved_by: auth.context.personId,
+            approved_at: null,
+            updated_at: now,
+          })
+          .eq("organization_id", auth.context.organizationId)
+          .eq("id", groupId)
+          .select("*")
+          .single();
+
+        if (error) throw error;
+
+        await writeFinancialAudit({
+          organizationId: auth.context.organizationId,
+          personId: auth.context.personId,
+          action: "contribuicao_familiar_rejeitada",
+          entityType: "oh_family_groups",
+          entityId: groupId,
+          beforeData: before,
+          afterData: data,
+          justification: decisionNotes || undefined,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          ...(await loadPayload(auth.context.organizationId)),
+          message: "Solicitação familiar não aprovada.",
+        });
+      }
+
+      const approvedAmount =
+        Math.round(
+          asNumber(body.approvedAmount, before.requested_amount) * 100,
+        ) / 100;
+      if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
+        return NextResponse.json(
+          { error: "Informe um valor aprovado maior que zero." },
+          { status: 400 },
+        );
+      }
+
+      const { error: replaceError } = await supabaseAdmin
+        .from("oh_family_groups")
+        .update({ status: "substituido", updated_at: now })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("responsible_person_id", before.responsible_person_id)
+        .eq("status", "ativo")
+        .neq("id", groupId);
+
+      if (replaceError) throw replaceError;
+
+      const { data, error } = await supabaseAdmin
+        .from("oh_family_groups")
+        .update({
+          status: "ativo",
+          approved_amount: approvedAmount,
+          decision_notes: decisionNotes,
+          decided_at: now,
+          approved_by: auth.context.personId,
+          approved_at: now,
+          updated_at: now,
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", groupId)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      const { error: memberApprovalError } = await supabaseAdmin
+        .from("oh_family_members")
+        .update({
+          member_confirmed_at: now,
+          financial_approved_at: now,
+          updated_at: now,
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("family_group_id", groupId)
+        .eq("active", true);
+
+      if (memberApprovalError) throw memberApprovalError;
+
+      if (before.responsible_person_id) {
+        const { error: preferenceError } = await supabaseAdmin
+          .from("oh_contribution_preferences")
+          .upsert(
+            {
+              organization_id: auth.context.organizationId,
+              person_id: before.responsible_person_id,
+              family_group_id: groupId,
+              updated_at: now,
+            },
+            { onConflict: "organization_id,person_id" },
+          );
+
+        if (preferenceError) throw preferenceError;
+      }
+
+      await writeFinancialAudit({
+        organizationId: auth.context.organizationId,
+        personId: auth.context.personId,
+        action: "contribuicao_familiar_aprovada",
+        entityType: "oh_family_groups",
+        entityId: groupId,
+        beforeData: before,
+        afterData: data,
+        justification: decisionNotes || undefined,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        ...(await loadPayload(auth.context.organizationId)),
+        message: "Contribuição familiar aprovada e liberada para o Filho da Corrente.",
       });
     }
 
