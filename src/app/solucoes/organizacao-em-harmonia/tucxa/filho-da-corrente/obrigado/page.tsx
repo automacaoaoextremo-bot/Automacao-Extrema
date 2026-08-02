@@ -58,6 +58,13 @@ export default function ObrigadoPrimeiroAcessoFilhoDaCorrentePage() {
             {payload.message || "Agora é só aguardar o Tucxa conferir as informações e liberar o acesso quando tudo estiver correto."}
           </p>
 
+          <div className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950 ring-1 ring-amber-100">
+            <p className="font-black">Depois de enviar</p>
+            <p className="mt-1">
+              O responsável do Tucxa irá confirmar seus dados e liberar o acesso com as orientações detalhadas de uso.
+            </p>
+          </div>
+
           <div className="mt-6 grid gap-3">
             {payload.statusUrl && (
               <a

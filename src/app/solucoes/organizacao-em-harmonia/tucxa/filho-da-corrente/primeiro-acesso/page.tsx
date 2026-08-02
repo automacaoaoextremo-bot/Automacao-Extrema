@@ -94,7 +94,7 @@ type RegistrationModalProps = {
   eyebrow: string;
   title: string;
   children: ReactNode;
-  footer: ReactNode;
+  footer?: ReactNode;
   onClose: () => void;
 };
 
@@ -114,24 +114,30 @@ function RegistrationModal({
     >
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-            {eyebrow}
-          </p>
-          <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="mt-3 min-h-10 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
-          >
-            Fechar
-          </button>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                {eyebrow}
+              </p>
+              <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+                {title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-[#2F6B43]"
+            >
+              Fechar
+            </button>
+          </div>
         </header>
         <div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div>
-        <footer className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-          {footer}
-        </footer>
+        {footer && (
+          <footer className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+            {footer}
+          </footer>
+        )}
       </section>
     </div>
   );
@@ -336,13 +342,6 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
     [agendaOptions, agendaSlugs],
   );
 
-  const selectedSummary = useMemo(
-    () => ({
-      functions: selectedFunctions.length,
-      agenda: selectedAgenda.length,
-    }),
-    [selectedAgenda.length, selectedFunctions.length],
-  );
 
   function toggleFunction(slug: string) {
     setCompletedSteps((current) => ({ ...current, funcao: false }));
@@ -406,7 +405,13 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
     setError("");
     setCompletedSteps((current) => ({ ...current, dados: true }));
-    setActiveDialog("funcao");
+    setActiveDialog(
+      !completedSteps.funcao
+        ? "funcao"
+        : !completedSteps.agenda
+          ? "agenda"
+          : "cadastro",
+    );
   }
 
   function confirmFunctionStep() {
@@ -425,33 +430,18 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
     setError("");
     setCompletedSteps((current) => ({ ...current, funcao: true }));
-    setActiveDialog("agenda");
+    setActiveDialog(completedSteps.agenda ? "cadastro" : "agenda");
   }
 
   function confirmAgendaStep() {
     setError("");
     setCompletedSteps((current) => ({ ...current, agenda: true }));
-    setActiveDialog(null);
+    setActiveDialog("cadastro");
   }
 
   const allStepsCompleted =
     completedSteps.dados && completedSteps.funcao && completedSteps.agenda;
 
-  const dataSummary = completedSteps.dados
-    ? `${fullName.trim()} • ${whatsapp.trim()}`
-    : "Nome, WhatsApp, e-mail, senha e observação";
-
-  const functionSummary = completedSteps.funcao
-    ? selectedFunctions.length > 0
-      ? `${selectedFunctions.length} função(ões) adicional(is)`
-      : "Somente Filho da Corrente"
-    : "Informe as funções adicionais que você exerce";
-
-  const agendaSummary = completedSteps.agenda
-    ? selectedAgenda.length > 0
-      ? `${selectedAgenda.length} item(ns) selecionado(s)`
-      : "Nenhum item de agenda selecionado"
-    : "Informe os grupos, atendimentos, estudos e ações";
 
   async function submitFirstAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -586,94 +576,6 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
           )}
 
           <form onSubmit={submitFirstAccess} className="mt-4 grid gap-3">
-            <button
-              type="button"
-              onClick={() => setActiveDialog("dados")}
-              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
-                completedSteps.dados
-                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
-                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
-              }`}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-sm font-black uppercase tracking-[0.16em]">
-                  {completedSteps.dados ? "✓ " : ""}Dados
-                </span>
-                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                  {completedSteps.dados ? "Editar" : "Abrir"}
-                </span>
-              </span>
-              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
-                {dataSummary}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveDialog("funcao")}
-              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
-                completedSteps.funcao
-                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
-                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
-              }`}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-sm font-black uppercase tracking-[0.16em]">
-                  {completedSteps.funcao ? "✓ " : ""}Função
-                </span>
-                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                  {completedSteps.funcao ? "Editar" : "Abrir"}
-                </span>
-              </span>
-              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
-                {functionSummary}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveDialog("agenda")}
-              className={`rounded-3xl p-4 text-left ring-1 transition hover:-translate-y-0.5 ${
-                completedSteps.agenda
-                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
-                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
-              }`}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-sm font-black uppercase tracking-[0.16em]">
-                  {completedSteps.agenda ? "✓ " : ""}Agenda
-                </span>
-                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                  {completedSteps.agenda ? "Editar" : "Abrir"}
-                </span>
-              </span>
-              <span className="mt-2 block text-sm font-semibold leading-5 opacity-80">
-                {agendaSummary}
-              </span>
-            </button>
-
-            {allStepsCompleted && (
-              <div className="rounded-3xl bg-[#E9F2E7] p-4 text-sm leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                <p className="font-black">Cadastro pronto para revisão final</p>
-                <p>
-                  {selectedSummary.functions} função(ões) adicional(is) e{" "}
-                  {selectedSummary.agenda} item(ns) de agenda selecionado(s).
-                </p>
-                <p className="mt-1 text-xs font-semibold text-[#123D2C]/70">
-                  Você ainda pode tocar em qualquer etapa para editar antes de
-                  enviar.
-                </p>
-              </div>
-            )}
-
-            <div className="rounded-3xl bg-amber-50 p-4 text-sm leading-6 text-amber-900 ring-1 ring-amber-100">
-              <p className="font-black">Depois de enviar</p>
-              <p>
-                O responsável do Tucxa irá confirmar seus dados e liberar o
-                acesso com as orientações detalhadas de uso.
-              </p>
-            </div>
-
             {error && (
               <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
                 {error}
@@ -700,28 +602,66 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
       {activeDialog === "cadastro" && (
         <RegistrationModal
           eyebrow="Primeiro acesso"
-          title="Confirme seus dados para validação"
+          title="Cadastro"
           onClose={() => setActiveDialog(null)}
-          footer={
+        >
+          <div className="grid gap-3">
             <button
               type="button"
               onClick={() => setActiveDialog("dados")}
-              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+              className={`rounded-2xl px-4 py-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.dados
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
             >
-              Começar pelos dados
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-[0.16em]">
+                  {completedSteps.dados ? "✅ " : ""}Dados
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.dados ? "Editar" : "Abrir"}
+                </span>
+              </span>
             </button>
-          }
-        >
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm leading-6 text-slate-700">
-              Nome completo e WhatsApp são obrigatórios. O e-mail é opcional,
-              mas recomendado para receber orientações também fora do grupo de
-              recados do WhatsApp.
-            </p>
-          </div>
-          <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
-            O cadastro será organizado em três etapas: Dados, Função e Agenda.
-            Você poderá revisar qualquer uma delas antes do envio.
+
+            <button
+              type="button"
+              onClick={() => setActiveDialog("funcao")}
+              className={`rounded-2xl px-4 py-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.funcao
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-[0.16em]">
+                  {completedSteps.funcao ? "✅ " : ""}Função
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.funcao ? "Editar" : "Abrir"}
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDialog("agenda")}
+              className={`rounded-2xl px-4 py-4 text-left ring-1 transition hover:-translate-y-0.5 ${
+                completedSteps.agenda
+                  ? "bg-emerald-50 text-emerald-950 ring-emerald-200"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-[#123D2C]/10"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-black uppercase tracking-[0.16em]">
+                  {completedSteps.agenda ? "✅ " : ""}Agenda
+                </span>
+                <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {completedSteps.agenda ? "Editar" : "Abrir"}
+                </span>
+              </span>
+            </button>
           </div>
         </RegistrationModal>
       )}
@@ -741,6 +681,9 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             </button>
           }
         >
+          <p className="mb-4 text-sm font-semibold leading-6 text-slate-600">
+            Informe seus dados de contato e crie a senha que será usada nos próximos acessos. O e-mail é opcional, mas ajuda a receber orientações em mais de um canal.
+          </p>
           <div className="grid gap-4">
             <label className="grid gap-1">
               <span className="text-sm font-black text-[#123D2C]">

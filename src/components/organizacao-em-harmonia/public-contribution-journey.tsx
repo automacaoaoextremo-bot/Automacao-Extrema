@@ -1193,10 +1193,10 @@ export function PublicContributionJourney({
               <button
                 type="button"
                 onClick={() => setActiveStep(null)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-[#2F6B43]"
                 aria-label="Fechar etapa de valor"
               >
-                ×
+                Fechar
               </button>
             </div>
 
@@ -1353,10 +1353,10 @@ export function PublicContributionJourney({
               <button
                 type="button"
                 onClick={() => setActiveStep(null)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E9F2E7] text-xl font-black text-[#123D2C]"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-[#2F6B43]"
                 aria-label="Fechar etapa de forma de pagamento"
               >
-                ×
+                Fechar
               </button>
             </div>
 
