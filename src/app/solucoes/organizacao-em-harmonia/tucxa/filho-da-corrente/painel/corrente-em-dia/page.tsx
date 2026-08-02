@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { MemberContributionJourney, type MemberReceptionContact } from "@/components/organizacao-em-harmonia/member-contribution-journey";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type RecurringOption = {
@@ -25,6 +25,7 @@ type Settings = {
   familyRequiresMemberConfirmation: boolean;
   familyRequiresFinancialApproval: boolean;
   pixKey: string;
+  pixReceiverName: string;
   persuasiveText: string;
   recurringOptions: RecurringOption[];
 };
@@ -86,7 +87,9 @@ type FamilyGroup = {
 };
 
 type Payload = {
-  currentPerson?: { fullName?: string };
+  currentPerson?: { fullName?: string; email?: string | null; whatsapp?: string | null };
+  canManageFinance?: boolean;
+  receptionContacts?: MemberReceptionContact[];
   settings?: Settings;
   preference?: Preference;
   contributions?: Contribution[];
@@ -109,6 +112,9 @@ type FamilyDraft = {
 const statusLabels: Record<string, string> = {
   intencao_registrada: "Intenção registrada",
   aguardando_pagamento: "Aguardando pagamento",
+  aguardando_comprovante: "Aguardando comprovante",
+  aguardando_recepcao: "Aguardando Recepção",
+  aprovado: "Aprovado",
   comprovante_enviado: "Comprovante enviado",
   confirmado: "Confirmado",
   pago: "Pago",
@@ -121,6 +127,7 @@ const paymentLabels: Record<string, string> = {
   credito: "Crédito",
   debito: "Débito",
   dinheiro: "Dinheiro",
+  recepcao: "Cartão, Débito ou Dinheiro",
 };
 
 function money(value: number | string) {
@@ -152,11 +159,6 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const [amount, setAmount] = useState("50");
-  const [dueDate, setDueDate] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("pix");
-  const [proofUrl, setProofUrl] = useState("");
-  const [notes, setNotes] = useState("");
 
   const [preferredDueDay, setPreferredDueDay] = useState("10");
   const [recurringMode, setRecurringMode] = useState("nao_programada");
@@ -172,6 +174,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [familyRelationshipId, setFamilyRelationshipId] = useState("");
   const [familyDrafts, setFamilyDrafts] = useState<FamilyDraft[]>([]);
   const [familySearch, setFamilySearch] = useState("");
+  const [financeOpen, setFinanceOpen] = useState(false);
 
   const token = useCallback(async () => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -196,7 +199,6 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
 
     setPayload(result);
     if (result.settings) {
-      setAmount(String(result.settings.defaultMonthlyAmount));
       setPreferredDueDay(
         String(
           result.preference?.preferred_due_day ||
@@ -277,37 +279,6 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
       throw new Error(result.error || "Não foi possível salvar.");
     }
     return result;
-  }
-
-  async function submitContribution(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving("contribution");
-    setError("");
-    setMessage("");
-    try {
-      const result = await post({
-        action: "createContribution",
-        amount,
-        dueDate,
-        paymentMethod,
-        proofUrl,
-        notes,
-        preferredDueDay: Number(preferredDueDay),
-        recurringMode,
-      });
-      setMessage(result.message || "Contribuição registrada.");
-      setProofUrl("");
-      setNotes("");
-      await load();
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "Erro ao registrar contribuição.",
-      );
-    } finally {
-      setSaving("");
-    }
   }
 
   function toggleNumber(day: number) {
@@ -440,132 +411,30 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
               <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
                 {payload.settings.persuasiveText}
               </p>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <article className="rounded-2xl bg-white/10 p-4">
-                  <p className="text-xl font-black">
-                    {money(payload.settings.defaultMonthlyAmount)}
-                  </p>
-                  <p className="text-xs font-bold text-[#CFE2C7]">
-                    Valor padrão
-                  </p>
-                </article>
-                <article className="rounded-2xl bg-white/10 p-4">
-                  <p className="text-xl font-black">
-                    Dia {preferredDueDay}
-                  </p>
-                  <p className="text-xs font-bold text-[#CFE2C7]">
-                    Sua preferência
-                  </p>
-                </article>
-                <article className="col-span-2 rounded-2xl bg-white/10 p-4 sm:col-span-1">
-                  <p className="text-lg font-black">
-                    {recurringMode === "nao_programada"
-                      ? "Sem programação"
-                      : "Pix agendado"}
-                  </p>
-                  <p className="text-xs font-bold text-[#CFE2C7]">
-                    Recorrência
-                  </p>
-                </article>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <MemberContributionJourney
+                  settings={payload.settings}
+                  person={{
+                    fullName:
+                      payload.currentPerson?.fullName || "Filho da Corrente",
+                    email: payload.currentPerson?.email ?? null,
+                    whatsapp: payload.currentPerson?.whatsapp ?? null,
+                  }}
+                  receptionContacts={payload.receptionContacts ?? []}
+                  onCompleted={load}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFinanceOpen(true)}
+                  className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5"
+                >
+                  Financeiro
+                </button>
               </div>
             </section>
 
-            <section className="grid gap-5 lg:grid-cols-2">
-              <form
-                onSubmit={submitContribution}
-                className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6"
-              >
-                <h2 className="text-2xl font-black text-[#123D2C]">
-                  Registrar contribuição
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  O valor fica visível somente para você e para a
-                  Tesouraria/Financeiro.
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Valor
-                    <input
-                      value={amount}
-                      onChange={(event) => setAmount(event.target.value)}
-                      inputMode="decimal"
-                      disabled={!payload.settings.allowCustomAmount}
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-semibold disabled:bg-slate-100"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Data desta contribuição
-                    <input
-                      type="date"
-                      value={dueDate}
-                      onChange={(event) => setDueDate(event.target.value)}
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-semibold"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Forma
-                    <select
-                      value={paymentMethod}
-                      onChange={(event) =>
-                        setPaymentMethod(event.target.value)
-                      }
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-semibold"
-                    >
-                      <option value="pix">Pix</option>
-                      <option value="credito">Crédito</option>
-                      <option value="debito">Débito</option>
-                      <option value="dinheiro">Dinheiro</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Comprovante
-                    <input
-                      value={proofUrl}
-                      onChange={(event) => setProofUrl(event.target.value)}
-                      className="rounded-2xl border border-[#123D2C]/15 p-4 font-semibold"
-                      placeholder="Link, código ou referência"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C] sm:col-span-2">
-                    Observação
-                    <textarea
-                      value={notes}
-                      onChange={(event) => setNotes(event.target.value)}
-                      className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4 font-semibold"
-                    />
-                  </label>
-                </div>
-                <button
-                  disabled={saving === "contribution"}
-                  className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-60"
-                >
-                  {saving === "contribution"
-                    ? "Registrando..."
-                    : "Enviar para conferência"}
-                </button>
-              </form>
-
-              <section className="grid gap-4">
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                  <h2 className="text-2xl font-black text-[#123D2C]">
-                    Orientação para o Pix
-                  </h2>
-                  {payload.qrCodeDataUrl && (
-                    <Image
-                      src={payload.qrCodeDataUrl}
-                      alt="QR Code Pix"
-                      width={240}
-                      height={240}
-                      unoptimized
-                      className="mx-auto mt-4 rounded-3xl bg-white"
-                    />
-                  )}
-                  <p className="mt-3 break-all rounded-2xl bg-[#F7FAF2] p-3 text-xs font-bold text-slate-700">
-                    {payload.pixCopyPaste}
-                  </p>
-                </article>
-
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
+            <section className="grid gap-5">
+              <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
                   <h2 className="text-xl font-black text-[#123D2C]">
                     Organização e lembretes
                   </h2>
@@ -674,7 +543,6 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                       : "Salvar preferências"}
                   </button>
                 </article>
-              </section>
             </section>
 
             {payload.settings.familyContributionsEnabled && (
@@ -915,6 +783,68 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
           </>
         )}
       </section>
+
+
+      {financeOpen && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 sm:items-center sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setFinanceOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="financeiro-title"
+            className="max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:max-w-xl sm:rounded-[2rem] sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+                  Corrente em Dia
+                </p>
+                <h2 id="financeiro-title" className="mt-2 text-2xl font-black text-[#123D2C]">
+                  Financeiro
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFinanceOpen(false)}
+                className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {payload.canManageFinance ? (
+              <>
+                <p className="mt-4 text-sm leading-6 text-slate-600">
+                  Consulte contribuições pendentes, valide comprovantes e registre receitas e despesas do mês com acesso restrito à Tesouraria/Financeiro.
+                </p>
+                <div className="mt-5 grid gap-3">
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes"
+                    className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+                  >
+                    Acompanhamento de Contribuições
+                  </Link>
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos"
+                    className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                  >
+                    Registro de Receitas e Despesas
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <p className="mt-4 rounded-2xl bg-amber-50 p-4 font-bold leading-6 text-amber-900">
+                Esta área é restrita às pessoas com função Tesouraria/Financeiro. Fale com a coordenação caso seu acesso precise ser atualizado.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 }

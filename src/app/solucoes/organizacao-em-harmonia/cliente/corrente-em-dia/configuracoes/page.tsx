@@ -39,6 +39,9 @@ type Settings = {
   googleSheetsTab: string;
   googleSheetsLastSyncAt: string | null;
   ocrProvider: string;
+  receptionContactName: string;
+  receptionWhatsapp: string;
+  contributionNotificationEmails: string[];
 };
 
 type RelationshipType = {
@@ -88,6 +91,9 @@ const defaults: Settings = {
   googleSheetsTab: "",
   googleSheetsLastSyncAt: null,
   ocrProvider: "external_adapter",
+  receptionContactName: "Recepção do Tucxa",
+  receptionWhatsapp: "",
+  contributionNotificationEmails: ["automacao-ao-extremo@gmail.com"],
 };
 
 const dueDayOptions = [1, 5, 10, 15, 20, 30];
@@ -413,6 +419,69 @@ export default function CorrenteConfiguracoesPage() {
                 </button>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+            Recepção e notificações
+          </p>
+          <h2 className="mt-2 text-xl font-black text-[#00334E]">
+            Defina quem recebe os pagamentos assistidos
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            O contato configurado será usado quando o Filho da Corrente escolher cartão de crédito, débito ou dinheiro. Na ausência dele, o sistema procura uma pessoa ativa com função de Recepção.
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Nome exibido da Recepção
+              <input
+                value={settings.receptionContactName}
+                onChange={(event) =>
+                  update("receptionContactName", event.target.value)
+                }
+                placeholder="Recepção do Tucxa"
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              WhatsApp da Recepção
+              <input
+                value={settings.receptionWhatsapp}
+                onChange={(event) =>
+                  update(
+                    "receptionWhatsapp",
+                    event.target.value.replace(/\D/g, ""),
+                  )
+                }
+                inputMode="tel"
+                placeholder="19999999999"
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Informe DDD e número. O código do Brasil será acrescentado automaticamente quando necessário.
+              </span>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
+              E-mails que recebem avisos de contribuição
+              <textarea
+                value={settings.contributionNotificationEmails.join("\n")}
+                onChange={(event) =>
+                  update(
+                    "contributionNotificationEmails",
+                    event.target.value
+                      .split(/[;,|\n]+/)
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  )
+                }
+                placeholder={"automacao-ao-extremo@gmail.com\ntesouraria@exemplo.com"}
+                className="min-h-28 rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Um endereço por linha. Pessoas ativas da Tesouraria/Financeiro com e-mail cadastrado também recebem os avisos.
+              </span>
+            </label>
           </div>
         </section>
 

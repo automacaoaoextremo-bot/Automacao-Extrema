@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { asText } from "@/lib/organizacao-em-harmonia/corrente-financeiro";
+import {
+  asNumber,
+  asText,
+  normalizeFinancialSettings,
+} from "@/lib/organizacao-em-harmonia/corrente-financeiro";
+import { notifyContributionEvent } from "@/lib/organizacao-em-harmonia/corrente-notifications";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -87,7 +92,9 @@ export async function POST(request: Request) {
     const { data: contribution, error: contributionError } =
       await supabaseAdmin
         .from("oh_contributions")
-        .select("id, organization_id, metadata, proof_url")
+        .select(
+          "id, organization_id, contributor_name, contributor_email, amount, due_date, status, payment_method, notes, metadata, proof_url",
+        )
         .eq("id", contributionId)
         .maybeSingle();
 
@@ -165,10 +172,38 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
+    const { data: financialSettings } = await supabaseAdmin
+      .from("oh_financial_settings")
+      .select("*")
+      .eq("organization_id", contribution.organization_id)
+      .maybeSingle();
+    const normalizedSettings = normalizeFinancialSettings(financialSettings);
+
+    const notification = await notifyContributionEvent({
+      organizationId: contribution.organization_id,
+      contributionId: contribution.id,
+      contributorName:
+        asText(contribution.contributor_name) || "Contribuinte",
+      contributorEmail: asText(contribution.contributor_email) || null,
+      amount: asNumber(contribution.amount),
+      status: "comprovante_enviado",
+      paymentMethod:
+        asText(contribution.payment_method) === "recepcao"
+          ? "Cartão de Crédito, Débito ou Dinheiro"
+          : asText(contribution.payment_method) || "Pix",
+      event: "comprovante_enviado",
+      dueDate: asText(contribution.due_date) || null,
+      notes: asText(contribution.notes) || null,
+      extraEmails: normalizedSettings.contributionNotificationEmails,
+    });
+
     return NextResponse.json({
       ok: true,
       message:
         "Comprovante enviado com sigilo para conferência da Tesouraria/Financeiro.",
+      notificationWarning: notification.ok
+        ? null
+        : "O comprovante foi recebido, mas um ou mais avisos por e-mail não puderam ser enviados.",
     });
   } catch (error) {
     return NextResponse.json(

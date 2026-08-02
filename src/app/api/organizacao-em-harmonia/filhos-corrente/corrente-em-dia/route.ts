@@ -1,3 +1,4 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import QRCode from "qrcode";
 import {
@@ -5,6 +6,10 @@ import {
   asText,
   normalizeFinancialSettings,
 } from "@/lib/organizacao-em-harmonia/corrente-financeiro";
+import {
+  notifyContributionEvent,
+  receptionContacts,
+} from "@/lib/organizacao-em-harmonia/corrente-notifications";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 type AuthContext = {
@@ -13,6 +18,8 @@ type AuthContext = {
   fullName: string;
   email: string | null;
   whatsapp: string | null;
+  organizationWhatsapp: string | null;
+  canManageFinance: boolean;
 };
 
 type RelationshipRule = {
@@ -27,13 +34,96 @@ function legacySettings(value: unknown) {
       ? (value as Record<string, unknown>)
       : {};
   return {
-    pixKey: asText(current.pixKey) || "tucxacentro@gmail.com",
+    pixKey: asText(current.pixKey) || "58.392.598/0001-91",
     pixReceiverName: asText(current.pixReceiverName) || "TUCXA",
     pixCity: asText(current.pixCity) || "CAMPINAS",
     persuasiveText:
       asText(current.persuasiveText) ||
       "Manter o Tucxa em harmonia também é cuidar de cada trabalho que acontece aqui. Escolha o melhor dia e organize sua contribuição com sigilo e tranquilidade.",
   };
+}
+
+function normalizeToken(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function asObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function profileRoleToken(value: unknown) {
+  const profile = asObject(value);
+  const selectedFunctions = Array.isArray(profile.selectedFunctions)
+    ? profile.selectedFunctions.flatMap((item) => {
+        const current = asObject(item);
+        return [current.slug, current.label, current.name]
+          .map(asText)
+          .filter(Boolean);
+      })
+    : [];
+  const functionSlugs = Array.isArray(profile.functionSlugs)
+    ? profile.functionSlugs.map(asText).filter(Boolean)
+    : [];
+
+  return normalizeToken(
+    [
+      profile.isClientAdmin === true ? "administrador" : "",
+      ...selectedFunctions,
+      ...functionSlugs,
+    ].join(" "),
+  );
+}
+
+async function memberCanManageFinance(input: {
+  organizationId: string;
+  personId: string;
+}) {
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("role_id, status, active, agenda_viva_profile")
+    .eq("organization_id", input.organizationId)
+    .eq("person_id", input.personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership || membership.active === false) return false;
+
+  const { data: role, error: roleError } = membership.role_id
+    ? await supabaseAdmin
+        .from("oh_roles")
+        .select("slug, name, recommended_permissions, active")
+        .eq("organization_id", input.organizationId)
+        .eq("id", membership.role_id)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (roleError) throw roleError;
+
+  const rolePermissions = Array.isArray(role?.recommended_permissions)
+    ? role.recommended_permissions.map(asText).filter(Boolean)
+    : [];
+  const token = normalizeToken(
+    [
+      role?.slug,
+      role?.name,
+      ...rolePermissions,
+      profileRoleToken(membership.agenda_viva_profile),
+    ].join(" "),
+  );
+
+  return (
+    token.includes("tesour") ||
+    token.includes("finance") ||
+    token.includes("administrador-sistema") ||
+    token.includes("gestor-cliente")
+  );
 }
 
 async function getAuthContext(request: Request): Promise<AuthContext> {
@@ -47,7 +137,7 @@ async function getAuthContext(request: Request): Promise<AuthContext> {
 
   const { data: organization, error: organizationError } = await supabaseAdmin
     .from("oh_organizations")
-    .select("id")
+    .select("id, whatsapp")
     .or("slug.eq.tucxa,name.ilike.%tucxa%")
     .order("created_at", { ascending: true })
     .limit(1)
@@ -78,6 +168,11 @@ async function getAuthContext(request: Request): Promise<AuthContext> {
       "Filho da Corrente",
     email: person.email || userData.user.email || null,
     whatsapp: person.whatsapp || null,
+    organizationWhatsapp: organization.whatsapp || null,
+    canManageFinance: await memberCanManageFinance({
+      organizationId: organization.id,
+      personId: person.id,
+    }),
   };
 }
 
@@ -132,6 +227,93 @@ function pixPayload(
     `valor: R$ ${amount.toFixed(2).replace(".", ",")}`,
     `identificação: ${description}`,
   ].join(" | ");
+}
+
+
+function emv(id: string, value: string) {
+  return `${id}${String(value.length).padStart(2, "0")}${value}`;
+}
+
+function pixText(value: string, maxLength: number) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9 .-]/g, "")
+    .trim()
+    .toUpperCase()
+    .slice(0, maxLength);
+}
+
+function crc16Ccitt(value: string) {
+  let crc = 0xffff;
+
+  for (let index = 0; index < value.length; index += 1) {
+    crc ^= value.charCodeAt(index) << 8;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc =
+        (crc & 0x8000) !== 0
+          ? ((crc << 1) ^ 0x1021) & 0xffff
+          : (crc << 1) & 0xffff;
+    }
+  }
+
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function buildPixPayload(input: {
+  key: string;
+  receiverName: string;
+  city: string;
+  amount: number;
+  txid: string;
+}) {
+  const normalizedKey = input.key.replace(/\D/g, "").length === 14
+    ? input.key.replace(/\D/g, "")
+    : input.key.trim();
+  const merchantAccount = [
+    emv("00", "BR.GOV.BCB.PIX"),
+    emv("01", normalizedKey),
+  ].join("");
+  const additionalData = emv("05", pixText(input.txid, 25) || "***");
+  const payloadWithoutCrc = [
+    emv("00", "01"),
+    emv("26", merchantAccount),
+    emv("52", "0000"),
+    emv("53", "986"),
+    emv("54", input.amount.toFixed(2)),
+    emv("58", "BR"),
+    emv("59", pixText(input.receiverName, 25) || "TUCXA"),
+    emv("60", pixText(input.city, 15) || "CAMPINAS"),
+    emv("62", additionalData),
+    "6304",
+  ].join("");
+
+  return `${payloadWithoutCrc}${crc16Ccitt(payloadWithoutCrc)}`;
+}
+
+const TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function randomTrackingCode() {
+  const bytes = randomBytes(12);
+  const characters = Array.from(
+    bytes,
+    (byte) => TRACKING_ALPHABET[byte % TRACKING_ALPHABET.length],
+  ).join("");
+  return `${characters.slice(0, 4)}-${characters.slice(4, 8)}-${characters.slice(8, 12)}`;
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeEmail(value: unknown) {
+  const email = asText(value).toLowerCase();
+  return /^\S+@\S+\.\S+$/.test(email) ? email : "";
+}
+
+function whatsappShareUrl(message: string) {
+  return `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
 }
 
 async function loadFamilyData(context: AuthContext) {
@@ -231,6 +413,12 @@ async function loadFamilyData(context: AuthContext) {
 
 async function loadPayload(context: AuthContext) {
   const settings = await loadSettings(context.organizationId);
+  const contacts = await receptionContacts({
+    organizationId: context.organizationId,
+    configuredName: settings.receptionContactName,
+    configuredWhatsapp: settings.receptionWhatsapp,
+    fallbackWhatsapp: context.organizationWhatsapp,
+  });
   const [
     contributionsResult,
     preferenceResult,
@@ -287,7 +475,13 @@ async function loadPayload(context: AuthContext) {
   }));
 
   return {
-    currentPerson: context,
+    currentPerson: {
+      fullName: context.fullName,
+      email: context.email,
+      whatsapp: context.whatsapp,
+    },
+    canManageFinance: context.canManageFinance,
+    receptionContacts: contacts,
     settings: {
       defaultMonthlyAmount: settings.defaultMonthlyAmount,
       amountIsMandatory: settings.amountIsMandatory,
@@ -302,6 +496,7 @@ async function loadPayload(context: AuthContext) {
       familyRequiresFinancialApproval:
         settings.familyRequiresFinancialApproval,
       pixKey: settings.pixKey,
+      pixReceiverName: settings.pixReceiverName,
       persuasiveText: settings.persuasiveText,
       recurringOptions: [
         {
@@ -340,6 +535,322 @@ async function loadPayload(context: AuthContext) {
     pixCopyPaste,
     qrCodeDataUrl,
     ...familyData,
+  };
+}
+
+async function createContributionIntent(
+  request: Request,
+  context: AuthContext,
+  body: Record<string, unknown>,
+) {
+  const settings = await loadSettings(context.organizationId);
+  const paymentMethod = asText(body.paymentMethod) || "pix";
+  const recurrenceType = asText(body.recurrenceType) || "pontual";
+
+  if (!["pix", "recepcao"].includes(paymentMethod)) {
+    throw new Error("Forma de pagamento inválida.");
+  }
+  if (!["pontual", "pix_agendado"].includes(recurrenceType)) {
+    throw new Error("Forma de recorrência inválida.");
+  }
+  if (paymentMethod !== "pix" && recurrenceType !== "pontual") {
+    throw new Error(
+      "A recorrência agendada está disponível somente para pagamentos por Pix.",
+    );
+  }
+
+  const recurrenceStartDate = asText(body.recurrenceStartDate).slice(0, 10);
+  const recurrenceOccurrences = Math.trunc(
+    asNumber(body.recurrenceOccurrences, 0),
+  );
+  if (recurrenceType === "pix_agendado") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)) {
+      throw new Error("Informe a data da primeira contribuição recorrente.");
+    }
+    if (recurrenceOccurrences < 2 || recurrenceOccurrences > 120) {
+      throw new Error("Informe uma quantidade entre 2 e 120 contribuições.");
+    }
+  }
+
+  const requestedEmail = normalizeEmail(body.email);
+  const updateEmail = body.updateEmail === true;
+  let effectiveEmail = context.email;
+  let emailUpdated = false;
+
+  if (asText(body.email) && !requestedEmail) {
+    throw new Error("Informe um e-mail válido ou deixe o campo em branco.");
+  }
+
+  if (requestedEmail) {
+    effectiveEmail = requestedEmail;
+    if (updateEmail && requestedEmail !== context.email) {
+      const { error: updateEmailError } = await supabaseAdmin
+        .from("oh_people")
+        .update({
+          email: requestedEmail,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", context.personId);
+
+      if (updateEmailError) throw updateEmailError;
+      context.email = requestedEmail;
+      emailUpdated = true;
+    }
+  }
+
+  const requestedContributionId = asText(body.contributionId);
+  const requestedUploadToken = asText(body.uploadToken);
+  const requestedTrackingCode = asText(body.trackingCode);
+  const requestedResumeUrl = asText(body.resumeUrl);
+  let existingContribution: {
+    id: string;
+    status: string;
+    metadata: unknown;
+    receipt_uploaded_at: string | null;
+  } | null = null;
+
+  if (requestedContributionId) {
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from("oh_contributions")
+      .select("id, status, metadata, receipt_uploaded_at")
+      .eq("organization_id", context.organizationId)
+      .eq("person_id", context.personId)
+      .eq("id", requestedContributionId)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (!existing?.id) {
+      throw new Error("A contribuição que seria editada não foi localizada.");
+    }
+    if (
+      existing.receipt_uploaded_at ||
+      ["comprovante_enviado", "confirmado", "aprovado", "pago", "cancelado"].includes(
+        asText(existing.status),
+      )
+    ) {
+      throw new Error(
+        "Esta contribuição já foi encaminhada para conferência e não pode mais ser editada por este formulário.",
+      );
+    }
+
+    const existingMetadata = asObject(existing.metadata);
+    if (
+      !requestedUploadToken ||
+      asText(existingMetadata.proofUploadToken) !== requestedUploadToken
+    ) {
+      throw new Error("Não foi possível validar a edição desta contribuição.");
+    }
+    if (!requestedTrackingCode || !requestedResumeUrl) {
+      throw new Error("Os dados de acompanhamento da contribuição estão incompletos.");
+    }
+
+    existingContribution = {
+      id: existing.id,
+      status: asText(existing.status),
+      metadata: existing.metadata,
+      receipt_uploaded_at: existing.receipt_uploaded_at,
+    };
+  }
+
+  const editing = Boolean(existingContribution);
+  const amount = settings.defaultMonthlyAmount;
+  const contributionId = existingContribution?.id ?? randomUUID();
+  const uploadToken = editing ? requestedUploadToken : randomUUID();
+  const resumeToken = editing
+    ? ""
+    : randomBytes(32).toString("base64url");
+  const trackingCode = editing
+    ? requestedTrackingCode
+    : randomTrackingCode();
+  const resumeExpiresAt = new Date(
+    Date.now() + 180 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const dueDate =
+    recurrenceType === "pix_agendado"
+      ? recurrenceStartDate
+      : dueDateFor(settings.defaultDueDay, 0);
+  const requiresReception = paymentMethod === "recepcao";
+  const status = requiresReception
+    ? "aguardando_recepcao"
+    : "aguardando_comprovante";
+  const identification = `Filho da Corrente - ${context.fullName}`;
+  let pixCopyPaste: string | null = null;
+  let qrCodeDataUrl: string | null = null;
+
+  if (!requiresReception) {
+    pixCopyPaste = buildPixPayload({
+      key: settings.pixKey,
+      receiverName: settings.pixReceiverName,
+      city: settings.pixCity,
+      amount,
+      txid: contributionId.replace(/-/g, "").slice(0, 25),
+    });
+  }
+
+  const existingMetadata = asObject(existingContribution?.metadata);
+  const contributionValues = {
+    organization_id: context.organizationId,
+    person_id: context.personId,
+    contributor_name: context.fullName,
+    contributor_email: effectiveEmail,
+    contributor_whatsapp: context.whatsapp,
+    amount,
+    due_date: dueDate,
+    status,
+    payment_method: paymentMethod,
+    notes: asText(body.notes) || null,
+    contribution_kind:
+      recurrenceType === "pontual" ? "pontual" : "recorrente",
+    is_anonymous: false,
+    recurrence_type: recurrenceType,
+    preferred_due_day:
+      recurrenceType === "pontual" ? settings.defaultDueDay : null,
+    recurrence_start_date:
+      recurrenceType === "pix_agendado" ? recurrenceStartDate : null,
+    recurrence_occurrences:
+      recurrenceType === "pix_agendado" ? recurrenceOccurrences : null,
+    public_identification_mode: "sigiloso",
+    metadata: {
+      ...existingMetadata,
+      source: "filho_corrente_painel",
+      confidential: true,
+      proofUploadToken: uploadToken,
+      identification,
+      emailUpdated,
+      requiresReception,
+      assistedPaymentLabel: requiresReception
+        ? "Cartão de Crédito, Débito ou Dinheiro"
+        : null,
+      editedAt: editing ? new Date().toISOString() : null,
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  let contribution: { id: string; status: string; due_date: string } | null = null;
+
+  if (editing) {
+    const { data, error } = await supabaseAdmin
+      .from("oh_contributions")
+      .update(contributionValues)
+      .eq("organization_id", context.organizationId)
+      .eq("person_id", context.personId)
+      .eq("id", contributionId)
+      .select("id, status, due_date")
+      .single();
+
+    if (error) throw error;
+    contribution = data;
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from("oh_contributions")
+      .insert({
+        id: contributionId,
+        ...contributionValues,
+        public_tracking_code_hash: sha256(
+          trackingCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
+        ),
+        receipt_resume_token_hash: sha256(resumeToken),
+        receipt_resume_created_at: new Date().toISOString(),
+        receipt_resume_expires_at: resumeExpiresAt,
+      })
+      .select("id, status, due_date")
+      .single();
+
+    if (error) throw error;
+    contribution = data;
+  }
+
+  if (pixCopyPaste) {
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(pixCopyPaste, {
+        margin: 1,
+        width: 420,
+        errorCorrectionLevel: "M",
+      });
+    } catch (qrError) {
+      console.error("[corrente-em-dia][member-pix-qr]", qrError);
+    }
+  }
+
+  const contacts = await receptionContacts({
+    organizationId: context.organizationId,
+    configuredName: settings.receptionContactName,
+    configuredWhatsapp: settings.receptionWhatsapp,
+    fallbackWhatsapp: context.organizationWhatsapp,
+  });
+  const reception = contacts[0] ?? null;
+  const receptionMessage = [
+    `Olá, ${reception?.name || "Recepção do Tucxa"}.`,
+    `Sou ${context.fullName}, Filho(a) da Corrente.`,
+    `Registrei no Corrente em Dia o pagamento de ${amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} por Cartão de Crédito, Débito ou Dinheiro.`,
+    `Código: ${trackingCode}.`,
+    "Poderia me orientar para concluir o pagamento?",
+  ].join("\n");
+  const receptionWhatsappUrl = reception
+    ? `${reception.whatsappUrl}?text=${encodeURIComponent(receptionMessage)}`
+    : null;
+
+  const resumeUrl = editing
+    ? requestedResumeUrl
+    : new URL(
+        `/solucoes/organizacao-em-harmonia/tucxa/contribuir?retomar=${encodeURIComponent(resumeToken)}`,
+        request.url,
+      ).toString();
+  const confirmationMessage = [
+    "Tucxa — Corrente em Dia",
+    `Contribuição ${editing ? "atualizada" : "registrada"} por ${context.fullName}.`,
+    `Valor: ${amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`,
+    `Forma: ${requiresReception ? "Cartão de Crédito, Débito ou Dinheiro" : "Pix"}.`,
+    `Situação: ${requiresReception ? "aguardando atendimento da Recepção" : "aguardando comprovante"}.`,
+    `Código de acompanhamento: ${trackingCode}.`,
+  ].join("\n");
+
+  const notification = await notifyContributionEvent({
+    organizationId: context.organizationId,
+    contributionId,
+    contributorName: context.fullName,
+    contributorEmail: effectiveEmail,
+    amount,
+    status,
+    paymentMethod: requiresReception
+      ? "Cartão de Crédito, Débito ou Dinheiro"
+      : "Pix",
+    event: requiresReception ? "aguardando_recepcao" : "registrada",
+    dueDate,
+    notes: asText(body.notes) || null,
+    trackingCode,
+    extraEmails: settings.contributionNotificationEmails,
+    includeReception: requiresReception,
+  });
+
+  return {
+    contribution,
+    uploadToken,
+    trackingCode,
+    resumeUrl,
+    pixCopyPaste,
+    qrCodeDataUrl,
+    pix: requiresReception
+      ? null
+      : {
+          key: settings.pixKey,
+          receiverName: settings.pixReceiverName,
+          amount,
+          identification,
+        },
+    requiresReception,
+    receptionWhatsappUrl,
+    whatsappShareUrl: whatsappShareUrl(confirmationMessage),
+    emailUpdated,
+    notificationWarning: notification.ok
+      ? null
+      : "A contribuição foi salva, mas um ou mais avisos por e-mail não puderam ser enviados.",
+    message: requiresReception
+      ? "Intenção registrada. A Tesouraria/Financeiro já visualiza que o pagamento aguarda a Recepção."
+      : editing
+        ? "Contribuição atualizada. Faça o Pix e envie o comprovante para conferência."
+        : "Contribuição registrada. Faça o Pix e envie o comprovante para conferência.",
   };
 }
 
@@ -652,6 +1163,12 @@ export async function POST(request: Request) {
     >;
     const action = asText(body.action);
 
+    if (action === "createContributionIntent") {
+      return NextResponse.json({
+        ok: true,
+        ...(await createContributionIntent(request, context, body)),
+      });
+    }
     if (action === "createContribution") {
       return NextResponse.json({
         ok: true,

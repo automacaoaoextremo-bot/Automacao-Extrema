@@ -18,6 +18,7 @@ type Contribution = {
   status: string;
   payment_method: string | null;
   proof_url: string | null;
+  receipt_uploaded_at: string | null;
   notes: string | null;
   contribution_kind: string | null;
   is_anonymous: boolean;
@@ -42,10 +43,11 @@ const statusLabels: Record<string, string> = {
   intencao_registrada: "Intenção registrada",
   aguardando_pagamento: "Aguardando pagamento",
   aguardando_comprovante: "Aguardando comprovante",
-  aguardando_recepcao: "Aguardando Recepção",
+  aguardando_recepcao: "Aguardando pagamento na Recepção",
   comprovante_enviado: "Comprovante enviado",
   em_revisao: "Em revisão",
   confirmado: "Confirmado",
+  aprovado: "Aprovado",
   pago: "Pago",
   atrasado: "Em atraso",
   cancelado: "Cancelado",
@@ -57,6 +59,14 @@ const recurrenceLabels: Record<string, string> = {
   pix_automatico: "Pix Automático",
   cartao_recorrente: "Cartão recorrente",
   boleto_recorrente: "Boleto recorrente",
+};
+
+const paymentLabels: Record<string, string> = {
+  pix: "Pix",
+  recepcao: "Cartão de Crédito, Débito ou Dinheiro",
+  credito: "Cartão de crédito",
+  debito: "Cartão de débito",
+  dinheiro: "Dinheiro",
 };
 
 function money(value: number | string) {
@@ -197,7 +207,7 @@ export default function CorrenteContribuicoesPage() {
         (acc, item) => {
           const amount = Number(item.amount) || 0;
           acc.total += amount;
-          if (["confirmado", "pago"].includes(item.status)) {
+          if (["confirmado", "pago", "aprovado"].includes(item.status)) {
             acc.received += amount;
           } else if (item.status !== "cancelado") {
             acc.pending += amount;
@@ -407,7 +417,9 @@ export default function CorrenteContribuicoesPage() {
                   <div>
                     <p className="font-black text-[#2F6B43]">Forma</p>
                     <p className="mt-1 font-semibold text-slate-700">
-                      {item.payment_method || "Não informada"}
+                      {paymentLabels[item.payment_method ?? ""] ||
+                        item.payment_method ||
+                        "Não informada"}
                     </p>
                   </div>
                   <div>
@@ -451,7 +463,16 @@ export default function CorrenteContribuicoesPage() {
                   </p>
                 )}
 
-                {payload.canManage && item.status !== "confirmado" && item.status !== "pago" && item.status !== "cancelado" && (
+                <div className="mt-3 rounded-2xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10">
+                  <p className="font-black text-[#2F6B43]">Comprovante</p>
+                  <p className="mt-1 font-semibold text-slate-700">
+                    {item.receipt_uploaded_at || item.proof_url
+                      ? `Recebido em ${date(item.receipt_uploaded_at || item.updated_at)}`
+                      : "Ainda não recebido"}
+                  </p>
+                </div>
+
+                {payload.canManage && !(["confirmado", "aprovado", "pago", "cancelado"].includes(item.status)) && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"

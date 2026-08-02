@@ -29,6 +29,16 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
+    label: "F. Corrente",
+    href: "#corrente",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Consulentes",
+    href: "#consulentes",
+    variant: "secondary" as const,
+  },
+  {
     label: "Módulos",
     href: "#modulos",
     variant: "secondary" as const,
@@ -79,7 +89,12 @@ export default async function TucxaSitePage() {
 
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={headerActions} showSupport={false} />
+      <TucxaPublicHeader
+        actions={headerActions}
+        showSupport={false}
+        mobileActionColumns={4}
+        compactMobileActions
+      />
       <FinancialTransparencyPopup />
 
       <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">

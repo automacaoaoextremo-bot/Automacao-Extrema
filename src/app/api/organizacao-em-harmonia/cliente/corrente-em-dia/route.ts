@@ -10,6 +10,7 @@ import {
   getFinancialAuthContext,
   writeFinancialAudit,
 } from "@/lib/organizacao-em-harmonia/financial-auth";
+import { notifyContributionEvent } from "@/lib/organizacao-em-harmonia/corrente-notifications";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +98,7 @@ async function loadPayload(organizationId: string, canManage: boolean) {
     supabaseAdmin
       .from("oh_contributions")
       .select(
-        "id, person_id, contributor_name, contributor_email, contributor_whatsapp, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, is_anonymous, recurrence_type, preferred_due_day, recurrence_start_date, recurrence_occurrences, public_identification_mode, metadata, created_at, updated_at",
+        "id, person_id, contributor_name, contributor_email, contributor_whatsapp, amount, due_date, paid_at, status, payment_method, proof_url, receipt_uploaded_at, notes, contribution_kind, is_anonymous, recurrence_type, preferred_due_day, recurrence_start_date, recurrence_occurrences, public_identification_mode, metadata, created_at, updated_at",
       )
       .eq("organization_id", organizationId)
       .order("due_date", { ascending: false })
@@ -310,6 +311,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "updateContributionStatus") {
+      const beforeSettings = await loadSettings(auth.context.organizationId);
       const contributionId = asText(body.contributionId ?? body.id);
       const status = asText(body.status);
       if (!contributionId || !status) {
@@ -432,6 +434,29 @@ export async function POST(request: Request) {
         beforeData: before,
         afterData: updated,
       });
+
+      if (paid) {
+        await notifyContributionEvent({
+          organizationId: auth.context.organizationId,
+          contributionId,
+          contributorName:
+            asText(updated.contributor_name) ||
+            (updated.is_anonymous
+              ? "Contribuição não identificada"
+              : "Contribuinte"),
+          contributorEmail: asText(updated.contributor_email) || null,
+          amount: asNumber(updated.amount),
+          status,
+          paymentMethod:
+            asText(updated.payment_method) === "recepcao"
+              ? "Cartão de Crédito, Débito ou Dinheiro"
+              : asText(updated.payment_method) || "Não informada",
+          event: "aprovada",
+          dueDate: asText(updated.due_date) || null,
+          notes: asText(updated.notes) || null,
+          extraEmails: beforeSettings.contributionNotificationEmails,
+        });
+      }
 
       return NextResponse.json({
         ok: true,
