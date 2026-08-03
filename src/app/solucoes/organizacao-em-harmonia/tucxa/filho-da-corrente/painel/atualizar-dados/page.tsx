@@ -1,9 +1,16 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
+import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { filhoDaCorrenteFunctions } from "../../../tucxa-content";
 
@@ -33,6 +40,15 @@ type AgendaOption = {
   locationLabel?: string;
 };
 
+type FamilyPersonOption = { id: string; fullName: string };
+type FamilyRelationshipOption = { id: string; slug: string; label: string };
+type FamilyLinkDraft = {
+  personId: string;
+  personName: string;
+  relationshipTypeId: string;
+  relationshipLabel: string;
+};
+
 type ProfilePayload = {
   ok?: boolean;
   person?: {
@@ -43,13 +59,14 @@ type ProfilePayload = {
   };
   functionSlugs?: string[];
   agendaSlugs?: string[];
-  selectedFunctions?: DraftItem[];
-  selectedAgenda?: DraftItem[];
   profileUpdateStatus?: string;
   selectedEntityIds?: string[];
   cavalinhoConsulenteEntityId?: string;
   cavalinhoConsulenteDefinitionCompleted?: boolean;
   availableEntities?: EntityOption[];
+  familyPeople?: FamilyPersonOption[];
+  familyRelationships?: FamilyRelationshipOption[];
+  familyLinks?: FamilyLinkDraft[];
   error?: string;
 };
 
@@ -60,7 +77,6 @@ type AgendaOptionsPayload = {
 
 type CavalinhoEntitiesPayload = {
   entities?: EntityOption[];
-  error?: string;
 };
 
 type SubmitResponse = {
@@ -68,13 +84,69 @@ type SubmitResponse = {
   message?: string;
   statusUrl?: string;
   whatsappUrl?: string;
-  whatsappPhone?: string;
   requestId?: string;
   error?: string;
 };
 
+type DialogName = "dados" | "participacao" | null;
+
+type UpdateModalProps = {
+  eyebrow: string;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+};
+
+function UpdateModal({
+  eyebrow,
+  title,
+  children,
+  footer,
+  onClose,
+}: UpdateModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                {eyebrow}
+              </p>
+              <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+                {title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+            >
+              Fechar
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div>
+        {footer && (
+          <footer className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+            {footer}
+          </footer>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function loginUrl() {
-  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
+  if (typeof window === "undefined") {
+    return "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
+  }
   const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   return `/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
@@ -85,26 +157,46 @@ function normalizeOption(option: Partial<AgendaOption>): AgendaOption | null {
   if (!slug || !label) return null;
   return {
     slug,
-    legacySlug: typeof option.legacySlug === "string" ? option.legacySlug.trim() : undefined,
+    legacySlug:
+      typeof option.legacySlug === "string" ? option.legacySlug.trim() : undefined,
     label,
-    description: typeof option.description === "string" ? option.description.trim() : "",
-    dateLabel: typeof option.dateLabel === "string" ? option.dateLabel.trim() : "",
-    timeLabel: typeof option.timeLabel === "string" ? option.timeLabel.trim() : "",
-    recurrenceLabel: typeof option.recurrenceLabel === "string" ? option.recurrenceLabel.trim() : "",
-    locationLabel: typeof option.locationLabel === "string" ? option.locationLabel.trim() : "",
+    description:
+      typeof option.description === "string" ? option.description.trim() : "",
+    dateLabel:
+      typeof option.dateLabel === "string" ? option.dateLabel.trim() : "",
+    timeLabel:
+      typeof option.timeLabel === "string" ? option.timeLabel.trim() : "",
+    recurrenceLabel:
+      typeof option.recurrenceLabel === "string"
+        ? option.recurrenceLabel.trim()
+        : "",
+    locationLabel:
+      typeof option.locationLabel === "string" ? option.locationLabel.trim() : "",
   };
 }
 
-function selectedDraftItems(options: DraftItem[], slugs: string[]) {
-  return options.filter((item) => slugs.includes(item.slug)).map((item) => ({ slug: item.slug, label: item.label, description: item.description || "" }));
-}
-
 function toggleValue(values: string[], value: string) {
-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+  return values.includes(value)
+    ? values.filter((item) => item !== value)
+    : [...values, value];
 }
 
 function descriptionForAgenda(option: AgendaOption) {
-  return option.description || [option.recurrenceLabel, option.dateLabel, option.timeLabel].filter(Boolean).join(" • ") + (option.locationLabel ? ` Local: ${option.locationLabel}` : "");
+  return (
+    option.description ||
+    [option.recurrenceLabel, option.dateLabel, option.timeLabel]
+      .filter(Boolean)
+      .join(" • ") +
+      (option.locationLabel ? ` Local: ${option.locationLabel}` : "")
+  );
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 export default function AtualizarDadosFilhoDaCorrentePage() {
@@ -119,9 +211,23 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([]);
   const [entityOptions, setEntityOptions] = useState<EntityOption[]>([]);
   const [cavalinhoEntityIds, setCavalinhoEntityIds] = useState<string[]>([]);
-  const [cavalinhoConsulenteEntityId, setCavalinhoConsulenteEntityId] = useState("");
-  const [cavalinhoConsulenteDefinitionCompleted, setCavalinhoConsulenteDefinitionCompleted] = useState(false);
-  const [originalEntityIds, setOriginalEntityIds] = useState<string[]>([]);
+  const [cavalinhoConsulenteEntityId, setCavalinhoConsulenteEntityId] =
+    useState("");
+  const [cavalinhoConsulenteDefinitionCompleted, setCavalinhoConsulenteDefinitionCompleted] =
+    useState(false);
+
+  const [familyPeople, setFamilyPeople] = useState<FamilyPersonOption[]>([]);
+  const [familyRelationships, setFamilyRelationships] = useState<
+    FamilyRelationshipOption[]
+  >([]);
+  const [familyLinks, setFamilyLinks] = useState<FamilyLinkDraft[]>([]);
+  const [hasFamily, setHasFamily] = useState<"sim" | "nao">("nao");
+  const [familySearch, setFamilySearch] = useState("");
+  const [familyPersonId, setFamilyPersonId] = useState("");
+  const [familyRelationshipId, setFamilyRelationshipId] = useState("");
+
+  const [activeDialog, setActiveDialog] = useState<DialogName>(null);
+  const [dataPage, setDataPage] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -148,49 +254,79 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     ]);
 
     const profile = (await profileResponse.json()) as ProfilePayload;
-    if (!profileResponse.ok) throw new Error(profile.error || "Não foi possível carregar seus dados.");
+    if (!profileResponse.ok) {
+      throw new Error(profile.error || "Não foi possível carregar seus dados.");
+    }
 
-    const agenda = (await optionsResponse.json().catch(() => ({}))) as AgendaOptionsPayload;
-    const cavalinhoEntities = (await entitiesResponse.json().catch(() => ({}))) as CavalinhoEntitiesPayload;
-    const options = (agenda.options ?? []).map(normalizeOption).filter((item): item is AgendaOption => Boolean(item));
+    const agenda = (await optionsResponse
+      .json()
+      .catch(() => ({}))) as AgendaOptionsPayload;
+    const cavalinhoEntities = (await entitiesResponse
+      .json()
+      .catch(() => ({}))) as CavalinhoEntitiesPayload;
+    const options = (agenda.options ?? [])
+      .map(normalizeOption)
+      .filter((item): item is AgendaOption => Boolean(item));
+
+    const storedAgendaSlugs = profile.agendaSlugs ?? [];
+    const resolvedAgendaSlugs = Array.from(
+      new Set(
+        storedAgendaSlugs.flatMap((slug) => {
+          if (options.some((option) => option.slug === slug)) return [slug];
+          const legacyMatches = options
+            .filter((option) => option.legacySlug === slug)
+            .map((option) => option.slug);
+          return legacyMatches.length ? legacyMatches : [slug];
+        }),
+      ),
+    );
 
     setFullName(profile.person?.fullName || "");
     setWhatsapp(profile.person?.whatsapp || "");
     setEmail(profile.person?.email || "");
     setNotes(profile.person?.notes || "");
-    const storedAgendaSlugs = profile.agendaSlugs ?? [];
-    const resolvedAgendaSlugs = Array.from(new Set(storedAgendaSlugs.flatMap((slug) => {
-      if (options.some((option) => option.slug === slug)) return [slug];
-      const legacyMatches = options.filter((option) => option.legacySlug === slug).map((option) => option.slug);
-      return legacyMatches.length ? legacyMatches : [slug];
-    })));
-
     setFunctionSlugs(profile.functionSlugs ?? []);
     setAgendaSlugs(resolvedAgendaSlugs);
     setOriginalFunctionSlugs(profile.functionSlugs ?? []);
     setOriginalAgendaSlugs(resolvedAgendaSlugs);
     setProfileUpdateStatus(profile.profileUpdateStatus || "");
     setAgendaOptions(options);
-    const fallbackEntities = profile.availableEntities?.length ? profile.availableEntities : agenda.entities ?? [];
-    const sourceEntities = entitiesResponse.ok && cavalinhoEntities.entities?.length
-      ? cavalinhoEntities.entities
-      : fallbackEntities;
-    const entities = sourceEntities.filter((item) => item.id && item.name);
-    const currentEntityIds = profile.selectedEntityIds ?? [];
 
-    setEntityOptions(entities);
-    setCavalinhoEntityIds(currentEntityIds);
-    setCavalinhoConsulenteEntityId(profile.cavalinhoConsulenteEntityId || "");
-    setCavalinhoConsulenteDefinitionCompleted(profile.cavalinhoConsulenteDefinitionCompleted === true);
-    setOriginalEntityIds(currentEntityIds);
+    const fallbackEntities = profile.availableEntities?.length
+      ? profile.availableEntities
+      : agenda.entities ?? [];
+    const sourceEntities =
+      entitiesResponse.ok && cavalinhoEntities.entities?.length
+        ? cavalinhoEntities.entities
+        : fallbackEntities;
+    setEntityOptions(sourceEntities.filter((item) => item.id && item.name));
+    setCavalinhoEntityIds(profile.selectedEntityIds ?? []);
+    setCavalinhoConsulenteEntityId(
+      profile.cavalinhoConsulenteEntityId || "",
+    );
+    setCavalinhoConsulenteDefinitionCompleted(
+      profile.cavalinhoConsulenteDefinitionCompleted === true,
+    );
+
+    const currentFamilyLinks = profile.familyLinks ?? [];
+    setFamilyPeople(profile.familyPeople ?? []);
+    setFamilyRelationships(profile.familyRelationships ?? []);
+    setFamilyLinks(currentFamilyLinks);
+    setHasFamily(currentFamilyLinks.length ? "sim" : "nao");
   }, []);
 
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
       load()
-        .catch((err) => {
-          if (active) setError(err instanceof Error ? err.message : "Erro ao carregar seus dados.");
+        .catch((reason) => {
+          if (active) {
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Erro ao carregar seus dados.",
+            );
+          }
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -205,52 +341,128 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   const functionOptions = useMemo<DraftItem[]>(
     () =>
-      filhoDaCorrenteFunctions.map((item) => {
-        const option = item as { slug: string; label: string; description?: string };
-        return { slug: option.slug, label: option.label, description: option.description || "" };
-      }),
+      filhoDaCorrenteFunctions.map((item) => ({
+        slug: item.slug,
+        label: item.label,
+        description:
+          "description" in item && typeof item.description === "string"
+            ? item.description
+            : "",
+      })),
     [],
   );
 
   const agendaDraftItems = useMemo<DraftItem[]>(
-    () => agendaOptions.map((item) => ({ slug: item.slug, label: item.label, description: descriptionForAgenda(item) })),
+    () =>
+      agendaOptions.map((item) => ({
+        slug: item.slug,
+        label: item.label,
+        description: descriptionForAgenda(item),
+      })),
     [agendaOptions],
   );
 
-  const selectedFunctions = useMemo(() => selectedDraftItems(functionOptions, functionSlugs), [functionOptions, functionSlugs]);
-  const selectedAgenda = useMemo(() => selectedDraftItems(agendaDraftItems, agendaSlugs), [agendaDraftItems, agendaSlugs]);
+  const selectedFunctions = useMemo(
+    () => functionOptions.filter((item) => functionSlugs.includes(item.slug)),
+    [functionOptions, functionSlugs],
+  );
+  const selectedAgenda = useMemo(
+    () => agendaDraftItems.filter((item) => agendaSlugs.includes(item.slug)),
+    [agendaDraftItems, agendaSlugs],
+  );
   const hasCavalinho = functionSlugs.includes("cavalinho");
-  const selectedEntities = useMemo(() => entityOptions.filter((item) => cavalinhoEntityIds.includes(item.id)).map((item) => ({ id: item.id, name: item.name })), [cavalinhoEntityIds, entityOptions]);
-
-  const newAgendaOptions = useMemo(
-    () => agendaOptions.filter((item) => !originalAgendaSlugs.includes(item.slug)),
-    [agendaOptions, originalAgendaSlugs],
+  const selectedEntities = useMemo(
+    () =>
+      entityOptions
+        .filter((item) => cavalinhoEntityIds.includes(item.id))
+        .map((item) => ({ id: item.id, name: item.name })),
+    [cavalinhoEntityIds, entityOptions],
   );
 
-  const pendingSummary = useMemo(() => {
-    const addedFunctions = functionSlugs.filter((item) => !originalFunctionSlugs.includes(item)).length;
-    const removedFunctions = originalFunctionSlugs.filter((item) => !functionSlugs.includes(item)).length;
-    const addedAgenda = agendaSlugs.filter((item) => !originalAgendaSlugs.includes(item)).length;
-    const removedAgenda = originalAgendaSlugs.filter((item) => !agendaSlugs.includes(item)).length;
-    const effectiveEntityIds = hasCavalinho ? cavalinhoEntityIds : [];
-    const addedEntities = effectiveEntityIds.filter((item) => !originalEntityIds.includes(item)).length;
-    const removedEntities = originalEntityIds.filter((item) => !effectiveEntityIds.includes(item)).length;
-    return { addedFunctions, removedFunctions, addedAgenda, removedAgenda, addedEntities, removedEntities };
-  }, [agendaSlugs, cavalinhoEntityIds, functionSlugs, hasCavalinho, originalAgendaSlugs, originalEntityIds, originalFunctionSlugs]);
+  const filteredFamilyPeople = useMemo(() => {
+    const query = normalizeSearch(familySearch);
+    return familyPeople.filter((item) => {
+      if (familyLinks.some((link) => link.personId === item.id)) return false;
+      return !query || normalizeSearch(item.fullName).includes(query);
+    });
+  }, [familyLinks, familyPeople, familySearch]);
+
+  const changesSummary = useMemo(() => {
+    const addedFunctions = functionSlugs.filter(
+      (item) => !originalFunctionSlugs.includes(item),
+    ).length;
+    const removedFunctions = originalFunctionSlugs.filter(
+      (item) => !functionSlugs.includes(item),
+    ).length;
+    const addedAgenda = agendaSlugs.filter(
+      (item) => !originalAgendaSlugs.includes(item),
+    ).length;
+    const removedAgenda = originalAgendaSlugs.filter(
+      (item) => !agendaSlugs.includes(item),
+    ).length;
+    return { addedFunctions, removedFunctions, addedAgenda, removedAgenda };
+  }, [agendaSlugs, functionSlugs, originalAgendaSlugs, originalFunctionSlugs]);
+
+  function addFamilyLink() {
+    const person = familyPeople.find((item) => item.id === familyPersonId);
+    const relationship = familyRelationships.find(
+      (item) => item.id === familyRelationshipId,
+    );
+    if (!person || !relationship) {
+      setError("Selecione o familiar e o grau de parentesco.");
+      return;
+    }
+    setFamilyLinks((current) => [
+      ...current,
+      {
+        personId: person.id,
+        personName: person.fullName,
+        relationshipTypeId: relationship.id,
+        relationshipLabel: relationship.label,
+      },
+    ]);
+    setHasFamily("sim");
+    setFamilyPersonId("");
+    setFamilyRelationshipId("");
+    setFamilySearch("");
+    setError("");
+  }
 
   function toggleFunction(slug: string) {
     const selected = functionSlugs.includes(slug);
     setFunctionSlugs((current) => toggleValue(current, slug));
-
     if (slug === "cavalinho") {
       if (selected) {
         setCavalinhoEntityIds([]);
         setCavalinhoConsulenteEntityId("");
         setCavalinhoConsulenteDefinitionCompleted(false);
       } else {
-        window.setTimeout(() => document.getElementById("cavalinho-entity-selector-button")?.click(), 0);
+        window.setTimeout(
+          () =>
+            document.getElementById("cavalinho-entity-selector-button")?.click(),
+          0,
+        );
       }
     }
+  }
+
+  function validateContactData() {
+    if (!fullName.trim()) return "Informe seu nome completo.";
+    if (whatsapp.replace(/\D/g, "").length < 10) {
+      return "Informe seu WhatsApp com DDD.";
+    }
+    if (email && !email.includes("@")) return "Confira o e-mail informado.";
+    return "";
+  }
+
+  function continueToFamily() {
+    const validationError = validateContactData();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setError("");
+    setDataPage(2);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -261,12 +473,9 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setPendingWhatsappUrl("");
     setRequestId("");
 
-    if (!fullName.trim()) {
-      setError("Informe seu nome completo.");
-      return;
-    }
-    if (whatsapp.replace(/\D/g, "").length < 10) {
-      setError("Informe seu WhatsApp com DDD.");
+    const contactError = validateContactData();
+    if (contactError) {
+      setError(contactError);
       return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
@@ -277,13 +486,20 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       setError("Informe se alguma das entidades selecionadas atende Consulentes.");
       return;
     }
-    if (hasCavalinho && cavalinhoConsulenteEntityId && !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)) {
-      setError("A entidade que atende Consulentes precisa estar entre as entidades que você recebe.");
+    if (
+      hasCavalinho &&
+      cavalinhoConsulenteEntityId &&
+      !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)
+    ) {
+      setError(
+        "A entidade que atende Consulentes precisa estar entre as entidades que você recebe.",
+      );
       return;
     }
 
     const candidateWindow = window.open("", "_blank");
-    const whatsappWindow = candidateWindow && candidateWindow !== window ? candidateWindow : null;
+    const whatsappWindow =
+      candidateWindow && candidateWindow !== window ? candidateWindow : null;
     if (whatsappWindow) {
       try {
         whatsappWindow.opener = null;
@@ -301,14 +517,40 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Sessão expirada. Entre novamente.");
 
-      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fullName, whatsapp, email, notes, functionSlugs, agendaSlugs, selectedFunctions, selectedAgenda, cavalinhoEntityIds: hasCavalinho ? cavalinhoEntityIds : [], cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "", cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false, selectedEntities: hasCavalinho ? selectedEntities : [] }),
-      });
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/filhos-corrente/perfil",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            fullName,
+            whatsapp,
+            email,
+            notes,
+            functionSlugs,
+            agendaSlugs,
+            selectedFunctions,
+            selectedAgenda,
+            familyLinks: hasFamily === "sim" ? familyLinks : [],
+            cavalinhoEntityIds: hasCavalinho ? cavalinhoEntityIds : [],
+            cavalinhoConsulenteEntityId: hasCavalinho
+              ? cavalinhoConsulenteEntityId
+              : "",
+            cavalinhoConsulenteDefinitionCompleted: hasCavalinho
+              ? cavalinhoConsulenteDefinitionCompleted
+              : false,
+            selectedEntities: hasCavalinho ? selectedEntities : [],
+          }),
+        },
+      );
       const result = (await response.json()) as SubmitResponse;
       if (!response.ok) {
-        const failure = new Error(result.error || "Não foi possível enviar a atualização.") as Error & { requestId?: string };
+        const failure = new Error(
+          result.error || "Não foi possível enviar a atualização.",
+        ) as Error & { requestId?: string };
         failure.requestId = result.requestId;
         throw failure;
       }
@@ -317,6 +559,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       setStatusUrl(result.statusUrl || "");
       setRequestId(result.requestId || "");
       setProfileUpdateStatus("pendente_validacao");
+      setActiveDialog(null);
 
       if (result.whatsappUrl) {
         if (whatsappWindow) {
@@ -327,12 +570,15 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       } else {
         whatsappWindow?.close();
       }
-
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err) {
+    } catch (reason) {
       whatsappWindow?.close();
-      setRequestId((err as { requestId?: string })?.requestId || "");
-      setError(err instanceof Error ? err.message : "Erro ao enviar atualização.");
+      setRequestId((reason as { requestId?: string })?.requestId || "");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao enviar atualização.",
+      );
     } finally {
       setSaving(false);
     }
@@ -342,153 +588,470 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader navLabel="Atualização de dados do Filho da Corrente" />
 
-      <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Atualização dos dados</p>
-          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">Meus dados, funções e agenda</h1>
+          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">
+            Atualização dos dados
+          </p>
+          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">
+            Atualize seu cadastro em duas etapas.
+          </h1>
           <p className="mt-3 max-w-3xl leading-7 text-slate-700">
-            Veja o que já está selecionado, marque o que mudou e envie a atualização para validação do Tucxa. Novas atividades disponíveis aparecem destacadas.
+            Abra cada tela, confira seus dados, vínculos familiares, funções e agenda;
+            depois envie tudo para validação do Tucxa.
           </p>
 
           {profileUpdateStatus === "pendente_validacao" && !message && (
             <div className="mt-5 rounded-3xl bg-blue-50 p-4 text-blue-950 ring-1 ring-blue-100">
-              <p className="font-black">Atualização cadastral aguardando validação.</p>
-              <p className="mt-1 text-sm font-semibold leading-6">Seu acesso e as informações anteriormente aprovadas continuam ativos. As novas funções e agendas somente serão aplicadas depois da aprovação.</p>
+              <p className="font-black">Atualização aguardando validação.</p>
+              <p className="mt-1 text-sm font-semibold leading-6">
+                Seu cadastro anteriormente aprovado continua ativo até a análise.
+              </p>
             </div>
           )}
 
           {profileUpdateStatus === "ajuste_solicitado" && !message && (
             <div className="mt-5 rounded-3xl bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-100">
               <p className="font-black">A atualização anterior precisa de ajustes.</p>
-              <p className="mt-1 text-sm font-semibold leading-6">O perfil aprovado continua ativo. Revise as informações e envie uma nova solicitação.</p>
+              <p className="mt-1 text-sm font-semibold leading-6">
+                Revise as informações e envie uma nova solicitação.
+              </p>
             </div>
           )}
 
-          {loading && <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando dados...</p>}
+          {loading && (
+            <p className="mt-5 rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">
+              Carregando dados...
+            </p>
+          )}
           {error && (
             <div className="mt-5 rounded-3xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">
               <p>{error}</p>
-              {requestId && <p className="mt-1 text-xs">Código para suporte: {requestId}</p>}
+              {requestId && (
+                <p className="mt-1 text-xs">Código para suporte: {requestId}</p>
+              )}
             </div>
           )}
           {message && (
             <div className="mt-5 rounded-[1.75rem] bg-emerald-50 p-5 text-emerald-900 ring-1 ring-emerald-100">
-              <p className="text-xs font-black uppercase tracking-[0.2em]">Atualização enviada</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em]">
+                Atualização enviada
+              </p>
               <h2 className="mt-2 text-2xl font-black">Obrigado!</h2>
               <p className="mt-2 font-bold">{message}</p>
-              <p className="mt-2 text-sm font-semibold leading-6">Seu acesso atual continua disponível enquanto o TUCXA confere as alterações.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {statusUrl && <Link href={statusUrl} className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">Acompanhar validação</Link>}
-                {pendingWhatsappUrl && <a href={pendingWhatsappUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#25D366] px-5 py-3 text-center font-black text-[#073B1D]">Abrir mensagem no WhatsApp</a>}
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Voltar ao painel</Link>
+                {statusUrl && (
+                  <Link
+                    href={statusUrl}
+                    className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white"
+                  >
+                    Acompanhar validação
+                  </Link>
+                )}
+                {pendingWhatsappUrl && (
+                  <a
+                    href={pendingWhatsappUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-[#25D366] px-5 py-3 text-center font-black text-[#073B1D]"
+                  >
+                    Abrir mensagem no WhatsApp
+                  </a>
+                )}
+                <Link
+                  href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel"
+                  className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                >
+                  Voltar ao painel
+                </Link>
               </div>
-              {requestId && <p className="mt-3 text-xs font-semibold">Código de referência: {requestId}</p>}
             </div>
           )}
 
-          {!loading && !error && !message && (
-            <form onSubmit={submit} className="mt-6 grid gap-5">
-              <section className="grid gap-3 md:grid-cols-3">
-                <label className="grid gap-2 text-sm font-black text-[#123D2C] md:col-span-3">
-                  Nome completo
-                  <input value={fullName} onChange={(event) => setFullName(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-700 outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" required />
-                </label>
-                <label className="grid gap-2 text-sm font-black text-[#123D2C]">
-                  WhatsApp com DDD
-                  <input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-700 outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" required />
-                </label>
-                <label className="grid gap-2 text-sm font-black text-[#123D2C]">
-                  E-mail
-                  <input value={email} onChange={(event) => setEmail(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-700 outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" placeholder="Opcional" />
-                </label>
-                <label className="grid gap-2 text-sm font-black text-[#123D2C]">
-                  Observação
-                  <input value={notes} onChange={(event) => setNotes(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-700 outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" placeholder="Opcional" />
-                </label>
-              </section>
+          {!loading && !message && (
+            <form onSubmit={submit} className="mt-6 grid gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setDataPage(1);
+                  setActiveDialog("dados");
+                }}
+                className="rounded-2xl bg-[#F7FAF2] p-5 text-left ring-1 ring-[#123D2C]/10"
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span>
+                    <span className="block text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                      Etapa 1 de 2
+                    </span>
+                    <span className="mt-1 block text-lg font-black text-[#123D2C]">
+                      Dados e família
+                    </span>
+                  </span>
+                  <span className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">
+                    Atualizar
+                  </span>
+                </span>
+              </button>
 
-              <section className="rounded-[1.75rem] bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                <h2 className="text-xl font-black text-[#123D2C]">Resumo das alterações</h2>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedFunctions} funções</p>
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedFunctions} funções</p>
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedAgenda} agendas</p>
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedAgenda} agendas</p>
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">+{pendingSummary.addedEntities} entidades</p>
-                  <p className="rounded-2xl bg-white p-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">-{pendingSummary.removedEntities} entidades</p>
-                </div>
-              </section>
+              <button
+                type="button"
+                onClick={() => setActiveDialog("participacao")}
+                className="rounded-2xl bg-[#F7FAF2] p-5 text-left ring-1 ring-[#123D2C]/10"
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span>
+                    <span className="block text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                      Etapa 2 de 2
+                    </span>
+                    <span className="mt-1 block text-lg font-black text-[#123D2C]">
+                      Função e agenda
+                    </span>
+                  </span>
+                  <span className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">
+                    Atualizar
+                  </span>
+                </span>
+              </button>
 
-              <section className="grid gap-4 lg:grid-cols-2">
-                <article className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                  <h2 className="text-xl font-black text-[#123D2C]">Funções</h2>
-                  <div className="mt-4 grid gap-2">
-                    {functionOptions.map((item) => {
-                      const checked = functionSlugs.includes(item.slug);
-                      const wasChecked = originalFunctionSlugs.includes(item.slug);
-                      return (
-                        <label key={item.slug} className={`flex gap-3 rounded-2xl p-3 ring-1 ${checked ? "bg-emerald-50 ring-emerald-100" : "bg-[#F7FAF2] ring-[#123D2C]/10"}`}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleFunction(item.slug)} className="mt-1 h-5 w-5" />
-                          <span>
-                            <span className="font-black text-[#123D2C]">{item.label}</span>
-                            {wasChecked && <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-xs font-black text-white">já selecionado</span>}
-                            {item.description && <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">{item.description}</span>}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {hasCavalinho && (
-                    <CavalinhoEntitySelector
-                      entities={entityOptions}
-                      selectedEntityIds={cavalinhoEntityIds}
-                      consulenteEntityId={cavalinhoConsulenteEntityId}
-                      consulenteDefinitionCompleted={cavalinhoConsulenteDefinitionCompleted}
-                      onChange={(value) => {
-                        setCavalinhoEntityIds(value.selectedEntityIds);
-                        setCavalinhoConsulenteEntityId(value.consulenteEntityId);
-                        setCavalinhoConsulenteDefinitionCompleted(value.consulenteDefinitionCompleted);
-                      }}
-                    />
-                  )}
-                </article>
-
-                <article className="rounded-[1.75rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-                  <h2 className="text-xl font-black text-[#123D2C]">Agenda Viva</h2>
-                  {newAgendaOptions.length > 0 && <p className="mt-2 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-100">Novas opções a partir da data atual: {newAgendaOptions.length}</p>}
-                  <div className="mt-4 grid gap-2">
-                    {agendaOptions.map((item) => {
-                      const checked = agendaSlugs.includes(item.slug);
-                      const wasChecked = originalAgendaSlugs.includes(item.slug);
-                      const isNew = !wasChecked;
-                      return (
-                        <label key={item.slug} className={`flex gap-3 rounded-2xl p-3 ring-1 ${checked ? "bg-emerald-50 ring-emerald-100" : isNew ? "bg-amber-50 ring-amber-100" : "bg-[#F7FAF2] ring-[#123D2C]/10"}`}>
-                          <input type="checkbox" checked={checked} onChange={() => setAgendaSlugs((values) => toggleValue(values, item.slug))} className="mt-1 h-5 w-5" />
-                          <span>
-                            <span className="font-black text-[#123D2C]">{item.label}</span>
-                            {wasChecked && <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-xs font-black text-white">já selecionado</span>}
-                            {isNew && <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-black text-amber-900">novo</span>}
-                            <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">{descriptionForAgenda(item)}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                    {agendaOptions.length === 0 && <p className="rounded-2xl bg-[#F7FAF2] p-3 font-bold text-slate-600">Nenhuma opção de agenda disponível agora.</p>}
-                  </div>
-                </article>
-              </section>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <button type="submit" disabled={saving} className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 disabled:opacity-60">
-                  {saving ? "Enviando..." : "Enviar atualização para validação"}
-                </button>
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Voltar ao painel</Link>
+              <div className="rounded-2xl bg-[#EEF5EA] p-4 text-sm font-semibold text-slate-700">
+                Alterações atuais: +{changesSummary.addedFunctions} / -
+                {changesSummary.removedFunctions} funções e +
+                {changesSummary.addedAgenda} / -{changesSummary.removedAgenda} agendas.
+                Familiares vinculados: {hasFamily === "sim" ? familyLinks.length : 0}.
               </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 disabled:opacity-60"
+              >
+                {saving ? "Enviando..." : "Enviar atualização para validação"}
+              </button>
+              <Link
+                href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel"
+                className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+              >
+                Voltar ao painel
+              </Link>
             </form>
           )}
         </div>
       </section>
 
+      {activeDialog === "dados" && (
+        <UpdateModal
+          eyebrow={`Etapa 1 de 2 · tela ${dataPage} de 2`}
+          title={dataPage === 1 ? "Dados de contato" : "Vínculos familiares"}
+          onClose={() => setActiveDialog(null)}
+          footer={
+            dataPage === 1 ? (
+              <button
+                type="button"
+                onClick={continueToFamily}
+                className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+              >
+                Continuar para família
+              </button>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setDataPage(1)}
+                  className="rounded-2xl bg-white px-5 py-3.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                >
+                  Voltar aos dados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError("");
+                    setActiveDialog(null);
+                  }}
+                  className="rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+                >
+                  Confirmar etapa 1
+                </button>
+              </div>
+            )
+          }
+        >
+          {dataPage === 1 ? (
+            <div className="grid gap-4">
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#123D2C]">
+                  Nome completo *
+                </span>
+                <input
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#123D2C]">
+                  Celular/WhatsApp *
+                </span>
+                <input
+                  value={whatsapp}
+                  onChange={(event) => setWhatsapp(event.target.value)}
+                  inputMode="tel"
+                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#123D2C]">E-mail</span>
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                  placeholder="Opcional, mas recomendado"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-sm font-black text-[#123D2C]">
+                  Observação
+                </span>
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4"
+                  placeholder="Opcional"
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <p className="text-sm font-semibold leading-6 text-slate-600">
+                Você possui Pai, Mãe, Marido, Esposa, Filho ou Filha que também é
+                Filho da Corrente?
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(["sim", "nao"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      setHasFamily(option);
+                      if (option === "nao") setFamilyLinks([]);
+                    }}
+                    className={`rounded-2xl px-4 py-3 font-black ring-1 ${
+                      hasFamily === option
+                        ? "bg-[#123D2C] text-white ring-[#123D2C]"
+                        : "bg-white text-[#123D2C] ring-[#123D2C]/15"
+                    }`}
+                  >
+                    {option === "sim" ? "Sim" : "Não"}
+                  </button>
+                ))}
+              </div>
+
+              {hasFamily === "sim" && (
+                <>
+                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                    <label className="grid gap-1">
+                      <span className="text-sm font-black text-[#123D2C]">
+                        Digite o nome para localizar
+                      </span>
+                      <input
+                        value={familySearch}
+                        onChange={(event) => setFamilySearch(event.target.value)}
+                        className="rounded-2xl border border-slate-200 bg-white p-3"
+                        placeholder="Nome do familiar"
+                      />
+                    </label>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <select
+                        value={familyPersonId}
+                        onChange={(event) => setFamilyPersonId(event.target.value)}
+                        className="rounded-2xl border border-slate-200 bg-white p-3"
+                      >
+                        <option value="">Selecionar o familiar</option>
+                        {filteredFamilyPeople.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.fullName}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={familyRelationshipId}
+                        onChange={(event) =>
+                          setFamilyRelationshipId(event.target.value)
+                        }
+                        className="rounded-2xl border border-slate-200 bg-white p-3"
+                      >
+                        <option value="">Grau de parentesco</option>
+                        {familyRelationships.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addFamilyLink}
+                      className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                    >
+                      Incluir familiar
+                    </button>
+                  </div>
+
+                  <div className="grid gap-2">
+                    {familyLinks.map((link) => (
+                      <div
+                        key={link.personId}
+                        className="flex items-center justify-between gap-3 rounded-2xl bg-[#E9F2E7] p-3"
+                      >
+                        <span>
+                          <strong className="block text-[#123D2C]">
+                            {link.personName}
+                          </strong>
+                          <span className="text-sm text-slate-600">
+                            {link.relationshipLabel}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFamilyLinks((current) =>
+                              current.filter(
+                                (item) => item.personId !== link.personId,
+                              ),
+                            )
+                          }
+                          className="rounded-xl bg-white px-3 py-2 text-sm font-black text-red-700"
+                        >
+                          Retirar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950 ring-1 ring-amber-200">
+                    <strong>Familiar não localizado?</strong> Oriente-o a realizar o
+                    Primeiro Acesso. Você pode enviar esta atualização agora e informar
+                    o vínculo depois nesta mesma tela.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </UpdateModal>
+      )}
+
+      {activeDialog === "participacao" && (
+        <UpdateModal
+          eyebrow="Etapa 2 de 2"
+          title="Função e agenda"
+          onClose={() => setActiveDialog(null)}
+          footer={
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setActiveDialog(null);
+              }}
+              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
+            >
+              Confirmar etapa 2
+            </button>
+          }
+        >
+          <section>
+            <h3 className="font-black text-[#123D2C]">Funções adicionais</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {functionOptions.map((item) => {
+                const checked = functionSlugs.includes(item.slug);
+                const wasChecked = originalFunctionSlugs.includes(item.slug);
+                return (
+                  <label
+                    key={item.slug}
+                    className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
+                      checked
+                        ? "bg-emerald-50 ring-emerald-100"
+                        : "bg-white ring-[#123D2C]/10"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleFunction(item.slug)}
+                      className="mt-1 h-5 w-5"
+                    />
+                    <span className="text-sm font-bold text-[#123D2C]">
+                      {item.label}
+                      {wasChecked && (
+                        <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-[10px] text-white">
+                          já selecionado
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {hasCavalinho && (
+              <CavalinhoEntitySelector
+                entities={entityOptions}
+                selectedEntityIds={cavalinhoEntityIds}
+                consulenteEntityId={cavalinhoConsulenteEntityId}
+                consulenteDefinitionCompleted={
+                  cavalinhoConsulenteDefinitionCompleted
+                }
+                onChange={(value) => {
+                  setCavalinhoEntityIds(value.selectedEntityIds);
+                  setCavalinhoConsulenteEntityId(value.consulenteEntityId);
+                  setCavalinhoConsulenteDefinitionCompleted(
+                    value.consulenteDefinitionCompleted,
+                  );
+                }}
+              />
+            )}
+          </section>
+
+          <section className="mt-6 border-t border-slate-100 pt-5">
+            <h3 className="font-black text-[#123D2C]">Agenda</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {agendaOptions.map((item) => {
+                const checked = agendaSlugs.includes(item.slug);
+                const wasChecked = originalAgendaSlugs.includes(item.slug);
+                return (
+                  <label
+                    key={item.slug}
+                    className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
+                      checked
+                        ? "bg-emerald-50 ring-emerald-100"
+                        : wasChecked
+                          ? "bg-white ring-[#123D2C]/10"
+                          : "bg-amber-50 ring-amber-100"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setAgendaSlugs((current) =>
+                          toggleValue(current, item.slug),
+                        )
+                      }
+                      className="mt-1 h-5 w-5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-[#123D2C]">
+                        {item.label}
+                      </span>
+                      <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+                        {descriptionForAgenda(item)}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+        </UpdateModal>
+      )}
     </main>
   );
 }

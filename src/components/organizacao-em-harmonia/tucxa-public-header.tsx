@@ -103,7 +103,7 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, active, onSelect, label = "Dúvidas?", compactMobile = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean }) {
+function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean }) {
   return (
     <a
       href={href}

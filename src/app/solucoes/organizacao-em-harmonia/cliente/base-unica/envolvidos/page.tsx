@@ -130,24 +130,10 @@ const moduleLabels: Record<string, string> = {
 };
 
 
-const accessStatusLabels: Record<string, string> = {
-  ativo: "Acesso liberado",
-  pendente_validacao: "Aguardando validação",
-  ajuste_solicitado: "Ajuste solicitado",
-  inativo: "Inativo",
-};
-
 function accessStatus(person: Person, membership: Membership | null) {
   if (membership?.status) return membership.status;
   if (membership?.active === false || person.active === false) return "pendente_validacao";
   return "ativo";
-}
-
-function accessStatusClass(status: string) {
-  if (status === "ativo") return "bg-emerald-50 text-[#00334E]";
-  if (status === "pendente_validacao") return "bg-amber-50 text-amber-800";
-  if (status === "ajuste_solicitado") return "bg-blue-50 text-blue-800";
-  return "bg-slate-100 text-slate-600";
 }
 
 function whatsappUrl(phone: string | null | undefined, message: string) {
@@ -160,6 +146,12 @@ function whatsappUrl(phone: string | null | undefined, message: string) {
 function publicEmail(email: string | null | undefined) {
   if (!email || email.includes("@organizacao-em-harmonia.local")) return "";
   return email;
+}
+
+function compactName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "Sem nome";
+  return `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
 function accessReplyText(person: Person, status: string, origin: string) {
@@ -323,7 +315,6 @@ export default function EnvolvidosPage() {
     };
   }, [load]);
 
-  const roleById = useMemo(() => new Map((payload?.roles ?? []).map((role) => [role.id, role])), [payload?.roles]);
   const availableModules = payload?.modules?.length ? payload.modules.filter((module) => module.enabled !== false).map((module) => module.module_slug) : DEFAULT_MODULE_SLUGS;
   const filteredPeople = useMemo(() => {
     const search = normalizeSearch(filters.search);
@@ -666,7 +657,62 @@ export default function EnvolvidosPage() {
               </div>
             </div>
 
-            <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[1160px] text-left text-sm"><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400"><th className="py-3">Nome</th><th>Contato</th><th>Função</th><th>Vínculos Tucxa</th><th>Módulos</th><th>Acesso</th><th>Ações</th></tr></thead><tbody>{filteredPeople.map((person) => { const membership = membershipFor(person.id, payload.memberships); const role = membership?.role_id ? roleById.get(membership.role_id) : null; const currentAccessStatus = accessStatus(person, membership); const reply = accessReplyText(person, currentAccessStatus, window.location.origin); const orientationWa = whatsappUrl(person.whatsapp, reply.body); const orientationEmail = emailUrl(person, currentAccessStatus, window.location.origin); return (<tr key={person.id} className="border-b border-slate-50 align-top"><td className="py-3"><p className="font-black text-[#00334E]">{person.full_name}</p><p className="text-xs text-slate-500">{person.notes || "Sem observações"}</p></td><td className="py-3"><p>{person.whatsapp || "Sem WhatsApp"}</p><p className="text-xs text-slate-500">{publicEmail(person.email) || "Sem e-mail público"}</p></td><td className="py-3">{role?.name ?? "Sem função"}</td><td className="py-3 max-w-xs text-xs leading-5 text-slate-600">{profileSummary(membership?.agenda_viva_profile)}</td><td className="py-3">{(membership?.module_slugs?.length ? membership.module_slugs : availableModules).map((module) => moduleLabels[module] ?? module).join(", ") || "Sem módulo"}</td><td className="py-3"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${accessStatusClass(currentAccessStatus)}`}>{accessStatusLabels[currentAccessStatus] ?? currentAccessStatus}</span></td><td className="py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button>{currentAccessStatus !== "ativo" && <button type="button" onClick={() => approveAccess(person)} className="rounded-xl bg-emerald-50 px-3 py-2 font-black text-[#00334E]">Aprovar acesso</button>}<button type="button" onClick={() => requestAccessAdjustment(person)} className="rounded-xl bg-blue-50 px-3 py-2 font-black text-blue-800">Solicitar ajuste</button>{orientationEmail && <a href={orientationEmail} className="rounded-xl bg-amber-50 px-3 py-2 font-black text-amber-800">E-mail</a>}{orientationWa && <a href={orientationWa} target="_blank" rel="noreferrer" className="rounded-xl bg-green-50 px-3 py-2 font-black text-green-800">WhatsApp</a>}<button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button><button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button></div></td></tr>); })}{filteredPeople.length === 0 && <tr><td colSpan={7} className="py-5 font-bold text-slate-500">Nenhum envolvido encontrado com os filtros atuais.</td></tr>}</tbody></table></div>
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs uppercase tracking-[0.18em] text-slate-400">
+                    <th className="py-3">Nome</th>
+                    <th className="py-3">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPeople.map((person) => {
+                    const membership = membershipFor(person.id, payload.memberships);
+                    const currentAccessStatus = accessStatus(person, membership);
+                    const reply = accessReplyText(
+                      person,
+                      currentAccessStatus,
+                      window.location.origin,
+                    );
+                    const orientationWa = whatsappUrl(person.whatsapp, reply.body);
+                    const orientationEmail = emailUrl(
+                      person,
+                      currentAccessStatus,
+                      window.location.origin,
+                    );
+                    return (
+                      <tr key={person.id} className="border-b border-slate-50 align-top">
+                        <td className="py-3 pr-4">
+                          <p className="font-black text-[#00334E]">
+                            {compactName(person.full_name)}
+                          </p>
+                        </td>
+                        <td className="py-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => editPerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">Editar</button>
+                            {currentAccessStatus !== "ativo" && (
+                              <button type="button" onClick={() => approveAccess(person)} className="rounded-xl bg-emerald-50 px-3 py-2 font-black text-[#00334E]">Aprovar acesso</button>
+                            )}
+                            <button type="button" onClick={() => requestAccessAdjustment(person)} className="rounded-xl bg-blue-50 px-3 py-2 font-black text-blue-800">Solicitar ajuste</button>
+                            {orientationEmail && <a href={orientationEmail} className="rounded-xl bg-amber-50 px-3 py-2 font-black text-amber-800">E-mail</a>}
+                            {orientationWa && <a href={orientationWa} target="_blank" rel="noreferrer" className="rounded-xl bg-green-50 px-3 py-2 font-black text-green-800">WhatsApp</a>}
+                            <button type="button" onClick={() => togglePerson(person)} className="rounded-xl bg-slate-100 px-3 py-2 font-black text-[#00334E]">{person.active === false ? "Ativar" : "Inativar"}</button>
+                            <button type="button" onClick={() => deletePerson(person)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-700">Excluir</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredPeople.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="py-5 font-bold text-slate-500">
+                        Nenhum envolvido encontrado com os filtros atuais.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </>
       )}

@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  loadEligibleFamilyPeople,
+  loadFamilyRelationshipOptions,
+  parseFamilyLinks,
+  validateFamilyLinks,
+  type FamilyLink,
+} from "@/lib/organizacao-em-harmonia/family-links";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +42,7 @@ type AccessBody = {
   cavalinhoConsulenteEntityId?: unknown;
   cavalinhoConsulenteDefinitionCompleted?: unknown;
   selectedEntities?: unknown;
+  familyLinks?: unknown;
 };
 
 type PersonRow = {
@@ -429,6 +437,7 @@ function commonSummaryText(input: {
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntity: EntityItem | null;
+  familyLinks: FamilyLink[];
 }) {
   return [
     `Organização: ${ORGANIZATION_DISPLAY_NAME}`,
@@ -450,6 +459,15 @@ function commonSummaryText(input: {
           `Entidade que atende Filhos de Fora/Consulentes: ${input.cavalinhoConsulenteEntity?.name || "Nenhuma das entidades selecionadas"}`,
         ]
       : []),
+    ...(input.familyLinks.length
+      ? [
+          "",
+          "Familiares vinculados:",
+          input.familyLinks
+            .map((item) => `- ${item.personName} · ${item.relationshipLabel}`)
+            .join("\n"),
+        ]
+      : []),
     "",
     input.notes ? `Observação: ${input.notes}` : "Observação: não informada",
   ].join("\n");
@@ -464,6 +482,7 @@ function commonSummaryHtml(input: {
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntity: EntityItem | null;
+  familyLinks: FamilyLink[];
 }) {
   return `
     <p style="margin:0 0 8px 0"><strong>Organização:</strong> ${htmlEscape(ORGANIZATION_DISPLAY_NAME)}</p>
@@ -475,6 +494,7 @@ function commonSummaryHtml(input: {
     <h3 style="margin:22px 0 8px 0;color:#123D2C">Agenda:</h3>
     ${listToHtml(agendaLines(input.selectedAgenda), true)}
     ${input.selectedEntities.length ? `<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidades que recebe:</h3>${listToHtml(input.selectedEntities.map((item) => item.name))}<h3 style="margin:22px 0 8px 0;color:#123D2C">Entidade que atende Filhos de Fora/Consulentes:</h3><p style="margin:0 0 6px 0;line-height:1.6">${htmlEscape(input.cavalinhoConsulenteEntity?.name || "Nenhuma das entidades selecionadas")}</p>` : ""}
+    ${input.familyLinks.length ? `<h3 style="margin:22px 0 8px 0;color:#123D2C">Familiares vinculados:</h3>${listToHtml(input.familyLinks.map((item) => `${item.personName} · ${item.relationshipLabel}`))}` : ""}
     <p style="margin:18px 0 0 0"><strong>Observação:</strong> ${htmlEscape(input.notes || "não informada")}</p>`;
 }
 
@@ -497,6 +517,7 @@ function buildPersonEmail(input: {
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntity: EntityItem | null;
+  familyLinks: FamilyLink[];
   statusUrl: string;
 }) {
   const text = [
@@ -538,6 +559,7 @@ function buildReviewerEmail(input: {
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntity: EntityItem | null;
+  familyLinks: FamilyLink[];
   validationUrl: string;
   simulationUrl: string;
 }) {
@@ -586,6 +608,7 @@ function buildWhatsappPersonMessage(input: {
   selectedAgenda: DraftItem[];
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntity: EntityItem | null;
+  familyLinks: FamilyLink[];
   statusUrl: string;
 }) {
   return [
@@ -673,6 +696,7 @@ async function submitFirstAccess(body: AccessBody) {
   const cavalinhoConsulenteEntityId = asText(body.cavalinhoConsulenteEntityId);
   const cavalinhoConsulenteDefinitionCompleted = body.cavalinhoConsulenteDefinitionCompleted === true;
   const requestedEntities = asEntityItems(body.selectedEntities);
+  const requestedFamilyLinks = parseFamilyLinks(body.familyLinks);
   const hasCavalinho = hasCavalinhoFunction(functionSlugs, selectedFunctions);
 
   if (!fullName) throw new Error("Informe o nome completo.");
@@ -698,7 +722,9 @@ async function submitFirstAccess(body: AccessBody) {
       .eq("active", true)
       .in("id", requestedEntityIds);
     if (entityError) throw entityError;
-    selectedEntities = (entityRows ?? []).map((row) => ({ id: String(row.id), name: asText(row.name) }));
+    selectedEntities = ((entityRows ?? []) as Array<{ id: string; name: string | null }>).map(
+      (row) => ({ id: String(row.id), name: asText(row.name) }),
+    );
     if (selectedEntities.length !== new Set(requestedEntityIds).size) {
       throw new Error("Uma ou mais entidades selecionadas não estão ativas ou não pertencem ao Tucxa.");
     }
@@ -711,6 +737,11 @@ async function submitFirstAccess(body: AccessBody) {
   ) ?? null;
 
   const existing = await findPersonByIdentifier(organization.id, email || whatsapp);
+  const selectedFamilyLinks = await validateFamilyLinks({
+    organizationId: organization.id,
+    personId: existing?.id,
+    links: requestedFamilyLinks,
+  });
   const emailForAuth = email || syntheticEmailFromPhone(whatsapp);
   const authUserId = await ensureAuthUser({ person: existing, emailForAuth, password, fullName, whatsapp, organizationId: organization.id });
 
@@ -747,6 +778,7 @@ async function submitFirstAccess(body: AccessBody) {
     selectedEntities,
     cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "",
     cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
+    familyLinks: selectedFamilyLinks,
     submittedAt: new Date().toISOString(),
     canSimulateAccess: false,
   };
@@ -787,6 +819,7 @@ async function submitFirstAccess(body: AccessBody) {
     selectedEntities,
     cavalinhoConsulenteEntityId: hasCavalinho ? cavalinhoConsulenteEntityId : "",
     cavalinhoConsulenteDefinitionCompleted: hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
+    familyLinks: selectedFamilyLinks,
     notes,
     statusToken,
   };
@@ -817,6 +850,7 @@ async function submitFirstAccess(body: AccessBody) {
     selectedAgenda,
     selectedEntities,
     cavalinhoConsulenteEntity,
+    familyLinks: selectedFamilyLinks,
   };
 
   const reviewers = await reviewerEmails(organization.id);
@@ -858,6 +892,14 @@ export async function POST(request: Request) {
     const action = asText(body.action) || "submit";
     const organization = await findTucxaOrganizationId();
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
+
+    if (action === "family-options") {
+      const [people, relationshipTypes] = await Promise.all([
+        loadEligibleFamilyPeople(organization.id),
+        loadFamilyRelationshipOptions(organization.id),
+      ]);
+      return NextResponse.json({ ok: true, people, relationshipTypes });
+    }
 
     if (action === "lookup") {
       const person = await findPersonByIdentifier(organization.id, asText(body.identifier));

@@ -6,6 +6,12 @@ import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-pu
 
 type DraftItem = { slug: string; label: string; description?: string };
 type EntityItem = { id: string; name: string };
+type FamilyLinkItem = {
+  personId: string;
+  personName: string;
+  relationshipTypeId: string;
+  relationshipLabel: string;
+};
 type FirstAccessDraft = {
   fullName: string;
   whatsapp: string;
@@ -20,6 +26,7 @@ type FirstAccessDraft = {
   selectedEntities: EntityItem[];
   cavalinhoConsulenteEntityId: string;
   cavalinhoConsulenteDefinitionCompleted: boolean;
+  familyLinks: FamilyLinkItem[];
   createdAt: string;
 };
 
@@ -108,6 +115,16 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
                     <p><strong>E-mail:</strong><br />{draft.email || "Não informado"}</p>
                     <p><strong>Observação:</strong><br />{draft.notes || "Não informada"}</p>
                   </div>
+                  {draft.familyLinks?.length > 0 && (
+                    <div className="mt-4 rounded-[1.5rem] border border-[#123D2C]/10 p-4">
+                      <h2 className="font-black text-[#123D2C]">Familiares vinculados</h2>
+                      <ul className="mt-2 space-y-2 text-sm font-semibold text-slate-700">
+                        {draft.familyLinks.map((item) => (
+                          <li key={item.personId}>• {item.personName} — {item.relationshipLabel}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
                       <h2 className="font-black text-[#123D2C]">Funções</h2>

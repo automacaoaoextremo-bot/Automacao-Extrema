@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { profileHasCavalinho, resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
+import {
+  loadEligibleFamilyPeople,
+  loadFamilyRelationshipOptions,
+  loadPersonFamilyLinks,
+  parseFamilyLinks,
+  validateFamilyLinks,
+} from "@/lib/organizacao-em-harmonia/family-links";
 
 export const dynamic = "force-dynamic";
 
@@ -256,6 +263,11 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
   const cavalinhoConsulenteDefinitionCompleted = Object.prototype.hasOwnProperty.call(profile, "cavalinhoConsulenteDefinitionCompleted")
     ? profile.cavalinhoConsulenteDefinitionCompleted === true
     : linkedEntityIds.length > 0;
+  const [familyPeople, familyRelationships, familyLinks] = await Promise.all([
+    loadEligibleFamilyPeople(organizationId, person.id),
+    loadFamilyRelationshipOptions(organizationId),
+    loadPersonFamilyLinks(organizationId, person.id),
+  ]);
   return {
     person: {
       id: person.id,
@@ -285,6 +297,9 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     lastProfileUpdateAt: asText(profile.lastProfileUpdateAt),
     profileUpdateStatus: asText(profile.profileUpdateStatus),
     pendingProfileUpdate: asRecord(profile.pendingProfileUpdate),
+    familyPeople,
+    familyRelationships,
+    familyLinks,
     canReception: capabilities.canReception,
     canCambono: capabilities.canCambono,
     canCavalinho: capabilities.canCavalinho,
@@ -324,6 +339,12 @@ export async function POST(request: Request) {
     const agendaSlugs = asTextList(body.agendaSlugs);
     const selectedFunctions = asDraftItems(body.selectedFunctions);
     const selectedAgenda = asDraftItems(body.selectedAgenda);
+    const familyLinkInputs = parseFamilyLinks(body.familyLinks);
+    const selectedFamilyLinks = await validateFamilyLinks({
+      organizationId: organization.id,
+      personId: current.person.id,
+      links: familyLinkInputs,
+    });
     const cavalinhoEntityIds = Array.from(new Set(asTextList(body.cavalinhoEntityIds)));
     const cavalinhoConsulenteEntityId = asText(body.cavalinhoConsulenteEntityId);
     const cavalinhoConsulenteDefinitionCompleted = body.cavalinhoConsulenteDefinitionCompleted === true;
@@ -360,6 +381,7 @@ export async function POST(request: Request) {
     const previousAgendaSlugs = asTextList(previousProfile.agendaSlugs);
     const previousSelectedFunctions = asDraftItems(previousProfile.selectedFunctions);
     const previousSelectedAgenda = asDraftItems(previousProfile.selectedAgenda);
+    const previousFamilyLinks = await loadPersonFamilyLinks(organization.id, current.person.id);
     const { data: previousEntityLinks, error: previousEntityLinksError } = await supabaseAdmin
       .from("oh_person_entity_links")
       .select("entity_id")
@@ -392,7 +414,10 @@ export async function POST(request: Request) {
       selectedEntities,
       cavalinhoConsulenteEntityId: requestedHasCavalinho ? cavalinhoConsulenteEntityId : "",
       cavalinhoConsulenteDefinitionCompleted: requestedHasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
+      familyLinks: selectedFamilyLinks,
     };
+    const previousFamilyKeys = previousFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
+    const requestedFamilyKeys = selectedFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
     const changes = {
       functionsAdded: listDifference(functionSlugs, previousFunctionSlugs),
       functionsRemoved: listDifference(previousFunctionSlugs, functionSlugs),
@@ -400,6 +425,8 @@ export async function POST(request: Request) {
       agendaRemoved: listDifference(previousAgendaSlugs, agendaSlugs),
       entitiesAdded: listDifference(requestedHasCavalinho ? cavalinhoEntityIds : [], previousEntityIds),
       entitiesRemoved: listDifference(previousEntityIds, requestedHasCavalinho ? cavalinhoEntityIds : []),
+      familyAdded: listDifference(requestedFamilyKeys, previousFamilyKeys),
+      familyRemoved: listDifference(previousFamilyKeys, requestedFamilyKeys),
       personalData: [
         previousPerson.fullName !== requestedPerson.fullName ? "Nome completo" : "",
         onlyDigits(previousPerson.whatsapp) !== requestedPerson.whatsapp ? "WhatsApp" : "",
@@ -419,6 +446,7 @@ export async function POST(request: Request) {
         selectedFunctions: previousSelectedFunctions,
         selectedAgenda: previousSelectedAgenda,
         selectedEntityIds: previousEntityIds,
+        familyLinks: previousFamilyLinks,
       },
       requestedProfile,
       changes,
@@ -463,6 +491,9 @@ export async function POST(request: Request) {
     const functionText = itemLines(selectedFunctions, "Somente Filho da Corrente").join("\n");
     const agendaText = itemLines(selectedAgenda, "Nenhuma agenda selecionada").join("\n");
     const entityText = selectedEntities.length ? selectedEntities.map((entity) => `- ${entity.name}`).join("\n") : "- Nenhuma entidade vinculada";
+    const familyText = selectedFamilyLinks.length
+      ? selectedFamilyLinks.map((item) => `- ${item.personName} — ${item.relationshipLabel}`).join("\n")
+      : "- Nenhum familiar vinculado";
     const consulenteEntityName = selectedEntities.find((entity) => entity.id === cavalinhoConsulenteEntityId)?.name || "Nenhuma";
     const reviewerMessage = [
       "Tucxa em Harmonia",
@@ -481,6 +512,9 @@ export async function POST(request: Request) {
       "Entidades que recebo:",
       entityText,
       `Entidade que atende Consulentes: ${consulenteEntityName}`,
+      "",
+      "Familiares vinculados:",
+      familyText,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",
@@ -536,6 +570,9 @@ export async function POST(request: Request) {
       "Entidades que recebo:",
       entityText,
       `Entidade que atende Consulentes: ${consulenteEntityName}`,
+      "",
+      "Familiares vinculados:",
+      familyText,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",

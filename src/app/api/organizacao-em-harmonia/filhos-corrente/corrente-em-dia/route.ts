@@ -11,6 +11,7 @@ import {
   notifyFamilyContributionEvent,
   receptionContacts,
 } from "@/lib/organizacao-em-harmonia/corrente-notifications";
+import { loadPersonFamilyLinks } from "@/lib/organizacao-em-harmonia/family-links";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 type AuthContext = {
@@ -324,67 +325,44 @@ function whatsappShareUrl(message: string) {
 }
 
 async function loadFamilyData(context: AuthContext) {
-  const [
-    relationshipsResult,
-    ownMembershipsResult,
-    responsibleGroupsResult,
-    activeMembershipsResult,
-  ] = await Promise.all([
-    supabaseAdmin
-      .from("oh_family_relationship_types")
-      .select(
-        "id, slug, label, requires_member_confirmation, requires_financial_approval, allow_responsible_payment",
-      )
-      .eq("organization_id", context.organizationId)
-      .eq("active", true)
-      .order("sort_order", { ascending: true }),
-    supabaseAdmin
-      .from("oh_family_members")
-      .select("family_group_id")
-      .eq("organization_id", context.organizationId)
-      .eq("person_id", context.personId)
-      .eq("active", true),
-    supabaseAdmin
-      .from("oh_family_groups")
-      .select("id")
-      .eq("organization_id", context.organizationId)
-      .eq("responsible_person_id", context.personId)
-      .neq("status", "cancelado"),
-    supabaseAdmin
-      .from("oh_memberships")
-      .select("person_id")
-      .eq("organization_id", context.organizationId)
-      .eq("active", true)
-      .eq("status", "ativo"),
-  ]);
+  const [relationshipsResult, ownMembershipsResult, responsibleGroupsResult, familyLinks] =
+    await Promise.all([
+      supabaseAdmin
+        .from("oh_family_relationship_types")
+        .select(
+          "id, slug, label, requires_member_confirmation, requires_financial_approval, allow_responsible_payment",
+        )
+        .eq("organization_id", context.organizationId)
+        .eq("active", true)
+        .order("sort_order", { ascending: true }),
+      supabaseAdmin
+        .from("oh_family_members")
+        .select("family_group_id")
+        .eq("organization_id", context.organizationId)
+        .eq("person_id", context.personId)
+        .eq("active", true),
+      supabaseAdmin
+        .from("oh_family_groups")
+        .select("id")
+        .eq("organization_id", context.organizationId)
+        .eq("responsible_person_id", context.personId)
+        .neq("status", "cancelado"),
+      loadPersonFamilyLinks(context.organizationId, context.personId),
+    ]);
 
   const firstFailure = [
     relationshipsResult,
     ownMembershipsResult,
     responsibleGroupsResult,
-    activeMembershipsResult,
   ].find((result) => result.error);
   if (firstFailure?.error) throw firstFailure.error;
 
-  const eligiblePersonIds = Array.from(
-    new Set(
-      (activeMembershipsResult.data ?? [])
-        .map((item) => asText(item.person_id))
-        .filter((item) => item && item !== context.personId),
-    ),
-  );
-
-  const peopleResult = eligiblePersonIds.length
-    ? await supabaseAdmin
-        .from("oh_people")
-        .select("id, full_name")
-        .eq("organization_id", context.organizationId)
-        .eq("active", true)
-        .in("id", eligiblePersonIds)
-        .order("full_name", { ascending: true })
-    : { data: [], error: null };
-
-  if (peopleResult.error) throw peopleResult.error;
+  const linkedPeople = familyLinks.map((link) => ({
+    id: link.personId,
+    full_name: link.personName,
+    relationship_type_id: link.relationshipTypeId,
+    relationship_label: link.relationshipLabel,
+  }));
 
   const groupIds = Array.from(
     new Set([
@@ -396,7 +374,7 @@ async function loadFamilyData(context: AuthContext) {
   if (groupIds.length === 0) {
     return {
       relationshipTypes: relationshipsResult.data ?? [],
-      people: peopleResult.data ?? [],
+      people: linkedPeople,
       familyGroups: [],
       approvedFamily: null as ApprovedFamilyContribution | null,
     };
@@ -465,7 +443,7 @@ async function loadFamilyData(context: AuthContext) {
 
   return {
     relationshipTypes: relationshipsResult.data ?? [],
-    people: peopleResult.data ?? [],
+    people: linkedPeople,
     familyGroups,
     approvedFamily,
   };
@@ -1223,6 +1201,24 @@ async function requestFamilyGroup(
     throw new Error(
       "Cada integrante deve ser único e possuir um grau de parentesco.",
     );
+  }
+
+  const registeredFamilyLinks = await loadPersonFamilyLinks(
+    context.organizationId,
+    context.personId,
+  );
+  const registeredByPersonId = new Map(
+    registeredFamilyLinks.map((item) => [item.personId, item]),
+  );
+  for (const member of members) {
+    const personId = asText(member.personId);
+    const relationshipTypeId = asText(member.relationshipTypeId);
+    const registered = registeredByPersonId.get(personId);
+    if (!registered || registered.relationshipTypeId !== relationshipTypeId) {
+      throw new Error(
+        "Selecione somente familiares previamente vinculados em Atualizar dados.",
+      );
+    }
   }
 
   const [peopleResult, relationshipsResult, membershipsResult] =

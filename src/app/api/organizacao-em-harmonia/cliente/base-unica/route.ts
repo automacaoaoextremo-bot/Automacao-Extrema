@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { parseFamilyLinks, syncPersonFamilyLinks } from "@/lib/organizacao-em-harmonia/family-links";
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -760,6 +761,9 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     const currentProfile = asRecord(currentMembership.agenda_viva_profile);
     const requestedPerson = asRecord(requestSummary.requestedPerson);
     const requestedProfile = asRecord(requestSummary.requestedProfile);
+    const requestedFamilyLinks = parseFamilyLinks(
+      requestedProfile.familyLinks ?? requestSummary.familyLinks,
+    );
     const requestedFunctionSlugs = asTextList(requestedProfile.functionSlugs ?? validationRequest?.function_slugs);
     const requestedAgendaSlugs = asTextList(requestedProfile.agendaSlugs ?? validationRequest?.agenda_slugs);
     const requestedSelectedFunctions = Array.isArray(requestedProfile.selectedFunctions)
@@ -825,6 +829,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
           selectedEntities: requestedSelectedEntities,
           cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
           cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
+          familyLinks: requestedFamilyLinks,
         },
         approvedAt: now,
       };
@@ -837,6 +842,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         selectedEntities: requestedSelectedEntities,
         cavalinhoConsulenteEntityId: requestedCavalinhoConsulenteEntityId,
         cavalinhoConsulenteDefinitionCompleted: requestedCavalinhoConsulenteDefinitionCompleted,
+        familyLinks: requestedFamilyLinks,
         validationStatus: "ativo",
         profileUpdateStatus: "aprovado",
         pendingProfileUpdate: null,
@@ -861,6 +867,12 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         .eq("id", currentMembership.id);
       if (approvedMembershipError) throw approvedMembershipError;
       await syncCavalinhoEntityLinks(organizationId, personId, requestedEntityIds, requestedCavalinhoConsulenteEntityId);
+      await syncPersonFamilyLinks({
+        organizationId,
+        personId,
+        links: requestedFamilyLinks,
+        source: "profile_update_approved",
+      });
     } else {
       const nextProfile = mergeProfile(currentProfile, {
         validationStatus: "ativo",
@@ -952,6 +964,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     : [];
   const firstAccessCavalinhoConsulenteEntityId = asText(requestSummary.cavalinhoConsulenteEntityId);
   const firstAccessCavalinhoConsulenteDefinitionCompleted = requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
+  const firstAccessFamilyLinks = parseFamilyLinks(requestSummary.familyLinks);
 
   const nextStatus = approved ? "ativo" : "ajuste_solicitado";
   const { error: personUpdateError } = await supabaseAdmin
@@ -974,6 +987,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
           selectedEntities: firstAccessSelectedEntities,
           cavalinhoConsulenteEntityId: firstAccessCavalinhoConsulenteEntityId,
           cavalinhoConsulenteDefinitionCompleted: firstAccessCavalinhoConsulenteDefinitionCompleted,
+          familyLinks: firstAccessFamilyLinks,
         }
       : {}),
     reviewedAt: now,
@@ -998,6 +1012,12 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
   if (membershipError) throw membershipError;
   if (approved) {
     await syncCavalinhoEntityLinks(organizationId, personId, firstAccessEntityIds, firstAccessCavalinhoConsulenteEntityId);
+    await syncPersonFamilyLinks({
+      organizationId,
+      personId,
+      links: firstAccessFamilyLinks,
+      source: "first_access_approved",
+    });
   }
 
   await supabaseAdmin

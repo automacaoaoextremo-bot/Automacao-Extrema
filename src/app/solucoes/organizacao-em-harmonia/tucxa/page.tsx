@@ -49,7 +49,7 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
-    label: "Dúvidas?",
+    label: "Ajuda",
     href: "#duvidas",
     variant: "secondary" as const,
     action: "supportWhatsapp" as const,
