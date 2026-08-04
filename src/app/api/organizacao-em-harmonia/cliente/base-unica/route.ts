@@ -276,7 +276,11 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
   const roleId = asText(body.roleId ?? body.role_id);
   const moduleSlugs = normalizeModules(body.moduleSlugs ?? body.module_slugs ?? body.modulos);
   const active = asBool(body.active, true);
-  const agendaVivaProfile = agendaVivaProfileFromBody(body);
+  const primaryRoleId = await filhoDaCorrenteRoleId(organizationId);
+  const isFilhoDaCorrente = Boolean(roleId && primaryRoleId && roleId === primaryRoleId);
+  const agendaVivaProfile = isFilhoDaCorrente
+    ? agendaVivaProfileFromBody(body)
+    : agendaVivaProfileFromBody({});
 
   if (!fullName) throw new Error("Informe o nome completo do envolvido.");
 
@@ -370,7 +374,7 @@ async function upsertPerson(organizationId: string, body: Record<string, unknown
   }
 
   if (selectedPersonId && Object.prototype.hasOwnProperty.call(body, "entityLinks")) {
-    const links = entityLinksFromBody(body.entityLinks);
+    const links = isFilhoDaCorrente ? entityLinksFromBody(body.entityLinks) : [];
     const { error: deleteLinksError } = await supabaseAdmin
       .from("oh_person_entity_links")
       .delete()

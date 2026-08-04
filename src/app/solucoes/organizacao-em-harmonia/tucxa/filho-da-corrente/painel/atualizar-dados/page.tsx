@@ -10,7 +10,13 @@ import {
   useState,
 } from "react";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FilhoCorrentePanelHeader,
+  filhoPanelBase,
+  filhoSignOutAction,
+  filhoSupportAction,
+  type PanelHeaderAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { filhoDaCorrenteFunctions } from "../../../tucxa-content";
 
@@ -47,6 +53,8 @@ type FamilyLinkDraft = {
   personName: string;
   relationshipTypeId: string;
   relationshipLabel: string;
+  source?: string;
+  reciprocal?: boolean;
 };
 
 type ProfilePayload = {
@@ -199,6 +207,31 @@ function normalizeSearch(value: string) {
     .toLowerCase()
     .trim();
 }
+
+function firstNameOnly(value: string) {
+  return value.trim().split(/\s+/)[0] || "Familiar";
+}
+
+function isThursdayGroup(item: AgendaOption) {
+  const searchable = normalizeSearch(
+    [item.slug, item.legacySlug, item.label, item.description]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return (
+    searchable.includes("quinta") ||
+    searchable.includes("grupo 1") ||
+    searchable.includes("grupo 2") ||
+    searchable.includes("filhos da corrente grupo")
+  );
+}
+
+const headerActions: PanelHeaderAction[] = [
+  { label: "Início", href: filhoPanelBase, variant: "primary" },
+  { label: "Voltar", href: filhoPanelBase, variant: "secondary" },
+  filhoSignOutAction,
+  filhoSupportAction,
+];
 
 export default function AtualizarDadosFilhoDaCorrentePage() {
   const [fullName, setFullName] = useState("");
@@ -374,6 +407,9 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     () => agendaDraftItems.filter((item) => agendaSlugs.includes(item.slug)),
     [agendaDraftItems, agendaSlugs],
   );
+  const hasThursdayGroup = agendaOptions.some(
+    (item) => agendaSlugs.includes(item.slug) && isThursdayGroup(item),
+  );
   const hasCavalinho = functionSlugs.includes("cavalinho");
   const selectedEntities = useMemo(
     () =>
@@ -485,6 +521,12 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   }
 
   function confirmParticipationUpdate() {
+    if (!hasThursdayGroup) {
+      setError(
+        "Selecione pelo menos um Grupo de quinta-feira para salvar a participação.",
+      );
+      return;
+    }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
       setError("Selecione pelo menos uma entidade que você recebe.");
       return;
@@ -518,6 +560,12 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     const contactError = validateContactData();
     if (contactError) {
       setError(contactError);
+      return;
+    }
+    if (!hasThursdayGroup) {
+      setError(
+        "Selecione pelo menos um Grupo de quinta-feira antes de enviar a atualização.",
+      );
       return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
@@ -628,17 +676,21 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Atualização de dados do Filho da Corrente" />
+      <FilhoCorrentePanelHeader
+        navLabel="Atualização de dados do Filho da Corrente"
+        actions={headerActions}
+        mobileActionColumns={4}
+      />
 
-      <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7">
+      <section className="mx-auto max-w-4xl px-3 py-2 sm:px-6 sm:py-5 lg:px-8">
+        <div className="rounded-[1.5rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:rounded-[2rem] sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">
             Atualização dos dados
           </p>
-          <h1 className="mt-2 text-3xl font-black text-[#123D2C]">
+          <h1 className="mt-1.5 text-2xl font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-3xl">
             Atualize seu cadastro em duas etapas.
           </h1>
-          <p className="mt-3 max-w-3xl leading-7 text-slate-700">
+          <p className="mt-2 max-w-3xl text-sm leading-5 text-slate-700 sm:mt-3 sm:text-base sm:leading-7">
             Abra cada tela, confira seus dados, vínculos familiares, funções e agenda;
             depois envie tudo para validação do Tucxa.
           </p>
@@ -711,14 +763,14 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
           )}
 
           {!loading && !message && (
-            <form onSubmit={submit} className="mt-6 grid gap-4">
+            <form onSubmit={submit} className="mt-3 grid gap-2.5 sm:mt-6 sm:gap-4">
               <button
                 type="button"
                 onClick={() => {
                   setDataPage(1);
                   setActiveDialog("dados");
                 }}
-                className="rounded-2xl bg-[#F7FAF2] p-5 text-left ring-1 ring-[#123D2C]/10"
+                className="rounded-2xl bg-[#F7FAF2] p-3.5 text-left ring-1 ring-[#123D2C]/10 sm:p-5"
               >
                 <span className="flex items-center justify-between gap-3">
                   <span>
@@ -741,7 +793,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   setParticipationPage(1);
                   setActiveDialog("participacao");
                 }}
-                className="rounded-2xl bg-[#F7FAF2] p-5 text-left ring-1 ring-[#123D2C]/10"
+                className="rounded-2xl bg-[#F7FAF2] p-3.5 text-left ring-1 ring-[#123D2C]/10 sm:p-5"
               >
                 <span className="flex items-center justify-between gap-3">
                   <span>
@@ -951,25 +1003,31 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                       >
                         <span>
                           <strong className="block text-[#123D2C]">
-                            {link.personName}
+                            {firstNameOnly(link.personName)}
                           </strong>
                           <span className="text-sm text-slate-600">
                             {link.relationshipLabel}
                           </span>
                         </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFamilyLinks((current) =>
-                              current.filter(
-                                (item) => item.personId !== link.personId,
-                              ),
-                            )
-                          }
-                          className="rounded-xl bg-white px-3 py-2 text-sm font-black text-red-700"
-                        >
-                          Retirar
-                        </button>
+                        {link.reciprocal || link.source?.startsWith("reciprocal:") ? (
+                          <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#2F6B43]">
+                            Informado pelo familiar
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFamilyLinks((current) =>
+                                current.filter(
+                                  (item) => item.personId !== link.personId,
+                                ),
+                              )
+                            }
+                            className="rounded-xl bg-white px-3 py-2 text-sm font-black text-red-700"
+                          >
+                            Retirar
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>

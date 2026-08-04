@@ -57,7 +57,7 @@ type FirstAccessDraft = {
 
 const FIRST_ACCESS_DRAFT_KEY = "oh_tucxa_filho_corrente_primeiro_acesso";
 
-type RegistrationDialog = "cadastro" | "dados" | "participacao" | null;
+type RegistrationDialog = "dados" | "participacao" | null;
 type ParticipationPage = 1 | 2 | 3 | 4;
 type RegistrationStep = "dados" | "participacao";
 type RegistrationStepState = Record<RegistrationStep, boolean>;
@@ -131,6 +131,20 @@ function normalizeSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function isThursdayGroup(item: AgendaOption) {
+  const searchable = normalizeSearch(
+    [item.slug, item.legacySlug, item.label, item.title, item.description]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return (
+    searchable.includes("quinta") ||
+    searchable.includes("grupo 1") ||
+    searchable.includes("grupo 2") ||
+    searchable.includes("filhos da corrente grupo")
+  );
 }
 
 export default function FilhoDaCorrentePrimeiroAcessoPage() {
@@ -397,6 +411,9 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   }, [familyLinks, familyPeople, familySearch]);
 
   const allStepsCompleted = completedSteps.dados && completedSteps.participacao;
+  const hasThursdayGroup = agendaOptions.some(
+    (item) => agendaSlugs.includes(item.slug) && isThursdayGroup(item),
+  );
   const functionPageSize = Math.max(
     1,
     Math.ceil(filhoDaCorrenteFunctions.length / 2),
@@ -451,7 +468,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
     setError("");
     setCompletedSteps((current) => ({ ...current, dados: true }));
     if (!completedSteps.participacao) setParticipationPage(1);
-    setActiveDialog(completedSteps.participacao ? "cadastro" : "participacao");
+    setActiveDialog(completedSteps.participacao ? null : "participacao");
   }
 
   function addFamilyLink() {
@@ -520,6 +537,12 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
       );
       return;
     }
+    if (!hasThursdayGroup) {
+      setError(
+        "Selecione pelo menos um Grupo de quinta-feira para concluir o cadastro.",
+      );
+      return;
+    }
     if (functionSlugs.length === 0) {
       const confirmed = window.confirm(
         "Você não marcou nenhuma função adicional. Confirma que atualmente é somente Filho da Corrente?",
@@ -529,7 +552,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
     setError("");
     setCompletedSteps((current) => ({ ...current, participacao: true }));
-    setActiveDialog("cadastro");
+    setActiveDialog(null);
   }
 
   function submitFirstAccess(event: FormEvent<HTMLFormElement>) {
@@ -545,6 +568,12 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
     const validationError = validateContactData();
     if (validationError) {
       setError(validationError);
+      return;
+    }
+    if (!hasThursdayGroup) {
+      setError(
+        "Selecione pelo menos um Grupo de quinta-feira antes de enviar para validação.",
+      );
       return;
     }
 
@@ -603,49 +632,15 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             Cadastro simples em duas etapas.
           </h1>
           <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
-            Informe seus dados e familiares; depois confira suas funções e agenda.
-            Você poderá atualizar os vínculos familiares mais tarde pelo painel.
+            Informe seus dados e vínculos familiares; depois confira suas funções e
+            agenda. Caso ainda não apareça seu familiar, você poderá atualizar depois
+            na opção “Cadastro” que aparece após o acesso ao Sistema.
           </p>
         </div>
 
         <div
           id="primeiro-acesso"
           className="rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
-        >
-          <button
-            type="button"
-            onClick={() => setActiveDialog("cadastro")}
-            className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-4 text-base font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5"
-          >
-            Abrir cadastro
-          </button>
-
-          <form onSubmit={submitFirstAccess} className="mt-4 grid gap-3">
-            {error && (
-              <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
-                {error}
-              </p>
-            )}
-            {message && (
-              <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
-                {message}
-              </p>
-            )}
-            <button
-              disabled={!allStepsCompleted}
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/10 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              Enviar para validação do Tucxa
-            </button>
-          </form>
-        </div>
-      </section>
-
-      {activeDialog === "cadastro" && (
-        <RegistrationModal
-          eyebrow="Primeiro acesso"
-          title="Cadastro"
-          onClose={() => setActiveDialog(null)}
         >
           <div className="grid gap-3">
             <button
@@ -691,8 +686,26 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
               </span>
             </button>
           </div>
-        </RegistrationModal>
-      )}
+
+          <form onSubmit={submitFirstAccess} className="mt-3 grid gap-3">
+            {error && (
+              <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                {message}
+              </p>
+            )}
+            {allStepsCompleted && (
+              <button className="rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-900/10">
+                Enviar para validação
+              </button>
+            )}
+          </form>
+        </div>
+      </section>
 
       {activeDialog === "dados" && (
         <RegistrationModal
@@ -951,7 +964,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                 type="button"
                 onClick={() => {
                   if (participationPage === 1) {
-                    setActiveDialog("cadastro");
+                    setActiveDialog(null);
                     return;
                   }
                   setParticipationPage(
@@ -961,7 +974,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                 }}
                 className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
               >
-                {participationPage === 1 ? "Voltar ao cadastro" : "Voltar"}
+                {participationPage === 1 ? "Fechar" : "Voltar"}
               </button>
               <button
                 type="button"

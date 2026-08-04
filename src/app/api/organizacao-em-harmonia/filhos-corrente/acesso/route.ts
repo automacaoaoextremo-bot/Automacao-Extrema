@@ -156,6 +156,27 @@ function whatsappUrl(phone: string | null | undefined, message: string) {
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function hasThursdayGroup(items: DraftItem[]) {
+  return items.some((item) => {
+    const searchable = normalizeSearch(
+      [item.slug, item.label, item.description].filter(Boolean).join(" "),
+    );
+    return (
+      searchable.includes("quinta") ||
+      searchable.includes("grupo 1") ||
+      searchable.includes("grupo 2") ||
+      searchable.includes("filhos da corrente grupo")
+    );
+  });
+}
+
 function phoneCandidates(rawPhone: string) {
   const digits = onlyDigits(rawPhone);
   if (!digits) return [];
@@ -703,6 +724,11 @@ async function submitFirstAccess(body: AccessBody) {
   if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");
   if (password.length < 8) throw new Error("Crie uma senha com pelo menos 8 caracteres.");
   if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+  if (!hasThursdayGroup(selectedAgenda)) {
+    throw new Error(
+      "Selecione pelo menos um Grupo de quinta-feira para concluir o cadastro.",
+    );
+  }
   if (hasCavalinho && requestedEntityIds.length === 0) {
     throw new Error("Selecione ao menos uma entidade que o Cavalinho recebe.");
   }

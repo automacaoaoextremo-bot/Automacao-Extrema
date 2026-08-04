@@ -176,6 +176,40 @@ function listDifference(nextValues: string[], previousValues: string[]) {
   return nextValues.filter((item) => !previous.has(item));
 }
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function hasThursdayGroup(items: DraftItem[]) {
+  return items.some((item) => {
+    const searchable = normalizeSearch(
+      [item.slug, item.label, item.description].filter(Boolean).join(" "),
+    );
+    return (
+      searchable.includes("quinta") ||
+      searchable.includes("grupo 1") ||
+      searchable.includes("grupo 2") ||
+      searchable.includes("filhos da corrente grupo")
+    );
+  });
+}
+
+function itemLabelMap(items: DraftItem[]) {
+  return new Map(items.map((item) => [item.slug, item.label]));
+}
+
+function familyKeyMap(items: Array<{ personId: string; relationshipTypeId: string; personName: string; relationshipLabel: string }>) {
+  return new Map(
+    items.map((item) => [
+      `${item.personId}:${item.relationshipTypeId}`,
+      `${item.personName} — ${item.relationshipLabel}`,
+    ]),
+  );
+}
+
 async function findTucxaOrganizationId() {
   const { data: bySlug } = await supabaseAdmin.from("oh_organizations").select("id, name").eq("slug", "tucxa").maybeSingle();
   if (bySlug?.id) return { id: bySlug.id as string, name: asText(bySlug.name) || "Tucxa" };
@@ -352,6 +386,11 @@ export async function POST(request: Request) {
     if (!fullName) throw new Error("Informe seu nome completo.");
     if (whatsapp.length < 10) throw new Error("Informe seu WhatsApp com DDD.");
     if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+    if (!hasThursdayGroup(selectedAgenda)) {
+      throw new Error(
+        "Selecione pelo menos um Grupo de quinta-feira para concluir a atualização.",
+      );
+    }
     const requestedProfilePreview = { functionSlugs, selectedFunctions };
     const requestedHasCavalinho = profileHasCavalinho(requestedProfilePreview);
     if (requestedHasCavalinho && cavalinhoEntityIds.length === 0) {
@@ -396,6 +435,24 @@ export async function POST(request: Request) {
         ...(previousEntityLinks ?? []).map((link) => asText(link.entity_id)).filter(Boolean),
       ]),
     );
+    const allEntityIds = Array.from(
+      new Set([...previousEntityIds, ...cavalinhoEntityIds]),
+    );
+    const { data: changeEntityRows, error: changeEntityError } =
+      allEntityIds.length > 0
+        ? await supabaseAdmin
+            .from("oh_spiritual_entities")
+            .select("id, name")
+            .eq("organization_id", organization.id)
+            .in("id", allEntityIds)
+        : { data: [], error: null };
+    if (changeEntityError) throw changeEntityError;
+    const entityLabels = new Map(
+      (changeEntityRows ?? []).map((item) => [
+        asText(item.id),
+        asText(item.name) || asText(item.id),
+      ]),
+    );
     const now = new Date().toISOString();
     const updateToken = statusToken();
     const previousPerson = {
@@ -434,6 +491,46 @@ export async function POST(request: Request) {
         previousPerson.notes !== requestedPerson.notes ? "Observação" : "",
       ].filter(Boolean),
     };
+    const previousFunctionLabels = itemLabelMap(previousSelectedFunctions);
+    const requestedFunctionLabels = itemLabelMap(selectedFunctions);
+    const previousAgendaLabels = itemLabelMap(previousSelectedAgenda);
+    const requestedAgendaLabels = itemLabelMap(selectedAgenda);
+    const previousFamilyLabels = familyKeyMap(previousFamilyLinks);
+    const requestedFamilyLabels = familyKeyMap(selectedFamilyLinks);
+    const changeDetails = {
+      current: [
+        `Nome: ${previousPerson.fullName || "não informado"}`,
+        `WhatsApp: ${previousPerson.whatsapp || "não informado"}`,
+        `E-mail: ${previousPerson.email || "não informado"}`,
+        `Observação: ${previousPerson.notes || "não informada"}`,
+        `Funções: ${previousSelectedFunctions.map((item) => item.label).join(", ") || "Somente Filho da Corrente"}`,
+        `Agenda: ${previousSelectedAgenda.map((item) => item.label).join(", ") || "Nenhuma"}`,
+        `Familiares: ${previousFamilyLinks.map((item) => `${item.personName} — ${item.relationshipLabel}`).join(", ") || "Nenhum"}`,
+      ],
+      added: [
+        ...changes.functionsAdded.map((slug) => `Função: ${requestedFunctionLabels.get(slug) || slug}`),
+        ...changes.agendaAdded.map((slug) => `Agenda: ${requestedAgendaLabels.get(slug) || slug}`),
+        ...changes.familyAdded.map((key) => `Familiar: ${requestedFamilyLabels.get(key) || key}`),
+        ...changes.entitiesAdded.map((id) => `Entidade: ${entityLabels.get(id) || id}`),
+        ...changes.personalData.map((field) => `Dado alterado: ${field}`),
+      ],
+      removed: [
+        ...changes.functionsRemoved.map((slug) => `Função: ${previousFunctionLabels.get(slug) || slug}`),
+        ...changes.agendaRemoved.map((slug) => `Agenda: ${previousAgendaLabels.get(slug) || slug}`),
+        ...changes.familyRemoved.map((key) => `Familiar: ${previousFamilyLabels.get(key) || key}`),
+        ...changes.entitiesRemoved.map((id) => `Entidade: ${entityLabels.get(id) || id}`),
+      ],
+      requested: [
+        `Nome: ${requestedPerson.fullName || "não informado"}`,
+        `WhatsApp: ${requestedPerson.whatsapp || "não informado"}`,
+        `E-mail: ${requestedPerson.email || "não informado"}`,
+        `Observação: ${requestedPerson.notes || "não informada"}`,
+        `Funções: ${selectedFunctions.map((item) => item.label).join(", ") || "Somente Filho da Corrente"}`,
+        `Agenda: ${selectedAgenda.map((item) => item.label).join(", ") || "Nenhuma"}`,
+        `Familiares: ${selectedFamilyLinks.map((item) => `${item.personName} — ${item.relationshipLabel}`).join(", ") || "Nenhum"}`,
+      ],
+    };
+
     const requestSummary = {
       requestType: "profile_update",
       statusToken: updateToken,
@@ -450,6 +547,7 @@ export async function POST(request: Request) {
       },
       requestedProfile,
       changes,
+      changeDetails,
     };
 
     const nextProfile = {
@@ -494,6 +592,19 @@ export async function POST(request: Request) {
     const familyText = selectedFamilyLinks.length
       ? selectedFamilyLinks.map((item) => `- ${item.personName} — ${item.relationshipLabel}`).join("\n")
       : "- Nenhum familiar vinculado";
+    const detailedChangeText = [
+      "Cadastro atual:",
+      ...(changeDetails.current.length ? changeDetails.current.map((item) => `- ${item}`) : ["- Nenhuma informação disponível"]),
+      "",
+      "Inclusões e alterações solicitadas:",
+      ...(changeDetails.added.length ? changeDetails.added.map((item) => `+ ${item}`) : ["- Nenhuma inclusão"]),
+      "",
+      "Retiradas solicitadas:",
+      ...(changeDetails.removed.length ? changeDetails.removed.map((item) => `- ${item}`) : ["- Nenhuma retirada"]),
+      "",
+      "Cadastro solicitado:",
+      ...changeDetails.requested.map((item) => `- ${item}`),
+    ].join("\n");
     const consulenteEntityName = selectedEntities.find((entity) => entity.id === cavalinhoConsulenteEntityId)?.name || "Nenhuma";
     const reviewerMessage = [
       "Tucxa em Harmonia",
@@ -502,6 +613,8 @@ export async function POST(request: Request) {
       `Nome: ${fullName}`,
       `WhatsApp: ${whatsapp}`,
       `E-mail: ${displayEmail(email || current.person.email) || "não informado"}`,
+      "",
+      detailedChangeText,
       "",
       "Funções solicitadas:",
       functionText,
@@ -544,6 +657,8 @@ export async function POST(request: Request) {
           "Sua atualização cadastral foi enviada para validação do TUCXA.",
           "Seu acesso atual continua disponível enquanto a atualização é conferida.",
           "",
+          detailedChangeText,
+          "",
           "Acompanhe o andamento:",
           absoluteStatusUrl,
           "",
@@ -560,6 +675,8 @@ export async function POST(request: Request) {
       `Nome: ${fullName}`,
       `WhatsApp: ${whatsapp}`,
       `E-mail: ${personEmail || "não informado"}`,
+      "",
+      detailedChangeText,
       "",
       "Funções solicitadas:",
       functionText,

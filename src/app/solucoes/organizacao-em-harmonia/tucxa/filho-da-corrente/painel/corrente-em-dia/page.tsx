@@ -219,18 +219,28 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
               )}
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <MemberContributionJourney
-                  settings={payload.settings}
-                  person={{
-                    fullName:
-                      payload.currentPerson?.fullName || "Filho da Corrente",
-                    email: payload.currentPerson?.email ?? null,
-                    whatsapp: payload.currentPerson?.whatsapp ?? null,
-                  }}
-                  receptionContacts={payload.receptionContacts ?? []}
-                  familyContribution={payload.approvedFamily ?? null}
-                  onCompleted={load}
-                />
+                <div className="relative">
+                  <div className="[&>button:first-child]:text-transparent">
+                    <MemberContributionJourney
+                      settings={payload.settings}
+                      person={{
+                        fullName:
+                          payload.currentPerson?.fullName || "Filho da Corrente",
+                        email: payload.currentPerson?.email ?? null,
+                        whatsapp: payload.currentPerson?.whatsapp ?? null,
+                      }}
+                      receptionContacts={payload.receptionContacts ?? []}
+                      familyContribution={payload.approvedFamily ?? null}
+                      onCompleted={load}
+                    />
+                  </div>
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center text-base font-black text-[#123D2C]"
+                  >
+                    ABRIR
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setFinanceOpen(true)}
@@ -251,7 +261,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                     href={SETTINGS_HREF}
                     className="rounded-full bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#123D2C]"
                   >
-                    Configurar
+                    ABRIR
                   </Link>
                 </div>
                 <div className="mt-4 grid gap-3">

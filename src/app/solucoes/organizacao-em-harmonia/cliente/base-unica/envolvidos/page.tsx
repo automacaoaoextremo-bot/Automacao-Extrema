@@ -6,7 +6,7 @@ import { OrganizacaoBaseUnicaSubnav } from "@/components/organizacao-base-unica-
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Role = { id: string; name: string; active: boolean };
+type Role = { id: string; name: string; slug?: string | null; active: boolean };
 type Person = { id: string; full_name: string; email: string | null; whatsapp: string | null; active: boolean; notes: string | null; auth_user_id?: string | null };
 type Entity = { id: string; name: string; active: boolean; attends_consulentes?: boolean | null };
 type PersonEntityLink = { id: string; person_id: string; entity_id: string; relationship_type: string; is_primary_for_attendance: boolean; active: boolean };
@@ -379,6 +379,11 @@ export default function EnvolvidosPage() {
   }, [formModalOpen]);
 
   const availableModules = payload?.modules?.length ? payload.modules.filter((module) => module.enabled !== false).map((module) => module.module_slug) : DEFAULT_MODULE_SLUGS;
+  const selectedRole = payload?.roles.find((role) => role.id === form.roleId);
+  const selectedRoleKey = normalizeSearch(
+    selectedRole?.slug || selectedRole?.name || "",
+  ).replace(/\s+/g, "-");
+  const isFilhoDaCorrente = selectedRoleKey === "filho-da-corrente";
   const filteredPeople = useMemo(() => {
     const search = normalizeSearch(filters.search);
     const line = normalizeSearch(filters.line);
@@ -420,6 +425,41 @@ export default function EnvolvidosPage() {
   function update<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
+  function updateRole(roleId: string) {
+    const role = payload?.roles.find((item) => item.id === roleId);
+    const roleKey = normalizeSearch(role?.slug || role?.name || "").replace(
+      /\s+/g,
+      "-",
+    );
+    const nextIsFilhoDaCorrente = roleKey === "filho-da-corrente";
+    setForm((current) => ({
+      ...current,
+      roleId,
+      ...(!nextIsFilhoDaCorrente
+        ? {
+            isCavalinho: false,
+            entityNames: "",
+            linkedEntityIds: [],
+            primaryEntityId: "",
+            spiritualLines: "",
+            isCambono: false,
+            cambonoEntityNames: "",
+            isReserveCambono: false,
+            supportsReception: false,
+            supportsOrganization: false,
+            participatesMonday: false,
+            participatesTuesday: false,
+            participatesWednesday: false,
+            participatesThursday: false,
+            thursdayGroup: "",
+            canApproveEvents: false,
+            canEditCalendar: false,
+            canViewReports: false,
+            attendanceNotes: "",
+          }
+        : {}),
+    }));
+  }
   function toggleModule(moduleSlug: string) {
     setForm((current) => ({
       ...current,
@@ -444,28 +484,28 @@ export default function EnvolvidosPage() {
           moduleSlugs: form.moduleSlugs.length ? form.moduleSlugs : availableModules,
           active: form.active,
           notes: form.notes,
-          isCavalinho: form.isCavalinho,
-          entityNames: (payload?.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => entity.name),
-          entityLinks: form.linkedEntityIds.map((entityId) => ({
+          isCavalinho: isFilhoDaCorrente && form.isCavalinho,
+          entityNames: isFilhoDaCorrente ? (payload?.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => entity.name) : [],
+          entityLinks: (isFilhoDaCorrente ? form.linkedEntityIds : []).map((entityId) => ({
             entityId,
             relationshipType: "recebe",
             isPrimaryForAttendance: entityId === form.primaryEntityId,
           })),
-          spiritualLines: textToList(form.spiritualLines),
-          isCambono: form.isCambono,
-          cambonoEntityNames: textToList(form.cambonoEntityNames),
-          isReserveCambono: form.isReserveCambono,
-          supportsReception: form.supportsReception,
-          supportsOrganization: form.supportsOrganization,
-          participatesMonday: form.participatesMonday,
-          participatesTuesday: form.participatesTuesday,
-          participatesWednesday: form.participatesWednesday,
-          participatesThursday: form.participatesThursday,
-          thursdayGroup: form.thursdayGroup,
-          canApproveEvents: form.canApproveEvents,
-          canEditCalendar: form.canEditCalendar,
-          canViewReports: form.canViewReports,
-          attendanceNotes: form.attendanceNotes,
+          spiritualLines: isFilhoDaCorrente ? textToList(form.spiritualLines) : [],
+          isCambono: isFilhoDaCorrente && form.isCambono,
+          cambonoEntityNames: isFilhoDaCorrente ? textToList(form.cambonoEntityNames) : [],
+          isReserveCambono: isFilhoDaCorrente && form.isReserveCambono,
+          supportsReception: isFilhoDaCorrente && form.supportsReception,
+          supportsOrganization: isFilhoDaCorrente && form.supportsOrganization,
+          participatesMonday: isFilhoDaCorrente && form.participatesMonday,
+          participatesTuesday: isFilhoDaCorrente && form.participatesTuesday,
+          participatesWednesday: isFilhoDaCorrente && form.participatesWednesday,
+          participatesThursday: isFilhoDaCorrente && form.participatesThursday,
+          thursdayGroup: isFilhoDaCorrente ? form.thursdayGroup : "",
+          canApproveEvents: isFilhoDaCorrente && form.canApproveEvents,
+          canEditCalendar: isFilhoDaCorrente && form.canEditCalendar,
+          canViewReports: isFilhoDaCorrente && form.canViewReports,
+          attendanceNotes: isFilhoDaCorrente ? form.attendanceNotes : "",
         }),
       });
       if (result) setPayload(result);
@@ -743,7 +783,7 @@ export default function EnvolvidosPage() {
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome completo *</span><input value={form.fullName} onChange={(event) => update("fullName", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">WhatsApp</span><input value={form.whatsapp} onChange={(event) => update("whatsapp", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="(19) 99999-9999" /></label>
               <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">E-mail</span><input value={form.email} onChange={(event) => update("email", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => update("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.filter((role) => role.active !== false).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => updateRole(event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.filter((role) => role.active !== false).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
             </div>
             <div className="mt-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
               <p className="text-sm font-black text-[#00334E]">Módulos liberados</p>
@@ -751,6 +791,7 @@ export default function EnvolvidosPage() {
                 {availableModules.map((module) => <label key={module} className="flex items-center gap-2 rounded-2xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-slate-100"><input type="checkbox" checked={form.moduleSlugs.includes(module)} onChange={() => toggleModule(module)} />{moduleLabels[module] ?? module}</label>)}
               </div>
             </div>
+            {isFilhoDaCorrente && (
             <div className="mt-4 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
               <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Vínculos operacionais</p>
               <h3 className="mt-1 text-xl font-black text-[#00334E]">Agenda Viva, Atendimento e escala do Tucxa</h3>
@@ -801,10 +842,13 @@ export default function EnvolvidosPage() {
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{weekdayLabels.map((item) => <Check key={item.key} label={item.label} checked={Boolean(form[item.key])} onChange={(checked) => update(item.key, checked)} />)}</div>
             </div>
+            )}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Check label="Envolvido ativo" checked={form.active} onChange={(checked) => update("active", checked)} />
               <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações internas</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações de disponibilidade/atendimento</span><textarea value={form.attendanceNotes} onChange={(event) => update("attendanceNotes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: só pode às segundas; cambono reserva; participa dos dois grupos mediante autorização." /></label>
+              {isFilhoDaCorrente && (
+                <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações de disponibilidade/atendimento</span><textarea value={form.attendanceNotes} onChange={(event) => update("attendanceNotes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: só pode às segundas; cambono reserva; participa dos dois grupos mediante autorização." /></label>
+              )}
             </div>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={savePerson} disabled={saving || !form.fullName.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar envolvido"}</button><button type="button" onClick={closePersonModal} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar</button></div>
 

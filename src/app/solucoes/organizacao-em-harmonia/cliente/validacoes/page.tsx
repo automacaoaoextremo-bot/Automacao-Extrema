@@ -48,6 +48,12 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function asTextArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => asText(item)).filter(Boolean)
+    : [];
+}
+
 function requestType(request: ValidationRequest | null) {
   return asText(asRecord(request?.summary).requestType);
 }
@@ -64,6 +70,31 @@ function clientLoginUrl() {
   }
   const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function ChangeList({
+  title,
+  items,
+  empty,
+  prefix = "",
+}: {
+  title: string;
+  items: string[];
+  empty: string;
+  prefix?: string;
+}) {
+  return (
+    <section className="rounded-xl bg-white p-3 ring-1 ring-slate-100">
+      <h3 className="font-black text-[#00334E]">{title}</h3>
+      <ul className="mt-2 grid gap-1 text-slate-700">
+        {(items.length ? items : [empty]).map((item, index) => (
+          <li key={`${title}-${index}`}>
+            {items.length && prefix ? `${prefix} ` : ""}{item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 export default function ValidacoesPrimeiroAcessoPage() {
@@ -317,6 +348,27 @@ export default function ValidacoesPrimeiroAcessoPage() {
                         </p>
                       </td>
                       <td className="py-3">
+                        {isProfileUpdate && (() => {
+                          const summary = asRecord(request?.summary);
+                          const details = asRecord(summary.changeDetails);
+                          const current = asTextArray(details.current);
+                          const added = asTextArray(details.added);
+                          const removed = asTextArray(details.removed);
+                          const requested = asTextArray(details.requested);
+                          return (
+                            <details className="mb-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                              <summary className="cursor-pointer font-black text-[#00334E]">
+                                Conferir cadastro atual e alterações
+                              </summary>
+                              <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
+                                <ChangeList title="Cadastro atual" items={current} empty="Sem dados anteriores." />
+                                <ChangeList title="Cadastro solicitado" items={requested} empty="Sem dados solicitados." />
+                                <ChangeList title="Inclusões/alterações" items={added} empty="Nenhuma inclusão." prefix="+" />
+                                <ChangeList title="Retiradas" items={removed} empty="Nenhuma retirada." prefix="−" />
+                              </div>
+                            </details>
+                          );
+                        })()}
                         <div className="flex flex-wrap gap-2">
                           <Link
                             href={`/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${person.id}`}

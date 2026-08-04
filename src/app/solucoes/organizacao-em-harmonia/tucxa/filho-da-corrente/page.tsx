@@ -101,34 +101,34 @@ export default async function FilhoDaCorrentePublicPage() {
         navLabel="Menu público dos Filhos da Corrente do Tucxa"
       />
 
-      <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
-        <div className="rounded-[1.75rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
+      <section className="scroll-mt-48 mx-auto max-w-6xl px-3 py-2 sm:px-6 sm:py-4 lg:px-8 lg:py-6">
+        <div className="rounded-[1.5rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-7">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7] sm:text-sm">
             Filhos da Corrente
           </p>
-          <h1 className="mt-2 max-w-4xl text-3xl font-black leading-tight sm:text-4xl lg:text-[2.8rem]">
+          <h1 className="mt-1.5 max-w-4xl text-2xl font-black leading-tight sm:mt-2 sm:text-4xl lg:text-[2.8rem]">
             Um espaço para quem assumiu compromisso com a Casa e com a Corrente.
           </h1>
-          <p className="mt-4 max-w-4xl text-base leading-7 text-[#EEF7EA] sm:text-[1.05rem] sm:leading-8">
+          <p className="mt-2.5 max-w-4xl text-sm leading-5 text-[#EEF7EA] sm:mt-4 sm:text-[1.05rem] sm:leading-8">
             Os Filhos da Corrente participam do desenvolvimento mediúnico, ajudam a sustentar a harmonia dos Trabalhos Espirituais e podem servir em diferentes frentes do Tucxa. Este espaço reúne orientações, módulos e acessos para que cada pessoa cuide de seus dados e acompanhe sua participação com mais clareza.
           </p>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 sm:mt-5 sm:grid-cols-2">
             <Link
               href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso"
-              className="rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:text-base"
+              className="rounded-2xl bg-white px-4 py-2.5 text-center text-sm font-black text-[#123D2C] transition hover:-translate-y-0.5 sm:px-5 sm:py-3.5 sm:text-base"
             >
               Fazer primeiro acesso
             </Link>
             <Link
               href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
-              className="rounded-2xl bg-[#E9F2E7] px-5 py-3.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-white/20 transition hover:-translate-y-0.5 sm:text-base"
+              className="rounded-2xl bg-[#E9F2E7] px-4 py-2.5 text-center text-sm font-black text-[#123D2C] ring-1 ring-white/20 transition hover:-translate-y-0.5 sm:px-5 sm:py-3.5 sm:text-base"
             >
               Já tenho acesso
             </Link>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:mt-5 sm:gap-4 md:grid-cols-3">
           {commitments.map((item) => (
             <article
               key={item.id}

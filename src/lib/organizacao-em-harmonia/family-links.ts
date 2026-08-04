@@ -9,6 +9,12 @@ export const FAMILY_RELATIONSHIP_SLUGS = [
   "filha",
 ] as const;
 
+const STORED_FAMILY_RELATIONSHIP_SLUGS = [
+  ...FAMILY_RELATIONSHIP_SLUGS,
+  "filho-ou-filha",
+  "pai-ou-mae",
+] as const;
+
 export type FamilyRelationshipSlug = (typeof FAMILY_RELATIONSHIP_SLUGS)[number];
 
 export type FamilyLinkInput = {
@@ -20,6 +26,8 @@ export type FamilyLink = FamilyLinkInput & {
   personName: string;
   relationshipSlug: string;
   relationshipLabel: string;
+  source?: string;
+  reciprocal?: boolean;
 };
 
 export type FamilyPersonOption = {
@@ -51,6 +59,7 @@ type MembershipPersonRow = {
 type StoredFamilyLinkRow = {
   related_person_id: string | null;
   relationship_type_id: string | null;
+  source: string | null;
 };
 
 function asText(value: unknown) {
@@ -174,7 +183,7 @@ export async function validateFamilyLinks(input: {
       .select("id, slug, label, active")
       .eq("organization_id", input.organizationId)
       .eq("active", true)
-      .in("slug", [...FAMILY_RELATIONSHIP_SLUGS])
+      .in("slug", [...STORED_FAMILY_RELATIONSHIP_SLUGS])
       .in("id", relationshipIds),
   ]);
 
@@ -226,7 +235,7 @@ export async function loadPersonFamilyLinks(
 ): Promise<FamilyLink[]> {
   const { data: links, error: linksError } = await supabaseAdmin
     .from("oh_person_family_links")
-    .select("related_person_id, relationship_type_id")
+    .select("related_person_id, relationship_type_id, source")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .eq("active", true)
@@ -234,13 +243,25 @@ export async function loadPersonFamilyLinks(
 
   if (linksError) throw linksError;
 
-  return validateFamilyLinks({
+  const storedLinks = (links ?? []) as StoredFamilyLinkRow[];
+  const validated = await validateFamilyLinks({
     organizationId,
     personId,
-    links: ((links ?? []) as StoredFamilyLinkRow[]).map((item) => ({
+    links: storedLinks.map((item) => ({
       personId: asText(item.related_person_id),
       relationshipTypeId: asText(item.relationship_type_id),
     })),
+  });
+  const sourceByPerson = new Map(
+    storedLinks.map((item) => [asText(item.related_person_id), asText(item.source)]),
+  );
+  return validated.map((item) => {
+    const source = sourceByPerson.get(item.personId) || "cadastro";
+    return {
+      ...item,
+      source,
+      reciprocal: source.startsWith("reciprocal:"),
+    };
   });
 }
 
@@ -262,7 +283,8 @@ export async function syncPersonFamilyLinks(input: {
     .update({ active: false, updated_at: now })
     .eq("organization_id", input.organizationId)
     .eq("person_id", input.personId)
-    .eq("active", true);
+    .eq("active", true)
+    .not("source", "like", "reciprocal:%");
 
   if (deactivateError) throw deactivateError;
 
