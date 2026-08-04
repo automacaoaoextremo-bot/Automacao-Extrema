@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OrganizacaoBaseUnicaSubnav } from "@/components/organizacao-base-unica-subnav";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
@@ -263,10 +263,56 @@ async function csvFromFile(file: File) {
   return await file.text();
 }
 
+function EnvolvidoModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[140] flex items-end justify-center bg-[#10251C]/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-6xl flex-col overflow-hidden rounded-t-[1.75rem] bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]">
+        <header className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#2F6B43] sm:text-xs">
+                Base Única
+              </p>
+              <h2 className="mt-0.5 text-xl font-black text-[#00334E] sm:text-2xl">
+                {title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white"
+            >
+              Fechar
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6">{children}</div>
+      </section>
+    </div>
+  );
+}
+
 export default function EnvolvidosPage() {
   const router = useRouter();
   const [payload, setPayload] = useState<Payload | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
+  const [formModalOpen, setFormModalOpen] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [loading, setLoading] = useState(true);
@@ -314,6 +360,23 @@ export default function EnvolvidosPage() {
       window.clearTimeout(timer);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!formModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFormModalOpen(false);
+        setForm(emptyForm);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [formModalOpen]);
 
   const availableModules = payload?.modules?.length ? payload.modules.filter((module) => module.enabled !== false).map((module) => module.module_slug) : DEFAULT_MODULE_SLUGS;
   const filteredPeople = useMemo(() => {
@@ -407,6 +470,7 @@ export default function EnvolvidosPage() {
       });
       if (result) setPayload(result);
       setForm(emptyForm);
+      setFormModalOpen(false);
       setMessage("Envolvido salvo na Base Única.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar envolvido.");
@@ -521,7 +585,22 @@ export default function EnvolvidosPage() {
       canViewReports: Boolean(profile.canViewReports),
       attendanceNotes: profile.attendanceNotes ?? "",
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setError("");
+    setMessage("");
+    setFormModalOpen(true);
+  }
+
+  function includePerson() {
+    setForm(emptyForm);
+    setError("");
+    setMessage("");
+    setFormModalOpen(true);
+  }
+
+  function closePersonModal() {
+    setFormModalOpen(false);
+    setForm(emptyForm);
+    setError("");
   }
 
   async function onCsvFile(event: ChangeEvent<HTMLInputElement>) {
@@ -555,79 +634,6 @@ export default function EnvolvidosPage() {
       {!loading && payload && (
         <>
           <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-[#2F6B43]">Envolvidos</p>
-            <h2 className="mt-2 text-2xl font-black text-[#00334E]">{form.id ? "Editar envolvido" : "Incluir envolvido"}</h2>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome completo *</span><input value={form.fullName} onChange={(event) => update("fullName", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">WhatsApp</span><input value={form.whatsapp} onChange={(event) => update("whatsapp", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="(19) 99999-9999" /></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">E-mail</span><input value={form.email} onChange={(event) => update("email", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => update("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.filter((role) => role.active !== false).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
-            </div>
-            <div className="mt-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
-              <p className="text-sm font-black text-[#00334E]">Módulos liberados</p>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                {availableModules.map((module) => <label key={module} className="flex items-center gap-2 rounded-2xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-slate-100"><input type="checkbox" checked={form.moduleSlugs.includes(module)} onChange={() => toggleModule(module)} />{moduleLabels[module] ?? module}</label>)}
-              </div>
-            </div>
-            <div className="mt-4 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Vínculos operacionais</p>
-              <h3 className="mt-1 text-xl font-black text-[#00334E]">Agenda Viva, Atendimento e escala do Tucxa</h3>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <Check label="É cavalinho" checked={form.isCavalinho} onChange={(checked) => update("isCavalinho", checked)} />
-                <Check label="É cambono" checked={form.isCambono} onChange={(checked) => update("isCambono", checked)} />
-                <Check label="Cambono volante/reserva" checked={form.isReserveCambono} onChange={(checked) => update("isReserveCambono", checked)} />
-                <Check label="Apoia recepção" checked={form.supportsReception} onChange={(checked) => update("supportsReception", checked)} />
-                <Check label="Apoia organização" checked={form.supportsOrganization} onChange={(checked) => update("supportsOrganization", checked)} />
-                <Check label="Pode aprovar eventos" checked={form.canApproveEvents} onChange={(checked) => update("canApproveEvents", checked)} />
-                <Check label="Pode alterar calendário" checked={form.canEditCalendar} onChange={(checked) => update("canEditCalendar", checked)} />
-                <Check label="Pode ver relatórios" checked={form.canViewReports} onChange={(checked) => update("canViewReports", checked)} />
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div className="grid gap-2 md:col-span-2">
-                  <span className="text-sm font-black text-[#00334E]">Entidades que recebe</span>
-                  <div className="grid gap-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100 sm:grid-cols-2">
-                    {(payload.entities ?? []).filter((entity) => entity.active !== false).map((entity) => (
-                      <label key={entity.id} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-rose-100">
-                        <input
-                          type="checkbox"
-                          checked={form.linkedEntityIds.includes(entity.id)}
-                          onChange={(event) => {
-                            const linkedEntityIds = event.target.checked
-                              ? [...form.linkedEntityIds, entity.id]
-                              : form.linkedEntityIds.filter((id) => id !== entity.id);
-                            update("linkedEntityIds", linkedEntityIds);
-                            if (!linkedEntityIds.includes(form.primaryEntityId)) update("primaryEntityId", "");
-                          }}
-                          className="h-5 w-5"
-                        />
-                        <span>{entity.name}{entity.attends_consulentes ? " · atende Consulentes" : ""}</span>
-                      </label>
-                    ))}
-                    {(payload.entities ?? []).length === 0 && <p className="text-sm font-semibold text-slate-500">Cadastre as entidades antes de criar os vínculos.</p>}
-                  </div>
-                </div>
-                <label className="grid gap-1">
-                  <span className="text-sm font-black text-[#00334E]">Entidade principal para atendimento</span>
-                  <select value={form.primaryEntityId} onChange={(event) => update("primaryEntityId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
-                    <option value="">Sem entidade principal</option>
-                    {(payload.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-                  </select>
-                </label>
-                <Input label="Linhas de trabalho" value={form.spiritualLines} onChange={(value) => update("spiritualLines", value)} placeholder="Ex.: Oxóssi, Ogum, Xangô" />
-                <Input label="Entidades que costuma cambonar" value={form.cambonoEntityNames} onChange={(value) => update("cambonoEntityNames", value)} />
-                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo de quinta-feira</span><select value={form.thursdayGroup} onChange={(event) => update("thursdayGroup", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="ambos">Grupo 1 e Grupo 2</option></select></label>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{weekdayLabels.map((item) => <Check key={item.key} label={item.label} checked={Boolean(form[item.key])} onChange={(checked) => update(item.key, checked)} />)}</div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Check label="Envolvido ativo" checked={form.active} onChange={(checked) => update("active", checked)} />
-              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações internas</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
-              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações de disponibilidade/atendimento</span><textarea value={form.attendanceNotes} onChange={(event) => update("attendanceNotes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: só pode às segundas; cambono reserva; participa dos dois grupos mediante autorização." /></label>
-            </div>
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={savePerson} disabled={saving || !form.fullName.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar envolvido"}</button>{form.id && <button type="button" onClick={() => setForm(emptyForm)} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar edição</button>}</div>
-          </section>
-
-          <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-2xl font-black text-[#00334E]">Importar por CSV</h2><p className="mt-2 leading-7 text-slate-600">Use o modelo para preparar a corrente inteira antes de importar.</p></div><a href="/api/organizacao-em-harmonia/cliente/base-unica/template" className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-[#00334E] ring-1 ring-emerald-100">Baixar modelo CSV</a></div>
             <input type="file" accept=".csv,text/csv" onChange={onCsvFile} className="mt-5 block w-full rounded-2xl border border-slate-200 p-3" />
             <textarea value={csvText} onChange={(event) => setCsvText(event.target.value)} className="mt-4 min-h-36 w-full rounded-2xl border border-slate-200 p-3" placeholder="Ou cole aqui o conteúdo CSV" />
@@ -640,7 +646,16 @@ export default function EnvolvidosPage() {
                 <h2 className="text-2xl font-black text-[#00334E]">Envolvidos cadastrados</h2>
                 <p className="mt-2 text-sm font-semibold text-slate-500">{filteredPeople.length} de {payload.people.length} envolvido(s) visível(is) conforme os filtros.</p>
               </div>
-              <button type="button" onClick={() => setFilters(emptyFilters)} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-[#00334E]">Limpar filtros</button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={includePerson}
+                  className="rounded-2xl bg-[#00334E] px-5 py-3 text-sm font-black text-white"
+                >
+                  Incluir
+                </button>
+                <button type="button" onClick={() => setFilters(emptyFilters)} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-[#00334E]">Limpar filtros</button>
+              </div>
             </div>
 
             <div className="mt-5 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
@@ -714,6 +729,87 @@ export default function EnvolvidosPage() {
               </table>
             </div>
           </section>
+          {formModalOpen && (
+            <EnvolvidoModal
+              title={form.id ? "Editar envolvido" : "Incluir envolvido"}
+              onClose={closePersonModal}
+            >
+              {error && (
+                <p className="mb-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">
+                  {error}
+                </p>
+              )}
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Nome completo *</span><input value={form.fullName} onChange={(event) => update("fullName", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">WhatsApp</span><input value={form.whatsapp} onChange={(event) => update("whatsapp", event.target.value)} className="rounded-2xl border border-slate-200 p-3" placeholder="(19) 99999-9999" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">E-mail</span><input value={form.email} onChange={(event) => update("email", event.target.value)} className="rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Função</span><select value={form.roleId} onChange={(event) => update("roleId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Selecionar função</option>{payload.roles.filter((role) => role.active !== false).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+            </div>
+            <div className="mt-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-100">
+              <p className="text-sm font-black text-[#00334E]">Módulos liberados</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {availableModules.map((module) => <label key={module} className="flex items-center gap-2 rounded-2xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-slate-100"><input type="checkbox" checked={form.moduleSlugs.includes(module)} onChange={() => toggleModule(module)} />{moduleLabels[module] ?? module}</label>)}
+              </div>
+            </div>
+            <div className="mt-4 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Vínculos operacionais</p>
+              <h3 className="mt-1 text-xl font-black text-[#00334E]">Agenda Viva, Atendimento e escala do Tucxa</h3>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Check label="É cavalinho" checked={form.isCavalinho} onChange={(checked) => update("isCavalinho", checked)} />
+                <Check label="É cambono" checked={form.isCambono} onChange={(checked) => update("isCambono", checked)} />
+                <Check label="Cambono volante/reserva" checked={form.isReserveCambono} onChange={(checked) => update("isReserveCambono", checked)} />
+                <Check label="Apoia recepção" checked={form.supportsReception} onChange={(checked) => update("supportsReception", checked)} />
+                <Check label="Apoia organização" checked={form.supportsOrganization} onChange={(checked) => update("supportsOrganization", checked)} />
+                <Check label="Pode aprovar eventos" checked={form.canApproveEvents} onChange={(checked) => update("canApproveEvents", checked)} />
+                <Check label="Pode alterar calendário" checked={form.canEditCalendar} onChange={(checked) => update("canEditCalendar", checked)} />
+                <Check label="Pode ver relatórios" checked={form.canViewReports} onChange={(checked) => update("canViewReports", checked)} />
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2 md:col-span-2">
+                  <span className="text-sm font-black text-[#00334E]">Entidades que recebe</span>
+                  <div className="grid gap-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100 sm:grid-cols-2">
+                    {(payload.entities ?? []).filter((entity) => entity.active !== false).map((entity) => (
+                      <label key={entity.id} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#00334E] ring-1 ring-rose-100">
+                        <input
+                          type="checkbox"
+                          checked={form.linkedEntityIds.includes(entity.id)}
+                          onChange={(event) => {
+                            const linkedEntityIds = event.target.checked
+                              ? [...form.linkedEntityIds, entity.id]
+                              : form.linkedEntityIds.filter((id) => id !== entity.id);
+                            update("linkedEntityIds", linkedEntityIds);
+                            if (!linkedEntityIds.includes(form.primaryEntityId)) update("primaryEntityId", "");
+                          }}
+                          className="h-5 w-5"
+                        />
+                        <span>{entity.name}{entity.attends_consulentes ? " · atende Consulentes" : ""}</span>
+                      </label>
+                    ))}
+                    {(payload.entities ?? []).length === 0 && <p className="text-sm font-semibold text-slate-500">Cadastre as entidades antes de criar os vínculos.</p>}
+                  </div>
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-sm font-black text-[#00334E]">Entidade principal para atendimento</span>
+                  <select value={form.primaryEntityId} onChange={(event) => update("primaryEntityId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <option value="">Sem entidade principal</option>
+                    {(payload.entities ?? []).filter((entity) => form.linkedEntityIds.includes(entity.id)).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                  </select>
+                </label>
+                <Input label="Linhas de trabalho" value={form.spiritualLines} onChange={(value) => update("spiritualLines", value)} placeholder="Ex.: Oxóssi, Ogum, Xangô" />
+                <Input label="Entidades que costuma cambonar" value={form.cambonoEntityNames} onChange={(value) => update("cambonoEntityNames", value)} />
+                <label className="grid gap-1"><span className="text-sm font-black text-[#00334E]">Grupo de quinta-feira</span><select value={form.thursdayGroup} onChange={(event) => update("thursdayGroup", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3"><option value="">Não definido</option><option value="grupo-1">Grupo 1</option><option value="grupo-2">Grupo 2</option><option value="ambos">Grupo 1 e Grupo 2</option></select></label>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{weekdayLabels.map((item) => <Check key={item.key} label={item.label} checked={Boolean(form[item.key])} onChange={(checked) => update(item.key, checked)} />)}</div>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Check label="Envolvido ativo" checked={form.active} onChange={(checked) => update("active", checked)} />
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações internas</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" /></label>
+              <label className="grid gap-1 md:col-span-2"><span className="text-sm font-black text-[#00334E]">Observações de disponibilidade/atendimento</span><textarea value={form.attendanceNotes} onChange={(event) => update("attendanceNotes", event.target.value)} className="min-h-24 rounded-2xl border border-slate-200 p-3" placeholder="Ex.: só pode às segundas; cambono reserva; participa dos dois grupos mediante autorização." /></label>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" onClick={savePerson} disabled={saving || !form.fullName.trim()} className="rounded-2xl bg-[#00334E] px-5 py-3 font-black text-white disabled:opacity-60">{form.id ? "Salvar alterações" : "Salvar envolvido"}</button><button type="button" onClick={closePersonModal} className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-[#00334E]">Cancelar</button></div>
+
+            </EnvolvidoModal>
+          )}
         </>
       )}
     </OrganizacaoClientShell>

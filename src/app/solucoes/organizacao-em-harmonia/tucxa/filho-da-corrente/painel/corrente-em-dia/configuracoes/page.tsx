@@ -21,6 +21,8 @@ type Settings = {
 
 type Preference = {
   preferred_due_day: number | null;
+  reminder_days_before?: number[] | null;
+  reminder_channels?: string[] | null;
 };
 
 type Person = {
@@ -64,6 +66,7 @@ type Payload = {
   };
   settings?: Settings;
   preference?: Preference;
+  preferenceSaved?: boolean;
   people?: Person[];
   familyGroups?: FamilyGroup[];
   error?: string;
@@ -75,6 +78,21 @@ type FamilyDraft = {
   relationshipTypeId: string;
   relationshipLabel: string;
 };
+
+
+type ResultModalState =
+  | {
+      kind: "organization";
+      dueDay: number;
+      reminderDays: number[];
+      email: string;
+    }
+  | {
+      kind: "family";
+      amount: number;
+      members: FamilyDraft[];
+    }
+  | null;
 
 type ModalProps = {
   title: string;
@@ -102,25 +120,29 @@ function Modal({ title, eyebrow, onClose, children }: ModalProps) {
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <section className="max-h-[95dvh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-7">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-              {eyebrow}
-            </p>
-            <h2 className="mt-2 text-2xl font-black leading-tight text-[#123D2C] sm:text-3xl">
-              {title}
-            </h2>
+      <section className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-3xl flex-col overflow-hidden rounded-t-[1.5rem] bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]">
+        <header className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#2F6B43] sm:text-xs">
+                {eyebrow}
+              </p>
+              <h2 className="mt-0.5 text-xl font-black leading-tight text-[#123D2C] sm:text-3xl">
+                {title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
+            >
+              Fechar
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2.5 text-sm font-black text-white"
-          >
-            Fechar
-          </button>
+        </header>
+        <div className="min-h-0 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-6">
+          {children}
         </div>
-        {children}
       </section>
     </div>
   );
@@ -175,6 +197,8 @@ export default function CorrenteEmDiaConfiguracoesPage() {
 
   const [organizationModalOpen, setOrganizationModalOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [resultModal, setResultModal] = useState<ResultModalState>(null);
   const [preferredDueDay, setPreferredDueDay] = useState("10");
   const [reminderDays, setReminderDays] = useState<number[]>([]);
   const [emailDraft, setEmailDraft] = useState("");
@@ -218,8 +242,15 @@ export default function CorrenteEmDiaConfiguracoesPage() {
           10,
       ),
     );
-    // Conforme o Ajustes Evolução 03, nenhuma antecedência inicia destacada.
-    setReminderDays([]);
+    const savedReminderDays =
+      result.preferenceSaved &&
+      Array.isArray(result.preference?.reminder_days_before)
+        ? result.preference.reminder_days_before
+            .map(Number)
+            .filter((day) => REMINDER_OPTIONS.includes(day))
+            .sort((left, right) => right - left)
+        : [];
+    setReminderDays(savedReminderDays);
     setEmailDraft(result.currentPerson?.email ?? "");
   }, [token]);
 
@@ -248,13 +279,22 @@ export default function CorrenteEmDiaConfiguracoesPage() {
   }, [load]);
 
   useEffect(() => {
-    if (!organizationModalOpen && !familyModalOpen) return;
+    if (
+      !organizationModalOpen &&
+      !familyModalOpen &&
+      !historyModalOpen &&
+      !resultModal
+    ) {
+      return;
+    }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOrganizationModalOpen(false);
         setFamilyModalOpen(false);
+        setHistoryModalOpen(false);
+        setResultModal(null);
       }
     };
     window.addEventListener("keydown", closeOnEscape);
@@ -262,7 +302,12 @@ export default function CorrenteEmDiaConfiguracoesPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [familyModalOpen, organizationModalOpen]);
+  }, [
+    familyModalOpen,
+    historyModalOpen,
+    organizationModalOpen,
+    resultModal,
+  ]);
 
   const availableFamilyPeople = useMemo(
     () =>
@@ -324,6 +369,28 @@ export default function CorrenteEmDiaConfiguracoesPage() {
     }
   }
 
+  function openOrganizationModal() {
+    setPreferredDueDay(
+      String(
+        payload.preference?.preferred_due_day ||
+          payload.settings?.defaultDueDay ||
+          10,
+      ),
+    );
+    const savedReminderDays =
+      payload.preferenceSaved &&
+      Array.isArray(payload.preference?.reminder_days_before)
+        ? payload.preference.reminder_days_before
+            .map(Number)
+            .filter((day) => REMINDER_OPTIONS.includes(day))
+            .sort((left, right) => right - left)
+        : [];
+    setReminderDays(savedReminderDays);
+    setError("");
+    setMessage("");
+    setOrganizationModalOpen(true);
+  }
+
   async function savePreferences() {
     const dueDay = Number(preferredDueDay);
     if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
@@ -335,16 +402,22 @@ export default function CorrenteEmDiaConfiguracoesPage() {
     setError("");
     setMessage("");
     try {
-      const result = await post({
+      await post({
         action: "savePreferences",
         preferredDueDay: dueDay,
         reminderDaysBefore: reminderDays,
         reminderChannels:
           currentEmail && reminderDays.length > 0 ? ["email"] : [],
       });
-      setMessage(result.message || "Organização e lembretes salvos.");
+      setMessage("");
       setOrganizationModalOpen(false);
       await load();
+      setResultModal({
+        kind: "organization",
+        dueDay,
+        reminderDays: [...reminderDays],
+        email: currentEmail,
+      });
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -358,6 +431,8 @@ export default function CorrenteEmDiaConfiguracoesPage() {
 
   function openFamilyModal() {
     setFamilyNeedsEmailDecision(false);
+    setError("");
+    setMessage("");
     setFamilyPersonId("");
     const editableGroup = (payload.familyGroups ?? []).find((group) =>
       ["aguardando_aprovacao", "ativo"].includes(group.status),
@@ -437,7 +512,7 @@ export default function CorrenteEmDiaConfiguracoesPage() {
     setError("");
     setMessage("");
     try {
-      const result = await post({
+      await post({
         action: "requestFamilyGroup",
         name: `Família de ${payload.currentPerson?.fullName || "Filho da Corrente"}`,
         contributionMode: "consolidada",
@@ -448,12 +523,16 @@ export default function CorrenteEmDiaConfiguracoesPage() {
           includedInPayment: true,
         })),
       });
-      setMessage(
-        result.message || "Solicitação familiar enviada para aprovação.",
-      );
+      setMessage("");
       setFamilyNeedsEmailDecision(false);
+      const submittedMembers = [...familyDrafts];
       await load();
       setFamilyModalOpen(false);
+      setResultModal({
+        kind: "family",
+        amount,
+        members: submittedMembers,
+      });
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -511,11 +590,8 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             <section className="grid gap-3 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => {
-                  setReminderDays([]);
-                  setOrganizationModalOpen(true);
-                }}
-                className="rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5"
+                onClick={openOrganizationModal}
+                className="group rounded-[1.75rem] border-2 border-[#123D2C]/20 bg-white p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C]/45 hover:shadow-lg"
               >
                 <span className="block text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
                   Configuração
@@ -526,13 +602,16 @@ export default function CorrenteEmDiaConfiguracoesPage() {
                 <span className="mt-2 block text-sm leading-6 text-slate-600">
                   Defina o dia previsto e marque os lembretes que deseja receber.
                 </span>
+                <span className="mt-4 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
+                  Abrir configuração
+                </span>
               </button>
 
               {payload.settings.familyContributionsEnabled && (
                 <button
                   type="button"
                   onClick={openFamilyModal}
-                  className="rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5"
+                  className="group rounded-[1.75rem] border-2 border-[#123D2C]/20 bg-white p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C]/45 hover:shadow-lg"
                 >
                   <span className="block text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
                     Família
@@ -542,6 +621,9 @@ export default function CorrenteEmDiaConfiguracoesPage() {
                   </span>
                   <span className="mt-2 block text-sm leading-6 text-slate-600">
                     Informe ou atualize valor, familiares e acompanhe o histórico.
+                  </span>
+                  <span className="mt-4 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
+                    Abrir contribuição
                   </span>
                 </button>
               )}
@@ -556,7 +638,17 @@ export default function CorrenteEmDiaConfiguracoesPage() {
           title="Escolha como deseja se organizar."
           onClose={() => setOrganizationModalOpen(false)}
         >
-          <label className="mt-5 grid gap-2 font-black text-[#123D2C]">
+          {error && (
+            <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+              {message}
+            </p>
+          )}
+          <label className="mt-4 grid gap-2 font-black text-[#123D2C]">
             Dia do mês previsto para a contribuição
             <input
               required
@@ -575,7 +667,7 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             não possuem 31 dias será considerado o último dia do mês.
           </p>
 
-          <p className="mt-5 font-black text-[#123D2C]">Lembretes:</p>
+          <p className="mt-4 font-black text-[#123D2C]">Lembretes:</p>
           <p className="mt-1 text-sm leading-6 text-slate-600">
             Marque (fundo ficará verde) quantos dias antes do dia definido para
             contribuir deseja receber lembretes.
@@ -633,7 +725,7 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             type="button"
             onClick={savePreferences}
             disabled={saving === "preferences"}
-            className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-60"
+            className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 font-black text-white disabled:opacity-60"
           >
             {saving === "preferences"
               ? "Salvando..."
@@ -648,14 +740,32 @@ export default function CorrenteEmDiaConfiguracoesPage() {
           title="Organize uma contribuição para sua família."
           onClose={() => setFamilyModalOpen(false)}
         >
-          <p className="mt-3 text-sm leading-6 text-slate-600">
+          {error && (
+            <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+              {message}
+            </p>
+          )}
+          <p className="mt-3 text-sm leading-5 text-slate-600">
             Informe o valor total e os integrantes. A solicitação será analisada
             e, após aprovada, valor e agregados aparecerão em suas contribuições
             mensais.
           </p>
 
+          <button
+            type="button"
+            onClick={() => setHistoryModalOpen(true)}
+            className="mt-3 w-full rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+          >
+            Histórico das solicitações
+          </button>
+
           {!currentEmail && (
-            <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-200">
+            <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-amber-950 ring-1 ring-amber-200">
               <p className="font-black">Você ainda não possui e-mail cadastrado.</p>
               <p className="mt-1 text-sm leading-6">
                 Cadastre para receber a confirmação da solicitação e o aviso da
@@ -681,18 +791,18 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             </div>
           )}
 
-          <label className="mt-5 grid gap-2 font-black text-[#123D2C]">
+          <label className="mt-4 grid gap-2 font-black text-[#123D2C]">
             Valor total que você consegue contribuir
             <input
               value={familyAmount}
               onChange={(event) => setFamilyAmount(event.target.value)}
               inputMode="decimal"
               placeholder="Ex.: 150,00"
-              className="rounded-2xl border border-slate-200 p-4"
+              className="rounded-2xl border border-slate-200 p-3.5"
             />
           </label>
 
-          <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+          <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <select
                 value={familyPersonId}
@@ -717,7 +827,8 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             {(payload.people ?? []).length === 0 && (
               <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-950">
                 Nenhum familiar vinculado foi localizado. Cadastre o vínculo em
-                <strong> Atualizar dados</strong>; depois retorne a esta tela.
+                <strong> Cadastro na área logada</strong>; depois retorne a esta
+                tela.
               </p>
             )}
           </div>
@@ -778,69 +889,129 @@ export default function CorrenteEmDiaConfiguracoesPage() {
             {saving === "family" ? "Enviando..." : "Enviar para aprovação"}
           </button>
 
-          {(payload.familyGroups ?? []).length > 0 && (
-            <section className="mt-7 border-t border-slate-100 pt-6">
-              <h3 className="text-xl font-black text-[#123D2C]">
-                Histórico das solicitações
-              </h3>
-              <div className="mt-4 grid gap-3">
-                {(payload.familyGroups ?? []).map((group) => (
-                  <article
-                    key={group.id}
-                    className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-black text-[#123D2C]">{group.name}</h4>
-                        <p className="mt-1 text-sm font-semibold text-slate-600">
-                          Solicitado: {money(group.requested_amount)}
-                          {group.approved_amount
-                            ? ` · Aprovado: ${money(group.approved_amount)}`
-                            : ""}
-                        </p>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C]">
-                        {familyStatusLabel(group.status)}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid gap-1 rounded-xl bg-white p-3 text-sm text-slate-600">
-                      <p>
-                        <strong>Solicitada em:</strong>{" "}
-                        {dateTime(group.submitted_at || group.created_at)}
+        </Modal>
+      )}
+
+      {historyModalOpen && (
+        <Modal
+          eyebrow="Contribuição familiar"
+          title="Histórico das solicitações"
+          onClose={() => setHistoryModalOpen(false)}
+        >
+          {(payload.familyGroups ?? []).length === 0 ? (
+            <p className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold text-slate-600 ring-1 ring-[#123D2C]/10">
+              Nenhuma solicitação de contribuição familiar foi registrada.
+            </p>
+          ) : (
+            <div className="mt-4 grid gap-3">
+              {(payload.familyGroups ?? []).map((group) => (
+                <article
+                  key={group.id}
+                  className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-black text-[#123D2C]">{group.name}</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">
+                        Solicitado: {money(group.requested_amount)}
+                        {group.approved_amount
+                          ? ` · Aprovado: ${money(group.approved_amount)}`
+                          : ""}
                       </p>
-                      {group.decided_at && (
-                        <p>
-                          <strong>Data da análise:</strong>{" "}
-                          {dateTime(group.decided_at)}
-                        </p>
-                      )}
-                      {group.approved_at && (
-                        <p>
-                          <strong>Aprovada em:</strong>{" "}
-                          {dateTime(group.approved_at)}
-                        </p>
-                      )}
                     </div>
-                    <div className="mt-3 grid gap-1 text-sm text-slate-600">
-                      {group.members.map((member) => (
-                        <p key={member.id}>
-                          <strong>{person(member.person)?.full_name}</strong>
-                          {relation(member.relationship)?.label
-                            ? ` · ${relation(member.relationship)?.label}`
-                            : ""}
-                        </p>
-                      ))}
-                    </div>
-                    {group.decision_notes && (
-                      <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold text-slate-600">
-                        Observação da análise: {group.decision_notes}
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C]">
+                      {familyStatusLabel(group.status)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-1 rounded-xl bg-white p-3 text-sm text-slate-600">
+                    <p>
+                      <strong>Solicitada em:</strong>{" "}
+                      {dateTime(group.submitted_at || group.created_at)}
+                    </p>
+                    {group.decided_at && (
+                      <p>
+                        <strong>Data da análise:</strong>{" "}
+                        {dateTime(group.decided_at)}
                       </p>
                     )}
-                  </article>
-                ))}
-              </div>
-            </section>
+                    {group.approved_at && (
+                      <p>
+                        <strong>Aprovada em:</strong>{" "}
+                        {dateTime(group.approved_at)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-3 grid gap-1 text-sm text-slate-600">
+                    {group.members.map((member) => (
+                      <p key={member.id}>
+                        <strong>{person(member.person)?.full_name}</strong>
+                        {relation(member.relationship)?.label
+                          ? ` · ${relation(member.relationship)?.label}`
+                          : ""}
+                      </p>
+                    ))}
+                  </div>
+                  {group.decision_notes && (
+                    <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold text-slate-600">
+                      Observação da análise: {group.decision_notes}
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
           )}
+        </Modal>
+      )}
+
+      {resultModal?.kind === "organization" && (
+        <Modal
+          eyebrow="Configuração salva"
+          title="Organização e lembretes definidos"
+          onClose={() => setResultModal(null)}
+        >
+          <div className="mt-4 grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="font-black text-[#123D2C]">
+              Dia previsto: {resultModal.dueDay}
+            </p>
+            <p className="text-sm font-semibold leading-6 text-slate-600">
+              Lembretes:{" "}
+              {resultModal.reminderDays.length
+                ? resultModal.reminderDays
+                    .map((day) => `${day} ${day === 1 ? "dia" : "dias"} antes`)
+                    .join(", ")
+                : "nenhum lembrete selecionado"}
+            </p>
+            <p className="text-sm font-semibold leading-6 text-slate-600">
+              {resultModal.email
+                ? `Envio para ${resultModal.email}.`
+                : "Sem e-mail cadastrado; os lembretes não serão enviados."}
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {resultModal?.kind === "family" && (
+        <Modal
+          eyebrow="Solicitação enviada"
+          title="Contribuição familiar registrada"
+          onClose={() => setResultModal(null)}
+        >
+          <div className="mt-4 grid gap-3 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="font-black text-[#123D2C]">
+              Valor solicitado: {money(resultModal.amount)}
+            </p>
+            <p className="text-sm font-semibold text-slate-600">
+              Status: Aguardando aprovação
+            </p>
+            <div className="grid gap-1 text-sm text-slate-600">
+              {resultModal.members.map((member) => (
+                <p key={member.personId}>
+                  <strong>{member.personName}</strong> ·{" "}
+                  {member.relationshipLabel}
+                </p>
+              ))}
+            </div>
+          </div>
         </Modal>
       )}
     </main>

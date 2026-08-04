@@ -547,6 +547,7 @@ async function loadPayload(context: AuthContext) {
       ],
     },
     preference,
+    preferenceSaved: Boolean(preferenceResult.data),
     contributions: contributionsResult.data ?? [],
     upcoming,
     pixCopyPaste,

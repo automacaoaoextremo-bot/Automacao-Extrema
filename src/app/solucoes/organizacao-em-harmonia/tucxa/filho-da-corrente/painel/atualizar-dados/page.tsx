@@ -89,6 +89,7 @@ type SubmitResponse = {
 };
 
 type DialogName = "dados" | "participacao" | null;
+type ParticipationPage = 1 | 2 | 3 | 4;
 
 type UpdateModalProps = {
   eyebrow: string;
@@ -112,29 +113,29 @@ function UpdateModal({
       aria-modal="true"
       aria-label={title}
     >
-      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="shrink-0 border-b border-slate-100 px-4 py-4 sm:px-5">
+      <section className="flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]">
+        <header className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">
                 {eyebrow}
               </p>
-              <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+              <h2 className="mt-0.5 text-lg font-black leading-tight text-[#123D2C] sm:text-2xl">
                 {title}
               </h2>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+              className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
             >
               Fechar
             </button>
           </div>
         </header>
-        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-3 sm:p-5">{children}</div>
         {footer && (
-          <footer className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+          <footer className="shrink-0 border-t border-slate-100 bg-white p-3 sm:p-5">
             {footer}
           </footer>
         )}
@@ -228,6 +229,9 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   const [activeDialog, setActiveDialog] = useState<DialogName>(null);
   const [dataPage, setDataPage] = useState<1 | 2>(1);
+  const [participationPage, setParticipationPage] =
+    useState<ParticipationPage>(1);
+  const [familyHelpOpen, setFamilyHelpOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -387,6 +391,21 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     });
   }, [familyLinks, familyPeople, familySearch]);
 
+  const functionPageSize = Math.max(1, Math.ceil(functionOptions.length / 2));
+  const agendaPageSize = Math.max(1, Math.ceil(agendaOptions.length / 2));
+  const visibleFunctions =
+    participationPage === 1
+      ? functionOptions.slice(0, functionPageSize)
+      : functionOptions.slice(functionPageSize);
+  const visibleAgenda =
+    participationPage === 3
+      ? agendaOptions.slice(0, agendaPageSize)
+      : agendaOptions.slice(agendaPageSize);
+  const participationTitle =
+    participationPage <= 2
+      ? `Funções adicionais · ${participationPage} de 2`
+      : `Agenda · ${participationPage - 2} de 2`;
+
   const changesSummary = useMemo(() => {
     const addedFunctions = functionSlugs.filter(
       (item) => !originalFunctionSlugs.includes(item),
@@ -463,6 +482,29 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     }
     setError("");
     setDataPage(2);
+  }
+
+  function confirmParticipationUpdate() {
+    if (hasCavalinho && cavalinhoEntityIds.length === 0) {
+      setError("Selecione pelo menos uma entidade que você recebe.");
+      return;
+    }
+    if (hasCavalinho && !cavalinhoConsulenteDefinitionCompleted) {
+      setError("Informe se alguma das entidades selecionadas atende Consulentes.");
+      return;
+    }
+    if (
+      hasCavalinho &&
+      cavalinhoConsulenteEntityId &&
+      !cavalinhoEntityIds.includes(cavalinhoConsulenteEntityId)
+    ) {
+      setError(
+        "A entidade que atende Consulentes precisa estar entre as entidades que você recebe.",
+      );
+      return;
+    }
+    setError("");
+    setActiveDialog(null);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -695,7 +737,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
               <button
                 type="button"
-                onClick={() => setActiveDialog("participacao")}
+                onClick={() => {
+                  setParticipationPage(1);
+                  setActiveDialog("participacao");
+                }}
                 className="rounded-2xl bg-[#F7FAF2] p-5 text-left ring-1 ring-[#123D2C]/10"
               >
                 <span className="flex items-center justify-between gap-3">
@@ -753,7 +798,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                 Continuar para família
               </button>
             ) : (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setDataPage(1)}
@@ -784,7 +829,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                 <input
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
-                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                  className="rounded-2xl border border-[#123D2C]/15 p-3.5"
                 />
               </label>
               <label className="grid gap-1">
@@ -795,7 +840,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   value={whatsapp}
                   onChange={(event) => setWhatsapp(event.target.value)}
                   inputMode="tel"
-                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                  className="rounded-2xl border border-[#123D2C]/15 p-3.5"
                 />
               </label>
               <label className="grid gap-1">
@@ -804,7 +849,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   type="email"
-                  className="rounded-2xl border border-[#123D2C]/15 p-4"
+                  className="rounded-2xl border border-[#123D2C]/15 p-3.5"
                   placeholder="Opcional, mas recomendado"
                 />
               </label>
@@ -815,24 +860,25 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                 <textarea
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  className="min-h-24 rounded-2xl border border-[#123D2C]/15 p-4"
+                  className="min-h-16 rounded-2xl border border-[#123D2C]/15 p-3.5"
                   placeholder="Opcional"
                 />
               </label>
             </div>
           ) : (
-            <div className="grid gap-4">
-              <p className="text-sm font-semibold leading-6 text-slate-600">
+            <div className="grid gap-3">
+              <p className="text-sm font-semibold leading-5 text-slate-600">
                 Você possui Pai, Mãe, Marido, Esposa, Filho ou Filha que também é
                 Filho da Corrente?
               </p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
                 {(["sim", "nao"] as const).map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => {
                       setHasFamily(option);
+                      if (option === "sim") setFamilyHelpOpen(true);
                       if (option === "nao") setFamilyLinks([]);
                     }}
                     className={`rounded-2xl px-4 py-3 font-black ring-1 ${
@@ -848,7 +894,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
               {hasFamily === "sim" && (
                 <>
-                  <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                  <div className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                     <label className="grid gap-1">
                       <span className="text-sm font-black text-[#123D2C]">
                         Digite o nome para localizar
@@ -860,7 +906,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                         placeholder="Nome do familiar"
                       />
                     </label>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       <select
                         value={familyPersonId}
                         onChange={(event) => setFamilyPersonId(event.target.value)}
@@ -891,7 +937,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                     <button
                       type="button"
                       onClick={addFamilyLink}
-                      className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                      className="mt-2 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
                     >
                       Incluir familiar
                     </button>
@@ -928,11 +974,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                     ))}
                   </div>
 
-                  <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-950 ring-1 ring-amber-200">
-                    <strong>Familiar não localizado?</strong> Oriente-o a realizar o
-                    Primeiro Acesso. Você pode enviar esta atualização agora e informar
-                    o vínculo depois nesta mesma tela.
-                  </div>
+
                 </>
               )}
             </div>
@@ -942,116 +984,189 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
       {activeDialog === "participacao" && (
         <UpdateModal
-          eyebrow="Etapa 2 de 2"
-          title="Função e agenda"
+          eyebrow={`Etapa 2 de 2 · tela ${participationPage} de 4`}
+          title={participationTitle}
           onClose={() => setActiveDialog(null)}
           footer={
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setActiveDialog(null);
-              }}
-              className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-sm font-black text-white"
-            >
-              Confirmar etapa 2
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (participationPage === 1) {
+                    setActiveDialog(null);
+                    return;
+                  }
+                  setParticipationPage(
+                    (participationPage - 1) as ParticipationPage,
+                  );
+                  setError("");
+                }}
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+              >
+                {participationPage === 1 ? "Voltar ao cadastro" : "Voltar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (participationPage < 4) {
+                    setParticipationPage(
+                      (participationPage + 1) as ParticipationPage,
+                    );
+                    setError("");
+                    return;
+                  }
+                  confirmParticipationUpdate();
+                }}
+                className="rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white"
+              >
+                {participationPage === 4
+                  ? "Confirmar etapa 2"
+                  : participationPage === 2
+                    ? "Continuar para agenda"
+                    : "Continuar"}
+              </button>
+            </div>
           }
         >
-          <section>
-            <h3 className="font-black text-[#123D2C]">Funções adicionais</h3>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {functionOptions.map((item) => {
-                const checked = functionSlugs.includes(item.slug);
-                const wasChecked = originalFunctionSlugs.includes(item.slug);
-                return (
-                  <label
-                    key={item.slug}
-                    className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
-                      checked
-                        ? "bg-emerald-50 ring-emerald-100"
-                        : "bg-white ring-[#123D2C]/10"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleFunction(item.slug)}
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span className="text-sm font-bold text-[#123D2C]">
-                      {item.label}
-                      {wasChecked && (
-                        <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-[10px] text-white">
-                          já selecionado
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-            {hasCavalinho && (
-              <CavalinhoEntitySelector
-                entities={entityOptions}
-                selectedEntityIds={cavalinhoEntityIds}
-                consulenteEntityId={cavalinhoConsulenteEntityId}
-                consulenteDefinitionCompleted={
-                  cavalinhoConsulenteDefinitionCompleted
-                }
-                onChange={(value) => {
-                  setCavalinhoEntityIds(value.selectedEntityIds);
-                  setCavalinhoConsulenteEntityId(value.consulenteEntityId);
-                  setCavalinhoConsulenteDefinitionCompleted(
-                    value.consulenteDefinitionCompleted,
-                  );
-                }}
-              />
-            )}
-          </section>
-
-          <section className="mt-6 border-t border-slate-100 pt-5">
-            <h3 className="font-black text-[#123D2C]">Agenda</h3>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {agendaOptions.map((item) => {
-                const checked = agendaSlugs.includes(item.slug);
-                const wasChecked = originalAgendaSlugs.includes(item.slug);
-                return (
-                  <label
-                    key={item.slug}
-                    className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
-                      checked
-                        ? "bg-emerald-50 ring-emerald-100"
-                        : wasChecked
-                          ? "bg-white ring-[#123D2C]/10"
-                          : "bg-amber-50 ring-amber-100"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setAgendaSlugs((current) =>
-                          toggleValue(current, item.slug),
-                        )
-                      }
-                      className="mt-1 h-5 w-5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-bold text-[#123D2C]">
+          {participationPage <= 2 ? (
+            <section>
+              <p className="text-sm font-semibold leading-5 text-slate-600">
+                O vínculo de Filho da Corrente já está registrado. Marque somente
+                as funções adicionais.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {visibleFunctions.map((item) => {
+                  const checked = functionSlugs.includes(item.slug);
+                  const wasChecked = originalFunctionSlugs.includes(item.slug);
+                  return (
+                    <label
+                      key={item.slug}
+                      className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
+                        checked
+                          ? "bg-emerald-50 ring-emerald-100"
+                          : "bg-white ring-[#123D2C]/10"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFunction(item.slug)}
+                        className="mt-0.5 h-5 w-5"
+                      />
+                      <span className="text-sm font-bold text-[#123D2C]">
                         {item.label}
+                        {wasChecked && (
+                          <span className="ml-2 rounded-full bg-[#123D2C] px-2 py-0.5 text-[10px] text-white">
+                            já selecionado
+                          </span>
+                        )}
                       </span>
-                      <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">
-                        {descriptionForAgenda(item)}
+                    </label>
+                  );
+                })}
+              </div>
+              {hasCavalinho &&
+                visibleFunctions.some((item) => item.slug === "cavalinho") && (
+                  <CavalinhoEntitySelector
+                    entities={entityOptions}
+                    selectedEntityIds={cavalinhoEntityIds}
+                    consulenteEntityId={cavalinhoConsulenteEntityId}
+                    consulenteDefinitionCompleted={
+                      cavalinhoConsulenteDefinitionCompleted
+                    }
+                    onChange={(value) => {
+                      setCavalinhoEntityIds(value.selectedEntityIds);
+                      setCavalinhoConsulenteEntityId(value.consulenteEntityId);
+                      setCavalinhoConsulenteDefinitionCompleted(
+                        value.consulenteDefinitionCompleted,
+                      );
+                    }}
+                  />
+                )}
+            </section>
+          ) : (
+            <section>
+              <p className="text-sm font-semibold leading-5 text-slate-600">
+                Marque atendimentos, grupos, estudos e ações em que participa.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {visibleAgenda.map((item) => {
+                  const checked = agendaSlugs.includes(item.slug);
+                  const wasChecked = originalAgendaSlugs.includes(item.slug);
+                  return (
+                    <label
+                      key={item.slug}
+                      className={`flex items-start gap-3 rounded-2xl p-3 ring-1 ${
+                        checked
+                          ? "bg-emerald-50 ring-emerald-100"
+                          : wasChecked
+                            ? "bg-white ring-[#123D2C]/10"
+                            : "bg-amber-50 ring-amber-100"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setAgendaSlugs((current) =>
+                            toggleValue(current, item.slug),
+                          )
+                        }
+                        className="mt-0.5 h-5 w-5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-[#123D2C]">
+                          {item.label}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-semibold leading-4 text-slate-600">
+                          {descriptionForAgenda(item)}
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </section>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {error && (
+            <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              {error}
+            </p>
+          )}
         </UpdateModal>
       )}
+
+      {familyHelpOpen && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-[#10251C]/65 p-4 backdrop-blur-sm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-label="Orientação sobre familiar não localizado"
+        >
+          <section className="w-full max-w-md rounded-[1.75rem] bg-white p-5 shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              Vínculos familiares
+            </p>
+            <h3 className="mt-2 text-xl font-black text-[#123D2C]">
+              Familiar não localizado?
+            </h3>
+            <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">
+              Oriente-o a realizar o Primeiro Acesso. Você pode concluir seu
+              cadastro agora e informar o vínculo depois em{" "}
+              <strong>Cadastro</strong> após fazer o login.
+            </p>
+            <button
+              type="button"
+              onClick={() => setFamilyHelpOpen(false)}
+              className="mt-5 w-full rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white"
+            >
+              Entendi
+            </button>
+          </section>
+        </div>
+      )}
+
     </main>
   );
 }
