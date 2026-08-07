@@ -591,19 +591,13 @@ export default function CorrenteEmDiaConfiguracoesPage() {
               <button
                 type="button"
                 onClick={openOrganizationModal}
-                className="group rounded-[1.75rem] border-2 border-[#123D2C]/20 bg-white p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C]/45 hover:shadow-lg"
+                className="group rounded-[1.5rem] border-2 border-[#123D2C]/25 bg-white p-4 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C] hover:shadow-lg sm:rounded-[1.75rem] sm:p-5"
               >
-                <span className="block text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                  Configuração
-                </span>
-                <span className="mt-2 block text-xl font-black text-[#123D2C]">
+                <span className="block text-xl font-black text-[#123D2C]">
                   Organização e lembretes
                 </span>
-                <span className="mt-2 block text-sm leading-6 text-slate-600">
-                  Defina o dia previsto e marque os lembretes que deseja receber.
-                </span>
-                <span className="mt-4 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
-                  Abrir configuração
+                <span className="mt-2 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
+                  Abrir
                 </span>
               </button>
 
@@ -611,19 +605,13 @@ export default function CorrenteEmDiaConfiguracoesPage() {
                 <button
                   type="button"
                   onClick={openFamilyModal}
-                  className="group rounded-[1.75rem] border-2 border-[#123D2C]/20 bg-white p-5 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C]/45 hover:shadow-lg"
+                  className="group rounded-[1.5rem] border-2 border-[#123D2C]/25 bg-white p-4 text-left shadow-md transition hover:-translate-y-0.5 hover:border-[#123D2C] hover:shadow-lg sm:rounded-[1.75rem] sm:p-5"
                 >
-                  <span className="block text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                    Família
-                  </span>
-                  <span className="mt-2 block text-xl font-black text-[#123D2C]">
+                  <span className="block text-xl font-black text-[#123D2C]">
                     Contribuição Familiar
                   </span>
-                  <span className="mt-2 block text-sm leading-6 text-slate-600">
-                    Informe ou atualize valor, familiares e acompanhe o histórico.
-                  </span>
-                  <span className="mt-4 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
-                    Abrir contribuição
+                  <span className="mt-2 inline-flex rounded-full bg-[#123D2C] px-4 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">
+                    Abrir
                   </span>
                 </button>
               )}

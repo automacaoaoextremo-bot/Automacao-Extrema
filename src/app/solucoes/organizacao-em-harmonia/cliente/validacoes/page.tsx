@@ -354,7 +354,6 @@ export default function ValidacoesPrimeiroAcessoPage() {
                           const current = asTextArray(details.current);
                           const added = asTextArray(details.added);
                           const removed = asTextArray(details.removed);
-                          const requested = asTextArray(details.requested);
                           return (
                             <details className="mb-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                               <summary className="cursor-pointer font-black text-[#00334E]">
@@ -362,7 +361,6 @@ export default function ValidacoesPrimeiroAcessoPage() {
                               </summary>
                               <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
                                 <ChangeList title="Cadastro atual" items={current} empty="Sem dados anteriores." />
-                                <ChangeList title="Cadastro solicitado" items={requested} empty="Sem dados solicitados." />
                                 <ChangeList title="Inclusões/alterações" items={added} empty="Nenhuma inclusão." prefix="+" />
                                 <ChangeList title="Retiradas" items={removed} empty="Nenhuma retirada." prefix="−" />
                               </div>

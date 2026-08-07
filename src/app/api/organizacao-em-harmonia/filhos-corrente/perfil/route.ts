@@ -601,9 +601,6 @@ export async function POST(request: Request) {
       "",
       "Retiradas solicitadas:",
       ...(changeDetails.removed.length ? changeDetails.removed.map((item) => `- ${item}`) : ["- Nenhuma retirada"]),
-      "",
-      "Cadastro solicitado:",
-      ...changeDetails.requested.map((item) => `- ${item}`),
     ].join("\n");
     const consulenteEntityName = selectedEntities.find((entity) => entity.id === cavalinhoConsulenteEntityId)?.name || "Nenhuma";
     const reviewerMessage = [

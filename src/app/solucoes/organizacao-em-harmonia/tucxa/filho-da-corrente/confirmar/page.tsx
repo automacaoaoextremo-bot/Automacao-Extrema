@@ -39,7 +39,7 @@ type SubmitResponse = {
 };
 
 const DRAFT_KEY = "oh_tucxa_filho_corrente_primeiro_acesso";
-const backPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente#primeiro-acesso";
+const backPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso?ajuste=1";
 
 export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
   const [draft, setDraft] = useState<FirstAccessDraft | null>(null);

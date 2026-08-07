@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
   filhoPanelBase,
@@ -58,6 +58,12 @@ type ApprovedFamily = {
   }>;
 };
 
+type UpcomingContribution = {
+  dueDate: string;
+  amount: number;
+  status: string;
+};
+
 type Payload = {
   currentPerson?: {
     fullName?: string;
@@ -69,9 +75,11 @@ type Payload = {
   settings?: Settings;
   approvedFamily?: ApprovedFamily | null;
   contributions?: Contribution[];
-  upcoming?: Array<{ dueDate: string; amount: number; status: string }>;
+  upcoming?: UpcomingContribution[];
   error?: string;
 };
+
+type ContributionView = "menu" | "history" | "upcoming";
 
 const statusLabels: Record<string, string> = {
   intencao_registrada: "Intenção registrada",
@@ -108,11 +116,19 @@ function date(value: string) {
   }).format(new Date(`${value.slice(0, 10)}T12:00:00Z`));
 }
 
+function todayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [payload, setPayload] = useState<Payload>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [contributionOpen, setContributionOpen] = useState(false);
+  const [contributionView, setContributionView] =
+    useState<ContributionView>("menu");
 
   const token = useCallback(async () => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -161,6 +177,21 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
     };
   }, [load]);
 
+  const pastContributions = useMemo(
+    () =>
+      (payload.contributions ?? []).filter(
+        (item) => item.due_date.slice(0, 10) < todayIso(),
+      ),
+    [payload.contributions],
+  );
+
+  const contributionSettings = payload.settings;
+
+  function openContribution() {
+    setContributionView("menu");
+    setContributionOpen(true);
+  }
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
@@ -171,7 +202,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
 
       <section
         id="inicio"
-        className="mx-auto max-w-6xl space-y-5 px-4 py-4 sm:px-6 lg:px-8"
+        className="mx-auto max-w-6xl space-y-4 px-3 py-3 sm:space-y-5 sm:px-6 sm:py-4 lg:px-8"
       >
         {loading && (
           <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow">
@@ -184,145 +215,232 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
           </p>
         )}
 
-        {!loading && payload.settings && (
-          <>
-            <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">
-                Corrente em Dia
-              </p>
-              <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">
-                Sua contribuição ajuda a manter a Casa pronta para servir.
-              </h1>
-              <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-                {payload.settings.persuasiveText}
-              </p>
+        {!loading && contributionSettings && (
+          <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-7">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs sm:tracking-[0.24em]">
+              Corrente em Dia
+            </p>
+            <h1 className="mt-1.5 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">
+              Sua contribuição ajuda a manter a Casa pronta para servir.
+            </h1>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
+              {contributionSettings.persuasiveText}
+            </p>
 
-              {payload.approvedFamily && (
-                <div className="mt-5 rounded-2xl bg-white/10 p-4 ring-1 ring-white/20">
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#CFE2C7]">
-                    Contribuição familiar aprovada
+            {payload.approvedFamily && (
+              <div className="mt-3 rounded-2xl bg-white/10 p-3 ring-1 ring-white/20 sm:mt-5 sm:p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#CFE2C7] sm:text-xs sm:tracking-[0.16em]">
+                  Contribuição familiar aprovada
+                </p>
+                <p className="mt-0.5 text-xl font-black sm:mt-1 sm:text-2xl">
+                  {money(payload.approvedFamily.approvedAmount)}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5 sm:mt-2 sm:gap-2">
+                  {payload.approvedFamily.members.map((member) => (
+                    <span
+                      key={member.id}
+                      className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-black sm:px-3 sm:text-xs"
+                    >
+                      {member.fullName}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3 grid gap-2 sm:mt-5 sm:grid-cols-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={openContribution}
+                className="w-full rounded-2xl bg-white px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4"
+              >
+                Contribuição
+              </button>
+              <button
+                type="button"
+                onClick={() => setFinanceOpen(true)}
+                className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4"
+              >
+                Financeiro
+              </button>
+            </div>
+          </section>
+        )}
+      </section>
+
+      {contributionOpen && contributionSettings && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setContributionOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-contribution-center-title"
+            className="flex max-h-[calc(100dvh-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-[1.5rem] bg-white shadow-2xl sm:max-h-[94vh] sm:rounded-[2rem]"
+          >
+            <header className="shrink-0 border-b border-slate-100 p-3 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs sm:tracking-[0.2em]">
+                    Corrente em Dia
                   </p>
-                  <p className="mt-1 text-2xl font-black">
-                    {money(payload.approvedFamily.approvedAmount)}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {payload.approvedFamily.members.map((member) => (
-                      <span
-                        key={member.id}
-                        className="rounded-full bg-white/15 px-3 py-1 text-xs font-black"
+                  <h2
+                    id="member-contribution-center-title"
+                    className="mt-0.5 text-xl font-black leading-tight text-[#123D2C] sm:mt-1 sm:text-2xl"
+                  >
+                    Contribuição do Filho da Corrente
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContributionOpen(false)}
+                  className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
+                >
+                  Fechar
+                </button>
+              </div>
+              {contributionView !== "menu" && (
+                <button
+                  type="button"
+                  onClick={() => setContributionView("menu")}
+                  className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                >
+                  Voltar às opções
+                </button>
+              )}
+            </header>
+
+            <div className="min-h-0 overflow-y-auto p-3 sm:p-5">
+              {contributionView === "menu" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setContributionView("history")}
+                    className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]"
+                  >
+                    <span className="block text-xl font-black text-[#123D2C]">
+                      Histórico
+                    </span>
+                    <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">
+                      Consulte contribuições anteriores à data atual.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setContributionView("upcoming")}
+                    className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]"
+                  >
+                    <span className="block text-xl font-black text-[#123D2C]">
+                      Próximas
+                    </span>
+                    <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">
+                      Veja e organize as três próximas contribuições.
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {contributionView === "history" && (
+                <div>
+                  <h3 className="text-xl font-black text-[#123D2C]">
+                    Histórico
+                  </h3>
+                  <div className="mt-3 grid gap-2.5">
+                    {pastContributions.map((item) => (
+                      <article
+                        key={item.id}
+                        className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4"
                       >
-                        {member.fullName}
-                      </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-black text-[#123D2C]">
+                            {money(item.amount)}
+                          </p>
+                          <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-[#123D2C] sm:text-xs">
+                            {statusLabels[item.status] ?? item.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-slate-600 sm:text-sm">
+                          {date(item.due_date)} · {" "}
+                          {paymentLabels[item.payment_method ?? ""] ??
+                            item.payment_method ??
+                            "Forma não informada"}
+                        </p>
+                      </article>
                     ))}
+                    {pastContributions.length === 0 && (
+                      <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">
+                        Nenhuma contribuição anterior registrada.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="relative">
-                  <div className="[&>button:first-child]:text-transparent">
-                    <MemberContributionJourney
-                      settings={payload.settings}
-                      person={{
-                        fullName:
-                          payload.currentPerson?.fullName || "Filho da Corrente",
-                        email: payload.currentPerson?.email ?? null,
-                        whatsapp: payload.currentPerson?.whatsapp ?? null,
-                      }}
-                      receptionContacts={payload.receptionContacts ?? []}
-                      familyContribution={payload.approvedFamily ?? null}
-                      onCompleted={load}
-                    />
+              {contributionView === "upcoming" && (
+                <div>
+                  <h3 className="text-xl font-black text-[#123D2C]">
+                    Próximas contribuições
+                  </h3>
+                  <div className="mt-3 grid gap-3">
+                    {(payload.upcoming ?? []).slice(0, 3).map((item) => (
+                      <article
+                        key={item.dueDate}
+                        className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span>
+                            <span className="block font-black text-[#123D2C]">
+                              {date(item.dueDate)}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-600 sm:text-sm">
+                              {item.status}
+                            </span>
+                          </span>
+                          <span className="font-black text-[#123D2C]">
+                            {money(item.amount)}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          {item.status === "prevista" ? (
+                            <Link
+                              href={SETTINGS_HREF}
+                              className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                            >
+                              Editar
+                            </Link>
+                          ) : (
+                            <span className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-bold text-slate-400 ring-1 ring-slate-200">
+                              Atual
+                            </span>
+                          )}
+                          <MemberContributionJourney
+                            settings={contributionSettings}
+                            person={{
+                              fullName:
+                                payload.currentPerson?.fullName ||
+                                "Filho da Corrente",
+                              email: payload.currentPerson?.email ?? null,
+                              whatsapp: payload.currentPerson?.whatsapp ?? null,
+                            }}
+                            receptionContacts={payload.receptionContacts ?? []}
+                            onCompleted={load}
+                            dueDate={item.dueDate}
+                            triggerLabel="Contribuir"
+                          />
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 flex items-center justify-center text-base font-black text-[#123D2C]"
-                  >
-                    ABRIR
-                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setFinanceOpen(true)}
-                  className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5"
-                >
-                  Financeiro
-                </button>
-              </div>
-            </section>
-
-            <section className="grid gap-5 lg:grid-cols-2">
-              <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-2xl font-black text-[#123D2C]">
-                    Próximas datas
-                  </h2>
-                  <Link
-                    href={SETTINGS_HREF}
-                    className="rounded-full bg-[#E9F2E7] px-4 py-2 text-sm font-black text-[#123D2C]"
-                  >
-                    ABRIR
-                  </Link>
-                </div>
-                <div className="mt-4 grid gap-3">
-                  {(payload.upcoming ?? []).map((item) => (
-                    <div
-                      key={item.dueDate}
-                      className="flex items-center justify-between rounded-2xl bg-[#F7FAF2] p-4"
-                    >
-                      <span>
-                        <span className="block font-black text-[#123D2C]">
-                          {date(item.dueDate)}
-                        </span>
-                        <span className="text-sm font-semibold text-slate-600">
-                          {item.status}
-                        </span>
-                      </span>
-                      <span className="font-black text-[#123D2C]">
-                        {money(item.amount)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </article>
-
-              <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                <h2 className="text-2xl font-black text-[#123D2C]">
-                  Meu histórico
-                </h2>
-                <div className="mt-4 grid gap-3">
-                  {(payload.contributions ?? []).map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl bg-[#F7FAF2] p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-black text-[#123D2C]">
-                          {money(item.amount)}
-                        </p>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C]">
-                          {statusLabels[item.status] ?? item.status}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm font-semibold text-slate-600">
-                        {date(item.due_date)} ·{" "}
-                        {paymentLabels[item.payment_method ?? ""] ??
-                          item.payment_method ??
-                          "Forma não informada"}
-                      </p>
-                    </div>
-                  ))}
-                  {(payload.contributions ?? []).length === 0 && (
-                    <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">
-                      Nenhum histórico registrado ainda.
-                    </p>
-                  )}
-                </div>
-              </article>
-            </section>
-          </>
-        )}
-      </section>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {financeOpen && (
         <div

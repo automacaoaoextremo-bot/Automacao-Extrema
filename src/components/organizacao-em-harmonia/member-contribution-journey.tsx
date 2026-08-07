@@ -28,17 +28,6 @@ export type MemberContributionPerson = {
   whatsapp: string | null;
 };
 
-export type MemberFamilyContribution = {
-  id: string;
-  name: string;
-  approvedAmount: number;
-  members: Array<{
-    id: string;
-    fullName: string;
-    relationshipLabel: string;
-  }>;
-};
-
 type IntentResult = {
   contribution?: {
     id: string;
@@ -72,6 +61,10 @@ function money(value: number) {
   });
 }
 
+function firstName(value: string) {
+  return value.trim().split(/\s+/)[0] || "Filho da Corrente";
+}
+
 function Modal({
   children,
   onClose,
@@ -83,7 +76,7 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[190] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
       role="presentation"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target) onClose();
@@ -93,7 +86,7 @@ function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:max-w-2xl sm:rounded-[2rem] sm:p-6"
+        className="max-h-[calc(100dvh-0.5rem)] w-full overflow-y-auto rounded-t-[1.5rem] bg-white p-3 shadow-2xl sm:max-h-[94vh] sm:max-w-2xl sm:rounded-[2rem] sm:p-6"
       >
         {children}
       </section>
@@ -105,14 +98,16 @@ export function MemberContributionJourney({
   settings,
   person,
   receptionContacts,
-  familyContribution,
   onCompleted,
+  triggerLabel = "Contribuir",
+  dueDate,
 }: {
   settings: MemberContributionSettings;
   person: MemberContributionPerson;
   receptionContacts: MemberReceptionContact[];
-  familyContribution?: MemberFamilyContribution | null;
   onCompleted?: () => Promise<void> | void;
+  triggerLabel?: string;
+  dueDate?: string;
 }) {
   const [modal, setModal] = useState<"payment" | "result" | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "recepcao">(
@@ -133,13 +128,16 @@ export function MemberContributionJourney({
   const [result, setResult] = useState<IntentResult | null>(null);
 
   const recurring = recurrenceType === "pix_agendado";
-  const amount = familyContribution?.approvedAmount || settings.defaultMonthlyAmount;
+  const amount = settings.defaultMonthlyAmount;
+  const displayName = firstName(person.fullName);
 
   const paymentSummary = useMemo(() => {
     if (paymentMethod === "recepcao") {
       return "Cartão de Crédito, Débito ou Dinheiro";
     }
-    return recurring ? "Pix recorrente agendado no banco" : "Pix — contribuição única";
+    return recurring
+      ? "Pix recorrente agendado no banco"
+      : "Pix — contribuição única";
   }, [paymentMethod, recurring]);
 
   async function accessToken() {
@@ -161,7 +159,11 @@ export function MemberContributionJourney({
         return;
       }
       const occurrences = Number(recurrenceOccurrences);
-      if (!Number.isInteger(occurrences) || occurrences < 2 || occurrences > 120) {
+      if (
+        !Number.isInteger(occurrences) ||
+        occurrences < 2 ||
+        occurrences > 120
+      ) {
         setError("Informe uma quantidade entre 2 e 120 contribuições.");
         return;
       }
@@ -194,6 +196,7 @@ export function MemberContributionJourney({
             recurrenceOccurrences: recurring
               ? Number(recurrenceOccurrences)
               : null,
+            dueDate: !recurring ? dueDate ?? null : null,
             notes,
             email,
             updateEmail: Boolean(email && updateEmail),
@@ -204,9 +207,13 @@ export function MemberContributionJourney({
           }),
         },
       );
-      const payload = (await response.json().catch(() => ({}))) as IntentResult;
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as IntentResult;
       if (!response.ok) {
-        throw new Error(payload.error || "Não foi possível registrar a contribuição.");
+        throw new Error(
+          payload.error || "Não foi possível registrar a contribuição.",
+        );
       }
 
       setResult(payload);
@@ -214,7 +221,11 @@ export function MemberContributionJourney({
       setMessage(payload.message || "Intenção registrada.");
 
       if (payload.requiresReception && payload.receptionWhatsappUrl) {
-        window.open(payload.receptionWhatsappUrl, "_blank", "noopener,noreferrer");
+        window.open(
+          payload.receptionWhatsappUrl,
+          "_blank",
+          "noopener,noreferrer",
+        );
       }
 
       await onCompleted?.();
@@ -254,7 +265,9 @@ export function MemberContributionJourney({
         notificationWarning?: string | null;
       };
       if (!response.ok) {
-        throw new Error(payload.error || "Não foi possível enviar o comprovante.");
+        throw new Error(
+          payload.error || "Não foi possível enviar o comprovante.",
+        );
       }
 
       setMessage(
@@ -297,67 +310,56 @@ export function MemberContributionJourney({
       <button
         type="button"
         onClick={openPayment}
-        className="w-full rounded-2xl bg-white px-5 py-4 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5"
+        className="w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-center text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
       >
-        Contribuir
+        {triggerLabel}
       </button>
 
       {modal === "payment" && (
         <Modal onClose={() => setModal(null)} labelledBy="member-payment-title">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs sm:tracking-[0.2em]">
                 Contribuição do Filho da Corrente
               </p>
-              <h2 id="member-payment-title" className="mt-2 text-2xl font-black text-[#123D2C]">
-                Escolha a forma de pagamento
+              <h2
+                id="member-payment-title"
+                className="mt-0.5 text-xl font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-2xl"
+              >
+                Forma de pagamento
               </h2>
             </div>
             <button
               type="button"
               onClick={() => setModal(null)}
-              className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+              className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
             >
               Fechar
             </button>
           </div>
 
-          <div className="mt-4 rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-black text-[#123D2C]">
-              {familyContribution
-                ? "Valor familiar aprovado"
-                : "Valor validado para você"}
+          <div className="mt-2.5 rounded-xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-2xl sm:p-4">
+            <p className="text-xs font-black text-[#123D2C] sm:text-sm">
+              Valor validado para você
             </p>
-            <p className="mt-1 text-3xl font-black text-[#123D2C]">
+            <p className="mt-0.5 text-2xl font-black text-[#123D2C] sm:mt-1 sm:text-3xl">
               {money(amount)}
             </p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              Identificação sigilosa: Filho da Corrente — {person.fullName}.
+            <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:mt-1 sm:text-sm sm:leading-6">
+              Identificação sigilosa: Filho da Corrente — {displayName}.
             </p>
-            {familyContribution && (
-              <div className="mt-3 rounded-xl bg-white/80 p-3">
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">
-                  Agregados considerados nesta contribuição
-                </p>
-                <div className="mt-2 grid gap-1 text-sm font-semibold text-slate-600">
-                  {familyContribution.members.map((member) => (
-                    <p key={member.id}>
-                      ✅ {member.fullName}
-                      {member.relationshipLabel
-                        ? ` · ${member.relationshipLabel}`
-                        : ""}
-                    </p>
-                  ))}
-                </div>
-              </div>
+            {dueDate && (
+              <p className="mt-1 text-xs font-bold text-[#2F6B43]">
+                Data prevista: {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${dueDate}T12:00:00Z`))}
+              </p>
             )}
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4">
             <button
               type="button"
               onClick={() => setPaymentMethod("pix")}
-              className={`rounded-2xl px-3 py-4 text-sm font-black ring-1 ${
+              className={`rounded-xl px-3 py-3 text-sm font-black ring-1 sm:rounded-2xl sm:py-4 ${
                 paymentMethod === "pix"
                   ? "bg-[#123D2C] text-white ring-[#123D2C]"
                   : "bg-white text-[#123D2C] ring-[#123D2C]/15"
@@ -371,7 +373,7 @@ export function MemberContributionJourney({
                 setPaymentMethod("recepcao");
                 setRecurrenceType("pontual");
               }}
-              className={`rounded-2xl px-3 py-4 text-sm font-black ring-1 ${
+              className={`rounded-xl px-2 py-3 text-xs font-black ring-1 sm:rounded-2xl sm:px-3 sm:py-4 sm:text-sm ${
                 paymentMethod === "recepcao"
                   ? "bg-[#123D2C] text-white ring-[#123D2C]"
                   : "bg-white text-[#123D2C] ring-[#123D2C]/15"
@@ -382,31 +384,31 @@ export function MemberContributionJourney({
           </div>
 
           {paymentMethod === "pix" && (
-            <div className="mt-4 grid gap-2">
+            <div className="mt-2.5 grid gap-2 sm:mt-4">
               {(settings.recurringOptions ?? [])
                 .filter((option) => option.available)
                 .map((option) => (
                   <label
                     key={option.value}
-                    className={`rounded-2xl p-4 ring-1 ${
+                    className={`rounded-xl p-3 ring-1 sm:rounded-2xl sm:p-4 ${
                       recurrenceType === option.value
                         ? "bg-[#E9F2E7] ring-[#123D2C]/20"
                         : "bg-white ring-[#123D2C]/10"
                     }`}
                   >
-                    <span className="flex items-start gap-3">
+                    <span className="flex items-start gap-2.5 sm:gap-3">
                       <input
                         type="radio"
                         checked={recurrenceType === option.value}
                         onChange={() => setRecurrenceType(option.value)}
-                        className="mt-1 h-5 w-5"
+                        className="mt-0.5 h-5 w-5"
                       />
                       <span>
-                        <span className="block font-black text-[#123D2C]">
+                        <span className="block text-sm font-black text-[#123D2C]">
                           {option.label}
                         </span>
                         {option.note && (
-                          <span className="mt-1 block text-xs leading-5 text-slate-500">
+                          <span className="mt-0.5 block text-xs leading-4 text-slate-500 sm:mt-1 sm:leading-5">
                             {option.note}
                           </span>
                         )}
@@ -418,17 +420,17 @@ export function MemberContributionJourney({
           )}
 
           {paymentMethod === "pix" && recurring && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-black text-[#123D2C]">
+            <div className="mt-2.5 grid gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3">
+              <label className="grid gap-1 text-sm font-black text-[#123D2C] sm:gap-2">
                 Primeira contribuição
                 <input
                   type="date"
                   value={recurrenceStartDate}
                   onChange={(event) => setRecurrenceStartDate(event.target.value)}
-                  className="rounded-2xl border border-slate-200 p-4"
+                  className="rounded-xl border border-slate-200 p-3 sm:rounded-2xl sm:p-4"
                 />
               </label>
-              <label className="grid gap-2 text-sm font-black text-[#123D2C]">
+              <label className="grid gap-1 text-sm font-black text-[#123D2C] sm:gap-2">
                 Quantas vezes
                 <input
                   type="number"
@@ -436,16 +438,18 @@ export function MemberContributionJourney({
                   max="120"
                   value={recurrenceOccurrences}
                   onChange={(event) => setRecurrenceOccurrences(event.target.value)}
-                  className="rounded-2xl border border-slate-200 p-4"
+                  className="rounded-xl border border-slate-200 p-3 sm:rounded-2xl sm:p-4"
                 />
               </label>
             </div>
           )}
 
           {!person.email && (
-            <div className="mt-4 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200">
-              <p className="font-black text-amber-900">E-mail para receber a confirmação</p>
-              <p className="mt-1 text-sm leading-6 text-amber-900/80">
+            <div className="mt-2.5 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200 sm:mt-4 sm:rounded-2xl sm:p-4">
+              <p className="text-sm font-black text-amber-900">
+                E-mail para receber a confirmação
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-amber-900/80 sm:mt-1 sm:text-sm sm:leading-6">
                 Seu cadastro ainda não possui e-mail. Você pode informar um endereço agora.
               </p>
               <input
@@ -453,42 +457,44 @@ export function MemberContributionJourney({
                 onChange={(event) => setEmail(event.target.value)}
                 inputMode="email"
                 placeholder="seuemail@exemplo.com"
-                className="mt-3 w-full rounded-2xl border border-amber-200 bg-white p-4"
+                className="mt-2 w-full rounded-xl border border-amber-200 bg-white p-3 sm:mt-3 sm:rounded-2xl sm:p-4"
               />
-              <label className="mt-3 flex items-start gap-3 text-sm font-bold text-amber-950">
+              <label className="mt-2 flex items-start gap-2 text-xs font-bold text-amber-950 sm:mt-3 sm:gap-3 sm:text-sm">
                 <input
                   type="checkbox"
                   checked={updateEmail}
                   onChange={(event) => setUpdateEmail(event.target.checked)}
-                  className="mt-1 h-5 w-5"
+                  className="mt-0.5 h-5 w-5"
                 />
                 Atualizar meu cadastro com este e-mail.
               </label>
             </div>
           )}
 
-          <label className="mt-4 grid gap-2 text-sm font-black text-[#123D2C]">
+          <label className="mt-2.5 grid gap-1 text-sm font-black text-[#123D2C] sm:mt-4 sm:gap-2">
             Observação opcional
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               placeholder="Inclua uma observação somente quando considerar necessário"
-              className="min-h-24 rounded-2xl border border-slate-200 p-4 font-semibold"
+              className="min-h-16 rounded-xl border border-slate-200 p-3 font-semibold sm:min-h-24 sm:rounded-2xl sm:p-4"
             />
           </label>
 
-          <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
+          <div className="mt-2.5 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-2xl sm:p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-xs sm:tracking-[0.14em]">
               Resumo
             </p>
-            <p className="mt-2 font-black text-[#123D2C]">{paymentSummary}</p>
-            <p className="mt-1 text-sm font-semibold text-slate-600">
+            <p className="mt-1 text-sm font-black text-[#123D2C] sm:mt-2 sm:text-base">
+              {paymentSummary}
+            </p>
+            <p className="mt-0.5 text-xs font-semibold text-slate-600 sm:mt-1 sm:text-sm">
               Valor considerado: {money(amount)}
             </p>
           </div>
 
           {error && (
-            <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">
+            <p className="mt-2.5 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700 sm:mt-4 sm:rounded-2xl sm:p-4">
               {error}
             </p>
           )}
@@ -497,7 +503,7 @@ export function MemberContributionJourney({
             type="button"
             onClick={registerIntent}
             disabled={saving}
-            className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-60"
+            className="mt-2.5 w-full rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-60 sm:mt-4 sm:rounded-2xl sm:px-5 sm:py-4"
           >
             {saving
               ? "Registrando..."
@@ -507,7 +513,7 @@ export function MemberContributionJourney({
           </button>
 
           {paymentMethod === "recepcao" && receptionContacts.length === 0 && (
-            <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
+            <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900 sm:mt-3 sm:rounded-2xl sm:text-sm">
               A Recepção ainda não possui WhatsApp configurado. A intenção será registrada para acompanhamento da Tesouraria/Financeiro.
             </p>
           )}
@@ -521,7 +527,10 @@ export function MemberContributionJourney({
               <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
                 Intenção registrada
               </p>
-              <h2 id="member-result-title" className="mt-2 text-2xl font-black text-[#123D2C]">
+              <h2
+                id="member-result-title"
+                className="mt-1 text-2xl font-black text-[#123D2C] sm:mt-2"
+              >
                 {result.requiresReception
                   ? "Fale com a Recepção para concluir"
                   : "Faça o Pix e envie o comprovante"}
@@ -530,32 +539,32 @@ export function MemberContributionJourney({
             <button
               type="button"
               onClick={closeResult}
-              className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+              className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
             >
               Fechar
             </button>
           </div>
 
           {message && (
-            <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">
+            <p className="mt-3 rounded-xl bg-emerald-50 p-3 font-bold text-emerald-800 sm:mt-4 sm:rounded-2xl sm:p-4">
               {message}
             </p>
           )}
           {error && (
-            <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700">
+            <p className="mt-3 rounded-xl bg-red-50 p-3 font-bold text-red-700 sm:mt-4 sm:rounded-2xl sm:p-4">
               {error}
             </p>
           )}
 
           {result.pix && (
             <>
-              <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">
+              <div className="mt-3 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-2xl sm:p-4">
+                <p className="text-sm font-black text-[#123D2C]">
                   PIX TUCXA | chave: {result.pix.key} | recebedor: {result.pix.receiverName} | valor: {money(result.pix.amount)} | identificação: {result.pix.identification}
                 </p>
               </div>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-[220px_1fr]">
+              <div className="mt-3 grid gap-3 sm:mt-4 sm:grid-cols-[220px_1fr] sm:gap-4">
                 {result.qrCodeDataUrl && (
                   <Image
                     src={result.qrCodeDataUrl}
@@ -563,40 +572,42 @@ export function MemberContributionJourney({
                     width={420}
                     height={420}
                     unoptimized
-                    className="mx-auto h-auto w-full max-w-[220px] rounded-2xl bg-white"
+                    className="mx-auto h-auto w-full max-w-[200px] rounded-xl bg-white sm:max-w-[220px] sm:rounded-2xl"
                   />
                 )}
                 <div>
                   <p className="font-black text-[#123D2C]">Pix Copia e Cola</p>
-                  <p className="mt-2 max-h-32 overflow-auto break-all rounded-2xl bg-white p-3 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                  <p className="mt-1 max-h-28 overflow-auto break-all rounded-xl bg-white p-3 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 sm:mt-2 sm:max-h-32 sm:rounded-2xl">
                     {result.pixCopyPaste}
                   </p>
                   <button
                     type="button"
                     onClick={copyPix}
-                    className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                    className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white sm:mt-3 sm:rounded-2xl"
                   >
                     Copiar Pix Copia e Cola
                   </button>
                 </div>
               </div>
 
-              <div className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                <h3 className="text-lg font-black text-[#123D2C]">Enviar comprovante</h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
+              <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-slate-200 sm:mt-5 sm:rounded-2xl sm:p-4">
+                <h3 className="text-lg font-black text-[#123D2C]">
+                  Enviar comprovante
+                </h3>
+                <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:mt-1 sm:text-sm sm:leading-6">
                   A Tesouraria/Financeiro receberá o comprovante para validação e atualização do acompanhamento.
                 </p>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,application/pdf"
                   onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                  className="mt-3 w-full rounded-2xl border border-slate-200 p-3"
+                  className="mt-2 w-full rounded-xl border border-slate-200 p-3 sm:mt-3 sm:rounded-2xl"
                 />
                 <button
                   type="button"
                   onClick={uploadReceipt}
                   disabled={!file || uploading}
-                  className="mt-3 w-full rounded-2xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50"
+                  className="mt-2 w-full rounded-xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50 sm:mt-3 sm:rounded-2xl"
                 >
                   {uploading ? "Enviando..." : "Enviar comprovante"}
                 </button>
@@ -605,7 +616,7 @@ export function MemberContributionJourney({
           )}
 
           {result.requiresReception && (
-            <div className="mt-4 rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+            <div className="mt-3 rounded-xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-2xl sm:p-4">
               <p className="font-black text-[#123D2C]">
                 Esta contribuição já aparece para a Tesouraria/Financeiro como aguardando pagamento com cartão, débito ou dinheiro.
               </p>
@@ -614,7 +625,7 @@ export function MemberContributionJourney({
                   href={result.receptionWhatsappUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-4 block rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
+                  className="mt-3 block rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white sm:mt-4 sm:rounded-2xl sm:px-5 sm:py-4"
                 >
                   Falar com Recepção
                 </a>
@@ -622,12 +633,14 @@ export function MemberContributionJourney({
             </div>
           )}
 
-          <div className={`mt-4 grid gap-2 ${receiptSent ? "" : "sm:grid-cols-2"}`}>
+          <div
+            className={`mt-3 grid gap-2 sm:mt-4 ${receiptSent ? "" : "sm:grid-cols-2"}`}
+          >
             {!receiptSent && (
               <button
                 type="button"
                 onClick={() => setModal("payment")}
-                className="rounded-2xl bg-white px-4 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                className="rounded-xl bg-white px-4 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 sm:rounded-2xl"
               >
                 Voltar e Editar
               </button>
@@ -635,7 +648,7 @@ export function MemberContributionJourney({
             <button
               type="button"
               onClick={closeResult}
-              className="rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+              className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white sm:rounded-2xl"
             >
               {receiptSent ? "Fechar" : "Fechar e enviar comprovante depois"}
             </button>
@@ -646,14 +659,14 @@ export function MemberContributionJourney({
               href={result.whatsappShareUrl}
               target="_blank"
               rel="noreferrer"
-              className="mt-3 block rounded-2xl bg-[#25D366] px-4 py-3 text-center font-black text-white"
+              className="mt-2 block rounded-xl bg-[#25D366] px-4 py-3 text-center font-black text-white sm:mt-3 sm:rounded-2xl"
             >
               Enviar confirmação pelo WhatsApp
             </a>
           )}
 
           {result.notificationWarning && (
-            <p className="mt-3 text-xs font-semibold leading-5 text-amber-800">
+            <p className="mt-2 text-xs font-semibold leading-5 text-amber-800 sm:mt-3">
               {result.notificationWarning}
             </p>
           )}

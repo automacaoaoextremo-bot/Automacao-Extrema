@@ -632,9 +632,10 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             Cadastro simples em duas etapas.
           </h1>
           <p className="mt-2 text-sm leading-6 text-[#EEF7EA]">
-            Informe seus dados e vínculos familiares; depois confira suas funções e
-            agenda. Caso ainda não apareça seu familiar, você poderá atualizar depois
-            na opção “Cadastro” que aparece após o acesso ao Sistema.
+            Informe seus dados e, caso tenha e queira, inclua seus vínculos
+            familiares; depois confira suas funções e agenda. Caso ainda não apareça
+            seu familiar, você poderá atualizar depois que ele se cadastrar, na opção
+            “Cadastro” que aparece após o acesso ao Sistema.
           </p>
         </div>
 
@@ -657,10 +658,10 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
             >
               <span className="flex items-center justify-between gap-3">
                 <span className="font-black uppercase tracking-[0.12em] text-[#123D2C]">
-                  {completedSteps.dados ? "✅ " : ""}1. Dados e família
+                  {completedSteps.dados ? "✅ " : ""}1. Dados
                 </span>
                 <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                  {completedSteps.dados ? "Editar" : "Abrir"}
+                  {completedSteps.dados ? "Ajustar" : "Abrir"}
                 </span>
               </span>
             </button>
@@ -681,7 +682,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                   {completedSteps.participacao ? "✅ " : ""}2. Função e agenda
                 </span>
                 <span className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                  {completedSteps.participacao ? "Editar" : "Abrir"}
+                  {completedSteps.participacao ? "Ajustar" : "Abrir"}
                 </span>
               </span>
             </button>
@@ -845,13 +846,20 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                       if (option === "nao") setFamilyLinks([]);
                       invalidateStep("dados");
                     }}
-                    className={`rounded-2xl px-4 py-3 font-black ring-1 ${
+                    className={`rounded-2xl border-2 px-4 py-3 font-black shadow-md transition ${
                       hasFamily === option
-                        ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                        : "bg-white text-[#123D2C] ring-[#123D2C]/15"
+                        ? "border-[#123D2C] bg-[#123D2C] text-white ring-4 ring-[#123D2C]/15"
+                        : "border-[#123D2C]/35 bg-white text-[#123D2C] hover:border-[#123D2C] hover:bg-emerald-50"
                     }`}
                   >
-                    {option === "sim" ? "Sim" : "Não"}
+                    <span className="block text-base">
+                      {option === "sim" ? "Sim" : "Não"}
+                    </span>
+                    <span className={`mt-0.5 block text-[10px] font-bold uppercase tracking-[0.08em] ${
+                      hasFamily === option ? "text-white/80" : "text-[#2F6B43]"
+                    }`}>
+                      Toque para selecionar
+                    </span>
                   </button>
                 ))}
               </div>
@@ -939,7 +947,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                     ))}
                   </div>
 
-                  
+
                 </>
               )}
             </div>
@@ -1047,6 +1055,11 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
               <p className="text-sm font-semibold leading-5 text-slate-600">
                 Marque atendimentos, grupos, estudos e ações em que participa.
               </p>
+              {participationPage === 3 && !hasThursdayGroup && (
+                <p className="mt-3 rounded-2xl border-2 border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">
+                  Selecione pelo menos um Grupo de quinta-feira para concluir o cadastro.
+                </p>
+              )}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {visibleAgenda.map((item, index) => (
                   <label

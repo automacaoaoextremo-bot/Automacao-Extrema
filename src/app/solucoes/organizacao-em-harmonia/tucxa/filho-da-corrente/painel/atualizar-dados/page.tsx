@@ -212,6 +212,17 @@ function firstNameOnly(value: string) {
   return value.trim().split(/\s+/)[0] || "Familiar";
 }
 
+function sortedStringKey(values: string[]) {
+  return [...values].sort().join("|");
+}
+
+function familyLinksKey(values: FamilyLinkDraft[]) {
+  return values
+    .map((item) => `${item.personId}:${item.relationshipTypeId}`)
+    .sort()
+    .join("|");
+}
+
 function isThursdayGroup(item: AgendaOption) {
   const searchable = normalizeSearch(
     [item.slug, item.legacySlug, item.label, item.description]
@@ -227,7 +238,7 @@ function isThursdayGroup(item: AgendaOption) {
 }
 
 const headerActions: PanelHeaderAction[] = [
-  { label: "Início", href: filhoPanelBase, variant: "primary" },
+  { label: "Início", href: "#inicio", variant: "primary" },
   { label: "Voltar", href: filhoPanelBase, variant: "secondary" },
   filhoSignOutAction,
   filhoSupportAction,
@@ -238,6 +249,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [originalFullName, setOriginalFullName] = useState("");
+  const [originalWhatsapp, setOriginalWhatsapp] = useState("");
+  const [originalEmail, setOriginalEmail] = useState("");
+  const [originalNotes, setOriginalNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
   const [originalFunctionSlugs, setOriginalFunctionSlugs] = useState<string[]>([]);
@@ -249,12 +264,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     useState("");
   const [cavalinhoConsulenteDefinitionCompleted, setCavalinhoConsulenteDefinitionCompleted] =
     useState(false);
+  const [originalCavalinhoEntityIds, setOriginalCavalinhoEntityIds] =
+    useState<string[]>([]);
+  const [originalCavalinhoConsulenteEntityId, setOriginalCavalinhoConsulenteEntityId] =
+    useState("");
+  const [originalCavalinhoConsulenteDefinitionCompleted, setOriginalCavalinhoConsulenteDefinitionCompleted] =
+    useState(false);
 
   const [familyPeople, setFamilyPeople] = useState<FamilyPersonOption[]>([]);
   const [familyRelationships, setFamilyRelationships] = useState<
     FamilyRelationshipOption[]
   >([]);
   const [familyLinks, setFamilyLinks] = useState<FamilyLinkDraft[]>([]);
+  const [originalFamilyLinks, setOriginalFamilyLinks] = useState<FamilyLinkDraft[]>([]);
   const [hasFamily, setHasFamily] = useState<"sim" | "nao">("nao");
   const [familySearch, setFamilySearch] = useState("");
   const [familyPersonId, setFamilyPersonId] = useState("");
@@ -318,10 +340,18 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       ),
     );
 
-    setFullName(profile.person?.fullName || "");
-    setWhatsapp(profile.person?.whatsapp || "");
-    setEmail(profile.person?.email || "");
-    setNotes(profile.person?.notes || "");
+    const loadedFullName = profile.person?.fullName || "";
+    const loadedWhatsapp = profile.person?.whatsapp || "";
+    const loadedEmail = profile.person?.email || "";
+    const loadedNotes = profile.person?.notes || "";
+    setFullName(loadedFullName);
+    setWhatsapp(loadedWhatsapp);
+    setEmail(loadedEmail);
+    setNotes(loadedNotes);
+    setOriginalFullName(loadedFullName);
+    setOriginalWhatsapp(loadedWhatsapp);
+    setOriginalEmail(loadedEmail);
+    setOriginalNotes(loadedNotes);
     setFunctionSlugs(profile.functionSlugs ?? []);
     setAgendaSlugs(resolvedAgendaSlugs);
     setOriginalFunctionSlugs(profile.functionSlugs ?? []);
@@ -337,18 +367,22 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
         ? cavalinhoEntities.entities
         : fallbackEntities;
     setEntityOptions(sourceEntities.filter((item) => item.id && item.name));
-    setCavalinhoEntityIds(profile.selectedEntityIds ?? []);
-    setCavalinhoConsulenteEntityId(
-      profile.cavalinhoConsulenteEntityId || "",
-    );
-    setCavalinhoConsulenteDefinitionCompleted(
-      profile.cavalinhoConsulenteDefinitionCompleted === true,
-    );
+    const loadedEntityIds = profile.selectedEntityIds ?? [];
+    const loadedConsulenteEntityId = profile.cavalinhoConsulenteEntityId || "";
+    const loadedConsulenteCompleted =
+      profile.cavalinhoConsulenteDefinitionCompleted === true;
+    setCavalinhoEntityIds(loadedEntityIds);
+    setCavalinhoConsulenteEntityId(loadedConsulenteEntityId);
+    setCavalinhoConsulenteDefinitionCompleted(loadedConsulenteCompleted);
+    setOriginalCavalinhoEntityIds(loadedEntityIds);
+    setOriginalCavalinhoConsulenteEntityId(loadedConsulenteEntityId);
+    setOriginalCavalinhoConsulenteDefinitionCompleted(loadedConsulenteCompleted);
 
     const currentFamilyLinks = profile.familyLinks ?? [];
     setFamilyPeople(profile.familyPeople ?? []);
     setFamilyRelationships(profile.familyRelationships ?? []);
     setFamilyLinks(currentFamilyLinks);
+    setOriginalFamilyLinks(currentFamilyLinks);
     setHasFamily(currentFamilyLinks.length ? "sim" : "nao");
   }, []);
 
@@ -458,6 +492,52 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     return { addedFunctions, removedFunctions, addedAgenda, removedAgenda };
   }, [agendaSlugs, functionSlugs, originalAgendaSlugs, originalFunctionSlugs]);
 
+  const hasProfileChanges = useMemo(
+    () =>
+      fullName.trim() !== originalFullName.trim() ||
+      whatsapp.replace(/\D/g, "") !== originalWhatsapp.replace(/\D/g, "") ||
+      email.trim().toLowerCase() !== originalEmail.trim().toLowerCase() ||
+      notes.trim() !== originalNotes.trim() ||
+      sortedStringKey(functionSlugs) !== sortedStringKey(originalFunctionSlugs) ||
+      sortedStringKey(agendaSlugs) !== sortedStringKey(originalAgendaSlugs) ||
+      sortedStringKey(hasCavalinho ? cavalinhoEntityIds : []) !==
+        sortedStringKey(originalFunctionSlugs.includes("cavalinho") ? originalCavalinhoEntityIds : []) ||
+      (hasCavalinho ? cavalinhoConsulenteEntityId : "") !==
+        (originalFunctionSlugs.includes("cavalinho")
+          ? originalCavalinhoConsulenteEntityId
+          : "") ||
+      (hasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false) !==
+        (originalFunctionSlugs.includes("cavalinho")
+          ? originalCavalinhoConsulenteDefinitionCompleted
+          : false) ||
+      familyLinksKey(hasFamily === "sim" ? familyLinks : []) !==
+        familyLinksKey(originalFamilyLinks),
+    [
+      agendaSlugs,
+      cavalinhoConsulenteDefinitionCompleted,
+      cavalinhoConsulenteEntityId,
+      cavalinhoEntityIds,
+      email,
+      familyLinks,
+      fullName,
+      functionSlugs,
+      hasCavalinho,
+      hasFamily,
+      notes,
+      originalAgendaSlugs,
+      originalCavalinhoConsulenteDefinitionCompleted,
+      originalCavalinhoConsulenteEntityId,
+      originalCavalinhoEntityIds,
+      originalEmail,
+      originalFamilyLinks,
+      originalFullName,
+      originalFunctionSlugs,
+      originalNotes,
+      originalWhatsapp,
+      whatsapp,
+    ],
+  );
+
   function addFamilyLink() {
     const person = familyPeople.find((item) => item.id === familyPersonId);
     const relationship = familyRelationships.find(
@@ -556,6 +636,11 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setStatusUrl("");
     setPendingWhatsappUrl("");
     setRequestId("");
+
+    if (!hasProfileChanges) {
+      setError("Altere pelo menos uma informação antes de enviar para validação.");
+      return;
+    }
 
     const contactError = validateContactData();
     if (contactError) {
@@ -675,7 +760,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
         navLabel="Atualização de dados do Filho da Corrente"
         actions={headerActions}
@@ -778,7 +863,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                       Etapa 1 de 2
                     </span>
                     <span className="mt-1 block text-lg font-black text-[#123D2C]">
-                      Dados e família
+                      Dados
                     </span>
                   </span>
                   <span className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">
@@ -817,13 +902,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                 Familiares vinculados: {hasFamily === "sim" ? familyLinks.length : 0}.
               </div>
 
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 disabled:opacity-60"
-              >
-                {saving ? "Enviando..." : "Enviar atualização para validação"}
-              </button>
+              {hasProfileChanges ? (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow-lg shadow-green-900/10 disabled:opacity-60"
+                >
+                  {saving ? "Enviando..." : "Enviar atualização para validação"}
+                </button>
+              ) : (
+                <p className="rounded-2xl bg-white p-3 text-center text-sm font-bold text-slate-500 ring-1 ring-[#123D2C]/10">
+                  O botão de envio aparecerá depois que alguma informação for alterada.
+                </p>
+              )}
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel"
                 className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
@@ -1147,6 +1238,11 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
               <p className="text-sm font-semibold leading-5 text-slate-600">
                 Marque atendimentos, grupos, estudos e ações em que participa.
               </p>
+              {participationPage === 3 && !hasThursdayGroup && (
+                <p className="mt-3 rounded-2xl border-2 border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">
+                  Selecione pelo menos um Grupo de quinta-feira para concluir a atualização.
+                </p>
+              )}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {visibleAgenda.map((item) => {
                   const checked = agendaSlugs.includes(item.slug);

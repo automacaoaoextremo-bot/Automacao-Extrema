@@ -580,6 +580,10 @@ async function createContributionIntent(
   }
 
   const recurrenceStartDate = asText(body.recurrenceStartDate).slice(0, 10);
+  const requestedDueDate = asText(body.dueDate).slice(0, 10);
+  if (requestedDueDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDueDate)) {
+    throw new Error("A data prevista para a contribuição é inválida.");
+  }
   const recurrenceOccurrences = Math.trunc(
     asNumber(body.recurrenceOccurrences, 0),
   );
@@ -689,7 +693,7 @@ async function createContributionIntent(
   const dueDate =
     recurrenceType === "pix_agendado"
       ? recurrenceStartDate
-      : dueDateFor(settings.defaultDueDay, 0);
+      : requestedDueDate || dueDateFor(settings.defaultDueDay, 0);
   const requiresReception = paymentMethod === "recepcao";
   const status = requiresReception
     ? "aguardando_recepcao"
