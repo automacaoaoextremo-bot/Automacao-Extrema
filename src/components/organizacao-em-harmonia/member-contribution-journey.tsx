@@ -114,7 +114,7 @@ export function MemberContributionJourney({
     "pix",
   );
   const [recurrenceType, setRecurrenceType] = useState("pontual");
-  const [recurrenceStartDate, setRecurrenceStartDate] = useState("");
+  const [recurrenceStartDate, setRecurrenceStartDate] = useState(dueDate ?? "");
   const [recurrenceOccurrences, setRecurrenceOccurrences] = useState("12");
   const [notes, setNotes] = useState("");
   const [email, setEmail] = useState(person.email ?? "");

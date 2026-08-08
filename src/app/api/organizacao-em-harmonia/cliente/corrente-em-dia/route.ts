@@ -33,6 +33,19 @@ function categoryFrom(value: EntryRow["category"]) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function asObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+const FINAL_CONTRIBUTION_STATUSES = [
+  "confirmado",
+  "pago",
+  "aprovado",
+  "cancelado",
+];
+
 function lastMonthKeys(count = 12) {
   const now = new Date();
   const result: string[] = [];
@@ -320,6 +333,75 @@ export async function POST(request: Request) {
         ok: true,
         settings,
         message: "Configurações financeiras salvas.",
+      });
+    }
+
+    if (action === "cancelContribution") {
+      const contributionId = asText(body.contributionId ?? body.id);
+      if (!contributionId) {
+        return NextResponse.json(
+          { error: "Informe a contribuição que deseja excluir." },
+          { status: 400 },
+        );
+      }
+
+      const { data: before, error: beforeError } = await supabaseAdmin
+        .from("oh_contributions")
+        .select("*")
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", contributionId)
+        .maybeSingle();
+
+      if (beforeError) throw beforeError;
+      if (!before) {
+        return NextResponse.json(
+          { error: "Contribuição não localizada." },
+          { status: 404 },
+        );
+      }
+
+      if (FINAL_CONTRIBUTION_STATUSES.includes(asText(before.status))) {
+        return NextResponse.json(
+          {
+            error:
+              "Esta contribuição já foi validada ou cancelada e não pode mais ser excluída.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const { data: updated, error } = await supabaseAdmin
+        .from("oh_contributions")
+        .update({
+          status: "cancelado",
+          metadata: {
+            ...asObject(before.metadata),
+            canceledBy: "tesouraria_financeiro",
+            canceledByPersonId: auth.context.personId,
+            canceledAt: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", contributionId)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      await writeFinancialAudit({
+        organizationId: auth.context.organizationId,
+        personId: auth.context.personId,
+        action: "contribuicao_cancelada",
+        entityType: "oh_contributions",
+        entityId: contributionId,
+        beforeData: before,
+        afterData: updated,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Contribuição excluída antes da validação financeira.",
       });
     }
 

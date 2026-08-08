@@ -263,6 +263,50 @@ export default function CorrenteContribuicoesPage() {
     }
   }
 
+  async function cancelContribution(id: string) {
+    if (!window.confirm("Excluir esta contribuição ainda não validada?")) return;
+
+    setUpdatingId(id);
+    setError("");
+    setMessage("");
+    try {
+      const accessToken = await token();
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/cliente/corrente-em-dia",
+        {
+          method: "POST",
+          headers: {
+            ...(accessToken
+              ? { Authorization: `Bearer ${accessToken}` }
+              : {}),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "cancelContribution",
+            contributionId: id,
+          }),
+        },
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível excluir.");
+      }
+      setMessage(result.message || "Contribuição excluída.");
+      await load();
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao excluir contribuição.",
+      );
+    } finally {
+      setUpdatingId("");
+    }
+  }
+
   return (
     <OrganizacaoClientShell
       title="Contribuições sigilosas"
@@ -489,6 +533,14 @@ export default function CorrenteContribuicoesPage() {
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-60"
                     >
                       Marcar em revisão
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingId === item.id}
+                      onClick={() => void cancelContribution(item.id)}
+                      className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:opacity-60"
+                    >
+                      Excluir
                     </button>
                   </div>
                 )}

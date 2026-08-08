@@ -64,6 +64,66 @@ function asObject(value: unknown) {
     : {};
 }
 
+type PanelPreferences = {
+  upcomingAppointmentsPopup: boolean;
+  pendingProofsPopup: boolean;
+  dueContributionPopup: boolean;
+  dueContributionDaysBefore: number;
+  overdueContributionPopup: boolean;
+};
+
+const DEFAULT_PANEL_PREFERENCES: PanelPreferences = {
+  upcomingAppointmentsPopup: true,
+  pendingProofsPopup: true,
+  dueContributionPopup: true,
+  dueContributionDaysBefore: 7,
+  overdueContributionPopup: true,
+};
+
+const FINAL_CONTRIBUTION_STATUSES = [
+  "confirmado",
+  "pago",
+  "aprovado",
+  "cancelado",
+];
+
+function asBoolean(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === 1 || value === "1") return true;
+  if (value === "false" || value === 0 || value === "0") return false;
+  return fallback;
+}
+
+function normalizePanelPreferences(value: unknown): PanelPreferences {
+  const current = asObject(value);
+  const dueDays = Math.trunc(
+    asNumber(
+      current.dueContributionDaysBefore,
+      DEFAULT_PANEL_PREFERENCES.dueContributionDaysBefore,
+    ),
+  );
+
+  return {
+    upcomingAppointmentsPopup: asBoolean(
+      current.upcomingAppointmentsPopup,
+      DEFAULT_PANEL_PREFERENCES.upcomingAppointmentsPopup,
+    ),
+    pendingProofsPopup: asBoolean(
+      current.pendingProofsPopup,
+      DEFAULT_PANEL_PREFERENCES.pendingProofsPopup,
+    ),
+    dueContributionPopup: asBoolean(
+      current.dueContributionPopup,
+      DEFAULT_PANEL_PREFERENCES.dueContributionPopup,
+    ),
+    dueContributionDaysBefore: Math.min(31, Math.max(0, dueDays)),
+    overdueContributionPopup: asBoolean(
+      current.overdueContributionPopup,
+      DEFAULT_PANEL_PREFERENCES.overdueContributionPopup,
+    ),
+  };
+}
+
 function profileRoleToken(value: unknown) {
   const profile = asObject(value);
   const selectedFunctions = Array.isArray(profile.selectedFunctions)
@@ -243,6 +303,17 @@ function recurringDates(startDate: string, occurrences: number) {
       targetDay,
     ).padStart(2, "0")}`;
   });
+}
+
+function nextMonthlyDate(value: string) {
+  return recurringDates(value.slice(0, 10), 2)[1] || value.slice(0, 10);
+}
+
+function nextAvailableDueDate(preferredDay: number) {
+  const today = todayIso();
+  return [0, 1, 2]
+    .map((offset) => dueDateFor(preferredDay, offset))
+    .find((item) => item >= today) || dueDateFor(preferredDay, 1);
 }
 
 function datePtBr(value: string) {
@@ -506,7 +577,7 @@ async function loadPayload(context: AuthContext) {
     supabaseAdmin
       .from("oh_contribution_preferences")
       .select(
-        "preferred_due_day, reminder_days_before, reminder_channels, recurring_mode, recurring_status, family_group_id",
+        "preferred_due_day, reminder_days_before, reminder_channels, recurring_mode, recurring_status, family_group_id, metadata",
       )
       .eq("organization_id", context.organizationId)
       .eq("person_id", context.personId)
@@ -524,6 +595,7 @@ async function loadPayload(context: AuthContext) {
     recurring_mode: "nao_programada",
     recurring_status: "inativo",
     family_group_id: null,
+    metadata: {},
   };
 
   const preferredDay =
@@ -553,14 +625,19 @@ async function loadPayload(context: AuthContext) {
         new Date(asText(left.created_at)).getTime(),
     )[0];
 
-  const programmedDates = activeRecurring
+  const allProgrammedDates = activeRecurring
     ? recurringDates(
         asText(activeRecurring.recurrence_start_date),
         Math.trunc(asNumber(activeRecurring.recurrence_occurrences, 0)),
       )
-        .filter((item) => item >= todayIso())
-        .slice(0, 3)
     : [];
+  const programmedDates = allProgrammedDates
+    .filter((item) => item >= todayIso())
+    .slice(0, 3);
+
+  const recurringCanBeChanged = activeRecurring
+    ? !FINAL_CONTRIBUTION_STATUSES.includes(asText(activeRecurring.status))
+    : false;
 
   const upcoming =
     programmedDates.length > 0
@@ -569,13 +646,29 @@ async function loadPayload(context: AuthContext) {
           amount: asNumber(activeRecurring?.amount, amount),
           status: "programado",
           scheduled: true,
+          contributionId: asText(activeRecurring?.id),
+          recurrenceStartDate: asText(activeRecurring?.recurrence_start_date),
+          recurrenceOccurrences: Math.trunc(
+            asNumber(activeRecurring?.recurrence_occurrences, 0),
+          ),
+          notes: asText(activeRecurring?.notes),
+          canEdit: recurringCanBeChanged,
+          canDelete: recurringCanBeChanged,
         }))
       : [0, 1, 2].map((offset) => ({
           dueDate: dueDateFor(preferredDay, offset),
           amount,
           status: offset === 0 ? "próxima" : "prevista",
           scheduled: false,
+          contributionId: null,
+          canEdit: false,
+          canDelete: false,
         }));
+
+  const lastProgrammedDate = allProgrammedDates.at(-1) || "";
+  const nextAvailableContributionDate = lastProgrammedDate
+    ? nextMonthlyDate(lastProgrammedDate)
+    : nextAvailableDueDate(preferredDay);
 
   const pendingProofs = contributions
     .filter(
@@ -588,16 +681,35 @@ async function loadPayload(context: AuthContext) {
       const metadata = asObject(item.metadata);
       const uploadToken = asText(metadata.proofUploadToken);
       if (!uploadToken) return [];
+      const metadataDates = Array.isArray(metadata.scheduledDates)
+        ? metadata.scheduledDates.map(asText).filter(Boolean)
+        : [];
+      const scheduledDates = metadataDates.length > 0
+        ? metadataDates
+        : asText(item.recurrence_type) === "pix_agendado"
+          ? recurringDates(
+              asText(item.recurrence_start_date),
+              Math.trunc(asNumber(item.recurrence_occurrences, 0)),
+            )
+          : [asText(item.due_date)].filter(Boolean);
+
       return [
         {
           id: asText(item.id),
           amount: asNumber(item.amount, 0),
           dueDate: asText(item.due_date),
+          scheduledDates,
           uploadToken,
           trackingCode: asText(metadata.trackingCode) || null,
+          canDelete: !FINAL_CONTRIBUTION_STATUSES.includes(asText(item.status)),
         },
       ];
     });
+
+  const preferenceMetadata = asObject(preference.metadata);
+  const panelPreferences = normalizePanelPreferences(
+    preferenceMetadata.panelPopups,
+  );
 
   return {
     currentPerson: {
@@ -639,8 +751,10 @@ async function loadPayload(context: AuthContext) {
     },
     preference,
     preferenceSaved: Boolean(preferenceResult.data),
+    panelPreferences,
     contributions,
     upcoming,
+    nextAvailableContributionDate,
     pendingProofs,
     pixCopyPaste,
     qrCodeDataUrl,
@@ -1129,7 +1243,7 @@ async function savePreferences(
   const { data: currentPreference, error: currentPreferenceError } =
     await supabaseAdmin
       .from("oh_contribution_preferences")
-      .select("recurring_mode, recurring_status, family_group_id")
+      .select("recurring_mode, recurring_status, family_group_id, metadata")
       .eq("organization_id", context.organizationId)
       .eq("person_id", context.personId)
       .maybeSingle();
@@ -1187,6 +1301,7 @@ async function savePreferences(
             : "programado",
         family_group_id: currentPreference?.family_group_id ?? null,
         metadata: {
+          ...asObject(currentPreference?.metadata),
           updatedBy: "filho_corrente",
         },
         updated_at: new Date().toISOString(),
@@ -1201,6 +1316,168 @@ async function savePreferences(
       : notificationEmail
         ? `Organização salva. Os lembretes serão enviados para ${notificationEmail}.`
         : "Dia e opções salvos. Sem e-mail cadastrado, os lembretes não serão enviados.",
+  };
+}
+
+async function savePanelPreferences(
+  context: AuthContext,
+  body: Record<string, unknown>,
+) {
+  const settings = await loadSettings(context.organizationId);
+  const requested = normalizePanelPreferences(body.panelPreferences ?? body);
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from("oh_contribution_preferences")
+    .select(
+      "preferred_due_day, reminder_days_before, reminder_channels, recurring_mode, recurring_status, family_group_id, metadata",
+    )
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .maybeSingle();
+
+  if (currentError) throw currentError;
+
+  const metadata = asObject(current?.metadata);
+  const { error } = await supabaseAdmin
+    .from("oh_contribution_preferences")
+    .upsert(
+      {
+        organization_id: context.organizationId,
+        person_id: context.personId,
+        preferred_due_day:
+          Math.trunc(asNumber(current?.preferred_due_day, settings.defaultDueDay)) ||
+          settings.defaultDueDay,
+        reminder_days_before:
+          current?.reminder_days_before ?? settings.reminderDaysBefore,
+        reminder_channels:
+          current?.reminder_channels ?? settings.reminderChannels,
+        recurring_mode: asText(current?.recurring_mode) || "nao_programada",
+        recurring_status: asText(current?.recurring_status) || "inativo",
+        family_group_id: current?.family_group_id ?? null,
+        metadata: {
+          ...metadata,
+          panelPopups: requested,
+          panelPopupsUpdatedAt: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id,person_id" },
+    );
+
+  if (error) throw error;
+  return {
+    panelPreferences: requested,
+    message: "Preferências dos avisos salvas.",
+  };
+}
+
+async function cancelContribution(
+  context: AuthContext,
+  body: Record<string, unknown>,
+) {
+  const contributionId = asText(body.contributionId ?? body.id);
+  if (!contributionId) throw new Error("Informe a contribuição que deseja excluir.");
+
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from("oh_contributions")
+    .select("id, status, receipt_uploaded_at, metadata")
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .eq("id", contributionId)
+    .maybeSingle();
+
+  if (currentError) throw currentError;
+  if (!current?.id) throw new Error("Contribuição não localizada.");
+  if (FINAL_CONTRIBUTION_STATUSES.includes(asText(current.status))) {
+    throw new Error(
+      "Esta contribuição já foi validada ou cancelada e não pode mais ser excluída pelo Filho da Corrente.",
+    );
+  }
+
+  const { error } = await supabaseAdmin
+    .from("oh_contributions")
+    .update({
+      status: "cancelado",
+      metadata: {
+        ...asObject(current.metadata),
+        canceledBy: "filho_corrente",
+        canceledAt: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .eq("id", contributionId);
+
+  if (error) throw error;
+  return { message: "Contribuição excluída antes da validação financeira." };
+}
+
+async function updateScheduledContribution(
+  context: AuthContext,
+  body: Record<string, unknown>,
+) {
+  const contributionId = asText(body.contributionId ?? body.id);
+  const recurrenceStartDate = asText(body.recurrenceStartDate).slice(0, 10);
+  const recurrenceOccurrences = Math.trunc(
+    asNumber(body.recurrenceOccurrences, 0),
+  );
+
+  if (!contributionId) throw new Error("Contribuição não informada.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(recurrenceStartDate)) {
+    throw new Error("Informe a nova data da primeira contribuição.");
+  }
+  if (recurrenceOccurrences < 2 || recurrenceOccurrences > 120) {
+    throw new Error("Informe uma quantidade entre 2 e 120 contribuições.");
+  }
+
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from("oh_contributions")
+    .select(
+      "id, status, recurrence_type, receipt_uploaded_at, metadata, notes",
+    )
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .eq("id", contributionId)
+    .maybeSingle();
+
+  if (currentError) throw currentError;
+  if (!current?.id) throw new Error("Contribuição não localizada.");
+  if (asText(current.recurrence_type) !== "pix_agendado") {
+    throw new Error("Somente uma programação Pix recorrente pode ser editada aqui.");
+  }
+  if (FINAL_CONTRIBUTION_STATUSES.includes(asText(current.status))) {
+    throw new Error(
+      "Esta contribuição já foi validada ou cancelada e não pode mais ser editada.",
+    );
+  }
+
+  const scheduledDates = recurringDates(
+    recurrenceStartDate,
+    recurrenceOccurrences,
+  );
+  const { error } = await supabaseAdmin
+    .from("oh_contributions")
+    .update({
+      due_date: recurrenceStartDate,
+      recurrence_start_date: recurrenceStartDate,
+      recurrence_occurrences: recurrenceOccurrences,
+      notes: asText(body.notes) || current.notes || null,
+      metadata: {
+        ...asObject(current.metadata),
+        scheduledDates,
+        editedAt: new Date().toISOString(),
+        editedBy: "filho_corrente",
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", context.personId)
+    .eq("id", contributionId);
+
+  if (error) throw error;
+  return {
+    scheduledDates,
+    message: "Programação da contribuição atualizada.",
   };
 }
 
@@ -1583,6 +1860,24 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         ...(await savePreferences(context, body)),
+      });
+    }
+    if (action === "savePanelPreferences") {
+      return NextResponse.json({
+        ok: true,
+        ...(await savePanelPreferences(context, body)),
+      });
+    }
+    if (action === "updateScheduledContribution") {
+      return NextResponse.json({
+        ok: true,
+        ...(await updateScheduledContribution(context, body)),
+      });
+    }
+    if (action === "cancelContribution") {
+      return NextResponse.json({
+        ok: true,
+        ...(await cancelContribution(context, body)),
       });
     }
     if (action === "saveNotificationEmail") {

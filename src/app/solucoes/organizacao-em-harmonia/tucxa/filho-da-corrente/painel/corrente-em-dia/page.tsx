@@ -63,6 +63,12 @@ type UpcomingContribution = {
   amount: number;
   status: string;
   scheduled?: boolean;
+  contributionId?: string | null;
+  recurrenceStartDate?: string | null;
+  recurrenceOccurrences?: number | null;
+  notes?: string | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
 };
 
 type Payload = {
@@ -77,6 +83,7 @@ type Payload = {
   approvedFamily?: ApprovedFamily | null;
   contributions?: Contribution[];
   upcoming?: UpcomingContribution[];
+  nextAvailableContributionDate?: string;
   error?: string;
 };
 
@@ -130,6 +137,14 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [contributionOpen, setContributionOpen] = useState(false);
   const [contributionView, setContributionView] =
     useState<ContributionView>("menu");
+  const [editingContribution, setEditingContribution] =
+    useState<UpcomingContribution | null>(null);
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editOccurrences, setEditOccurrences] = useState("3");
+  const [editNotes, setEditNotes] = useState("");
+  const [savingAction, setSavingAction] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const token = useCallback(async () => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -199,6 +214,99 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
       return;
     }
     setContributionView("menu");
+  }
+
+  function openEdit(item: UpcomingContribution) {
+    if (!item.contributionId || !item.canEdit) return;
+    setActionError("");
+    setActionMessage("");
+    setEditStartDate(item.recurrenceStartDate || item.dueDate);
+    setEditOccurrences(String(item.recurrenceOccurrences || 3));
+    setEditNotes(item.notes || "");
+    setEditingContribution(item);
+  }
+
+  async function postAction(body: Record<string, unknown>) {
+    const accessToken = await token();
+    if (!accessToken) throw new Error("Sessão não encontrada.");
+
+    const response = await fetch(
+      "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const result = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(result.error || "Não foi possível concluir a operação.");
+    }
+    return result;
+  }
+
+  async function saveScheduledContribution() {
+    if (!editingContribution?.contributionId) return;
+    setSavingAction("edit");
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await postAction({
+        action: "updateScheduledContribution",
+        contributionId: editingContribution.contributionId,
+        recurrenceStartDate: editStartDate,
+        recurrenceOccurrences: Number(editOccurrences),
+        notes: editNotes,
+      });
+      setActionMessage(result.message || "Programação atualizada.");
+      setEditingContribution(null);
+      await load();
+    } catch (reason) {
+      setActionError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao atualizar a programação.",
+      );
+    } finally {
+      setSavingAction("");
+    }
+  }
+
+  async function deleteContribution(item: UpcomingContribution) {
+    if (!item.contributionId || !item.canDelete) return;
+    if (
+      !window.confirm(
+        "Excluir esta programação ainda não validada? Todas as datas associadas a ela deixarão de aparecer como programadas.",
+      )
+    ) {
+      return;
+    }
+
+    setSavingAction(`delete:${item.contributionId}`);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await postAction({
+        action: "cancelContribution",
+        contributionId: item.contributionId,
+      });
+      setActionMessage(result.message || "Contribuição excluída.");
+      await load();
+    } catch (reason) {
+      setActionError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao excluir a contribuição.",
+      );
+    } finally {
+      setSavingAction("");
+    }
   }
 
   return (
@@ -385,10 +493,22 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                   <h3 className="text-xl font-black text-[#123D2C]">
                     Próximas contribuições
                   </h3>
+
+                  {actionMessage && (
+                    <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                      {actionMessage}
+                    </p>
+                  )}
+                  {actionError && (
+                    <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                      {actionError}
+                    </p>
+                  )}
+
                   <div className="mt-3 grid gap-3">
                     {(payload.upcoming ?? []).slice(0, 3).map((item) => (
                       <article
-                        key={item.dueDate}
+                        key={`${item.contributionId || "next"}-${item.dueDate}`}
                         className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -404,28 +524,40 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                             {money(item.amount)}
                           </span>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          {item.status === "prevista" || item.scheduled ? (
-                            <Link
-                              href={SETTINGS_HREF}
-                              className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+
+                        {item.scheduled ? (
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(item)}
+                              disabled={!item.canEdit}
+                              className="rounded-xl bg-white px-2 py-2.5 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
                             >
                               Editar
-                            </Link>
-                          ) : (
-                            <span className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-bold text-slate-400 ring-1 ring-slate-200">
-                              Atual
-                            </span>
-                          )}
-                          {item.scheduled ? (
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteContribution(item)}
+                              disabled={
+                                !item.canDelete ||
+                                savingAction === `delete:${item.contributionId}`
+                              }
+                              className="rounded-xl bg-white px-2 py-2.5 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm"
+                            >
+                              {savingAction === `delete:${item.contributionId}`
+                                ? "Excluindo..."
+                                : "Excluir"}
+                            </button>
                             <button
                               type="button"
                               disabled
-                              className="rounded-xl bg-[#123D2C] px-3 py-2.5 text-sm font-black text-white opacity-40"
+                              className="rounded-xl bg-[#123D2C] px-2 py-2.5 text-xs font-black text-white opacity-40 sm:text-sm"
                             >
                               Contribuir
                             </button>
-                          ) : (
+                          </div>
+                        ) : (
+                          <div className="mt-3">
                             <MemberContributionJourney
                               settings={contributionSettings}
                               person={{
@@ -440,14 +572,124 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                               dueDate={item.dueDate}
                               triggerLabel="Contribuir"
                             />
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </article>
                     ))}
                   </div>
+
+                  <article className="mt-3 rounded-2xl border-2 border-dashed border-[#123D2C]/30 bg-white p-3 sm:p-4">
+                    <p className="font-black text-[#123D2C]">Nova contribuição</p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+                      Próxima data disponível considerando o que já está programado: {" "}
+                      <strong>
+                        {payload.nextAvailableContributionDate
+                          ? date(payload.nextAvailableContributionDate)
+                          : "a definir"}
+                      </strong>
+                    </p>
+                    {payload.nextAvailableContributionDate && (
+                      <div className="mt-3">
+                        <MemberContributionJourney
+                          settings={contributionSettings}
+                          person={{
+                            fullName:
+                              payload.currentPerson?.fullName ||
+                              "Filho da Corrente",
+                            email: payload.currentPerson?.email ?? null,
+                            whatsapp: payload.currentPerson?.whatsapp ?? null,
+                          }}
+                          receptionContacts={payload.receptionContacts ?? []}
+                          onCompleted={load}
+                          dueDate={payload.nextAvailableContributionDate}
+                          triggerLabel="Nova contribuição"
+                        />
+                      </div>
+                    )}
+                  </article>
                 </div>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {editingContribution && (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setEditingContribution(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-contribution-title"
+            className="w-full max-w-md rounded-[1.5rem] bg-white p-4 shadow-2xl sm:rounded-[2rem] sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                  Corrente em Dia
+                </p>
+                <h2 id="edit-contribution-title" className="mt-1 text-xl font-black text-[#123D2C]">
+                  Editar programação
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingContribution(null)}
+                className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <label className="mt-4 block text-sm font-black text-[#123D2C]">
+              Primeira data
+              <input
+                type="date"
+                value={editStartDate}
+                onChange={(event) => setEditStartDate(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-[#123D2C]/15 px-3 py-2.5 outline-none focus:border-[#123D2C]"
+              />
+            </label>
+            <label className="mt-3 block text-sm font-black text-[#123D2C]">
+              Quantidade de contribuições
+              <input
+                type="number"
+                min={2}
+                max={120}
+                value={editOccurrences}
+                onChange={(event) => setEditOccurrences(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-[#123D2C]/15 px-3 py-2.5 outline-none focus:border-[#123D2C]"
+              />
+            </label>
+            <label className="mt-3 block text-sm font-black text-[#123D2C]">
+              Observação
+              <textarea
+                value={editNotes}
+                onChange={(event) => setEditNotes(event.target.value)}
+                rows={3}
+                className="mt-1.5 w-full rounded-xl border border-[#123D2C]/15 px-3 py-2.5 outline-none focus:border-[#123D2C]"
+              />
+            </label>
+
+            {actionError && (
+              <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                {actionError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void saveScheduledContribution()}
+              disabled={savingAction === "edit" || !editStartDate}
+              className="mt-4 w-full rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {savingAction === "edit" ? "Salvando..." : "Salvar programação"}
+            </button>
           </section>
         </div>
       )}

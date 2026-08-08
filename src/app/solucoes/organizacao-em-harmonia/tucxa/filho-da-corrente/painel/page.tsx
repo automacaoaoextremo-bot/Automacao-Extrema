@@ -1,191 +1,390 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FilhoCorrentePanelHeader,
+  filhoSignOutAction,
+  filhoSupportAction,
+  type PanelHeaderAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { UpcomingAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-appointments-login-modal";
 import { UpcomingEntityAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-entity-appointments-login-modal";
 import { MemberPendingProofLoginModal } from "@/components/organizacao-em-harmonia/member-pending-proof-login-modal";
+import { MemberContributionAlertsLoginModal } from "@/components/organizacao-em-harmonia/member-contribution-alerts-login-modal";
 
 type UserInfo = {
   fullName: string;
   profileUpdateStatus: string;
 };
 
+type PanelPreferences = {
+  upcomingAppointmentsPopup: boolean;
+  pendingProofsPopup: boolean;
+  dueContributionPopup: boolean;
+  dueContributionDaysBefore: number;
+  overdueContributionPopup: boolean;
+};
+
+type UpcomingContribution = {
+  dueDate: string;
+  amount: number;
+  status: string;
+  scheduled?: boolean;
+};
+
+type Contribution = {
+  id: string;
+  amount: number | string;
+  due_date: string;
+  status: string;
+  payment_method: string | null;
+};
+
+type CorrentePayload = {
+  panelPreferences?: PanelPreferences;
+  upcoming?: UpcomingContribution[];
+  contributions?: Contribution[];
+};
+
+type Shortcut = "modules" | "registration" | "settings" | null;
+
+const PANEL_BASE =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const SETTINGS_HREF = `${PANEL_BASE}/configuracoes`;
+
 const moduleCards = [
   {
     title: "Agenda Viva",
-    description: "Calendário completo e próximos compromissos, com filtros por tipo de evento, Umbanda/outros, público, responsável e período.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/agenda-viva",
+    description:
+      "Calendário completo e próximos compromissos, com eventos do Tucxa organizados para consulta.",
+    href: `${PANEL_BASE}/agenda-viva`,
   },
   {
     title: "Atendimento em Harmonia",
-    description: "Orientações do Tucxa organizadas por tema: regulamento, preparo, silêncio, cambonos, presença, retorno e acolhimento.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento",
+    description:
+      "Orientações, agendamentos e consultas de atendimento em um único módulo.",
+    href: `${PANEL_BASE}/atendimento`,
   },
   {
     title: "Corrente em Dia",
-    description: "Acompanhe formas de contribuição, orientações de Pix, comprovante e apoio à manutenção da casa.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia",
-  },
-  {
-    title: "Atualizar meus dados",
-    description: "Revise cadastro, funções e agendas já selecionadas, veja novas opções e envie atualização para validação do Tucxa.",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados",
+    description:
+      "Contribuições, comprovantes, histórico, próximas datas e acesso financeiro autorizado.",
+    href: `${PANEL_BASE}/corrente-em-dia`,
   },
 ];
+
+const headerActions: PanelHeaderAction[] = [
+  { label: "Início", href: PANEL_BASE, variant: "primary" },
+  filhoSignOutAction,
+  filhoSupportAction,
+];
+
+const defaultPreferences: PanelPreferences = {
+  upcomingAppointmentsPopup: true,
+  pendingProofsPopup: true,
+  dueContributionPopup: true,
+  dueContributionDaysBefore: 7,
+  overdueContributionPopup: true,
+};
+
+function ShortcutModal({
+  shortcut,
+  onClose,
+}: {
+  shortcut: Exclude<Shortcut, null>;
+  onClose: () => void;
+}) {
+  const title =
+    shortcut === "modules"
+      ? "Módulos"
+      : shortcut === "registration"
+        ? "Cadastro"
+        : "Configurações";
+
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="panel-shortcut-title"
+        className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-[1.5rem] bg-white p-4 shadow-2xl sm:rounded-[2rem] sm:p-6"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">
+              Área do Filho da Corrente
+            </p>
+            <h2
+              id="panel-shortcut-title"
+              className="mt-1 text-2xl font-black text-[#123D2C]"
+            >
+              {title}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white"
+          >
+            Fechar
+          </button>
+        </div>
+
+        {shortcut === "modules" && (
+          <div className="mt-4 grid gap-3">
+            {moduleCards.map((card) => (
+              <article
+                key={card.href}
+                className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"
+              >
+                <h3 className="text-lg font-black text-[#123D2C]">
+                  {card.title}
+                </h3>
+                <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+                  {card.description}
+                </p>
+                <Link
+                  href={card.href}
+                  className="mt-3 block rounded-xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white"
+                >
+                  Abrir
+                </Link>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {shortcut === "registration" && (
+          <article className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+            <h3 className="text-lg font-black text-[#123D2C]">
+              Atualizar meus dados
+            </h3>
+            <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+              Revise seus dados, familiares, funções, entidades e agenda. Quando
+              houver alteração, envie a atualização para validação do Tucxa.
+            </p>
+            <Link
+              href={`${PANEL_BASE}/atualizar-dados`}
+              className="mt-3 block rounded-xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white"
+            >
+              Abrir
+            </Link>
+          </article>
+        )}
+
+        {shortcut === "settings" && (
+          <article className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+            <h3 className="text-lg font-black text-[#123D2C]">
+              Preferências dos avisos
+            </h3>
+            <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+              Escolha quais pop-ups deseja receber sobre agendamentos,
+              comprovantes e contribuições, além da antecedência para avisos de
+              vencimento.
+            </p>
+            <Link
+              href={SETTINGS_HREF}
+              className="mt-3 block rounded-xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white"
+            >
+              Abrir
+            </Link>
+          </article>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export default function PainelFilhoDaCorrentePage() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [modulePreviewHref, setModulePreviewHref] = useState("");
+  const [shortcut, setShortcut] = useState<Shortcut>(null);
+  const [panelPreferences, setPanelPreferences] =
+    useState<PanelPreferences>(defaultPreferences);
+  const [upcoming, setUpcoming] = useState<UpcomingContribution[]>([]);
+  const [contributions, setContributions] = useState<Contribution[]>([]);
+
+  const loadPanelData = useCallback(async (accessToken: string) => {
+    const response = await fetch(
+      "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      },
+    );
+    const payload = (await response.json().catch(() => ({}))) as CorrentePayload;
+    if (!response.ok) return;
+
+    setPanelPreferences({
+      ...defaultPreferences,
+      ...(payload.panelPreferences ?? {}),
+    });
+    setUpcoming(payload.upcoming ?? []);
+    setContributions(payload.contributions ?? []);
+  }, []);
 
   useEffect(() => {
+    let active = true;
+
     const timer = window.setTimeout(() => {
-      supabaseBrowser.auth.getSession().then(async ({ data }) => {
+      void supabaseBrowser.auth.getSession().then(async ({ data }) => {
         const session = data.session;
         const user = session?.user;
         if (!user) {
-          window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+          window.location.replace(
+            "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login",
+          );
           return;
         }
 
         const metadata = user.user_metadata ?? {};
-        const profile = typeof metadata.oh_profile === "string" ? metadata.oh_profile : "";
+        const profile =
+          typeof metadata.oh_profile === "string" ? metadata.oh_profile : "";
         if (profile && profile !== "filho-da-corrente") {
-          window.location.replace("/solucoes/organizacao-em-harmonia/cliente");
+          window.location.replace(
+            "/solucoes/organizacao-em-harmonia/cliente",
+          );
           return;
         }
 
-        let profileUpdateStatus = typeof metadata.profile_update_status === "string" ? metadata.profile_update_status : "";
+        let profileUpdateStatus =
+          typeof metadata.profile_update_status === "string"
+            ? metadata.profile_update_status
+            : "";
+
         if (session.access_token) {
-          const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          const payload = (await response.json().catch(() => ({}))) as { profileUpdateStatus?: string };
-          if (response.ok) profileUpdateStatus = payload.profileUpdateStatus || profileUpdateStatus;
+          const [profileResponse] = await Promise.all([
+            fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            }),
+            loadPanelData(session.access_token),
+          ]);
+          const profilePayload = (await profileResponse
+            .json()
+            .catch(() => ({}))) as { profileUpdateStatus?: string };
+          if (profileResponse.ok) {
+            profileUpdateStatus =
+              profilePayload.profileUpdateStatus || profileUpdateStatus;
+          }
         }
 
+        if (!active) return;
+
         setUserInfo({
-          fullName: typeof metadata.full_name === "string" ? metadata.full_name : user.email || "Filho da Corrente",
+          fullName:
+            typeof metadata.full_name === "string"
+              ? metadata.full_name
+              : user.email || "Filho da Corrente",
           profileUpdateStatus,
         });
         setLoading(false);
       });
     }, 0);
 
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [loadPanelData]);
+
+  const firstName = useMemo(
+    () => userInfo?.fullName.trim().split(/\s+/)[0] || "Filho da Corrente",
+    [userInfo?.fullName],
+  );
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader />
+      <FilhoCorrentePanelHeader
+        actions={headerActions}
+        mobileActionColumns={3}
+      />
 
-      <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        {loading && <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando seu acesso...</p>}
+      <section className="mx-auto max-w-6xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
+        {loading && (
+          <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">
+            Carregando seu acesso...
+          </p>
+        )}
 
         {userInfo && (
-          <div className="grid gap-5">
-            <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Área exclusiva do Filho da Corrente</p>
-              <h1 className="mt-2 text-3xl font-black sm:text-4xl">Olá, {userInfo.fullName.split(/\s+/)[0]}.</h1>
-              <p className="mt-3 max-w-3xl leading-7 text-[#EEF7EA]">
-                Este é o seu espaço de consulta e orientação. Acesse os módulos do Organização em Harmonia do Tucxa, acompanhe e mantenha seus dados, funções e agendas sempre atualizados.
+          <div className="grid gap-3 sm:gap-4">
+            <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:rounded-[2rem] sm:p-7">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs sm:tracking-[0.24em]">
+                Área exclusiva do Filho da Corrente
+              </p>
+              <h1 className="mt-1.5 text-3xl font-black sm:mt-2 sm:text-4xl">
+                Olá, {firstName}.
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
+                Este é o seu espaço de consulta e orientação. Use os atalhos
+                abaixo para abrir módulos, atualizar seu cadastro e escolher
+                quais avisos deseja receber.
               </p>
             </section>
 
             <section className="grid grid-cols-3 gap-2 sm:gap-3">
-              {moduleCards.slice(0, 3).map((card) => (
-                <button
-                  key={`atalho-${card.href}`}
-                  type="button"
-                  onClick={() => setModulePreviewHref(card.href)}
-                  className="rounded-2xl bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:text-sm"
-                >
-                  {card.title}
-                </button>
-              ))}
-            </section>
-
-            {userInfo.profileUpdateStatus === "pendente_validacao" && (
-              <section className="rounded-[1.75rem] bg-blue-50 p-4 text-blue-950 ring-1 ring-blue-100">
-                <p className="font-black">Atualização cadastral aguardando validação.</p>
-                <p className="mt-1 text-sm font-semibold leading-6">Seu perfil aprovado continua disponível. As novas funções e agendas serão liberadas somente depois da aprovação do TUCXA.</p>
-              </section>
-            )}
-
-            {userInfo.profileUpdateStatus === "ajuste_solicitado" && (
-              <section className="rounded-[1.75rem] bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-100">
-                <p className="font-black">Sua atualização cadastral precisa de ajustes.</p>
-                <p className="mt-1 text-sm font-semibold leading-6">O perfil anteriormente aprovado continua ativo. Abra Cadastro para revisar e enviar novamente.</p>
-              </section>
-            )}
-
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {moduleCards.map((card) => (
-                <Link key={card.href} href={card.href} className="rounded-[1.75rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 hover:shadow-xl">
-                  <h2 className="text-xl font-black text-[#123D2C]">{card.title}</h2>
-                  <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{card.description}</p>
-                  <span className="mt-5 inline-flex rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Abrir módulo</span>
-                </Link>
-              ))}
+              <button
+                type="button"
+                onClick={() => setShortcut("modules")}
+                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+              >
+                Módulos
+              </button>
+              <button
+                type="button"
+                onClick={() => setShortcut("registration")}
+                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+              >
+                Cadastro
+              </button>
+              <button
+                type="button"
+                onClick={() => setShortcut("settings")}
+                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+              >
+                Configurações
+              </button>
             </section>
           </div>
         )}
       </section>
 
-      {modulePreviewHref && (() => {
-        const card = moduleCards.find((item) => item.href === modulePreviewHref);
-        if (!card) return null;
-        return (
-          <div
-            className="fixed inset-0 z-[180] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.currentTarget === event.target) setModulePreviewHref("");
-            }}
-          >
-            <section
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="module-preview-title"
-              className="w-full max-w-lg rounded-[1.5rem] bg-white p-4 shadow-2xl sm:rounded-[2rem] sm:p-6"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">
-                    Módulo
-                  </p>
-                  <h2 id="module-preview-title" className="mt-1 text-2xl font-black text-[#123D2C]">
-                    {card.title}
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setModulePreviewHref("")}
-                  className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white"
-                >
-                  Fechar
-                </button>
-              </div>
-              <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
-                {card.description}
-              </p>
-              <Link
-                href={card.href}
-                className="mt-4 block rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white"
-              >
-                Abrir módulo
-              </Link>
-            </section>
-          </div>
-        );
-      })()}
+      {shortcut && (
+        <ShortcutModal shortcut={shortcut} onClose={() => setShortcut(null)} />
+      )}
 
-      <UpcomingAppointmentsLoginModal appointmentsHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/consultar-agendamentos" />
-      <UpcomingEntityAppointmentsLoginModal />
-      <MemberPendingProofLoginModal />
+      {!loading && panelPreferences.upcomingAppointmentsPopup && (
+        <>
+          <UpcomingAppointmentsLoginModal
+            appointmentsHref={`${PANEL_BASE}/atendimento/consultar-agendamentos`}
+          />
+          <UpcomingEntityAppointmentsLoginModal />
+        </>
+      )}
+
+      {!loading && (
+        <MemberPendingProofLoginModal
+          enabled={panelPreferences.pendingProofsPopup}
+        />
+      )}
+
+      {!loading && (
+        <MemberContributionAlertsLoginModal
+          upcoming={upcoming}
+          contributions={contributions}
+          showDue={panelPreferences.dueContributionPopup}
+          dueDaysBefore={panelPreferences.dueContributionDaysBefore}
+          showOverdue={panelPreferences.overdueContributionPopup}
+        />
+      )}
     </main>
   );
 }

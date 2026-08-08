@@ -38,6 +38,32 @@ const topNav: NavItem[] = [
   { label: "Relatórios", href: "/solucoes/organizacao-em-harmonia/cliente/relatorios" },
 ];
 
+const MEMBER_PANEL =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const FINANCE_BASE = "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia";
+
+const financialMemberTopNav: NavItem[] = [
+  { label: "Painel", href: MEMBER_PANEL },
+  { label: "Corrente em Dia", href: FINANCE_BASE },
+  { label: "Contribuições", href: `${FINANCE_BASE}/contribuicoes` },
+  { label: "Lançamentos", href: `${FINANCE_BASE}/lancamentos` },
+  { label: "Gestão Financeira", href: `${FINANCE_BASE}/gestao-financeira` },
+];
+
+const financialMemberSidebarGroups: NavGroup[] = [
+  {
+    label: "Tesouraria / Financeiro",
+    description: "Acesso financeiro autorizado pela função do Filho da Corrente.",
+    items: [
+      { label: "Corrente em Dia", href: FINANCE_BASE, description: "Visão financeira e pendências." },
+      { label: "Contribuições", href: `${FINANCE_BASE}/contribuicoes`, description: "Comprovantes, validações e contribuições pendentes." },
+      { label: "Lançamentos", href: `${FINANCE_BASE}/lancamentos`, description: "Receitas e despesas." },
+      { label: "Gestão Financeira", href: `${FINANCE_BASE}/gestao-financeira`, description: "Indicadores e gestão financeira." },
+      { label: "Balancete mensal", href: `${FINANCE_BASE}/balancetes`, description: "Fechamento mensal." },
+    ],
+  },
+];
+
 const sidebarGroups: NavGroup[] = [
   {
     label: "Geral",
@@ -134,41 +160,98 @@ function clientLoginUrl() {
 export function OrganizacaoClientShell({ title, description, children }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [accessGate, setAccessGate] = useState<"checking" | "allowed" | "blocked">("checking");
+  const [accessGate, setAccessGate] = useState<
+    "checking" | "client" | "financialMember" | "blocked"
+  >("checking");
 
   useEffect(() => {
     let active = true;
-    supabaseBrowser.auth.getUser().then(async ({ data }) => {
+
+    void supabaseBrowser.auth.getSession().then(async ({ data }) => {
       if (!active) return;
-      if (!data.user) {
+
+      const session = data.session;
+      const user = session?.user;
+      if (!user) {
         router.replace(clientLoginUrl());
         return;
       }
 
-      const metadata = data.user.user_metadata ?? {};
-      if (metadata.oh_profile === "filho-da-corrente") {
-        setAccessGate("blocked");
-        await supabaseBrowser.auth.signOut();
-        router.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+      const metadata = user.user_metadata ?? {};
+      if (metadata.oh_profile !== "filho-da-corrente") {
+        setAccessGate("client");
         return;
       }
-      setAccessGate("allowed");
+
+      if (!pathname.startsWith(FINANCE_BASE)) {
+        setAccessGate("blocked");
+        router.replace(MEMBER_PANEL);
+        return;
+      }
+
+      const accessToken = session.access_token;
+      if (!accessToken) {
+        setAccessGate("blocked");
+        router.replace(MEMBER_PANEL);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          canManageFinance?: boolean;
+        };
+
+        if (!active) return;
+        if (response.ok && payload.canManageFinance === true) {
+          setAccessGate("financialMember");
+          return;
+        }
+      } catch {
+        // O bloqueio abaixo mantém a sessão do Filho da Corrente ativa.
+      }
+
+      if (!active) return;
+      setAccessGate("blocked");
+      router.replace(MEMBER_PANEL);
     });
 
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [pathname, router]);
 
   async function signOut() {
+    const wasFinancialMember = accessGate === "financialMember";
     await supabaseBrowser.auth.signOut();
-    router.replace("/solucoes/organizacao-em-harmonia/login");
+    router.replace(
+      wasFinancialMember
+        ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
+        : "/solucoes/organizacao-em-harmonia/login",
+    );
   }
 
-  const activeGroup = sidebarGroups.find((group) => group.items.some((item) => isActive(pathname, item.href))) ?? sidebarGroups[0];
-  const orderedSidebarGroups = [activeGroup, ...sidebarGroups.filter((group) => group.label !== activeGroup.label)];
+  const isFinancialMember = accessGate === "financialMember";
+  const effectiveTopNav = isFinancialMember ? financialMemberTopNav : topNav;
+  const effectiveSidebarGroups = isFinancialMember
+    ? financialMemberSidebarGroups
+    : sidebarGroups;
+  const activeGroup =
+    effectiveSidebarGroups.find((group) =>
+      group.items.some((item) => isActive(pathname, item.href)),
+    ) ?? effectiveSidebarGroups[0];
+  const orderedSidebarGroups = [
+    activeGroup,
+    ...effectiveSidebarGroups.filter((group) => group.label !== activeGroup.label),
+  ];
 
-  if (accessGate !== "allowed") {
+  if (accessGate === "checking" || accessGate === "blocked") {
     return (
       <main className="min-h-screen bg-[#F4FBF7] p-6 text-[#00334E]">
         <div className="mx-auto max-w-2xl rounded-[2rem] bg-white p-6 shadow ring-1 ring-slate-100">
@@ -176,8 +259,8 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
           <h1 className="mt-2 text-2xl font-black">{accessGate === "blocked" ? "Acesso de gestão bloqueado" : "Verificando acesso..."}</h1>
           <p className="mt-3 leading-7 text-slate-600">
             {accessGate === "blocked"
-              ? "Este usuário é de Filho da Corrente e deve usar o acesso próprio do site público do Tucxa."
-              : "Estamos conferindo se este usuário tem permissão de gestão."}
+              ? "Este acesso não possui função Tesouraria/Financeiro para a área solicitada. Você será direcionado de volta ao painel do Filho da Corrente."
+              : "Estamos conferindo se este usuário tem permissão para esta área."}
           </p>
         </div>
       </main>
@@ -189,7 +272,7 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
       <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
           <Link
-            href="/solucoes/organizacao-em-harmonia/cliente"
+            href={isFinancialMember ? MEMBER_PANEL : "/solucoes/organizacao-em-harmonia/cliente"}
             className="flex min-w-0 flex-1 items-center gap-3"
             aria-label="Ir para o início da área logada do Tucxa"
           >
@@ -230,7 +313,7 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
 
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-            {topNav.map((item) => (
+            {effectiveTopNav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

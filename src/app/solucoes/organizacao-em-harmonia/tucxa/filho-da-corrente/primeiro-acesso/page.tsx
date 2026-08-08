@@ -133,6 +133,10 @@ function normalizeSearch(value: string) {
     .trim();
 }
 
+function firstName(value: string) {
+  return value.trim().split(/\s+/)[0] || value.trim();
+}
+
 function isThursdayGroup(item: AgendaOption) {
   const searchable = normalizeSearch(
     [item.slug, item.legacySlug, item.label, item.title, item.description]
@@ -909,7 +913,8 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                     <button
                       type="button"
                       onClick={addFamilyLink}
-                      className="mt-2 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                      disabled={!familyPersonId || !familyRelationshipId}
+                      className="mt-2 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Incluir familiar
                     </button>
@@ -923,7 +928,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                       >
                         <span>
                           <strong className="block text-[#123D2C]">
-                            {link.personName}
+                            {firstName(link.personName)}
                           </strong>
                           <span className="text-sm text-slate-600">
                             {link.relationshipLabel}
