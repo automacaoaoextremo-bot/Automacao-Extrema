@@ -5,6 +5,7 @@ import Image from "next/image";
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { FinancePendingContributionsLoginModal } from "@/components/organizacao-em-harmonia/finance-pending-contributions-login-modal";
 
 type ShellProps = {
   title: string;
@@ -289,6 +290,7 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
           <div className="grid gap-5">{children}</div>
         </section>
       </div>
+      <FinancePendingContributionsLoginModal />
     </main>
   );
 }

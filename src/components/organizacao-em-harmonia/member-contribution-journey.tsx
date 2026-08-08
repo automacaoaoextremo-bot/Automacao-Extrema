@@ -76,7 +76,7 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[190] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[190] flex items-center justify-center bg-black/55 p-2 sm:p-4"
       role="presentation"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target) onClose();
@@ -86,7 +86,7 @@ function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="max-h-[calc(100dvh-0.5rem)] w-full overflow-y-auto rounded-t-[1.5rem] bg-white p-3 shadow-2xl sm:max-h-[94vh] sm:max-w-2xl sm:rounded-[2rem] sm:p-6"
+        className="max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-[1.5rem] bg-white p-3 shadow-2xl sm:max-h-[94vh] sm:rounded-[2rem] sm:p-6"
       >
         {children}
       </section>

@@ -82,6 +82,9 @@ export type ContributionNotificationInput = {
   dueDate?: string | null;
   notes?: string | null;
   trackingCode?: string | null;
+  recurrenceDates?: string[];
+  actionUrl?: string | null;
+  actionLabel?: string | null;
   extraEmails?: string[];
   includeReception?: boolean;
 };
@@ -357,6 +360,12 @@ function notificationText(input: ContributionNotificationInput) {
     `Situação: ${input.status}`,
     input.dueDate ? `Data: ${input.dueDate}` : "",
     input.trackingCode ? `Código de acompanhamento: ${input.trackingCode}` : "",
+    input.recurrenceDates?.length
+      ? `Recorrências programadas:\n${input.recurrenceDates.map((item) => `- ${item}`).join("\n")}`
+      : "",
+    input.actionUrl
+      ? `${input.actionLabel || "Ação necessária"}: ${input.actionUrl}`
+      : "",
     input.notes ? `Observação: ${input.notes}` : "",
     "",
     `ID da contribuição: ${input.contributionId}`,

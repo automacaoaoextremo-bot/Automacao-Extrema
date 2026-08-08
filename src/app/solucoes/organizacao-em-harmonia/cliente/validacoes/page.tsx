@@ -104,6 +104,8 @@ export default function ValidacoesPrimeiroAcessoPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pendingWhatsappUrl, setPendingWhatsappUrl] = useState("");
+  const [reviewItem, setReviewItem] = useState<ValidationItem | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
 
   const load = useCallback(async () => {
     const { data: sessionData } = await supabaseBrowser.auth.getSession();
@@ -203,6 +205,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
       | "requestAccessAdjustment"
       | "deleteAccessValidation",
     isProfileUpdate: boolean,
+    reviewNotesOverride = "",
   ) {
     if (action === "deleteAccessValidation") {
       const text = isProfileUpdate
@@ -212,13 +215,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
     }
 
     const reviewNotes =
-      action === "requestAccessAdjustment"
-        ? window.prompt(
-            isProfileUpdate
-              ? "Informe por que a alteração precisa de ajuste:"
-              : "Informe o ajuste ao Filho da Corrente:",
-          ) || ""
-        : "";
+      action === "requestAccessAdjustment" ? reviewNotesOverride.trim() : "";
 
     const candidateWindow =
       action === "deleteAccessValidation" ? null : window.open("", "_blank");
@@ -281,6 +278,10 @@ export default function ValidacoesPrimeiroAcessoPage() {
               ? "A alteração não foi aplicada e o perfil anterior foi preservado."
               : "Ajuste solicitado.",
       );
+      if (action !== "deleteAccessValidation") {
+        setReviewItem(null);
+        setReviewNotes("");
+      }
     } catch (reason) {
       whatsappWindow?.close();
       setError(
@@ -348,25 +349,6 @@ export default function ValidacoesPrimeiroAcessoPage() {
                         </p>
                       </td>
                       <td className="py-3">
-                        {isProfileUpdate && (() => {
-                          const summary = asRecord(request?.summary);
-                          const details = asRecord(summary.changeDetails);
-                          const current = asTextArray(details.current);
-                          const added = asTextArray(details.added);
-                          const removed = asTextArray(details.removed);
-                          return (
-                            <details className="mb-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                              <summary className="cursor-pointer font-black text-[#00334E]">
-                                Conferir cadastro atual e alterações
-                              </summary>
-                              <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
-                                <ChangeList title="Cadastro atual" items={current} empty="Sem dados anteriores." />
-                                <ChangeList title="Inclusões/alterações" items={added} empty="Nenhuma inclusão." prefix="+" />
-                                <ChangeList title="Retiradas" items={removed} empty="Nenhuma retirada." prefix="−" />
-                              </div>
-                            </details>
-                          );
-                        })()}
                         <div className="flex flex-wrap gap-2">
                           <Link
                             href={`/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${person.id}`}
@@ -378,30 +360,15 @@ export default function ValidacoesPrimeiroAcessoPage() {
                             <button
                               disabled={saving}
                               type="button"
-                              onClick={() =>
-                                void decide(person.id, "approveAccess", isProfileUpdate)
-                              }
+                              onClick={() => {
+                                setReviewNotes("");
+                                setReviewItem({ membership, request, person });
+                              }}
                               className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-60"
                             >
                               {isProfileUpdate ? "Aprovar alterações" : "Aprovar"}
                             </button>
                           )}
-                          <button
-                            disabled={saving}
-                            type="button"
-                            onClick={() =>
-                              void decide(
-                                person.id,
-                                "requestAccessAdjustment",
-                                isProfileUpdate,
-                              )
-                            }
-                            className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 disabled:opacity-60"
-                          >
-                            {isProfileUpdate
-                              ? "Reprovar alteração / pedir ajuste"
-                              : "Pedir ajuste"}
-                          </button>
                           <button
                             disabled={saving}
                             type="button"
@@ -433,6 +400,152 @@ export default function ValidacoesPrimeiroAcessoPage() {
           </div>
         </section>
       )}
+
+      {reviewItem && (() => {
+        const isProfileUpdate =
+          requestType(reviewItem.request) === "profile_update";
+        const summary = asRecord(reviewItem.request?.summary);
+        const details = asRecord(summary.changeDetails);
+        const current = asTextArray(details.current);
+        const added = asTextArray(details.added);
+        const removed = asTextArray(details.removed);
+        const profile = reviewItem.membership.agenda_viva_profile ?? {};
+        const selectedFunctions = Array.isArray(profile.selectedFunctions)
+          ? profile.selectedFunctions
+              .map((item) => asText(asRecord(item).label) || asText(asRecord(item).name))
+              .filter(Boolean)
+          : [];
+        const selectedAgenda = Array.isArray(profile.selectedAgenda)
+          ? profile.selectedAgenda
+              .map((item) => asText(asRecord(item).label) || asText(asRecord(item).name))
+              .filter(Boolean)
+          : [];
+
+        return (
+          <div
+            className="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target && !saving) {
+                setReviewItem(null);
+                setReviewNotes("");
+              }
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="validation-review-title"
+              className="max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-[1.5rem] bg-white p-4 shadow-2xl sm:rounded-[2rem] sm:p-6"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">
+                    Validação de acesso
+                  </p>
+                  <h2
+                    id="validation-review-title"
+                    className="mt-1 text-xl font-black leading-tight text-[#00334E] sm:text-2xl"
+                  >
+                    {compactName(reviewItem.person.full_name)}
+                  </h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">
+                    Confira o que será aprovado ou indique o que precisa de ajuste.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setReviewItem(null);
+                    setReviewNotes("");
+                  }}
+                  className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-50"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              {isProfileUpdate ? (
+                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+                  <ChangeList
+                    title="Cadastro atual"
+                    items={current}
+                    empty="Sem dados anteriores."
+                  />
+                  <ChangeList
+                    title="Inclusões/alterações"
+                    items={added}
+                    empty="Nenhuma inclusão."
+                    prefix="+"
+                  />
+                  <ChangeList
+                    title="Retiradas"
+                    items={removed}
+                    empty="Nenhuma retirada."
+                    prefix="−"
+                  />
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+                  <ChangeList
+                    title="Funções solicitadas"
+                    items={selectedFunctions}
+                    empty="Nenhuma função adicional informada."
+                  />
+                  <ChangeList
+                    title="Agenda solicitada"
+                    items={selectedAgenda}
+                    empty="Nenhum evento informado."
+                  />
+                </div>
+              )}
+
+              <label className="mt-4 grid gap-1 text-sm font-black text-[#00334E]">
+                Orientação para ajuste
+                <textarea
+                  value={reviewNotes}
+                  onChange={(event) => setReviewNotes(event.target.value)}
+                  className="min-h-24 rounded-2xl border border-slate-200 p-3 font-semibold outline-none focus:border-[#2F6B43]"
+                  placeholder="Preencha somente se for pedir ajuste."
+                />
+              </label>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() =>
+                    void decide(
+                      reviewItem.person.id,
+                      "approveAccess",
+                      isProfileUpdate,
+                    )
+                  }
+                  className="rounded-xl bg-[#31C16B] px-4 py-3 font-black text-[#00334E] disabled:opacity-50"
+                >
+                  {isProfileUpdate ? "Aprovar alterações" : "Aprovar"}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !reviewNotes.trim()}
+                  onClick={() =>
+                    void decide(
+                      reviewItem.person.id,
+                      "requestAccessAdjustment",
+                      isProfileUpdate,
+                      reviewNotes,
+                    )
+                  }
+                  className="rounded-xl bg-amber-50 px-4 py-3 font-black text-amber-900 ring-1 ring-amber-200 disabled:opacity-40"
+                >
+                  Pedir ajuste
+                </button>
+              </div>
+            </section>
+          </div>
+        );
+      })()}
     </OrganizacaoClientShell>
   );
 }

@@ -203,7 +203,9 @@ export function CavalinhoEntitySelector({
                       continueToConsulente();
                     }
                   }}
-                  disabled={draftIds.length === 0}
+                  disabled={
+                    selectionPage >= selectionPageCount && draftIds.length === 0
+                  }
                   className="min-h-9 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-40 sm:min-h-10"
                 >
                   {selectionPage < selectionPageCount
@@ -327,13 +329,18 @@ export function CavalinhoEntitySelector({
                   setDraftConsulenteAnswer("no");
                   setDraftConsulenteId("");
                 }}
-                className={`w-full rounded-xl border-2 p-3 text-left text-sm font-black shadow-sm sm:rounded-2xl ${
+                className={`w-full rounded-xl border-2 p-3 text-left text-sm font-black shadow-md transition sm:rounded-2xl ${
                   draftConsulenteAnswer === "no"
-                    ? "border-[#123D2C] bg-emerald-50 text-emerald-900"
-                    : "border-transparent bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    ? "border-[#123D2C] bg-emerald-100 text-emerald-950 ring-2 ring-[#123D2C]/20"
+                    : "border-[#123D2C] bg-[#FFF8DD] text-[#123D2C] ring-2 ring-[#D99B42]/25 hover:bg-amber-50"
                 }`}
               >
-                Não. Nenhuma destas entidades atende Consulentes.
+                <span className="flex items-center justify-between gap-3">
+                  <span>Não. Nenhuma destas entidades atende Consulentes.</span>
+                  <span className="shrink-0 rounded-lg bg-[#123D2C] px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white">
+                    Selecionar
+                  </span>
+                </span>
               </button>
               <div className="my-2 flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 sm:my-3 sm:text-xs sm:tracking-[0.14em]">
                 <span className="h-px flex-1 bg-slate-200" />

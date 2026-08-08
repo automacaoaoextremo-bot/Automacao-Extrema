@@ -62,6 +62,7 @@ type UpcomingContribution = {
   dueDate: string;
   amount: number;
   status: string;
+  scheduled?: boolean;
 };
 
 type Payload = {
@@ -192,6 +193,14 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
     setContributionOpen(true);
   }
 
+  function closeContributionView() {
+    if (contributionView === "menu") {
+      setContributionOpen(false);
+      return;
+    }
+    setContributionView("menu");
+  }
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
@@ -270,7 +279,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
 
       {contributionOpen && contributionSettings && (
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-2 sm:p-4"
           role="presentation"
           onMouseDown={(event) => {
             if (event.currentTarget === event.target) setContributionOpen(false);
@@ -280,7 +289,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="member-contribution-center-title"
-            className="flex max-h-[calc(100dvh-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-[1.5rem] bg-white shadow-2xl sm:max-h-[94vh] sm:rounded-[2rem]"
+            className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl sm:max-h-[94vh] sm:rounded-[2rem]"
           >
             <header className="shrink-0 border-b border-slate-100 p-3 sm:p-5">
               <div className="flex items-start justify-between gap-3">
@@ -297,21 +306,12 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setContributionOpen(false)}
+                  onClick={closeContributionView}
                   className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4"
                 >
                   Fechar
                 </button>
               </div>
-              {contributionView !== "menu" && (
-                <button
-                  type="button"
-                  onClick={() => setContributionView("menu")}
-                  className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
-                >
-                  Voltar às opções
-                </button>
-              )}
             </header>
 
             <div className="min-h-0 overflow-y-auto p-3 sm:p-5">
@@ -405,7 +405,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                           </span>
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2">
-                          {item.status === "prevista" ? (
+                          {item.status === "prevista" || item.scheduled ? (
                             <Link
                               href={SETTINGS_HREF}
                               className="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
@@ -417,20 +417,30 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                               Atual
                             </span>
                           )}
-                          <MemberContributionJourney
-                            settings={contributionSettings}
-                            person={{
-                              fullName:
-                                payload.currentPerson?.fullName ||
-                                "Filho da Corrente",
-                              email: payload.currentPerson?.email ?? null,
-                              whatsapp: payload.currentPerson?.whatsapp ?? null,
-                            }}
-                            receptionContacts={payload.receptionContacts ?? []}
-                            onCompleted={load}
-                            dueDate={item.dueDate}
-                            triggerLabel="Contribuir"
-                          />
+                          {item.scheduled ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="rounded-xl bg-[#123D2C] px-3 py-2.5 text-sm font-black text-white opacity-40"
+                            >
+                              Contribuir
+                            </button>
+                          ) : (
+                            <MemberContributionJourney
+                              settings={contributionSettings}
+                              person={{
+                                fullName:
+                                  payload.currentPerson?.fullName ||
+                                  "Filho da Corrente",
+                                email: payload.currentPerson?.email ?? null,
+                                whatsapp: payload.currentPerson?.whatsapp ?? null,
+                              }}
+                              receptionContacts={payload.receptionContacts ?? []}
+                              onCompleted={load}
+                              dueDate={item.dueDate}
+                              triggerLabel="Contribuir"
+                            />
+                          )}
                         </div>
                       </article>
                     ))}

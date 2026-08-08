@@ -223,6 +223,42 @@ function dueDateFor(day: number, offsetMonth = 0) {
   return target.toISOString().slice(0, 10);
 }
 
+function recurringDates(startDate: string, occurrences: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
+  if (!match || occurrences <= 0) return [] as string[];
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+
+  return Array.from({ length: occurrences }, (_, offset) => {
+    const monthStart = new Date(Date.UTC(year, month + offset, 1, 12));
+    const targetYear = monthStart.getUTCFullYear();
+    const targetMonth = monthStart.getUTCMonth();
+    const lastDay = new Date(
+      Date.UTC(targetYear, targetMonth + 1, 0, 12),
+    ).getUTCDate();
+    const targetDay = Math.min(day, lastDay);
+    return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(
+      targetDay,
+    ).padStart(2, "0")}`;
+  });
+}
+
+function datePtBr(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${value.slice(0, 10)}T12:00:00Z`));
+}
+
+function todayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 function pixPayload(
   settings: Awaited<ReturnType<typeof loadSettings>>,
   amount: number,
@@ -461,7 +497,7 @@ async function loadPayload(context: AuthContext) {
     supabaseAdmin
       .from("oh_contributions")
       .select(
-        "id, amount, due_date, paid_at, status, payment_method, proof_url, notes, contribution_kind, recurrence_type, preferred_due_day, family_group_id, created_at",
+        "id, amount, due_date, paid_at, status, payment_method, proof_url, receipt_uploaded_at, notes, contribution_kind, recurrence_type, preferred_due_day, recurrence_start_date, recurrence_occurrences, family_group_id, metadata, created_at",
       )
       .eq("organization_id", context.organizationId)
       .eq("person_id", context.personId)
@@ -502,11 +538,66 @@ async function loadPayload(context: AuthContext) {
     margin: 1,
     width: 360,
   });
-  const upcoming = [0, 1, 2].map((offset) => ({
-    dueDate: dueDateFor(preferredDay, offset),
-    amount,
-    status: offset === 0 ? "próxima" : "prevista",
-  }));
+  const contributions = contributionsResult.data ?? [];
+  const activeRecurring = [...contributions]
+    .filter(
+      (item) =>
+        asText(item.recurrence_type) === "pix_agendado" &&
+        Boolean(item.recurrence_start_date) &&
+        asNumber(item.recurrence_occurrences, 0) >= 2 &&
+        asText(item.status) !== "cancelado",
+    )
+    .sort(
+      (left, right) =>
+        new Date(asText(right.created_at)).getTime() -
+        new Date(asText(left.created_at)).getTime(),
+    )[0];
+
+  const programmedDates = activeRecurring
+    ? recurringDates(
+        asText(activeRecurring.recurrence_start_date),
+        Math.trunc(asNumber(activeRecurring.recurrence_occurrences, 0)),
+      )
+        .filter((item) => item >= todayIso())
+        .slice(0, 3)
+    : [];
+
+  const upcoming =
+    programmedDates.length > 0
+      ? programmedDates.map((dueDate) => ({
+          dueDate,
+          amount: asNumber(activeRecurring?.amount, amount),
+          status: "programado",
+          scheduled: true,
+        }))
+      : [0, 1, 2].map((offset) => ({
+          dueDate: dueDateFor(preferredDay, offset),
+          amount,
+          status: offset === 0 ? "próxima" : "prevista",
+          scheduled: false,
+        }));
+
+  const pendingProofs = contributions
+    .filter(
+      (item) =>
+        asText(item.status) === "aguardando_comprovante" &&
+        !item.proof_url &&
+        !item.receipt_uploaded_at,
+    )
+    .flatMap((item) => {
+      const metadata = asObject(item.metadata);
+      const uploadToken = asText(metadata.proofUploadToken);
+      if (!uploadToken) return [];
+      return [
+        {
+          id: asText(item.id),
+          amount: asNumber(item.amount, 0),
+          dueDate: asText(item.due_date),
+          uploadToken,
+          trackingCode: asText(metadata.trackingCode) || null,
+        },
+      ];
+    });
 
   return {
     currentPerson: {
@@ -548,8 +639,9 @@ async function loadPayload(context: AuthContext) {
     },
     preference,
     preferenceSaved: Boolean(preferenceResult.data),
-    contributions: contributionsResult.data ?? [],
+    contributions,
     upcoming,
+    pendingProofs,
     pixCopyPaste,
     qrCodeDataUrl,
     ...familyData,
@@ -694,6 +786,10 @@ async function createContributionIntent(
     recurrenceType === "pix_agendado"
       ? recurrenceStartDate
       : requestedDueDate || dueDateFor(settings.defaultDueDay, 0);
+  const scheduledDates =
+    recurrenceType === "pix_agendado"
+      ? recurringDates(recurrenceStartDate, recurrenceOccurrences)
+      : [dueDate];
   const requiresReception = paymentMethod === "recepcao";
   const status = requiresReception
     ? "aguardando_recepcao"
@@ -743,6 +839,8 @@ async function createContributionIntent(
       source: "filho_corrente_painel",
       confidential: true,
       proofUploadToken: uploadToken,
+      trackingCode,
+      scheduledDates,
       identification,
       emailUpdated,
       requiresReception,
@@ -848,6 +946,12 @@ async function createContributionIntent(
       : "",
     `Forma: ${requiresReception ? "Cartão de Crédito, Débito ou Dinheiro" : "Pix"}.`,
     `Situação: ${requiresReception ? "aguardando atendimento da Recepção" : "aguardando comprovante"}.`,
+    recurrenceType === "pix_agendado"
+      ? `Recorrências programadas:\n${scheduledDates.map((item) => `- ${datePtBr(item)}`).join("\n")}`
+      : "",
+    !requiresReception
+      ? `Comprovante pendente. Envie pelo link: ${resumeUrl}`
+      : "",
     `Código de acompanhamento: ${trackingCode}.`,
   ].filter(Boolean).join("\n");
 
@@ -865,6 +969,14 @@ async function createContributionIntent(
     dueDate,
     notes: asText(body.notes) || null,
     trackingCode,
+    recurrenceDates:
+      recurrenceType === "pix_agendado"
+        ? scheduledDates.map(datePtBr)
+        : [],
+    actionUrl: requiresReception ? null : resumeUrl,
+    actionLabel: requiresReception
+      ? null
+      : "Comprovante pendente — enviar pelo link",
     extraEmails: settings.contributionNotificationEmails,
     includeReception: requiresReception,
   });

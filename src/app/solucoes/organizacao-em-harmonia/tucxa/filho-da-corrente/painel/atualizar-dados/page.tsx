@@ -1080,7 +1080,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                     <button
                       type="button"
                       onClick={addFamilyLink}
-                      className="mt-2 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+                      disabled={!familyPersonId || !familyRelationshipId}
+                      className="mt-2 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Incluir familiar
                     </button>

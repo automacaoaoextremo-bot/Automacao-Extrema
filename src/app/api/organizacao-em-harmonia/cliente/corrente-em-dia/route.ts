@@ -206,6 +206,9 @@ async function loadPayload(organizationId: string, canManage: boolean) {
       ["confirmado", "pago", "aprovado"].includes(String(item.status)),
     )
     .reduce((sum, item) => sum + asNumber(item.amount), 0);
+  const pendingContributionConfirmations = contributions.filter(
+    (item) => String(item.status) === "comprovante_enviado",
+  ).length;
 
   return {
     canManage,
@@ -228,6 +231,7 @@ async function loadPayload(organizationId: string, canManage: boolean) {
         ),
       ).length,
       pendingReconciliations: (transactionsResult.data ?? []).length,
+      pendingContributionConfirmations,
       provisionalMonths: monthly.filter(
         (item) => item.isProvisional || item.needsUpdate,
       ).length,
