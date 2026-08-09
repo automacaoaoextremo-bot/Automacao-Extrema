@@ -144,6 +144,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [financeOpen, setFinanceOpen] = useState(false);
   const [contributionOpen, setContributionOpen] = useState(false);
   const [contributionView, setContributionView] = useState<ContributionView>("menu");
+  const [upcomingPage, setUpcomingPage] = useState(1);
   const [proofLockedItem, setProofLockedItem] = useState<UpcomingContribution | null>(null);
   const [savingAction, setSavingAction] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -211,10 +212,18 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
     [payload.upcoming],
   );
 
+  const upcomingPageCount = Math.max(1, Math.ceil(upcoming.length / 2));
+  const safeUpcomingPage = Math.min(upcomingPage, upcomingPageCount);
+  const visibleUpcoming = useMemo(
+    () => upcoming.slice((safeUpcomingPage - 1) * 2, safeUpcomingPage * 2),
+    [safeUpcomingPage, upcoming],
+  );
+
   const contributionSettings = payload.settings;
 
   function openContribution() {
     setContributionView("menu");
+    setUpcomingPage(1);
     setContributionOpen(true);
   }
 
@@ -333,7 +342,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                     <span className="block text-xl font-black text-[#123D2C]">Histórico</span>
                     <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">Consulte contribuições anteriores.</span>
                   </button>
-                  <button type="button" onClick={() => setContributionView("upcoming")} className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]">
+                  <button type="button" onClick={() => { setUpcomingPage(1); setContributionView("upcoming"); }} className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]">
                     <span className="block text-xl font-black text-[#123D2C]">Próximas</span>
                     <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">Veja e organize suas programações futuras.</span>
                   </button>
@@ -361,85 +370,39 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
               {contributionView === "upcoming" && (
                 <div>
                   <h3 className="text-xl font-black text-[#123D2C]">Próximas contribuições</h3>
-                  <p className="mt-1 text-sm font-semibold text-slate-600">Programações recorrentes aparecem uma única vez, reunindo todas as datas.</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">
+                    Programações recorrentes aparecem uma única vez, reunindo todas as datas.
+                  </p>
 
-                  {actionMessage && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{actionMessage}</p>}
-                  {actionError && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{actionError}</p>}
-
-                  <div className="mt-3 grid gap-3">
-                    {upcoming.map((item) => {
-                      const dates = item.scheduledDates?.length ? item.scheduledDates : [item.dueDate];
-                      const recurring = item.recurrenceType === "pix_agendado" || dates.length > 1;
-                      return (
-                        <article key={item.contributionId || `${item.dueDate}-${item.amount}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-black text-[#123D2C]">{recurring ? "Programação recorrente" : date(item.dueDate)}</p>
-                              <p className="mt-0.5 text-xs font-semibold text-slate-600 sm:text-sm">{statusLabels[item.status] ?? item.status}</p>
-                            </div>
-                            <span className="font-black text-[#123D2C]">{money(item.amount)}</span>
-                          </div>
-
-                          {recurring && (
-                            <div className="mt-2 rounded-xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10">
-                              <p className="font-black text-[#2F6B43]">Datas desta programação</p>
-                              <p className="mt-1 font-semibold text-slate-700">{dates.map(date).join(" · ")}</p>
-                            </div>
-                          )}
-
-                          {item.proofUploaded ? (
-                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                              <button type="button" onClick={() => setProofLockedItem(item)} className="rounded-xl bg-white px-3 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Editar</button>
-                              <span className="rounded-xl bg-amber-50 px-3 py-2.5 text-center text-sm font-black text-amber-900 ring-1 ring-amber-200">Aguardando aprovação</span>
-                            </div>
-                          ) : item.contributionId && item.canEdit ? (
-                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                              <MemberContributionJourney
-                                settings={contributionSettings}
-                                person={{
-                                  fullName: payload.currentPerson?.fullName || "Filho da Corrente",
-                                  email: payload.currentPerson?.email ?? null,
-                                  whatsapp: payload.currentPerson?.whatsapp ?? null,
-                                }}
-                                receptionContacts={payload.receptionContacts ?? []}
-                                onCompleted={load}
-                                dueDate={item.dueDate}
-                                triggerLabel="Editar"
-                                existingContribution={{
-                                  id: item.contributionId,
-                                  status: item.status,
-                                  paymentMethod: item.paymentMethod,
-                                  recurrenceType: item.recurrenceType,
-                                  recurrenceStartDate: item.recurrenceStartDate || item.dueDate,
-                                  recurrenceOccurrences: item.recurrenceOccurrences,
-                                  notes: item.notes,
-                                  uploadToken: item.uploadToken,
-                                  trackingCode: item.trackingCode,
-                                }}
-                              />
-                              <button type="button" onClick={() => void deleteContribution(item)} disabled={!item.canDelete || savingAction === `delete:${item.contributionId}`} className="rounded-xl bg-white px-3 py-2.5 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:cursor-not-allowed disabled:opacity-40">
-                                {savingAction === `delete:${item.contributionId}` ? "Excluindo..." : recurring ? "Excluir programação" : "Excluir contribuição"}
-                              </button>
-                            </div>
-                          ) : (
-                            <p className="mt-3 rounded-xl bg-white p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Esta contribuição já está finalizada e não pode ser alterada.</p>
-                          )}
-                        </article>
-                      );
-                    })}
-
-                    {upcoming.length === 0 && <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">Nenhuma contribuição futura registrada.</p>}
-                  </div>
+                  {actionMessage && (
+                    <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                      {actionMessage}
+                    </p>
+                  )}
+                  {actionError && (
+                    <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                      {actionError}
+                    </p>
+                  )}
 
                   <article className="mt-3 rounded-2xl border-2 border-dashed border-[#123D2C]/30 bg-white p-3 sm:p-4">
                     <p className="font-black text-[#123D2C]">Nova contribuição</p>
-                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">Próxima data disponível considerando todas as programações existentes: <strong>{payload.nextAvailableContributionDate ? date(payload.nextAvailableContributionDate) : "a definir"}</strong></p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+                      Próxima data disponível considerando todas as programações existentes:{" "}
+                      <strong>
+                        {payload.nextAvailableContributionDate
+                          ? date(payload.nextAvailableContributionDate)
+                          : "a definir"}
+                      </strong>
+                    </p>
                     {payload.nextAvailableContributionDate && (
                       <div className="mt-3">
                         <MemberContributionJourney
                           settings={contributionSettings}
                           person={{
-                            fullName: payload.currentPerson?.fullName || "Filho da Corrente",
+                            fullName:
+                              payload.currentPerson?.fullName ||
+                              "Filho da Corrente",
                             email: payload.currentPerson?.email ?? null,
                             whatsapp: payload.currentPerson?.whatsapp ?? null,
                           }}
@@ -451,6 +414,156 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                       </div>
                     )}
                   </article>
+
+                  <div className="mt-3 grid gap-3">
+                    {visibleUpcoming.map((item) => {
+                      const dates = item.scheduledDates?.length
+                        ? item.scheduledDates
+                        : [item.dueDate];
+                      const recurring =
+                        item.recurrenceType === "pix_agendado" ||
+                        dates.length > 1;
+
+                      return (
+                        <article
+                          key={
+                            item.contributionId ||
+                            `${item.dueDate}-${item.amount}`
+                          }
+                          className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black text-[#123D2C]">
+                                {recurring
+                                  ? "Programação recorrente"
+                                  : date(item.dueDate)}
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-600 sm:text-sm">
+                                {statusLabels[item.status] ?? item.status}
+                              </p>
+                            </div>
+                            <span className="font-black text-[#123D2C]">
+                              {money(item.amount)}
+                            </span>
+                          </div>
+
+                          {recurring && (
+                            <div className="mt-2 rounded-xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10">
+                              <p className="font-black text-[#2F6B43]">
+                                Datas desta programação
+                              </p>
+                              <p className="mt-1 font-semibold text-slate-700">
+                                {dates.map(date).join(" · ")}
+                              </p>
+                            </div>
+                          )}
+
+                          {item.proofUploaded ? (
+                            <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 text-center text-sm font-black text-amber-900 ring-1 ring-amber-200">
+                              Aguardando aprovação — edição e exclusão indisponíveis após o envio do comprovante.
+                            </div>
+                          ) : item.contributionId && item.canEdit ? (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <MemberContributionJourney
+                                settings={contributionSettings}
+                                person={{
+                                  fullName:
+                                    payload.currentPerson?.fullName ||
+                                    "Filho da Corrente",
+                                  email:
+                                    payload.currentPerson?.email ?? null,
+                                  whatsapp:
+                                    payload.currentPerson?.whatsapp ?? null,
+                                }}
+                                receptionContacts={
+                                  payload.receptionContacts ?? []
+                                }
+                                onCompleted={load}
+                                dueDate={item.dueDate}
+                                triggerLabel="Editar"
+                                existingContribution={{
+                                  id: item.contributionId,
+                                  status: item.status,
+                                  paymentMethod: item.paymentMethod,
+                                  recurrenceType: item.recurrenceType,
+                                  recurrenceStartDate:
+                                    item.recurrenceStartDate ||
+                                    item.dueDate,
+                                  recurrenceOccurrences:
+                                    item.recurrenceOccurrences,
+                                  notes: item.notes,
+                                  uploadToken: item.uploadToken,
+                                  trackingCode: item.trackingCode,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void deleteContribution(item)
+                                }
+                                disabled={
+                                  !item.canDelete ||
+                                  savingAction ===
+                                    `delete:${item.contributionId}`
+                                }
+                                className="rounded-xl bg-white px-3 py-2.5 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {savingAction ===
+                                `delete:${item.contributionId}`
+                                  ? "Excluindo..."
+                                  : "Excluir"}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-3 rounded-xl bg-white p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">
+                              Esta contribuição já está finalizada e não pode ser alterada.
+                            </p>
+                          )}
+                        </article>
+                      );
+                    })}
+
+                    {upcoming.length === 0 && (
+                      <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">
+                        Nenhuma contribuição futura registrada.
+                      </p>
+                    )}
+                  </div>
+
+                  {upcomingPageCount > 1 && (
+                    <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUpcomingPage((current) =>
+                            Math.max(1, current - 1),
+                          )
+                        }
+                        disabled={safeUpcomingPage <= 1}
+                        className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:opacity-40"
+                      >
+                        Anterior
+                      </button>
+                      <span className="text-xs font-black text-[#123D2C]">
+                        Página {safeUpcomingPage} de {upcomingPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUpcomingPage((current) =>
+                            Math.min(upcomingPageCount, current + 1),
+                          )
+                        }
+                        disabled={
+                          safeUpcomingPage >= upcomingPageCount
+                        }
+                        className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:opacity-40"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

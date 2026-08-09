@@ -671,10 +671,12 @@ async function loadPayload(context: AuthContext) {
     ? nextMonthlyDate(lastProgrammedDate)
     : nextAvailableDueDate(preferredDay);
 
-  const pendingProofs = contributions
+  const pendingProofCandidates = contributions
     .filter(
       (item) =>
-        asText(item.status) === "aguardando_comprovante" &&
+        ["aguardando_comprovante", "aguardando_recepcao", "aguardando_pagamento"].includes(
+          asText(item.status),
+        ) &&
         !item.proof_url &&
         !item.receipt_uploaded_at,
     )
@@ -682,17 +684,19 @@ async function loadPayload(context: AuthContext) {
       const metadata = asObject(item.metadata);
       const uploadToken = asText(metadata.proofUploadToken);
       if (!uploadToken) return [];
+
       const metadataDates = Array.isArray(metadata.scheduledDates)
         ? metadata.scheduledDates.map(asText).filter(Boolean)
         : [];
-      const scheduledDates = metadataDates.length > 0
-        ? metadataDates
-        : asText(item.recurrence_type) === "pix_agendado"
-          ? recurringDates(
-              asText(item.recurrence_start_date),
-              Math.trunc(asNumber(item.recurrence_occurrences, 0)),
-            )
-          : [asText(item.due_date)].filter(Boolean);
+      const scheduledDates =
+        metadataDates.length > 0
+          ? metadataDates
+          : asText(item.recurrence_type) === "pix_agendado"
+            ? recurringDates(
+                asText(item.recurrence_start_date),
+                Math.trunc(asNumber(item.recurrence_occurrences, 0)),
+              )
+            : [asText(item.due_date)].filter(Boolean);
 
       return [
         {
@@ -701,12 +705,69 @@ async function loadPayload(context: AuthContext) {
           dueDate: asText(item.due_date),
           scheduledDates,
           uploadToken,
-          trackingCode: asText(metadata.trackingCode) || null,
+          paymentMethod: asText(item.payment_method) || "pix",
           canDelete: !FINAL_CONTRIBUTION_STATUSES.includes(asText(item.status)),
         },
       ];
     })
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
+
+  const pendingProofs = await Promise.all(
+    pendingProofCandidates.map(async (item) => {
+      if (item.paymentMethod === "recepcao") {
+        const reception = contacts[0] ?? null;
+        const receptionMessage = [
+          `Olá, ${reception?.name || "Recepção do Tucxa"}.`,
+          `Sou ${context.fullName}, Filho(a) da Corrente.`,
+          `Tenho uma contribuição de ${item.amount.toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+          })} registrada no Corrente em Dia.`,
+          item.scheduledDates.length > 1
+            ? `Datas programadas: ${item.scheduledDates.map(datePtBr).join(", ")}.`
+            : `Data prevista: ${datePtBr(item.dueDate)}.`,
+          "Ainda preciso concluir o pagamento por cartão, débito ou dinheiro. Poderia me orientar?",
+        ].join("\n");
+
+        return {
+          ...item,
+          receptionName: reception?.name || "Recepção do Tucxa",
+          receptionWhatsappUrl: reception
+            ? `${reception.whatsappUrl}?text=${encodeURIComponent(receptionMessage)}`
+            : null,
+          pixCopyPaste: null,
+          qrCodeDataUrl: null,
+        };
+      }
+
+      const itemPixCopyPaste = buildPixPayload({
+        key: settings.pixKey,
+        receiverName: settings.pixReceiverName,
+        city: settings.pixCity,
+        amount: item.amount,
+        txid: item.id.replace(/-/g, "").slice(0, 25),
+      });
+
+      let itemQrCodeDataUrl: string | null = null;
+      try {
+        itemQrCodeDataUrl = await QRCode.toDataURL(itemPixCopyPaste, {
+          margin: 1,
+          width: 360,
+          errorCorrectionLevel: "M",
+        });
+      } catch (qrError) {
+        console.error("[corrente-em-dia][pending-proof-pix-qr]", qrError);
+      }
+
+      return {
+        ...item,
+        receptionName: null,
+        receptionWhatsappUrl: null,
+        pixCopyPaste: itemPixCopyPaste,
+        qrCodeDataUrl: itemQrCodeDataUrl,
+      };
+    }),
+  );
 
   const preferenceMetadata = asObject(preference.metadata);
   const panelPreferences = normalizePanelPreferences(

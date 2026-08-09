@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -10,7 +11,11 @@ type PendingProof = {
   dueDate: string;
   scheduledDates?: string[];
   uploadToken: string;
-  trackingCode?: string | null;
+  paymentMethod?: string | null;
+  pixCopyPaste?: string | null;
+  qrCodeDataUrl?: string | null;
+  receptionName?: string | null;
+  receptionWhatsappUrl?: string | null;
   canDelete?: boolean;
 };
 
@@ -49,6 +54,7 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [uploadingId, setUploadingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [paymentDetailsId, setPaymentDetailsId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -134,6 +140,17 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
       );
     } finally {
       setUploadingId("");
+    }
+  }
+
+  async function copyPix(item: PendingProof) {
+    if (!item.pixCopyPaste) return;
+    try {
+      await navigator.clipboard.writeText(item.pixCopyPaste);
+      setMessage("Pix Copia e Cola copiado.");
+      setError("");
+    } catch {
+      setError("Não foi possível copiar automaticamente. Selecione o código e copie manualmente.");
     }
   }
 
@@ -269,24 +286,98 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
                       </span>
                     )}
                   </span>
-                  {item.trackingCode && (
-                    <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#2F6B43]">
-                      {item.trackingCode}
-                    </span>
-                  )}
+
                 </div>
 
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
-                  onChange={(event) =>
-                    setFiles((current) => ({
-                      ...current,
-                      [item.id]: event.target.files?.[0] ?? null,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm"
-                />
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {item.paymentMethod === "recepcao" ? (
+                    item.receptionWhatsappUrl ? (
+                      <a
+                        href={item.receptionWhatsappUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#E9F2E7] px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-sm"
+                      >
+                        Falar com a Recepção
+                      </a>
+                    ) : (
+                      <span className="inline-flex min-h-11 items-center justify-center rounded-xl bg-amber-50 px-3 py-2 text-center text-xs font-black text-amber-900 ring-1 ring-amber-200 sm:text-sm">
+                        Recepção sem WhatsApp
+                      </span>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPaymentDetailsId((current) =>
+                          current === item.id ? "" : item.id,
+                        )
+                      }
+                      className="min-h-11 rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-sm"
+                    >
+                      QR Code / PIX
+                    </button>
+                  )}
+
+                  <label className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/20 sm:text-sm">
+                    Incluir Comprovante
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      onChange={(event) =>
+                        setFiles((current) => ({
+                          ...current,
+                          [item.id]: event.target.files?.[0] ?? null,
+                        }))
+                      }
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+
+                {item.paymentMethod !== "recepcao" &&
+                  paymentDetailsId === item.id && (
+                    <div className="mt-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="text-sm font-black text-[#123D2C]">
+                        Pagamento por PIX
+                      </p>
+                      <div className="mt-2 grid gap-3 sm:grid-cols-[150px_1fr]">
+                        {item.qrCodeDataUrl && (
+                          <Image
+                            src={item.qrCodeDataUrl}
+                            alt="QR Code PIX da contribuição"
+                            width={360}
+                            height={360}
+                            unoptimized
+                            className="mx-auto h-auto w-full max-w-[150px] rounded-xl bg-white"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-[#2F6B43]">
+                            PIX Copia e Cola
+                          </p>
+                          <p className="mt-1 max-h-24 overflow-auto break-all rounded-lg bg-[#F7FAF2] p-2 text-[11px] font-semibold text-slate-600">
+                            {item.pixCopyPaste || "PIX indisponível."}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void copyPix(item)}
+                            disabled={!item.pixCopyPaste}
+                            className="mt-2 w-full rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                          >
+                            Copiar PIX Copia e Cola
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                {files[item.id] && (
+                  <p className="mt-2 truncate rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                    Arquivo: {files[item.id]?.name}
+                  </p>
+                )}
+
                 <button
                   type="button"
                   onClick={() => void upload(item)}

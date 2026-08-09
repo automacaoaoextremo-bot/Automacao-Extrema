@@ -13,6 +13,8 @@ type ShellProps = {
   children: ReactNode;
   simpleFinancialHeader?: boolean;
   financialBackHref?: string;
+  simpleFinancialActive?: "inicio" | "voltar" | null;
+  simpleFinancialHeaderControl?: ReactNode;
 };
 
 type NavItem = {
@@ -165,6 +167,8 @@ export function OrganizacaoClientShell({
   children,
   simpleFinancialHeader = false,
   financialBackHref = `${MEMBER_PANEL}/corrente-em-dia?financeiro=1`,
+  simpleFinancialActive = null,
+  simpleFinancialHeaderControl,
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -322,10 +326,26 @@ export function OrganizacaoClientShell({
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
           {simpleFinancialHeader ? (
             <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-              <a href="#inicio" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+              <a
+                href="#inicio"
+                aria-current={simpleFinancialActive === "inicio" ? "page" : undefined}
+                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                  simpleFinancialActive === "inicio"
+                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:bg-[#2F6B43]"
+                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:bg-[#E9F2E7]"
+                }`}
+              >
                 Início
               </a>
-              <Link href={financialBackHref} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+              <Link
+                href={financialBackHref}
+                aria-current={simpleFinancialActive === "voltar" ? "page" : undefined}
+                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                  simpleFinancialActive === "voltar"
+                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:bg-[#2F6B43]"
+                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:bg-[#E9F2E7]"
+                }`}
+              >
                 Voltar
               </Link>
               <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
@@ -392,7 +412,14 @@ export function OrganizacaoClientShell({
             {!simpleFinancialHeader && (
               <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
             )}
-            <h1 className={`${simpleFinancialHeader ? "text-2xl sm:text-3xl" : "mt-2 text-3xl"} font-black text-[#00334E]`}>{title}</h1>
+            {simpleFinancialHeader && simpleFinancialHeaderControl ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+                <h1 className="text-2xl font-black text-[#00334E] sm:text-3xl">{title}</h1>
+                <div className="shrink-0">{simpleFinancialHeaderControl}</div>
+              </div>
+            ) : (
+              <h1 className={`${simpleFinancialHeader ? "text-2xl sm:text-3xl" : "mt-2 text-3xl"} font-black text-[#00334E]`}>{title}</h1>
+            )}
             {description && <p className="mt-3 max-w-4xl leading-7 text-slate-600">{description}</p>}
           </div>
           <div className="grid gap-5">{children}</div>

@@ -133,6 +133,7 @@ export function MemberContributionJourney({
   const [recurrenceStartDate, setRecurrenceStartDate] = useState(
     existingContribution?.recurrenceStartDate || dueDate || "",
   );
+  const [singleDueDate, setSingleDueDate] = useState(dueDate || "");
   const [recurrenceOccurrences, setRecurrenceOccurrences] = useState(
     String(existingContribution?.recurrenceOccurrences || 12),
   );
@@ -201,6 +202,13 @@ export function MemberContributionJourney({
       }
     }
 
+    if (!recurring) {
+      if (!singleDueDate || !/^\d{4}-\d{2}-\d{2}$/.test(singleDueDate)) {
+        setError("Informe a data da contribuição.");
+        return;
+      }
+    }
+
     if (email && !/^\S+@\S+\.\S+$/.test(email)) {
       setError("Informe um e-mail válido ou deixe o campo em branco.");
       return;
@@ -228,7 +236,7 @@ export function MemberContributionJourney({
             recurrenceOccurrences: recurring
               ? Number(recurrenceOccurrences)
               : null,
-            dueDate: !recurring ? dueDate ?? null : null,
+            dueDate: !recurring ? singleDueDate : null,
             notes,
             email,
             updateEmail: Boolean(email && updateEmail),
@@ -383,9 +391,9 @@ export function MemberContributionJourney({
             <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:mt-1 sm:text-sm sm:leading-6">
               Identificação sigilosa: Filho da Corrente — {displayName}.
             </p>
-            {dueDate && (
+            {!existingContribution && singleDueDate && (
               <p className="mt-1 text-xs font-bold text-[#2F6B43]">
-                Data prevista: {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${dueDate}T12:00:00Z`))}
+                Data prevista: {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${singleDueDate}T12:00:00Z`))}
               </p>
             )}
           </div>
@@ -452,6 +460,18 @@ export function MemberContributionJourney({
                   </label>
                 ))}
             </div>
+          )}
+
+          {existingContribution && !recurring && (
+            <label className="mt-2.5 grid gap-1 text-sm font-black text-[#123D2C] sm:mt-4 sm:gap-2">
+              Data da contribuição
+              <input
+                type="date"
+                value={singleDueDate}
+                onChange={(event) => setSingleDueDate(event.target.value)}
+                className="rounded-xl border border-slate-200 p-3 sm:rounded-2xl sm:p-4"
+              />
+            </label>
           )}
 
           {paymentMethod === "pix" && recurring && (
@@ -545,7 +565,7 @@ export function MemberContributionJourney({
               : paymentMethod === "recepcao"
                 ? "Falar com Recepção"
                 : existingContribution
-                  ? "Salvar e atualizar forma de pagamento"
+                  ? "Salvar e Continuar"
                   : "Confirmar forma de pagamento"}
           </button>
 

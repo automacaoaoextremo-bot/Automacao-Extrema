@@ -47,6 +47,16 @@ function legacyStatus(workflowStatus: WorkflowStatus, dataNature: DataNature) {
   return "em_revisao";
 }
 
+function categorySlug(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "categoria";
+}
+
 async function ensurePeriod(input: {
   organizationId: string;
   competenceMonth: string;
@@ -127,18 +137,9 @@ async function replicateMonth(input: {
 }) {
   const existingPeriod = await loadPeriod(input.organizationId, input.targetMonth);
   if (existingPeriod?.workflow_status === "finalizado") {
-    throw new Error("Este mês já foi finalizado e não pode ser replicado sem reabertura administrativa.");
-  }
-
-  const { count: activeCount, error: countError } = await supabaseAdmin
-    .from("oh_financial_entries")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", input.organizationId)
-    .eq("financial_month", input.targetMonth)
-    .neq("status", "cancelado");
-  if (countError) throw countError;
-  if ((activeCount ?? 0) > 0) {
-    throw new Error("O mês selecionado já possui lançamentos. Revise ou exclua os dados antes de replicar.");
+    throw new Error(
+      "Este mês já foi finalizado e não pode ser replicado sem reabertura administrativa.",
+    );
   }
 
   const { data: periods, error: periodsError } = await supabaseAdmin
@@ -151,15 +152,10 @@ async function replicateMonth(input: {
     .limit(input.mode === "average" ? 3 : 1);
   if (periodsError) throw periodsError;
   if (!periods || periods.length === 0) {
-    throw new Error("Não existe mês finalizado anterior para usar como referência.");
+    throw new Error(
+      "Não existe mês finalizado anterior para usar como referência.",
+    );
   }
-
-  const periodId = await ensurePeriod({
-    organizationId: input.organizationId,
-    competenceMonth: input.targetMonth,
-    workflowStatus: "rascunho",
-    dataNature: "estimado",
-  });
 
   const sourcePeriodIds = periods.map((period) => period.id);
   const { data: sourceEntries, error: sourceError } = await supabaseAdmin
@@ -170,7 +166,9 @@ async function replicateMonth(input: {
     .neq("status", "cancelado");
   if (sourceError) throw sourceError;
   if (!sourceEntries || sourceEntries.length === 0) {
-    throw new Error("Os meses de referência não possuem receitas ou despesas para replicar.");
+    throw new Error(
+      "Os meses de referência não possuem receitas ou despesas para replicar.",
+    );
   }
 
   type SourceEntry = Record<string, unknown>;
@@ -180,9 +178,16 @@ async function replicateMonth(input: {
     const latestId = periods[0].id;
     templates = sourceEntries
       .filter((entry) => entry.period_id === latestId)
-      .map((entry) => ({ ...entry, amount: Math.abs(asNumber(entry.amount)) }));
+      .map((entry) => ({
+        ...entry,
+        amount: Math.abs(asNumber(entry.amount)),
+      }));
   } else {
-    const groups = new Map<string, { sample: SourceEntry; total: number; months: Set<string> }>();
+    const groups = new Map<
+      string,
+      { sample: SourceEntry; total: number; months: Set<string> }
+    >();
+
     for (const entry of sourceEntries) {
       const key = [
         asText(entry.entry_type),
@@ -192,23 +197,72 @@ async function replicateMonth(input: {
         asText(entry.payment_method),
         asText(entry.financial_account),
       ].join("|");
-      const current = groups.get(key) ?? { sample: entry, total: 0, months: new Set<string>() };
+
+      const current = groups.get(key) ?? {
+        sample: entry,
+        total: 0,
+        months: new Set<string>(),
+      };
       current.total += Math.abs(asNumber(entry.amount));
       current.months.add(asText(entry.financial_month));
       groups.set(key, current);
     }
+
     templates = [...groups.values()].map(({ sample, total }) => ({
       ...sample,
       amount: Number((total / Math.max(1, periods.length)).toFixed(2)),
     }));
   }
 
+  const periodId = await ensurePeriod({
+    organizationId: input.organizationId,
+    competenceMonth: input.targetMonth,
+    workflowStatus: "rascunho",
+    dataNature: "estimado",
+  });
+
+  const { data: currentEntries, error: currentError } = await supabaseAdmin
+    .from("oh_financial_entries")
+    .select("id, category_id, entry_type, description_internal")
+    .eq("organization_id", input.organizationId)
+    .eq("financial_month", input.targetMonth)
+    .neq("status", "cancelado");
+
+  if (currentError) throw currentError;
+
+  const targetKey = (entry: {
+    entry_type?: unknown;
+    category_id?: unknown;
+    description_internal?: unknown;
+  }) =>
+    [
+      asText(entry.entry_type),
+      asText(entry.category_id),
+      asText(entry.description_internal),
+    ].join("|");
+
+  const currentByKey = new Map(
+    (currentEntries ?? []).map((entry) => [targetKey(entry), entry]),
+  );
+
   const now = new Date().toISOString();
-  const rows = templates.map((entry, index) => {
-    const entryDate = targetDate(asText(entry.entry_date), input.targetMonth);
-    const dueDate = targetDate(asText(entry.due_date) || asText(entry.entry_date), input.targetMonth);
-    const financialDate = targetDate(asText(entry.financial_date) || asText(entry.entry_date), input.targetMonth);
-    return {
+  let affected = 0;
+
+  for (const [index, entry] of templates.entries()) {
+    const entryDate = targetDate(
+      asText(entry.entry_date),
+      input.targetMonth,
+    );
+    const dueDate = targetDate(
+      asText(entry.due_date) || asText(entry.entry_date),
+      input.targetMonth,
+    );
+    const financialDate = targetDate(
+      asText(entry.financial_date) || asText(entry.entry_date),
+      input.targetMonth,
+    );
+
+    const payload = {
       organization_id: input.organizationId,
       period_id: periodId,
       category_id: asText(entry.category_id) || null,
@@ -218,13 +272,20 @@ async function replicateMonth(input: {
       financial_date: financialDate,
       financial_month: input.targetMonth,
       competence_month: input.targetMonth,
-      description_internal: asText(entry.description_internal) || "Lançamento replicado",
-      description_public: asText(entry.description_public) || asText(entry.description_internal) || "Lançamento replicado",
+      description_internal:
+        asText(entry.description_internal) || "Lançamento replicado",
+      description_public:
+        asText(entry.description_public) ||
+        asText(entry.description_internal) ||
+        "Lançamento replicado",
       amount: Math.abs(asNumber(entry.amount)),
       payment_method: asText(entry.payment_method) || null,
       financial_account: asText(entry.financial_account) || null,
       counterparty_name: asText(entry.counterparty_name) || null,
-      source_type: input.mode === "last" ? "replicacao_mes_anterior" : "replicacao_media",
+      source_type:
+        input.mode === "last"
+          ? "replicacao_mes_anterior"
+          : "replicacao_media",
       source_reference: null,
       status: "provisorio",
       workflow_status: "rascunho",
@@ -240,24 +301,49 @@ async function replicateMonth(input: {
         sourceEntryId: asText(entry.id) || null,
         sequence: index + 1,
       },
-      created_by: input.personId,
       updated_at: now,
     };
-  });
 
-  const { error: insertError } = await supabaseAdmin.from("oh_financial_entries").insert(rows);
-  if (insertError) throw insertError;
+    const existing = currentByKey.get(targetKey(payload));
+
+    if (existing?.id) {
+      const { error } = await supabaseAdmin
+        .from("oh_financial_entries")
+        .update(payload)
+        .eq("organization_id", input.organizationId)
+        .eq("id", existing.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseAdmin
+        .from("oh_financial_entries")
+        .insert({
+          ...payload,
+          created_by: input.personId,
+        });
+      if (error) throw error;
+    }
+
+    affected += 1;
+  }
 
   await writeFinancialAudit({
     organizationId: input.organizationId,
     personId: input.personId,
-    action: input.mode === "last" ? "mes_replicado_ultimo" : "mes_replicado_media",
+    action:
+      input.mode === "last"
+        ? "mes_replicado_ultimo"
+        : "mes_replicado_media",
     entityType: "oh_financial_periods",
     entityId: periodId,
-    afterData: { targetMonth: input.targetMonth, items: rows.length, mode: input.mode },
+    afterData: {
+      targetMonth: input.targetMonth,
+      items: affected,
+      mode: input.mode,
+      updatedExisting: (currentEntries ?? []).length > 0,
+    },
   });
 
-  return rows.length;
+  return affected;
 }
 
 async function finalizeMonth(input: {
@@ -359,7 +445,7 @@ async function loadEntries(request: Request, organizationId: string) {
   const { data: categories, error: categoriesError } = await supabaseAdmin
     .from("oh_financial_categories")
     .select(
-      "id, entry_type, name, public_name, group_name, public_visible, active, sort_order",
+      "id, entry_type, parent_id, name, public_name, group_name, public_visible, active, sort_order, metadata",
     )
     .eq("organization_id", organizationId)
     .eq("active", true)
@@ -419,6 +505,140 @@ export async function POST(request: Request) {
       unknown
     >;
     const action = asText(body.action);
+
+    if (action === "createCategory") {
+      const entryType = asText(body.entryType);
+      const name = asText(body.name).trim();
+      const publicName = asText(body.publicName).trim() || name;
+      const isGrouping = asBoolean(body.isGrouping, false);
+      const groupName = isGrouping ? name : asText(body.groupName).trim();
+
+      if (!["receita", "despesa"].includes(entryType)) {
+        return NextResponse.json(
+          { error: "Selecione Receita ou Despesa." },
+          { status: 400 },
+        );
+      }
+
+      if (!name) {
+        return NextResponse.json(
+          { error: "Informe o nome da nova linha ou agrupamento." },
+          { status: 400 },
+        );
+      }
+
+      if (!isGrouping && !groupName) {
+        return NextResponse.json(
+          { error: "Informe em qual grupo a nova linha será registrada." },
+          { status: 400 },
+        );
+      }
+
+      const { data: matches, error: matchError } = await supabaseAdmin
+        .from("oh_financial_categories")
+        .select(
+          "id, entry_type, parent_id, name, public_name, slug, group_name, public_visible, active, sort_order, metadata",
+        )
+        .eq("organization_id", auth.context.organizationId)
+        .eq("entry_type", entryType)
+        .ilike("name", name)
+        .limit(1);
+
+      if (matchError) throw matchError;
+
+      const existingCategory = matches?.[0];
+      if (existingCategory) {
+        return NextResponse.json({
+          ok: true,
+          category: existingCategory,
+          message: "A linha financeira já estava cadastrada.",
+        });
+      }
+
+      let parentId: string | null = null;
+
+      if (!isGrouping) {
+        const { data: groupCandidates, error: groupError } =
+          await supabaseAdmin
+            .from("oh_financial_categories")
+            .select("id, metadata")
+            .eq("organization_id", auth.context.organizationId)
+            .eq("entry_type", entryType)
+            .eq("group_name", groupName)
+            .eq("active", true)
+            .limit(20);
+
+        if (groupError) throw groupError;
+
+        parentId =
+          groupCandidates?.find(
+            (candidate) =>
+              candidate.metadata &&
+              typeof candidate.metadata === "object" &&
+              !Array.isArray(candidate.metadata) &&
+              (candidate.metadata as Record<string, unknown>).isGrouping ===
+                true,
+          )?.id ?? null;
+      }
+
+      const baseSlug = categorySlug(name);
+      const { data: slugRows, error: slugError } = await supabaseAdmin
+        .from("oh_financial_categories")
+        .select("id")
+        .eq("organization_id", auth.context.organizationId)
+        .eq("entry_type", entryType)
+        .eq("slug", baseSlug)
+        .limit(1);
+
+      if (slugError) throw slugError;
+
+      const slug =
+        slugRows && slugRows.length > 0
+          ? `${baseSlug}-${Date.now().toString(36)}`
+          : baseSlug;
+
+      const { data: category, error: categoryError } = await supabaseAdmin
+        .from("oh_financial_categories")
+        .insert({
+          organization_id: auth.context.organizationId,
+          entry_type: entryType,
+          parent_id: parentId,
+          name,
+          public_name: publicName,
+          slug,
+          group_name: groupName,
+          public_visible: true,
+          active: true,
+          sort_order: 999,
+          metadata: { isGrouping },
+          updated_at: new Date().toISOString(),
+        })
+        .select(
+          "id, entry_type, parent_id, name, public_name, slug, group_name, public_visible, active, sort_order, metadata",
+        )
+        .single();
+
+      if (categoryError) throw categoryError;
+
+      await writeFinancialAudit({
+        organizationId: auth.context.organizationId,
+        personId,
+        action: isGrouping
+          ? "agrupamento_financeiro_criado"
+          : "categoria_financeira_criada",
+        entityType: "oh_financial_categories",
+        entityId: category.id,
+        afterData: category,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        category,
+        message: isGrouping
+          ? "Agrupamento criado."
+          : "Linha financeira criada.",
+      });
+    }
 
     if (action === "replicateMonth") {
       const targetMonth = monthKey(asText(body.targetMonth));
@@ -503,9 +723,9 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
-      if (amount <= 0) {
+      if (amount < 0) {
         return NextResponse.json(
-          { error: "Informe um valor maior que zero." },
+          { error: "Informe um valor igual ou maior que zero." },
           { status: 400 },
         );
       }
