@@ -391,7 +391,7 @@ export function MemberContributionJourney({
             <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:mt-1 sm:text-sm sm:leading-6">
               Identificação sigilosa: Filho da Corrente — {displayName}.
             </p>
-            {!existingContribution && singleDueDate && (
+            {!recurring && singleDueDate && (
               <p className="mt-1 text-xs font-bold text-[#2F6B43]">
                 Data prevista: {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${singleDueDate}T12:00:00Z`))}
               </p>
@@ -462,7 +462,7 @@ export function MemberContributionJourney({
             </div>
           )}
 
-          {existingContribution && !recurring && (
+          {!recurring && (
             <label className="mt-2.5 grid gap-1 text-sm font-black text-[#123D2C] sm:mt-4 sm:gap-2">
               Data da contribuição
               <input

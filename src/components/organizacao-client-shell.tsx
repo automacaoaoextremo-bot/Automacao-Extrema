@@ -161,6 +161,32 @@ function clientLoginUrl() {
   return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
+function sessionDisplayName(
+  user:
+    | {
+        email?: string | null;
+        user_metadata?: Record<string, unknown>;
+      }
+    | null
+    | undefined,
+) {
+  const metadata = user?.user_metadata ?? {};
+  const values = [
+    metadata.full_name,
+    metadata.fullName,
+    metadata.name,
+    metadata.nome,
+  ];
+
+  const fromMetadata = values.find(
+    (value): value is string =>
+      typeof value === "string" && Boolean(value.trim()),
+  );
+
+  if (fromMetadata) return fromMetadata.trim();
+  return user?.email?.split("@")[0]?.trim() ?? "";
+}
+
 export function OrganizacaoClientShell({
   title,
   description,
@@ -175,6 +201,7 @@ export function OrganizacaoClientShell({
   const [accessGate, setAccessGate] = useState<
     "checking" | "client" | "financialMember" | "blocked"
   >("checking");
+  const [authenticatedName, setAuthenticatedName] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -188,6 +215,8 @@ export function OrganizacaoClientShell({
         router.replace(clientLoginUrl());
         return;
       }
+
+      setAuthenticatedName(sessionDisplayName(user));
 
       const metadata = user.user_metadata ?? {};
       if (metadata.oh_profile !== "filho-da-corrente") {
@@ -218,9 +247,13 @@ export function OrganizacaoClientShell({
         );
         const payload = (await response.json().catch(() => ({}))) as {
           canManageFinance?: boolean;
+          currentPerson?: { fullName?: string };
         };
 
         if (!active) return;
+        if (payload.currentPerson?.fullName) {
+          setAuthenticatedName(payload.currentPerson.fullName);
+        }
         if (response.ok && payload.canManageFinance === true) {
           setAccessGate("financialMember");
           return;
@@ -291,8 +324,20 @@ export function OrganizacaoClientShell({
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
               <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="Logo do Tucxa" width={72} height={72} className="h-full w-full object-contain" priority />
             </span>
-            <span className="min-w-0">
-              <span className="block whitespace-nowrap text-[1.05rem] font-black leading-[1.05] text-[#173323] sm:text-[1.45rem]">TUCXA</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-baseline gap-1 leading-[1.05] text-[#173323]">
+                <span className="shrink-0 whitespace-nowrap text-[1.05rem] font-black sm:text-[1.45rem]">
+                  TUCXA
+                </span>
+                {authenticatedName && (
+                  <span
+                    className="min-w-0 truncate text-[0.72rem] font-bold text-[#2F6B43] sm:text-sm"
+                    title={authenticatedName}
+                  >
+                    {authenticatedName}
+                  </span>
+                )}
+              </span>
               <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
                 TEMPLO DE UMBANDA CABOCLO SETE FLEXA
               </span>

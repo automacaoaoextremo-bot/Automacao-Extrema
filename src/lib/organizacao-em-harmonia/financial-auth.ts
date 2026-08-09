@@ -33,7 +33,9 @@ export async function getFinancialAuthContext(
   | { ok: true; context: FinancialAuthContext }
   | { ok: false; response: NextResponse }
 > {
-  const auth = await getOrganizacaoAuthContext(request);
+  const auth = await getOrganizacaoAuthContext(request, {
+    allowFilhoDaCorrente: true,
+  });
   if (!auth.ok) return auth;
 
   const membership = auth.context.membership ?? {};

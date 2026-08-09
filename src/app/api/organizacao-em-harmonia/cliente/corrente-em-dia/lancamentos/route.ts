@@ -9,6 +9,10 @@ import {
   getFinancialAuthContext,
   writeFinancialAudit,
 } from "@/lib/organizacao-em-harmonia/financial-auth";
+import {
+  canFinalizeFinancialMonth,
+  lastBusinessDayOfMonth,
+} from "@/lib/organizacao-em-harmonia/business-days";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -121,7 +125,7 @@ function targetDate(sourceDate: string | null | undefined, targetMonth: string) 
 async function loadPeriod(organizationId: string, competenceMonth: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_financial_periods")
-    .select("id, competence_month, status, workflow_status, data_nature, needs_update, source_label, finalized_at, updated_at")
+    .select("id, competence_month, status, workflow_status, data_nature, opening_balance, closing_balance, needs_update, source_label, finalized_at, updated_at")
     .eq("organization_id", organizationId)
     .eq("competence_month", competenceMonth)
     .maybeSingle();
@@ -144,7 +148,7 @@ async function replicateMonth(input: {
 
   const { data: periods, error: periodsError } = await supabaseAdmin
     .from("oh_financial_periods")
-    .select("id, competence_month")
+    .select("id, competence_month, opening_balance, closing_balance")
     .eq("organization_id", input.organizationId)
     .eq("workflow_status", "finalizado")
     .lt("competence_month", input.targetMonth)
@@ -220,6 +224,38 @@ async function replicateMonth(input: {
     workflowStatus: "rascunho",
     dataNature: "estimado",
   });
+
+  const balanceAverage = (field: "opening_balance" | "closing_balance") => {
+    const values = periods
+      .map((period) => period[field])
+      .filter((value) => value !== null && value !== undefined)
+      .map((value) => asNumber(value));
+    if (values.length === 0) return 0;
+    return Number(
+      (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2),
+    );
+  };
+
+  const replicatedOpeningBalance =
+    input.mode === "last"
+      ? asNumber(periods[0].opening_balance)
+      : balanceAverage("opening_balance");
+  const replicatedClosingBalance =
+    input.mode === "last"
+      ? asNumber(periods[0].closing_balance)
+      : balanceAverage("closing_balance");
+
+  const { error: balanceError } = await supabaseAdmin
+    .from("oh_financial_periods")
+    .update({
+      opening_balance: replicatedOpeningBalance,
+      closing_balance: replicatedClosingBalance,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("organization_id", input.organizationId)
+    .eq("id", periodId);
+
+  if (balanceError) throw balanceError;
 
   const { data: currentEntries, error: currentError } = await supabaseAdmin
     .from("oh_financial_entries")
@@ -351,6 +387,13 @@ async function finalizeMonth(input: {
   personId: string;
   targetMonth: string;
 }) {
+  if (!canFinalizeFinancialMonth(input.targetMonth)) {
+    const lastBusinessDay = lastBusinessDayOfMonth(input.targetMonth);
+    throw new Error(
+      `A finalização só fica disponível após o último dia útil do mês (${lastBusinessDay.split("-").reverse().join("/")}).`,
+    );
+  }
+
   const period = await loadPeriod(input.organizationId, input.targetMonth);
   if (!period) throw new Error("O mês ainda não possui informações salvas.");
   if (period.workflow_status === "finalizado") return;
@@ -506,12 +549,67 @@ export async function POST(request: Request) {
     >;
     const action = asText(body.action);
 
+    if (action === "saveBalances") {
+      const targetMonth = monthKey(asText(body.targetMonth));
+      if (!/^\d{4}-\d{2}-01$/.test(targetMonth)) {
+        return NextResponse.json(
+          { error: "Informe o mês dos saldos bancários." },
+          { status: 400 },
+        );
+      }
+
+      const openingBalance = asNumber(body.openingBalance);
+      const closingBalance = asNumber(body.closingBalance);
+      const periodId = await ensurePeriod({
+        organizationId: auth.context.organizationId,
+        competenceMonth: targetMonth,
+        workflowStatus: "em_andamento",
+        dataNature: "realizado",
+      });
+
+      const before = await loadPeriod(auth.context.organizationId, targetMonth);
+      const now = new Date().toISOString();
+      const { error: balanceError } = await supabaseAdmin
+        .from("oh_financial_periods")
+        .update({
+          opening_balance: openingBalance,
+          closing_balance: closingBalance,
+          updated_at: now,
+        })
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", periodId);
+
+      if (balanceError) throw balanceError;
+
+      await writeFinancialAudit({
+        organizationId: auth.context.organizationId,
+        personId,
+        action: "saldos_bancarios_atualizados",
+        entityType: "oh_financial_periods",
+        entityId: periodId,
+        beforeData: before,
+        afterData: {
+          ...(before ?? {}),
+          opening_balance: openingBalance,
+          closing_balance: closingBalance,
+          updated_at: now,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Saldo Inicial e Saldo Final salvos.",
+      });
+    }
+
     if (action === "createCategory") {
       const entryType = asText(body.entryType);
       const name = asText(body.name).trim();
       const publicName = asText(body.publicName).trim() || name;
       const isGrouping = asBoolean(body.isGrouping, false);
-      const groupName = isGrouping ? name : asText(body.groupName).trim();
+      const requestedGroupName = asText(body.groupName).trim();
+      const requestedParentId = asText(body.parentId).trim();
+      const groupName = isGrouping ? requestedGroupName || name : requestedGroupName;
 
       if (!["receita", "despesa"].includes(entryType)) {
         return NextResponse.json(
@@ -555,30 +653,55 @@ export async function POST(request: Request) {
         });
       }
 
-      let parentId: string | null = null;
+      let parentId: string | null = requestedParentId || null;
 
-      if (!isGrouping) {
+      if (parentId) {
+        const { data: parentCategory, error: parentError } = await supabaseAdmin
+          .from("oh_financial_categories")
+          .select("id, entry_type, metadata")
+          .eq("organization_id", auth.context.organizationId)
+          .eq("id", parentId)
+          .eq("active", true)
+          .maybeSingle();
+
+        if (parentError) throw parentError;
+        const parentIsGrouping =
+          parentCategory?.metadata &&
+          typeof parentCategory.metadata === "object" &&
+          !Array.isArray(parentCategory.metadata) &&
+          (parentCategory.metadata as Record<string, unknown>).isGrouping === true;
+
+        if (!parentCategory || parentCategory.entry_type !== entryType || !parentIsGrouping) {
+          return NextResponse.json(
+            { error: "O agrupamento pai selecionado não é válido." },
+            { status: 400 },
+          );
+        }
+      }
+
+      if (!parentId && !isGrouping) {
         const { data: groupCandidates, error: groupError } =
           await supabaseAdmin
             .from("oh_financial_categories")
-            .select("id, metadata")
+            .select("id, name, public_name, metadata")
             .eq("organization_id", auth.context.organizationId)
             .eq("entry_type", entryType)
-            .eq("group_name", groupName)
             .eq("active", true)
-            .limit(20);
+            .limit(200);
 
         if (groupError) throw groupError;
 
         parentId =
-          groupCandidates?.find(
-            (candidate) =>
-              candidate.metadata &&
-              typeof candidate.metadata === "object" &&
-              !Array.isArray(candidate.metadata) &&
-              (candidate.metadata as Record<string, unknown>).isGrouping ===
-                true,
-          )?.id ?? null;
+          groupCandidates?.find((candidate) => {
+            const metadata = candidate.metadata;
+            const grouping =
+              metadata &&
+              typeof metadata === "object" &&
+              !Array.isArray(metadata) &&
+              (metadata as Record<string, unknown>).isGrouping === true;
+            const label = asText(candidate.public_name) || asText(candidate.name);
+            return grouping && label === groupName;
+          })?.id ?? null;
       }
 
       const baseSlug = categorySlug(name);

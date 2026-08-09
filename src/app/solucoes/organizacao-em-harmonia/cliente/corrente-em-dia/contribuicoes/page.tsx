@@ -91,6 +91,29 @@ function firstLastName(value: string) {
   return `${parts[0]} ${parts.at(-1)}`;
 }
 
+function monthlyDates(startDate: string, occurrences: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || occurrences <= 1) {
+    return [startDate].filter(Boolean);
+  }
+
+  const [year, month, day] = startDate.split("-").map(Number);
+  const values: string[] = [];
+
+  for (let index = 0; index < occurrences; index += 1) {
+    const absoluteMonth = month - 1 + index;
+    const targetYear = year + Math.floor(absoluteMonth / 12);
+    const targetMonth = ((absoluteMonth % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+    values.push(
+      `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(
+        Math.min(day, lastDay),
+      ).padStart(2, "0")}`,
+    );
+  }
+
+  return values;
+}
+
 function asDates(item: Contribution) {
   const raw = item.metadata?.scheduledDates;
   if (Array.isArray(raw)) {
@@ -98,8 +121,20 @@ function asDates(item: Contribution) {
       (value): value is string =>
         typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value),
     );
-    if (values.length > 0) return [...values].sort();
+    if (values.length > 0) return [...new Set(values)].sort();
   }
+
+  const recurring =
+    item.recurrence_type === "pix_agendado" ||
+    Number(item.recurrence_occurrences) > 1;
+  const start =
+    item.recurrence_start_date?.slice(0, 10) || item.due_date?.slice(0, 10) || "";
+  const occurrences = Math.max(1, Number(item.recurrence_occurrences) || 1);
+
+  if (recurring && start) {
+    return monthlyDates(start, occurrences);
+  }
+
   return [item.due_date].filter(Boolean);
 }
 
@@ -118,6 +153,7 @@ function stage(status: string) {
       "aguardando_comprovante",
       "aguardando_recepcao",
       "atrasado",
+      "programado",
     ].includes(status)
   ) {
     return "intent";
@@ -144,6 +180,7 @@ function statusKey(item: Contribution) {
       "aguardando_pagamento",
       "aguardando_comprovante",
       "aguardando_recepcao",
+      "programado",
     ].includes(item.status)
   ) {
     return "aguardando";
@@ -261,7 +298,9 @@ export default function CorrenteContribuicoesPage() {
         (acc, item) => {
           const count = competencyCount(item);
           const itemStage = stage(item.status);
-          if (itemStage === "intent") acc.intent += count;
+          // Intenção Registrada representa todas as competências ativas já registradas,
+          // independentemente de o fluxo ter avançado para comprovante/confirmação.
+          if (item.status !== "cancelado") acc.intent += count;
           if (itemStage === "proofSent") acc.proofSent += count;
           if (itemStage === "pendingConfirmation")
             acc.pendingConfirmation += count;

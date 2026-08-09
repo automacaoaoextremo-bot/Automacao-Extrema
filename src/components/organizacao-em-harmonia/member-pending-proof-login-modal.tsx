@@ -99,8 +99,8 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
     setOpen(false);
   }
 
-  async function upload(item: PendingProof) {
-    const file = files[item.id];
+  async function upload(item: PendingProof, selectedFile?: File | null) {
+    const file = selectedFile ?? files[item.id];
     if (!file) {
       setError("Selecione uma imagem ou PDF do comprovante.");
       return;
@@ -319,17 +319,27 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
                     </button>
                   )}
 
-                  <label className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/20 sm:text-sm">
-                    Incluir Comprovante
+                  <label
+                    className={`inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/20 sm:text-sm ${
+                      uploadingId === item.id
+                        ? "cursor-wait opacity-60"
+                        : "cursor-pointer"
+                    }`}
+                  >
+                    {uploadingId === item.id ? "Enviando..." : "Incluir Comprovante"}
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp,application/pdf"
-                      onChange={(event) =>
+                      disabled={uploadingId === item.id}
+                      onChange={(event) => {
+                        const selectedFile = event.target.files?.[0] ?? null;
                         setFiles((current) => ({
                           ...current,
-                          [item.id]: event.target.files?.[0] ?? null,
-                        }))
-                      }
+                          [item.id]: selectedFile,
+                        }));
+                        if (selectedFile) void upload(item, selectedFile);
+                        event.currentTarget.value = "";
+                      }}
                       className="sr-only"
                     />
                   </label>
@@ -377,17 +387,6 @@ export function MemberPendingProofLoginModal({ enabled = true }: Props) {
                     Arquivo: {files[item.id]?.name}
                   </p>
                 )}
-
-                <button
-                  type="button"
-                  onClick={() => void upload(item)}
-                  disabled={!files[item.id] || uploadingId === item.id}
-                  className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {uploadingId === item.id
-                    ? "Enviando..."
-                    : "Enviar comprovante"}
-                </button>
 
                 {item.canDelete && (
                   <button

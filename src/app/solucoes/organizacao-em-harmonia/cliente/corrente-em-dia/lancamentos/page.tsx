@@ -1,23 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
+import {
+  canFinalizeFinancialMonth,
+  lastBusinessDayOfMonth,
+} from "@/lib/organizacao-em-harmonia/business-days";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+
+type EntryType = "receita" | "despesa";
 
 type Category = {
   id: string;
-  entry_type: "receita" | "despesa";
+  entry_type: EntryType;
   parent_id?: string | null;
   name: string;
   public_name: string | null;
   group_name: string;
+  sort_order?: number | null;
   metadata?: Record<string, unknown> | null;
 };
 
 type Entry = {
   id: string;
   category_id: string | null;
-  entry_type: "receita" | "despesa";
+  entry_type: EntryType;
   entry_date: string;
   due_date: string | null;
   financial_date: string | null;
@@ -44,6 +51,8 @@ type Period = {
   status: string;
   workflow_status: string;
   data_nature: string;
+  opening_balance: number | string | null;
+  closing_balance: number | string | null;
   needs_update: boolean;
   source_label: string | null;
   finalized_at: string | null;
@@ -60,7 +69,7 @@ type Payload = {
 
 type Draft = {
   id: string;
-  entryType: "receita" | "despesa";
+  entryType: EntryType;
   categoryId: string;
   description: string;
   amount: string;
@@ -70,7 +79,26 @@ type Draft = {
   publicVisible: boolean;
   structure: "linha" | "agrupamento";
   groupName: string;
+  parentId: string;
 };
+
+type GroupNode = {
+  key: string;
+  id: string | null;
+  label: string;
+  type: EntryType;
+  sortOrder: number;
+  parentKey: string | null;
+  entries: Entry[];
+  children: GroupNode[];
+};
+
+type NewRowState = {
+  scopeKey: string;
+  parentId: string;
+  groupName: string;
+  draft: Draft;
+} | null;
 
 function currentMonth() {
   const now = new Date();
@@ -96,37 +124,8 @@ function isGroupingCategory(category: Category) {
   return category.metadata?.isGrouping === true;
 }
 
-function toDraft(entry: Entry, categories: Category[]): Draft {
-  const category = categories.find((item) => item.id === entry.category_id);
-  return {
-    id: entry.id.startsWith("template:") ? "" : entry.id,
-    entryType: entry.entry_type,
-    categoryId: entry.category_id ?? "",
-    description: entry.description_internal,
-    amount: String(Number(entry.amount) || 0),
-    paymentMethod: entry.payment_method ?? "",
-    financialAccount: entry.financial_account ?? "",
-    counterpartyName: entry.counterparty_name ?? "",
-    publicVisible: entry.public_visible,
-    structure: "linha",
-    groupName: category?.group_name ?? "",
-  };
-}
-
-function newDraft(type: "receita" | "despesa"): Draft {
-  return {
-    id: "",
-    entryType: type,
-    categoryId: "",
-    description: "",
-    amount: "",
-    paymentMethod: "pix",
-    financialAccount: "",
-    counterpartyName: "",
-    publicVisible: true,
-    structure: "linha",
-    groupName: "",
-  };
+function categoryLabel(category: Category) {
+  return category.public_name || category.name;
 }
 
 function virtualEntry(category: Category, month: string): Entry {
@@ -139,8 +138,8 @@ function virtualEntry(category: Category, month: string): Entry {
     financial_date: `${month}-01`,
     financial_month: `${month}-01`,
     competence_month: `${month}-01`,
-    description_internal: category.public_name || category.name,
-    description_public: category.public_name || category.name,
+    description_internal: categoryLabel(category),
+    description_public: categoryLabel(category),
     amount: 0,
     payment_method: null,
     financial_account: null,
@@ -155,11 +154,7 @@ function virtualEntry(category: Category, month: string): Entry {
   };
 }
 
-function buildDisplayEntries(
-  entries: Entry[],
-  categories: Category[],
-  month: string,
-) {
+function buildDisplayEntries(entries: Entry[], categories: Category[], month: string) {
   const usedCategories = new Set(
     entries.map((entry) => entry.category_id).filter(Boolean),
   );
@@ -179,18 +174,217 @@ function buildDisplayEntries(
   });
 }
 
+function toDraft(entry: Entry, categories: Category[]): Draft {
+  const category = categories.find((item) => item.id === entry.category_id);
+  return {
+    id: entry.id.startsWith("template:") ? "" : entry.id,
+    entryType: entry.entry_type,
+    categoryId: entry.category_id ?? "",
+    description: entry.description_internal,
+    amount: String(Number(entry.amount) || 0),
+    paymentMethod: entry.payment_method ?? "",
+    financialAccount: entry.financial_account ?? "",
+    counterpartyName: entry.counterparty_name ?? "",
+    publicVisible: entry.public_visible,
+    structure: "linha",
+    groupName: category?.group_name ?? "",
+    parentId: category?.parent_id ?? "",
+  };
+}
+
+function newDraft(
+  type: EntryType,
+  groupName = "",
+  parentId = "",
+): Draft {
+  return {
+    id: "",
+    entryType: type,
+    categoryId: "",
+    description: "",
+    amount: "0",
+    paymentMethod: "pix",
+    financialAccount: "",
+    counterpartyName: "",
+    publicVisible: true,
+    structure: "linha",
+    groupName,
+    parentId,
+  };
+}
+
+function normalizedGroupName(value: string) {
+  return value.trim() || "Outros";
+}
+
+function buildGroups(
+  type: EntryType,
+  categories: Category[],
+  displayEntries: Entry[],
+) {
+  const typeCategories = categories.filter((category) => category.entry_type === type);
+  const groupingCategories = typeCategories.filter(isGroupingCategory);
+  const groupingById = new Map(groupingCategories.map((category) => [category.id, category]));
+  const groupingByLabel = new Map(
+    groupingCategories.map((category) => [categoryLabel(category), category]),
+  );
+  const nodes = new Map<string, GroupNode>();
+
+  const ensureNode = (input: {
+    key: string;
+    id?: string | null;
+    label: string;
+    sortOrder?: number;
+    parentKey?: string | null;
+  }) => {
+    const existing = nodes.get(input.key);
+    if (existing) return existing;
+    const node: GroupNode = {
+      key: input.key,
+      id: input.id ?? null,
+      label: input.label,
+      type,
+      sortOrder: input.sortOrder ?? 999,
+      parentKey: input.parentKey ?? null,
+      entries: [],
+      children: [],
+    };
+    nodes.set(input.key, node);
+    return node;
+  };
+
+  for (const group of groupingCategories) {
+    const parent = group.parent_id ? groupingById.get(group.parent_id) : null;
+    const parentByName =
+      !parent && group.group_name && group.group_name !== categoryLabel(group)
+        ? groupingByLabel.get(group.group_name)
+        : null;
+    const legacyParentLabel =
+      !parent && !parentByName && group.group_name && group.group_name !== categoryLabel(group)
+        ? normalizedGroupName(group.group_name)
+        : "";
+    if (legacyParentLabel) {
+      ensureNode({
+        key: `legacy:${type}:${legacyParentLabel}`,
+        label: legacyParentLabel,
+        sortOrder: Number(group.sort_order) || 999,
+      });
+    }
+    ensureNode({
+      key: `group:${group.id}`,
+      id: group.id,
+      label: categoryLabel(group),
+      sortOrder: Number(group.sort_order) || 999,
+      parentKey: parent
+        ? `group:${parent.id}`
+        : parentByName
+          ? `group:${parentByName.id}`
+          : legacyParentLabel
+            ? `legacy:${type}:${legacyParentLabel}`
+            : null,
+    });
+  }
+
+  for (const entry of displayEntries.filter((item) => item.entry_type === type)) {
+    const category = typeCategories.find((item) => item.id === entry.category_id);
+    const parentCategory = category?.parent_id
+      ? groupingById.get(category.parent_id)
+      : null;
+    const groupLabel = normalizedGroupName(category?.group_name ?? "");
+    const namedGrouping = groupingByLabel.get(groupLabel);
+    const target = parentCategory ?? namedGrouping;
+    const node = target
+      ? ensureNode({
+          key: `group:${target.id}`,
+          id: target.id,
+          label: categoryLabel(target),
+          sortOrder: Number(target.sort_order) || 999,
+        })
+      : ensureNode({
+          key: `legacy:${type}:${groupLabel}`,
+          label: groupLabel,
+          sortOrder: Number(category?.sort_order) || 999,
+        });
+    node.entries.push(entry);
+  }
+
+  for (const node of nodes.values()) {
+    if (!node.parentKey) continue;
+    const parent = nodes.get(node.parentKey);
+    if (parent) parent.children.push(node);
+  }
+
+  const sortNodes = (items: GroupNode[]): GroupNode[] =>
+    items
+      .map((item) => ({
+        ...item,
+        children: sortNodes(item.children),
+        entries: [...item.entries].sort((left, right) =>
+          left.description_internal.localeCompare(right.description_internal, "pt-BR"),
+        ),
+      }))
+      .sort((left, right) =>
+        left.sortOrder !== right.sortOrder
+          ? left.sortOrder - right.sortOrder
+          : left.label.localeCompare(right.label, "pt-BR"),
+      );
+
+  return sortNodes([...nodes.values()].filter((node) => !node.parentKey));
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[260] flex items-center justify-center bg-black/60 p-3"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-[1.5rem] bg-white p-4 shadow-2xl sm:rounded-[2rem] sm:p-6"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-xl font-black text-[#123D2C] sm:text-2xl">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white"
+          >
+            Fechar
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
 export default function LancamentosPage() {
   const [month, setMonth] = useState(currentMonth());
   const [payload, setPayload] = useState<Payload>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [newRows, setNewRows] = useState<Record<string, Draft | null>>({
-    receita: null,
-    despesa: null,
-  });
+  const [newRow, setNewRow] = useState<NewRowState>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    saldo: false,
     receita: false,
     despesa: false,
   });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [openingBalance, setOpeningBalance] = useState("0");
+  const [closingBalance, setClosingBalance] = useState("0");
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -229,13 +423,12 @@ export default function LancamentosPage() {
       setPayload(result);
       setDrafts(
         Object.fromEntries(
-          visible.map((entry) => [
-            entry.id,
-            toDraft(entry, currentCategories),
-          ]),
+          visible.map((entry) => [entry.id, toDraft(entry, currentCategories)]),
         ),
       );
-      setNewRows({ receita: null, despesa: null });
+      setOpeningBalance(String(Number(result.period?.opening_balance) || 0));
+      setClosingBalance(String(Number(result.period?.closing_balance) || 0));
+      setNewRow(null);
     },
     [accessToken],
   );
@@ -267,67 +460,50 @@ export default function LancamentosPage() {
   }, [load, month]);
 
   const entries = useMemo(() => payload.entries ?? [], [payload.entries]);
-  const categories = useMemo(
-    () => payload.categories ?? [],
-    [payload.categories],
-  );
+  const categories = useMemo(() => payload.categories ?? [], [payload.categories]);
   const displayEntries = useMemo(
     () => buildDisplayEntries(entries, categories, month),
     [categories, entries, month],
   );
+  const groups = useMemo(
+    () => ({
+      receita: buildGroups("receita", categories, displayEntries),
+      despesa: buildGroups("despesa", categories, displayEntries),
+    }),
+    [categories, displayEntries],
+  );
 
   const finalized = payload.period?.workflow_status === "finalizado";
-  const hasSavedMonth = Boolean(payload.period || entries.length > 0);
+  const hasSavedMonth = Boolean(
+    payload.period || entries.length > 0 || Number(openingBalance) || Number(closingBalance),
+  );
+  const lastBusinessDay = useMemo(() => lastBusinessDayOfMonth(month), [month]);
+  const canFinalize = useMemo(
+    () => !finalized && hasSavedMonth && canFinalizeFinancialMonth(month),
+    [finalized, hasSavedMonth, month],
+  );
+
+  const draftAmount = useCallback(
+    (entry: Entry) => Number(drafts[entry.id]?.amount ?? entry.amount) || 0,
+    [drafts],
+  );
+
+  const groupTotal = useCallback(
+    function calculate(node: GroupNode): number {
+      return (
+        node.entries.reduce((sum, entry) => sum + draftAmount(entry), 0) +
+        node.children.reduce((sum, child) => sum + calculate(child), 0)
+      );
+    },
+    [draftAmount],
+  );
 
   const totals = useMemo(
-    () =>
-      entries.reduce(
-        (acc, entry) => {
-          if (entry.entry_type === "receita")
-            acc.receita += Number(entry.amount) || 0;
-          if (entry.entry_type === "despesa")
-            acc.despesa += Number(entry.amount) || 0;
-          return acc;
-        },
-        { receita: 0, despesa: 0 },
-      ),
-    [entries],
-  );
-
-  const categoriesByType = useMemo(
     () => ({
-      receita: categories.filter(
-        (category) =>
-          category.entry_type === "receita" && !isGroupingCategory(category),
-      ),
-      despesa: categories.filter(
-        (category) =>
-          category.entry_type === "despesa" && !isGroupingCategory(category),
-      ),
+      receita: groups.receita.reduce((sum, group) => sum + groupTotal(group), 0),
+      despesa: groups.despesa.reduce((sum, group) => sum + groupTotal(group), 0),
     }),
-    [categories],
-  );
-
-  const groupNamesByType = useMemo(
-    () => ({
-      receita: Array.from(
-        new Set(
-          categories
-            .filter((category) => category.entry_type === "receita")
-            .map((category) => category.group_name.trim())
-            .filter(Boolean),
-        ),
-      ).sort((left, right) => left.localeCompare(right, "pt-BR")),
-      despesa: Array.from(
-        new Set(
-          categories
-            .filter((category) => category.entry_type === "despesa")
-            .map((category) => category.group_name.trim())
-            .filter(Boolean),
-        ),
-      ).sort((left, right) => left.localeCompare(right, "pt-BR")),
-    }),
-    [categories],
+    [groupTotal, groups],
   );
 
   async function post(body: Record<string, unknown>) {
@@ -355,11 +531,8 @@ export default function LancamentosPage() {
   }
 
   async function replicate(mode: "last" | "average") {
-    const label =
-      mode === "last" ? "último mês" : "média dos últimos meses";
-    if (!window.confirm(`Replicar ${label} para ${monthLabel(month)}?`)) {
-      return;
-    }
+    const label = mode === "last" ? "último mês" : "média dos últimos meses";
+    if (!window.confirm(`Replicar ${label} para ${monthLabel(month)}?`)) return;
 
     setBusy(`replicate:${mode}`);
     setError("");
@@ -370,14 +543,37 @@ export default function LancamentosPage() {
         targetMonth: `${month}-01`,
         mode,
       });
-      setMessage(
-        result.message || "Valores atualizados. Revise antes de finalizar.",
-      );
+      setMessage(result.message || "Valores atualizados. Revise antes de finalizar.");
       await load(month);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Erro ao replicar mês.",
-      );
+      setError(reason instanceof Error ? reason.message : "Erro ao replicar mês.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveBalances() {
+    const opening = Number(openingBalance || 0);
+    const closing = Number(closingBalance || 0);
+    if (!Number.isFinite(opening) || !Number.isFinite(closing)) {
+      setError("Informe valores válidos para Saldo Inicial e Saldo Final.");
+      return;
+    }
+
+    setBusy("balances");
+    setError("");
+    setMessage("");
+    try {
+      const result = await post({
+        action: "saveBalances",
+        targetMonth: `${month}-01`,
+        openingBalance: opening,
+        closingBalance: closing,
+      });
+      setMessage(result.message || "Saldos bancários salvos.");
+      await load(month);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Erro ao salvar os saldos.");
     } finally {
       setBusy("");
     }
@@ -390,10 +586,8 @@ export default function LancamentosPage() {
       name: draft.description.trim(),
       publicName: draft.description.trim(),
       isGrouping: draft.structure === "agrupamento",
-      groupName:
-        draft.structure === "agrupamento"
-          ? draft.description.trim()
-          : draft.groupName,
+      groupName: draft.groupName,
+      parentId: draft.parentId || null,
     });
 
     const categoryId = result.category?.id;
@@ -415,15 +609,6 @@ export default function LancamentosPage() {
       return;
     }
 
-    if (
-      isNew &&
-      draft.structure === "linha" &&
-      !draft.groupName.trim()
-    ) {
-      setError("Selecione em qual grupo a nova linha será registrada.");
-      return;
-    }
-
     setBusy(`save:${key}`);
     setError("");
     setMessage("");
@@ -432,18 +617,12 @@ export default function LancamentosPage() {
       if (isNew && draft.structure === "agrupamento") {
         await createCategory(draft);
         setMessage("Novo agrupamento criado.");
-        setNewRows((current) => ({
-          ...current,
-          [draft.entryType]: null,
-        }));
+        setNewRow(null);
         await load(month);
         return;
       }
 
-      const categoryId = isNew
-        ? await createCategory(draft)
-        : draft.categoryId || null;
-
+      const categoryId = isNew ? await createCategory(draft) : draft.categoryId || null;
       const result = await post({
         action: "save",
         id: draft.id || null,
@@ -467,17 +646,10 @@ export default function LancamentosPage() {
       });
 
       setMessage(result.message || "Lançamento salvo.");
-      if (isNew) {
-        setNewRows((current) => ({
-          ...current,
-          [draft.entryType]: null,
-        }));
-      }
+      if (isNew) setNewRow(null);
       await load(month);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Erro ao salvar lançamento.",
-      );
+      setError(reason instanceof Error ? reason.message : "Erro ao salvar lançamento.");
     } finally {
       setBusy("");
     }
@@ -492,39 +664,32 @@ export default function LancamentosPage() {
       setMessage(result.message || "Lançamento excluído.");
       await load(month);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Erro ao excluir lançamento.",
-      );
+      setError(reason instanceof Error ? reason.message : "Erro ao excluir lançamento.");
     } finally {
       setBusy("");
     }
   }
 
   async function finalize() {
-    if (
-      !window.confirm(
-        `Finalizar ${monthLabel(
-          month,
-        )}? Depois disso o mês ficará fechado para edição normal.`,
-      )
-    ) {
-      return;
-    }
-
     setBusy("finalize");
     setError("");
     setMessage("");
     try {
+      await post({
+        action: "saveBalances",
+        targetMonth: `${month}-01`,
+        openingBalance: Number(openingBalance || 0),
+        closingBalance: Number(closingBalance || 0),
+      });
       const result = await post({
         action: "finalizeMonth",
         targetMonth: `${month}-01`,
       });
       setMessage(result.message || "Mês finalizado.");
+      setReviewOpen(false);
       await load(month);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Erro ao finalizar mês.",
-      );
+      setError(reason instanceof Error ? reason.message : "Erro ao finalizar mês.");
     } finally {
       setBusy("");
     }
@@ -537,185 +702,209 @@ export default function LancamentosPage() {
     }));
   }
 
-  function updateNew(
-    type: "receita" | "despesa",
-    patch: Partial<Draft>,
-  ) {
-    setNewRows((current) => ({
-      ...current,
-      [type]: { ...(current[type] ?? newDraft(type)), ...patch },
-    }));
+  function beginInclude(type: EntryType, group?: GroupNode) {
+    const draft = newDraft(type, group?.label ?? "", group?.id ?? "");
+    if (!group) draft.structure = "agrupamento";
+    setNewRow({
+      scopeKey: group?.key ?? `root:${type}`,
+      parentId: group?.id ?? "",
+      groupName: group?.label ?? "",
+      draft,
+    });
+    if (group) {
+      setExpandedGroups((current) => ({ ...current, [group.key]: true }));
+    } else {
+      setExpanded((current) => ({ ...current, [type]: true }));
+    }
   }
 
-  function renderEditor(key: string, draft: Draft, isNew: boolean) {
-    const update = (patch: Partial<Draft>) =>
-      isNew
-        ? updateNew(draft.entryType, patch)
-        : updateDraft(key, patch);
+  function updateNewDraft(patch: Partial<Draft>) {
+    setNewRow((current) =>
+      current ? { ...current, draft: { ...current.draft, ...patch } } : current,
+    );
+  }
 
-    if (isNew) {
-      return (
-        <div
-          key={key}
-          className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:grid-cols-6"
-        >
-          <input
-            value={draft.description}
-            onChange={(event) =>
-              update({ description: event.target.value })
-            }
-            disabled={finalized}
-            placeholder={
-              draft.structure === "agrupamento"
-                ? "Nome do agrupamento"
-                : "Descrição da nova linha"
-            }
-            className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
-          />
-          <select
-            value={draft.structure}
-            onChange={(event) =>
-              update({
-                structure: event.target.value as
-                  | "linha"
-                  | "agrupamento",
-                groupName:
-                  event.target.value === "agrupamento"
-                    ? ""
-                    : draft.groupName,
-              })
-            }
-            disabled={finalized}
-            className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
-          >
-            <option value="linha">Linha financeira</option>
-            <option value="agrupamento">Agrupamento</option>
-          </select>
-
-          {draft.structure === "linha" ? (
-            <>
-              <select
-                value={draft.groupName}
-                onChange={(event) =>
-                  update({ groupName: event.target.value })
-                }
-                disabled={finalized}
-                className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
-              >
-                <option value="">Grupo</option>
-                {groupNamesByType[draft.entryType].map((group) => (
-                  <option key={group} value={group}>
-                    {group}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={draft.amount}
-                onChange={(event) =>
-                  update({ amount: event.target.value })
-                }
-                disabled={finalized}
-                inputMode="decimal"
-                placeholder="Valor (pode ser 0)"
-                className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
-              />
-            </>
-          ) : (
-            <p className="rounded-xl bg-[#F7FAF2] p-2.5 text-xs font-bold leading-5 text-[#123D2C] sm:col-span-2">
-              O agrupamento será criado sem valor. Depois poderá receber linhas financeiras.
-            </p>
-          )}
-
-          <div className="flex gap-1.5 sm:col-span-2">
-            <button
-              type="button"
-              disabled={finalized || busy === `save:${key}`}
-              onClick={() => void saveDraft(key, draft, true)}
-              className="flex-1 rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-40"
-            >
-              {busy === `save:${key}`
-                ? "Salvando"
-                : draft.structure === "agrupamento"
-                  ? "Criar agrupamento"
-                  : "Salvar linha"}
-            </button>
-            <button
-              type="button"
-              disabled={busy === `save:${key}`}
-              onClick={() =>
-                setNewRows((current) => ({
-                  ...current,
-                  [draft.entryType]: null,
-                }))
-              }
-              className="rounded-xl bg-white px-3 py-2.5 text-xs font-black text-slate-600 ring-1 ring-slate-200 disabled:opacity-40"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      );
-    }
-
+  function renderNewEditor(state: NonNullable<NewRowState>) {
+    const draft = state.draft;
     return (
-      <div
-        key={key}
-        className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:grid-cols-6"
-      >
+      <div className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/15 sm:grid-cols-6">
         <input
           value={draft.description}
-          onChange={(event) =>
-            update({ description: event.target.value })
-          }
+          onChange={(event) => updateNewDraft({ description: event.target.value })}
           disabled={finalized}
-          placeholder="Descrição"
+          placeholder={
+            draft.structure === "agrupamento"
+              ? "Nome do novo agrupamento"
+              : "Descrição da nova linha"
+          }
           className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
         />
         <select
-          value={draft.categoryId}
+          value={draft.structure}
           onChange={(event) =>
-            update({ categoryId: event.target.value })
+            updateNewDraft({
+              structure: event.target.value as "linha" | "agrupamento",
+              amount: event.target.value === "agrupamento" ? "0" : draft.amount,
+            })
           }
           disabled={finalized}
           className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
         >
-          <option value="">Categoria</option>
-          {categoriesByType[draft.entryType].map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.public_name || category.name}
-            </option>
-          ))}
+          <option value="linha">Linha deste agrupamento</option>
+          <option value="agrupamento">Novo agrupamento abaixo</option>
         </select>
-        <input
-          value={draft.amount}
-          onChange={(event) => update({ amount: event.target.value })}
-          disabled={finalized}
-          inputMode="decimal"
-          placeholder="Valor"
-          className="rounded-xl border border-slate-200 p-2.5 font-semibold disabled:bg-slate-100"
-        />
-        <div className="flex gap-1.5">
+        {draft.structure === "linha" ? (
+          <input
+            value={draft.amount}
+            onChange={(event) => updateNewDraft({ amount: event.target.value })}
+            disabled={finalized}
+            inputMode="decimal"
+            placeholder="Valor (pode ser 0)"
+            className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100"
+          />
+        ) : (
+          <p className="rounded-xl bg-[#F7FAF2] p-2.5 text-xs font-bold text-[#123D2C] sm:col-span-2">
+            Será criado abaixo de {state.groupName || (draft.entryType === "receita" ? "Receitas" : "Despesas")}.
+          </p>
+        )}
+        <div className="flex gap-2 sm:col-span-6">
           <button
             type="button"
-            disabled={finalized || busy === `save:${key}`}
-            onClick={() => void saveDraft(key, draft, false)}
+            disabled={finalized || busy === `save:new:${state.scopeKey}`}
+            onClick={() => void saveDraft(`new:${state.scopeKey}`, draft, true)}
             className="flex-1 rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-40"
           >
-            {busy === `save:${key}` ? "Salvando" : "Salvar"}
+            {busy === `save:new:${state.scopeKey}` ? "Salvando..." : "Salvar"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewRow(null)}
+            className="rounded-xl bg-white px-3 py-2.5 text-xs font-black text-slate-600 ring-1 ring-slate-200"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderEntry(entry: Entry) {
+    const draft = drafts[entry.id];
+    if (!draft) return null;
+
+    return (
+      <div
+        key={entry.id}
+        className="grid grid-cols-[minmax(0,1fr)_110px] gap-2 rounded-xl bg-white p-2.5 ring-1 ring-[#123D2C]/10 sm:grid-cols-[minmax(0,1fr)_150px_auto]"
+      >
+        <input
+          value={draft.description}
+          onChange={(event) => updateDraft(entry.id, { description: event.target.value })}
+          disabled={finalized}
+          aria-label="Descrição"
+          className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-2 text-sm font-semibold disabled:bg-slate-100"
+        />
+        <input
+          value={draft.amount}
+          onChange={(event) => updateDraft(entry.id, { amount: event.target.value })}
+          disabled={finalized}
+          inputMode="decimal"
+          aria-label={`Valor de ${draft.description}`}
+          className="rounded-lg border border-slate-200 px-2.5 py-2 text-right text-sm font-black text-[#123D2C] disabled:bg-slate-100"
+        />
+        <div className="col-span-2 flex gap-1.5 sm:col-span-1">
+          <button
+            type="button"
+            disabled={finalized || busy === `save:${entry.id}`}
+            onClick={() => void saveDraft(entry.id, draft, false)}
+            className="flex-1 rounded-lg bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white disabled:opacity-40"
+          >
+            {busy === `save:${entry.id}` ? "Salvando" : "Salvar"}
           </button>
           {draft.id && (
             <button
               type="button"
-              disabled={
-                finalized || busy === `delete:${draft.id}`
-              }
+              disabled={finalized || busy === `delete:${draft.id}`}
               onClick={() => void deleteEntry(draft.id)}
-              className="rounded-xl bg-white px-3 py-2.5 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-40"
+              className="rounded-lg bg-white px-2.5 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-40"
             >
               Excluir
             </button>
           )}
         </div>
+      </div>
+    );
+  }
+
+  function renderGroup(group: GroupNode, depth = 0): ReactNode {
+    const open = expandedGroups[group.key] ?? false;
+    const subtotal = groupTotal(group);
+    const isNewHere = newRow?.scopeKey === group.key;
+
+    return (
+      <div
+        key={group.key}
+        className={`${depth > 0 ? "ml-2 border-l-2 border-[#123D2C]/10 pl-2 sm:ml-4 sm:pl-3" : ""}`}
+      >
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl bg-[#F1F7EC] px-2.5 py-2 ring-1 ring-[#123D2C]/10">
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedGroups((current) => ({ ...current, [group.key]: !open }))
+            }
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-base font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+            aria-label={open ? `Recolher ${group.label}` : `Expandir ${group.label}`}
+          >
+            {open ? "−" : "+"}
+          </button>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-black text-[#123D2C]">{group.label}</p>
+            {!finalized && (
+              <button
+                type="button"
+                onClick={() => beginInclude(group.type, group)}
+                className="mt-0.5 text-[11px] font-black text-[#2F6B43] underline decoration-dotted underline-offset-2"
+              >
+                + Incluir neste agrupamento
+              </button>
+            )}
+          </div>
+          <span className="text-sm font-black text-[#123D2C]">{money(subtotal)}</span>
+        </div>
+
+        {open && (
+          <div className="mt-2 grid gap-2">
+            {group.children.map((child) => renderGroup(child, depth + 1))}
+            {group.entries.map(renderEntry)}
+            {isNewHere && newRow ? renderNewEditor(newRow) : null}
+            {group.children.length === 0 && group.entries.length === 0 && !isNewHere && (
+              <p className="rounded-xl bg-white p-3 text-xs font-semibold text-slate-500 ring-1 ring-slate-100">
+                Este agrupamento ainda não possui linhas.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderReviewGroup(group: GroupNode, depth = 0): ReactNode {
+    return (
+      <div key={`review:${group.key}`} className={depth ? "ml-3 border-l border-slate-200 pl-3" : ""}>
+        <div className="flex items-center justify-between gap-3 py-1.5 text-sm font-black text-[#123D2C]">
+          <span>{group.label}</span>
+          <span>{money(groupTotal(group))}</span>
+        </div>
+        {group.children.map((child) => renderReviewGroup(child, depth + 1))}
+        {group.entries.map((entry) => (
+          <div
+            key={`review:${entry.id}`}
+            className="flex items-center justify-between gap-3 border-t border-slate-100 py-1.5 text-xs font-semibold text-slate-600"
+          >
+            <span>{drafts[entry.id]?.description || entry.description_internal}</span>
+            <span>{money(draftAmount(entry))}</span>
+          </div>
+        ))}
       </div>
     );
   }
@@ -726,15 +915,13 @@ export default function LancamentosPage() {
       simpleFinancialHeader
       simpleFinancialActive="inicio"
       simpleFinancialHeaderControl={
-        <label className="flex items-center gap-2 text-xs font-black text-[#123D2C] sm:text-sm">
-          <span className="hidden sm:inline">Mês</span>
+        <label className="flex min-w-0 items-center gap-1.5 text-[11px] font-black text-[#123D2C] sm:gap-2 sm:text-sm">
+          <span className="whitespace-nowrap">Mês a registrar</span>
           <input
             type="month"
             value={month}
-            onChange={(event) =>
-              setMonth(event.target.value || currentMonth())
-            }
-            className="max-w-[155px] rounded-xl border border-slate-200 p-2 text-xs font-semibold sm:max-w-none sm:p-2.5 sm:text-sm"
+            onChange={(event) => setMonth(event.target.value || currentMonth())}
+            className="min-w-0 max-w-[135px] rounded-xl border border-slate-200 p-1.5 text-[11px] font-semibold sm:max-w-none sm:p-2.5 sm:text-sm"
           />
         </label>
       }
@@ -777,8 +964,7 @@ export default function LancamentosPage() {
 
         {!loading && hasSavedMonth && !finalized && (
           <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-black text-amber-900 ring-1 ring-amber-200">
-            ⚠ {monthLabel(month)} possui informações salvas e ainda precisa ser
-            finalizado.
+            ⚠ {monthLabel(month)} possui informações salvas e ainda precisa ser finalizado.
           </p>
         )}
         {!loading && finalized && (
@@ -794,71 +980,95 @@ export default function LancamentosPage() {
           <span>{monthLabel(month)}</span>
         </div>
 
+        <div className="border-t border-[#123D2C]/10">
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => ({ ...current, saldo: !current.saldo }))}
+            className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 bg-[#EEF5EA] px-4 py-3 text-left"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-lg font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+              {expanded.saldo ? "−" : "+"}
+            </span>
+            <span className="font-black text-[#123D2C]">Saldo Bancário</span>
+            <span className="font-black text-[#123D2C]">{money(closingBalance)}</span>
+          </button>
+          {expanded.saldo && (
+            <div className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4">
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                Saldo Inicial
+                <input
+                  value={openingBalance}
+                  onChange={(event) => setOpeningBalance(event.target.value)}
+                  disabled={finalized}
+                  inputMode="decimal"
+                  className="rounded-xl border border-slate-200 p-2.5 text-right text-sm font-black disabled:bg-slate-100"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                Saldo Final
+                <input
+                  value={closingBalance}
+                  onChange={(event) => setClosingBalance(event.target.value)}
+                  disabled={finalized}
+                  inputMode="decimal"
+                  className="rounded-xl border border-slate-200 p-2.5 text-right text-sm font-black disabled:bg-slate-100"
+                />
+              </label>
+              {!finalized && (
+                <button
+                  type="button"
+                  disabled={busy === "balances"}
+                  onClick={() => void saveBalances()}
+                  className="rounded-xl bg-[#123D2C] px-4 py-2.5 text-sm font-black text-white disabled:opacity-40 sm:col-span-2"
+                >
+                  {busy === "balances" ? "Salvando..." : "Salvar saldos bancários"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         {(["receita", "despesa"] as const).map((type) => {
           const label = type === "receita" ? "Receitas" : "Despesas";
-          const typeEntries = displayEntries.filter(
-            (entry) => entry.entry_type === type,
-          );
-          const total =
-            type === "receita" ? totals.receita : totals.despesa;
+          const total = type === "receita" ? totals.receita : totals.despesa;
+          const isNewAtRoot = newRow?.scopeKey === `root:${type}`;
 
           return (
-            <div
-              key={type}
-              className="border-t border-[#123D2C]/10 first:border-t-0"
-            >
-              <button
-                type="button"
-                onClick={() =>
-                  setExpanded((current) => ({
-                    ...current,
-                    [type]: !current[type],
-                  }))
-                }
-                className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 bg-[#F7FAF2] px-4 py-3 text-left"
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-lg font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+            <div key={type} className="border-t border-[#123D2C]/10">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 bg-[#F7FAF2] px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpanded((current) => ({ ...current, [type]: !current[type] }))
+                  }
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-lg font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                  aria-label={expanded[type] ? `Recolher ${label}` : `Expandir ${label}`}
+                >
                   {expanded[type] ? "−" : "+"}
-                </span>
-                <span className="font-black text-[#123D2C]">{label}</span>
-                <span className="font-black text-[#123D2C]">
-                  {money(total)}
-                </span>
-              </button>
+                </button>
+                <div className="min-w-0">
+                  <p className="font-black text-[#123D2C]">{label}</p>
+                  {!finalized && (
+                    <button
+                      type="button"
+                      onClick={() => beginInclude(type)}
+                      className="mt-0.5 text-[11px] font-black text-[#2F6B43] underline decoration-dotted underline-offset-2"
+                    >
+                      + Incluir agrupamento ou linha
+                    </button>
+                  )}
+                </div>
+                <span className="font-black text-[#123D2C]">{money(total)}</span>
+              </div>
 
               {expanded[type] && (
                 <div className="grid gap-2 p-3 sm:p-4">
-                  {typeEntries.map((entry) =>
-                    drafts[entry.id]
-                      ? renderEditor(
-                          entry.id,
-                          drafts[entry.id],
-                          false,
-                        )
-                      : null,
-                  )}
-
-                  {newRows[type] &&
-                    renderEditor(
-                      `new:${type}`,
-                      newRows[type] as Draft,
-                      true,
-                    )}
-
-                  {!finalized && !newRows[type] && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setNewRows((current) => ({
-                          ...current,
-                          [type]: newDraft(type),
-                        }))
-                      }
-                      className="rounded-xl border-2 border-dashed border-[#123D2C]/25 bg-white px-4 py-3 text-sm font-black text-[#123D2C]"
-                    >
-                      + Incluir nova{" "}
-                      {type === "receita" ? "receita" : "despesa"}
-                    </button>
+                  {groups[type].map((group) => renderGroup(group))}
+                  {isNewAtRoot && newRow ? renderNewEditor(newRow) : null}
+                  {groups[type].length === 0 && !isNewAtRoot && (
+                    <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">
+                      Nenhum agrupamento cadastrado.
+                    </p>
                   )}
                 </div>
               )}
@@ -867,15 +1077,69 @@ export default function LancamentosPage() {
         })}
       </section>
 
-      {!finalized && hasSavedMonth && (
-        <button
-          type="button"
-          disabled={busy === "finalize" || loading}
-          onClick={() => void finalize()}
-          className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-base font-black text-white shadow disabled:opacity-50"
-        >
-          {busy === "finalize" ? "Finalizando..." : "Finalizar mês"}
-        </button>
+      {!finalized && (
+        <section className="rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-slate-100 sm:p-4">
+          <button
+            type="button"
+            disabled={!canFinalize || busy === "finalize" || loading}
+            onClick={() => setReviewOpen(true)}
+            className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-base font-black text-white shadow disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Finalização
+          </button>
+          {!canFinalize && (
+            <p className="mt-2 text-center text-xs font-semibold leading-5 text-slate-500">
+              A finalização de {monthLabel(month)} fica disponível somente após o último dia útil do mês ({lastBusinessDay.split("-").reverse().join("/")}).
+            </p>
+          )}
+        </section>
+      )}
+
+      {reviewOpen && (
+        <Modal title={`Revisão para finalização — ${monthLabel(month)}`} onClose={() => setReviewOpen(false)}>
+          <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">
+            Confira os valores abaixo antes de encerrar as informações do mês. Depois da finalização, a edição normal fica bloqueada.
+          </p>
+
+          <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+            <div className="flex justify-between gap-3 text-sm font-black text-[#123D2C]">
+              <span>Saldo Inicial</span>
+              <span>{money(openingBalance)}</span>
+            </div>
+            <div className="mt-1 flex justify-between gap-3 text-sm font-black text-[#123D2C]">
+              <span>Saldo Final</span>
+              <span>{money(closingBalance)}</span>
+            </div>
+          </div>
+
+          {(["receita", "despesa"] as const).map((type) => (
+            <div key={`review:${type}`} className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 text-base font-black text-[#123D2C]">
+                <span>{type === "receita" ? "Receitas" : "Despesas"}</span>
+                <span>{money(type === "receita" ? totals.receita : totals.despesa)}</span>
+              </div>
+              <div className="mt-2 grid gap-1">
+                {groups[type].map((group) => renderReviewGroup(group))}
+              </div>
+            </div>
+          ))}
+
+          <div className="mt-3 rounded-2xl bg-[#123D2C] p-3 text-white">
+            <div className="flex justify-between gap-3 text-sm font-black">
+              <span>Resultado do mês</span>
+              <span>{money(totals.receita - totals.despesa)}</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy === "finalize"}
+            onClick={() => void finalize()}
+            className="mt-3 w-full rounded-xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+          >
+            {busy === "finalize" ? "Finalizando..." : "Confirmar finalização do mês"}
+          </button>
+        </Modal>
       )}
     </OrganizacaoClientShell>
   );
