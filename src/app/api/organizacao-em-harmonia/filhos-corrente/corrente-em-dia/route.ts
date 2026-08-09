@@ -611,60 +611,61 @@ async function loadPayload(context: AuthContext) {
     width: 360,
   });
   const contributions = contributionsResult.data ?? [];
-  const activeRecurring = [...contributions]
-    .filter(
-      (item) =>
-        asText(item.recurrence_type) === "pix_agendado" &&
-        Boolean(item.recurrence_start_date) &&
-        asNumber(item.recurrence_occurrences, 0) >= 2 &&
-        asText(item.status) !== "cancelado",
-    )
-    .sort(
-      (left, right) =>
-        new Date(asText(right.created_at)).getTime() -
-        new Date(asText(left.created_at)).getTime(),
-    )[0];
+  const today = todayIso();
 
-  const allProgrammedDates = activeRecurring
-    ? recurringDates(
-        asText(activeRecurring.recurrence_start_date),
-        Math.trunc(asNumber(activeRecurring.recurrence_occurrences, 0)),
-      )
-    : [];
-  const programmedDates = allProgrammedDates
-    .filter((item) => item >= todayIso())
-    .slice(0, 3);
+  const upcoming = contributions
+    .filter((item) => asText(item.status) !== "cancelado")
+    .flatMap((item) => {
+      const metadata = asObject(item.metadata);
+      const metadataDates = Array.isArray(metadata.scheduledDates)
+        ? metadata.scheduledDates.map(asText).filter(Boolean)
+        : [];
+      const scheduledDates = metadataDates.length > 0
+        ? metadataDates
+        : asText(item.recurrence_type) === "pix_agendado"
+          ? recurringDates(
+              asText(item.recurrence_start_date),
+              Math.trunc(asNumber(item.recurrence_occurrences, 0)),
+            )
+          : [asText(item.due_date)].filter(Boolean);
+      const futureDates = scheduledDates.filter((value) => value >= today);
+      if (futureDates.length === 0) return [];
 
-  const recurringCanBeChanged = activeRecurring
-    ? !FINAL_CONTRIBUTION_STATUSES.includes(asText(activeRecurring.status))
-    : false;
+      const status = asText(item.status);
+      const proofUploaded = Boolean(
+        item.receipt_uploaded_at ||
+          item.proof_url ||
+          status === "comprovante_enviado" ||
+          status === "em_revisao",
+      );
+      const finalStatus = FINAL_CONTRIBUTION_STATUSES.includes(status);
+      const recurring = asText(item.recurrence_type) === "pix_agendado";
 
-  const upcoming =
-    programmedDates.length > 0
-      ? programmedDates.map((dueDate) => ({
-          dueDate,
-          amount: asNumber(activeRecurring?.amount, amount),
-          status: "programado",
-          scheduled: true,
-          contributionId: asText(activeRecurring?.id),
-          recurrenceStartDate: asText(activeRecurring?.recurrence_start_date),
-          recurrenceOccurrences: Math.trunc(
-            asNumber(activeRecurring?.recurrence_occurrences, 0),
-          ),
-          notes: asText(activeRecurring?.notes),
-          canEdit: recurringCanBeChanged,
-          canDelete: recurringCanBeChanged,
-        }))
-      : [0, 1, 2].map((offset) => ({
-          dueDate: dueDateFor(preferredDay, offset),
-          amount,
-          status: offset === 0 ? "próxima" : "prevista",
-          scheduled: false,
-          contributionId: null,
-          canEdit: false,
-          canDelete: false,
-        }));
+      return [{
+        dueDate: futureDates[0],
+        scheduledDates,
+        amount: asNumber(item.amount, amount),
+        status: recurring && status === "aguardando_comprovante" ? "programado" : status,
+        scheduled: recurring,
+        contributionId: asText(item.id),
+        recurrenceType: asText(item.recurrence_type) || "pontual",
+        recurrenceStartDate: asText(item.recurrence_start_date),
+        recurrenceOccurrences: Math.trunc(asNumber(item.recurrence_occurrences, 0)),
+        paymentMethod: asText(item.payment_method) || null,
+        notes: asText(item.notes),
+        proofUploaded,
+        uploadToken: asText(metadata.proofUploadToken) || null,
+        trackingCode: asText(metadata.trackingCode) || null,
+        canEdit: !finalStatus && !proofUploaded,
+        canDelete: !finalStatus && !proofUploaded,
+      }];
+    })
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
 
+  const allProgrammedDates = upcoming
+    .flatMap((item) => item.scheduledDates)
+    .filter((value) => value >= today)
+    .sort((left, right) => left.localeCompare(right));
   const lastProgrammedDate = allProgrammedDates.at(-1) || "";
   const nextAvailableContributionDate = lastProgrammedDate
     ? nextMonthlyDate(lastProgrammedDate)
@@ -704,7 +705,8 @@ async function loadPayload(context: AuthContext) {
           canDelete: !FINAL_CONTRIBUTION_STATUSES.includes(asText(item.status)),
         },
       ];
-    });
+    })
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
 
   const preferenceMetadata = asObject(preference.metadata);
   const panelPreferences = normalizePanelPreferences(
@@ -736,6 +738,8 @@ async function loadPayload(context: AuthContext) {
       pixKey: settings.pixKey,
       pixReceiverName: settings.pixReceiverName,
       persuasiveText: settings.persuasiveText,
+      financeContactName: settings.financeContactName,
+      financeWhatsapp: settings.financeWhatsapp,
       recurringOptions: [
         {
           value: "pontual",
@@ -871,7 +875,7 @@ async function createContributionIntent(
     ) {
       throw new Error("Não foi possível validar a edição desta contribuição.");
     }
-    if (!requestedTrackingCode || !requestedResumeUrl) {
+    if (!requestedTrackingCode) {
       throw new Error("Os dados de acompanhamento da contribuição estão incompletos.");
     }
 
@@ -1046,7 +1050,10 @@ async function createContributionIntent(
     : null;
 
   const resumeUrl = editing
-    ? requestedResumeUrl
+    ? requestedResumeUrl || new URL(
+        "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia",
+        request.url,
+      ).toString()
     : new URL(
         `/solucoes/organizacao-em-harmonia/tucxa/contribuir?retomar=${encodeURIComponent(resumeToken)}`,
         request.url,

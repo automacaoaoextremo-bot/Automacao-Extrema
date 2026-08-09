@@ -100,6 +100,220 @@ async function ensurePeriod(input: {
   return data.id as string;
 }
 
+function targetDate(sourceDate: string | null | undefined, targetMonth: string) {
+  const year = Number(targetMonth.slice(0, 4));
+  const month = Number(targetMonth.slice(5, 7));
+  const sourceDay = Number(asText(sourceDate).slice(8, 10)) || 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${targetMonth.slice(0, 7)}-${String(Math.min(sourceDay, lastDay)).padStart(2, "0")}`;
+}
+
+async function loadPeriod(organizationId: string, competenceMonth: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_financial_periods")
+    .select("id, competence_month, status, workflow_status, data_nature, needs_update, source_label, finalized_at, updated_at")
+    .eq("organization_id", organizationId)
+    .eq("competence_month", competenceMonth)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function replicateMonth(input: {
+  organizationId: string;
+  personId: string;
+  targetMonth: string;
+  mode: "last" | "average";
+}) {
+  const existingPeriod = await loadPeriod(input.organizationId, input.targetMonth);
+  if (existingPeriod?.workflow_status === "finalizado") {
+    throw new Error("Este mês já foi finalizado e não pode ser replicado sem reabertura administrativa.");
+  }
+
+  const { count: activeCount, error: countError } = await supabaseAdmin
+    .from("oh_financial_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", input.organizationId)
+    .eq("financial_month", input.targetMonth)
+    .neq("status", "cancelado");
+  if (countError) throw countError;
+  if ((activeCount ?? 0) > 0) {
+    throw new Error("O mês selecionado já possui lançamentos. Revise ou exclua os dados antes de replicar.");
+  }
+
+  const { data: periods, error: periodsError } = await supabaseAdmin
+    .from("oh_financial_periods")
+    .select("id, competence_month")
+    .eq("organization_id", input.organizationId)
+    .eq("workflow_status", "finalizado")
+    .lt("competence_month", input.targetMonth)
+    .order("competence_month", { ascending: false })
+    .limit(input.mode === "average" ? 3 : 1);
+  if (periodsError) throw periodsError;
+  if (!periods || periods.length === 0) {
+    throw new Error("Não existe mês finalizado anterior para usar como referência.");
+  }
+
+  const periodId = await ensurePeriod({
+    organizationId: input.organizationId,
+    competenceMonth: input.targetMonth,
+    workflowStatus: "rascunho",
+    dataNature: "estimado",
+  });
+
+  const sourcePeriodIds = periods.map((period) => period.id);
+  const { data: sourceEntries, error: sourceError } = await supabaseAdmin
+    .from("oh_financial_entries")
+    .select("*")
+    .eq("organization_id", input.organizationId)
+    .in("period_id", sourcePeriodIds)
+    .neq("status", "cancelado");
+  if (sourceError) throw sourceError;
+  if (!sourceEntries || sourceEntries.length === 0) {
+    throw new Error("Os meses de referência não possuem receitas ou despesas para replicar.");
+  }
+
+  type SourceEntry = Record<string, unknown>;
+  let templates: Array<SourceEntry & { amount: number }> = [];
+
+  if (input.mode === "last") {
+    const latestId = periods[0].id;
+    templates = sourceEntries
+      .filter((entry) => entry.period_id === latestId)
+      .map((entry) => ({ ...entry, amount: Math.abs(asNumber(entry.amount)) }));
+  } else {
+    const groups = new Map<string, { sample: SourceEntry; total: number; months: Set<string> }>();
+    for (const entry of sourceEntries) {
+      const key = [
+        asText(entry.entry_type),
+        asText(entry.category_id),
+        asText(entry.description_internal),
+        asText(entry.description_public),
+        asText(entry.payment_method),
+        asText(entry.financial_account),
+      ].join("|");
+      const current = groups.get(key) ?? { sample: entry, total: 0, months: new Set<string>() };
+      current.total += Math.abs(asNumber(entry.amount));
+      current.months.add(asText(entry.financial_month));
+      groups.set(key, current);
+    }
+    templates = [...groups.values()].map(({ sample, total }) => ({
+      ...sample,
+      amount: Number((total / Math.max(1, periods.length)).toFixed(2)),
+    }));
+  }
+
+  const now = new Date().toISOString();
+  const rows = templates.map((entry, index) => {
+    const entryDate = targetDate(asText(entry.entry_date), input.targetMonth);
+    const dueDate = targetDate(asText(entry.due_date) || asText(entry.entry_date), input.targetMonth);
+    const financialDate = targetDate(asText(entry.financial_date) || asText(entry.entry_date), input.targetMonth);
+    return {
+      organization_id: input.organizationId,
+      period_id: periodId,
+      category_id: asText(entry.category_id) || null,
+      entry_type: asText(entry.entry_type),
+      entry_date: entryDate,
+      due_date: dueDate,
+      financial_date: financialDate,
+      financial_month: input.targetMonth,
+      competence_month: input.targetMonth,
+      description_internal: asText(entry.description_internal) || "Lançamento replicado",
+      description_public: asText(entry.description_public) || asText(entry.description_internal) || "Lançamento replicado",
+      amount: Math.abs(asNumber(entry.amount)),
+      payment_method: asText(entry.payment_method) || null,
+      financial_account: asText(entry.financial_account) || null,
+      counterparty_name: asText(entry.counterparty_name) || null,
+      source_type: input.mode === "last" ? "replicacao_mes_anterior" : "replicacao_media",
+      source_reference: null,
+      status: "provisorio",
+      workflow_status: "rascunho",
+      data_nature: "estimado",
+      is_provisional: true,
+      needs_update: true,
+      public_visible: asBoolean(entry.public_visible, true),
+      notes_internal: asText(entry.notes_internal) || null,
+      metadata: {
+        replicatedAt: now,
+        replicatedMode: input.mode,
+        sourcePeriods: periods.map((period) => period.competence_month),
+        sourceEntryId: asText(entry.id) || null,
+        sequence: index + 1,
+      },
+      created_by: input.personId,
+      updated_at: now,
+    };
+  });
+
+  const { error: insertError } = await supabaseAdmin.from("oh_financial_entries").insert(rows);
+  if (insertError) throw insertError;
+
+  await writeFinancialAudit({
+    organizationId: input.organizationId,
+    personId: input.personId,
+    action: input.mode === "last" ? "mes_replicado_ultimo" : "mes_replicado_media",
+    entityType: "oh_financial_periods",
+    entityId: periodId,
+    afterData: { targetMonth: input.targetMonth, items: rows.length, mode: input.mode },
+  });
+
+  return rows.length;
+}
+
+async function finalizeMonth(input: {
+  organizationId: string;
+  personId: string;
+  targetMonth: string;
+}) {
+  const period = await loadPeriod(input.organizationId, input.targetMonth);
+  if (!period) throw new Error("O mês ainda não possui informações salvas.");
+  if (period.workflow_status === "finalizado") return;
+
+  const now = new Date().toISOString();
+  const { error: entriesError } = await supabaseAdmin
+    .from("oh_financial_entries")
+    .update({
+      status: "confirmado",
+      workflow_status: "finalizado",
+      data_nature: "realizado",
+      is_provisional: false,
+      needs_update: false,
+      approved_by: input.personId,
+      approved_at: now,
+      updated_at: now,
+    })
+    .eq("organization_id", input.organizationId)
+    .eq("financial_month", input.targetMonth)
+    .neq("status", "cancelado");
+  if (entriesError) throw entriesError;
+
+  const { error: periodError } = await supabaseAdmin
+    .from("oh_financial_periods")
+    .update({
+      status: "fechado",
+      workflow_status: "finalizado",
+      data_nature: "realizado",
+      needs_update: false,
+      approved_by: input.personId,
+      approved_at: now,
+      finalized_at: now,
+      updated_at: now,
+    })
+    .eq("organization_id", input.organizationId)
+    .eq("id", period.id);
+  if (periodError) throw periodError;
+
+  await writeFinancialAudit({
+    organizationId: input.organizationId,
+    personId: input.personId,
+    action: "mes_financeiro_finalizado",
+    entityType: "oh_financial_periods",
+    entityId: period.id,
+    beforeData: period,
+    afterData: { ...period, workflow_status: "finalizado", finalized_at: now },
+  });
+}
+
 async function loadEntries(request: Request, organizationId: string) {
   const url = new URL(request.url);
   const month = asText(url.searchParams.get("month"));
@@ -162,9 +376,17 @@ export async function GET(request: Request) {
     const auth = await getFinancialAuthContext(request, "view");
     if (!auth.ok) return auth.response;
 
+    const loaded = await loadEntries(request, auth.context.organizationId);
+    const url = new URL(request.url);
+    const requestedMonth = asText(url.searchParams.get("financialMonth")) || asText(url.searchParams.get("month"));
+    const period = requestedMonth
+      ? await loadPeriod(auth.context.organizationId, monthKey(requestedMonth))
+      : null;
+
     return NextResponse.json({
       canManage: auth.context.canManage,
-      ...(await loadEntries(request, auth.context.organizationId)),
+      ...loaded,
+      period,
     });
   } catch (error) {
     return NextResponse.json(
@@ -184,11 +406,53 @@ export async function POST(request: Request) {
     const auth = await getFinancialAuthContext(request, "manage");
     if (!auth.ok) return auth.response;
 
+    const personId = auth.context.personId;
+    if (!personId) {
+      return NextResponse.json(
+        { error: "Não foi possível identificar a pessoa responsável pela operação financeira." },
+        { status: 403 },
+      );
+    }
+
     const body = (await request.json().catch(() => ({}))) as Record<
       string,
       unknown
     >;
     const action = asText(body.action);
+
+    if (action === "replicateMonth") {
+      const targetMonth = monthKey(asText(body.targetMonth));
+      const mode = asText(body.mode);
+      if (!/^\d{4}-\d{2}-01$/.test(targetMonth)) {
+        return NextResponse.json({ error: "Informe o mês de destino." }, { status: 400 });
+      }
+      if (mode !== "last" && mode !== "average") {
+        return NextResponse.json({ error: "Escolha replicar o último mês ou a média." }, { status: 400 });
+      }
+      const count = await replicateMonth({
+        organizationId: auth.context.organizationId,
+        personId: personId,
+        targetMonth,
+        mode,
+      });
+      return NextResponse.json({
+        ok: true,
+        message: `${count} lançamento(s) replicado(s). Revise os valores e salve antes de finalizar o mês.`,
+      });
+    }
+
+    if (action === "finalizeMonth") {
+      const targetMonth = monthKey(asText(body.targetMonth));
+      if (!/^\d{4}-\d{2}-01$/.test(targetMonth)) {
+        return NextResponse.json({ error: "Informe o mês a finalizar." }, { status: 400 });
+      }
+      await finalizeMonth({
+        organizationId: auth.context.organizationId,
+        personId: personId,
+        targetMonth,
+      });
+      return NextResponse.json({ ok: true, message: "Mês finalizado com sucesso." });
+    }
 
     if (action === "save") {
       const id = asText(body.id);
@@ -320,7 +584,7 @@ export async function POST(request: Request) {
             .from("oh_financial_entries")
             .insert({
               ...payload,
-              created_by: auth.context.personId,
+              created_by: personId,
             })
             .select("*")
             .single();
@@ -330,7 +594,7 @@ export async function POST(request: Request) {
 
       await writeFinancialAudit({
         organizationId: auth.context.organizationId,
-        personId: auth.context.personId,
+        personId: personId,
         action: id ? "lancamento_atualizado" : "lancamento_criado",
         entityType: "oh_financial_entries",
         entityId: saved.id,
@@ -378,7 +642,7 @@ export async function POST(request: Request) {
           data_nature: "realizado",
           is_provisional: false,
           needs_update: false,
-          approved_by: auth.context.personId,
+          approved_by: personId,
           approved_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -391,7 +655,7 @@ export async function POST(request: Request) {
 
       await writeFinancialAudit({
         organizationId: auth.context.organizationId,
-        personId: auth.context.personId,
+        personId: personId,
         action: "lancamento_conferido",
         entityType: "oh_financial_entries",
         entityId: id,
@@ -442,7 +706,7 @@ export async function POST(request: Request) {
 
       await writeFinancialAudit({
         organizationId: auth.context.organizationId,
-        personId: auth.context.personId,
+        personId: personId,
         action: "lancamento_cancelado",
         entityType: "oh_financial_entries",
         entityId: id,

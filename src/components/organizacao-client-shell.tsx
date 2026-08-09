@@ -11,6 +11,8 @@ type ShellProps = {
   title: string;
   description?: string;
   children: ReactNode;
+  simpleFinancialHeader?: boolean;
+  financialBackHref?: string;
 };
 
 type NavItem = {
@@ -157,7 +159,13 @@ function clientLoginUrl() {
   return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-export function OrganizacaoClientShell({ title, description, children }: ShellProps) {
+export function OrganizacaoClientShell({
+  title,
+  description,
+  children,
+  simpleFinancialHeader = false,
+  financialBackHref = `${MEMBER_PANEL}/corrente-em-dia?financeiro=1`,
+}: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [accessGate, setAccessGate] = useState<
@@ -312,33 +320,47 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
         </div>
 
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-            {effectiveTopNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
-                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
-                  isActive(pathname, item.href)
-                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
-                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
-                }`}
-              >
-                {item.label}
+          {simpleFinancialHeader ? (
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+              <a href="#inicio" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Início
+              </a>
+              <Link href={financialBackHref} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Voltar
               </Link>
-            ))}
-            <button
-              type="button"
-              onClick={signOut}
-              className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
-            >
-              Sair
-            </button>
-          </div>
+              <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Sair
+              </button>
+              <a href="https://wa.me/5519989848246?text=Ol%C3%A1%2C%20preciso%20de%20ajuda%20na%20%C3%A1rea%20financeira%20do%20Tucxa%20em%20Harmonia." target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Ajuda
+              </a>
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+              {effectiveTopNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                  className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                    isActive(pathname, item.href)
+                      ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Sair
+              </button>
+            </div>
+          )}
         </nav>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[300px_1fr] lg:px-8">
+      <div id="inicio" className={`mx-auto max-w-7xl gap-5 px-3 py-3 sm:px-6 sm:py-5 lg:px-8 ${simpleFinancialHeader ? "block" : "grid lg:grid-cols-[300px_1fr]"}`}>
+        {!simpleFinancialHeader && (
         <aside className="hidden self-start lg:block rounded-[2rem] bg-[#06451F] p-4 text-white shadow-xl shadow-emerald-900/10 lg:sticky lg:top-44 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <div className="mb-4 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFF7DF]">Contexto atual</p>
@@ -363,17 +385,20 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
             ))}
           </div>
         </aside>
+        )}
 
         <section className="min-w-0">
-          <div className="mb-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
-            <h1 className="mt-2 text-3xl font-black text-[#00334E]">{title}</h1>
+          <div className={`${simpleFinancialHeader ? "mb-3 rounded-[1.5rem] p-4 sm:p-5" : "mb-5 rounded-[2rem] p-5 sm:p-7"} bg-white shadow ring-1 ring-slate-100`}>
+            {!simpleFinancialHeader && (
+              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
+            )}
+            <h1 className={`${simpleFinancialHeader ? "text-2xl sm:text-3xl" : "mt-2 text-3xl"} font-black text-[#00334E]`}>{title}</h1>
             {description && <p className="mt-3 max-w-4xl leading-7 text-slate-600">{description}</p>}
           </div>
           <div className="grid gap-5">{children}</div>
         </section>
       </div>
-      <FinancePendingContributionsLoginModal />
+      {!simpleFinancialHeader && <FinancePendingContributionsLoginModal />}
     </main>
   );
 }

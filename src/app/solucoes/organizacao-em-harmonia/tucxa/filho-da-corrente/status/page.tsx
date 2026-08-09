@@ -123,7 +123,15 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
     const entities = asEntities(summary.selectedEntities);
     const primaryId = asText(summary.cavalinhoConsulenteEntityId);
     const primaryEntity = entities.find((entity) => asText(entity.id) === primaryId) ?? null;
-    return { functions, agenda, entities, primaryEntity };
+    const hasCavalinho = functions.some((item) => {
+      const slug = asText(item.slug);
+      const label = asText(item.label)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return slug === "cavalinho" || label.includes("cavalinho");
+    });
+    return { functions, agenda, entities, primaryEntity, hasCavalinho };
   }, [request?.summary]);
 
   const presentation = statusPresentation(request?.status || "");
@@ -136,7 +144,9 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
     },
     { label: "Funções", href: "#funcoes", variant: "secondary" as const },
     { label: "Agenda", href: "#agenda", variant: "secondary" as const },
-    { label: "Entidades", href: "#entidades", variant: "secondary" as const },
+    ...(details.hasCavalinho
+      ? [{ label: "Entidades", href: "#entidades", variant: "secondary" as const }]
+      : []),
     ...(presentation.approved
       ? [{ label: "Entrar", href: LOGIN_PATH, variant: "secondary" as const }]
       : []),
@@ -198,7 +208,8 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
                 </div>
               </section>
 
-              <section id="entidades" className="mt-3 grid scroll-mt-44 gap-3 sm:grid-cols-2">
+              {details.hasCavalinho && (
+                <section id="entidades" className="mt-3 grid scroll-mt-44 gap-3 sm:grid-cols-2">
                 <div className="rounded-[1.25rem] border border-[#123D2C]/10 p-3">
                   <h2 className="font-black text-[#123D2C]">Entidades que recebe</h2>
                   <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
@@ -217,7 +228,8 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
                     {details.primaryEntity?.name || "Nenhuma das entidades selecionadas"}
                   </p>
                 </div>
-              </section>
+                </section>
+              )}
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {presentation.approved && (

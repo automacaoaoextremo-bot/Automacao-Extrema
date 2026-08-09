@@ -334,23 +334,26 @@ export default function PainelFilhoDaCorrentePage() {
               <button
                 type="button"
                 onClick={() => setShortcut("modules")}
-                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+                className="rounded-2xl border-2 border-[#123D2C] bg-[#E9F2E7] px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-lg shadow-green-900/10 ring-2 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-white focus:outline-none focus:ring-4 focus:ring-[#123D2C]/20 sm:px-4 sm:py-4 sm:text-sm"
               >
-                Módulos
+                <span className="block">Módulos</span>
+                <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-[10px]">Toque para abrir</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShortcut("registration")}
-                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+                className="rounded-2xl border-2 border-[#123D2C] bg-[#E9F2E7] px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-lg shadow-green-900/10 ring-2 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-white focus:outline-none focus:ring-4 focus:ring-[#123D2C]/20 sm:px-4 sm:py-4 sm:text-sm"
               >
-                Cadastro
+                <span className="block">Cadastro</span>
+                <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-[10px]">Toque para abrir</span>
               </button>
               <button
                 type="button"
                 onClick={() => setShortcut("settings")}
-                className="rounded-2xl border-2 border-[#123D2C] bg-white px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-md transition hover:-translate-y-0.5 hover:bg-[#EEF5EA] sm:px-4 sm:py-4 sm:text-sm"
+                className="rounded-2xl border-2 border-[#123D2C] bg-[#E9F2E7] px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-lg shadow-green-900/10 ring-2 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-white focus:outline-none focus:ring-4 focus:ring-[#123D2C]/20 sm:px-4 sm:py-4 sm:text-sm"
               >
-                Configurações
+                <span className="block">Configurações</span>
+                <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-[10px]">Toque para abrir</span>
               </button>
             </section>
           </div>

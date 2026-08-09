@@ -54,17 +54,17 @@ function PreferenceCard({
   children?: React.ReactNode;
 }) {
   return (
-    <article className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#123D2C]/10 sm:p-5">
+    <article className="rounded-xl bg-white p-2 shadow-sm ring-1 ring-[#123D2C]/10 sm:rounded-2xl sm:p-4">
       <label className="flex cursor-pointer items-start gap-3">
         <input
           type="checkbox"
           checked={checked}
           onChange={(event) => onChange(event.target.checked)}
-          className="mt-1 h-5 w-5 shrink-0 accent-[#123D2C]"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[#123D2C] sm:h-5 sm:w-5"
         />
         <span className="min-w-0">
-          <span className="block font-black text-[#123D2C]">{title}</span>
-          <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">
+          <span className="block text-xs font-black leading-4 text-[#123D2C] sm:text-base">{title}</span>
+          <span className="mt-0.5 block text-[10px] font-semibold leading-3.5 text-slate-600 sm:mt-1 sm:text-sm sm:leading-5">
             {description}
           </span>
         </span>
@@ -181,17 +181,18 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
         navLabel="Configurações"
         actions={headerActions}
         mobileActionColumns={4}
+        autoHighlightCurrent={false}
       />
 
-      <section className="mx-auto max-w-3xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
-        <div className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-6">
+      <section className="mx-auto max-w-3xl px-3 py-2 sm:px-6 sm:py-4 lg:px-8">
+        <div className="rounded-[1.35rem] bg-[#123D2C] p-3 text-white shadow-xl sm:rounded-[2rem] sm:p-5">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#CFE2C7] sm:text-xs">
             Preferências pessoais
           </p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">
+          <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">
             Escolha quais avisos deseja ver ao entrar.
           </h1>
-          <p className="mt-2 text-sm font-semibold leading-5 text-[#EEF7EA] sm:text-base sm:leading-6">
+          <p className="mt-1 text-xs font-semibold leading-4 text-[#EEF7EA] sm:mt-2 sm:text-base sm:leading-6">
             As opções abaixo alteram somente os pop-ups do seu acesso. Você pode
             continuar consultando as mesmas informações dentro dos módulos.
           </p>
@@ -204,7 +205,7 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
         )}
 
         {!loading && (
-          <div className="mt-3 grid gap-3">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:mt-3 sm:grid-cols-1 sm:gap-3">
             <PreferenceCard
               title="Agendamentos futuros"
               description="Abrir pop-up com os próximos agendamentos ao entrar no painel."
@@ -241,7 +242,7 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
               }
             >
               {preferences.dueContributionPopup && (
-                <label className="mt-3 block rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C]">
+                <label className="mt-2 block rounded-xl bg-[#F7FAF2] p-2.5 text-xs font-bold text-[#123D2C] sm:mt-3 sm:p-3 sm:text-sm">
                   Começar a avisar quantos dias antes?
                   <input
                     type="number"
@@ -257,7 +258,7 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
                           : 0,
                       }));
                     }}
-                    className="mt-2 w-full rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2.5 text-base font-black outline-none focus:border-[#123D2C]"
+                    className="mt-1.5 w-full rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2 text-sm font-black outline-none focus:border-[#123D2C]"
                   />
                 </label>
               )}
@@ -276,12 +277,12 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
             />
 
             {error && (
-              <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              <p className="col-span-2 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 sm:col-span-1">
                 {error}
               </p>
             )}
             {message && (
-              <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+              <p className="col-span-2 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800 sm:col-span-1">
                 {message}
               </p>
             )}
@@ -290,7 +291,7 @@ export default function ConfiguracoesPainelFilhoCorrentePage() {
               type="button"
               onClick={() => void save()}
               disabled={saving}
-              className="rounded-2xl bg-[#123D2C] px-5 py-3.5 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+              className="col-span-2 rounded-xl bg-[#123D2C] px-5 py-2.5 font-black text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1 sm:rounded-2xl sm:py-3"
             >
               {saving ? "Salvando..." : "Salvar configurações"}
             </button>

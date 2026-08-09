@@ -48,6 +48,8 @@ export type CorrenteFinancialSettings = {
   ocrProvider: string;
   receptionContactName: string;
   receptionWhatsapp: string;
+  financeContactName: string;
+  financeWhatsapp: string;
   contributionNotificationEmails: string[];
 };
 
@@ -85,6 +87,8 @@ export const DEFAULT_CORRENTE_FINANCIAL_SETTINGS: CorrenteFinancialSettings = {
   ocrProvider: "external_adapter",
   receptionContactName: "Recepção do Tucxa",
   receptionWhatsapp: "",
+  financeContactName: "Tesouraria/Financeiro do Tucxa",
+  financeWhatsapp: "",
   contributionNotificationEmails: ["automacao-ao-extremo@gmail.com"],
 };
 
@@ -303,6 +307,12 @@ export function normalizeFinancialSettings(value: unknown): CorrenteFinancialSet
     receptionWhatsapp: asText(
       row.reception_whatsapp ?? row.receptionWhatsapp,
     ).replace(/\D/g, ""),
+    financeContactName:
+      asText(row.finance_contact_name ?? row.financeContactName) ||
+      DEFAULT_CORRENTE_FINANCIAL_SETTINGS.financeContactName,
+    financeWhatsapp: asText(
+      row.finance_whatsapp ?? row.financeWhatsapp,
+    ).replace(/\D/g, ""),
     contributionNotificationEmails:
       normalizeStringList(
         row.contribution_notification_emails ??
@@ -351,6 +361,8 @@ export function settingsToDatabase(
     ocr_provider: settings.ocrProvider,
     reception_contact_name: settings.receptionContactName || null,
     reception_whatsapp: settings.receptionWhatsapp || null,
+    finance_contact_name: settings.financeContactName || null,
+    finance_whatsapp: settings.financeWhatsapp || null,
     contribution_notification_emails:
       settings.contributionNotificationEmails,
     updated_at: new Date().toISOString(),

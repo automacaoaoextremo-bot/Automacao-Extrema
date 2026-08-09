@@ -84,16 +84,32 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
     }
   }
 
-  const consulenteEntity = draft?.selectedEntities.find(
-    (entity) => entity.id === draft.cavalinhoConsulenteEntityId,
-  ) ?? null;
+  const hasCavalinho = Boolean(
+    draft?.selectedFunctions?.some(
+      (item) =>
+        item.slug === "cavalinho" ||
+        item.label
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .includes("cavalinho"),
+    ),
+  );
+
+  const consulenteEntity = hasCavalinho
+    ? draft?.selectedEntities.find(
+        (entity) => entity.id === draft.cavalinhoConsulenteEntityId,
+      ) ?? null
+    : null;
 
   const actions = [
     { label: "Início", href: "#inicio", variant: "primary" as const },
     { label: "Voltar", href: backPath, variant: "secondary" as const },
     { label: "Funções", href: "#funcoes", variant: "secondary" as const },
     { label: "Agenda", href: "#agenda", variant: "secondary" as const },
-    { label: "Entidades", href: "#entidades", variant: "secondary" as const },
+    ...(hasCavalinho
+      ? [{ label: "Entidades", href: "#entidades", variant: "secondary" as const }]
+      : []),
     {
       label: "Ajuda",
       href: "#ajuda",
@@ -152,7 +168,7 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
                       </ul>
                     </div>
                   </div>
-                  {draft.selectedEntities.length > 0 && (
+                  {hasCavalinho && draft.selectedEntities.length > 0 && (
                     <div id="entidades" className="mt-3 grid scroll-mt-40 gap-3 sm:grid-cols-2">
                       <div className="rounded-[1.25rem] border border-[#123D2C]/10 p-3 sm:p-4">
                         <h2 className="font-black text-[#123D2C]">Entidades que recebe</h2>

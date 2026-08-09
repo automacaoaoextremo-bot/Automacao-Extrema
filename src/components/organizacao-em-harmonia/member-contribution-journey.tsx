@@ -28,6 +28,18 @@ export type MemberContributionPerson = {
   whatsapp: string | null;
 };
 
+export type ExistingMemberContribution = {
+  id: string;
+  status: string;
+  paymentMethod?: string | null;
+  recurrenceType?: string | null;
+  recurrenceStartDate?: string | null;
+  recurrenceOccurrences?: number | null;
+  notes?: string | null;
+  uploadToken?: string | null;
+  trackingCode?: string | null;
+};
+
 type IntentResult = {
   contribution?: {
     id: string;
@@ -101,6 +113,7 @@ export function MemberContributionJourney({
   onCompleted,
   triggerLabel = "Contribuir",
   dueDate,
+  existingContribution,
 }: {
   settings: MemberContributionSettings;
   person: MemberContributionPerson;
@@ -108,15 +121,22 @@ export function MemberContributionJourney({
   onCompleted?: () => Promise<void> | void;
   triggerLabel?: string;
   dueDate?: string;
+  existingContribution?: ExistingMemberContribution | null;
 }) {
   const [modal, setModal] = useState<"payment" | "result" | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "recepcao">(
-    "pix",
+    existingContribution?.paymentMethod === "recepcao" ? "recepcao" : "pix",
   );
-  const [recurrenceType, setRecurrenceType] = useState("pontual");
-  const [recurrenceStartDate, setRecurrenceStartDate] = useState(dueDate ?? "");
-  const [recurrenceOccurrences, setRecurrenceOccurrences] = useState("12");
-  const [notes, setNotes] = useState("");
+  const [recurrenceType, setRecurrenceType] = useState(
+    existingContribution?.recurrenceType || "pontual",
+  );
+  const [recurrenceStartDate, setRecurrenceStartDate] = useState(
+    existingContribution?.recurrenceStartDate || dueDate || "",
+  );
+  const [recurrenceOccurrences, setRecurrenceOccurrences] = useState(
+    String(existingContribution?.recurrenceOccurrences || 12),
+  );
+  const [notes, setNotes] = useState(existingContribution?.notes || "");
   const [email, setEmail] = useState(person.email ?? "");
   const [updateEmail, setUpdateEmail] = useState(!person.email);
   const [saving, setSaving] = useState(false);
@@ -125,7 +145,19 @@ export function MemberContributionJourney({
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [result, setResult] = useState<IntentResult | null>(null);
+  const [result, setResult] = useState<IntentResult | null>(() =>
+    existingContribution
+      ? {
+          contribution: {
+            id: existingContribution.id,
+            status: existingContribution.status,
+            due_date: dueDate || existingContribution.recurrenceStartDate || "",
+          },
+          uploadToken: existingContribution.uploadToken || undefined,
+          trackingCode: existingContribution.trackingCode || undefined,
+        }
+      : null,
+  );
 
   const recurring = recurrenceType === "pix_agendado";
   const amount = settings.defaultMonthlyAmount;
@@ -200,9 +232,12 @@ export function MemberContributionJourney({
             notes,
             email,
             updateEmail: Boolean(email && updateEmail),
-            contributionId: result?.contribution?.id ?? null,
-            uploadToken: result?.uploadToken ?? null,
-            trackingCode: result?.trackingCode ?? null,
+            contributionId:
+              result?.contribution?.id ?? existingContribution?.id ?? null,
+            uploadToken:
+              result?.uploadToken ?? existingContribution?.uploadToken ?? null,
+            trackingCode:
+              result?.trackingCode ?? existingContribution?.trackingCode ?? null,
             resumeUrl: result?.resumeUrl ?? null,
           }),
         },
@@ -326,7 +361,7 @@ export function MemberContributionJourney({
                 id="member-payment-title"
                 className="mt-0.5 text-xl font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-2xl"
               >
-                Forma de pagamento
+                {existingContribution ? "Editar contribuição" : "Forma de pagamento"}
               </h2>
             </div>
             <button
@@ -509,7 +544,9 @@ export function MemberContributionJourney({
               ? "Registrando..."
               : paymentMethod === "recepcao"
                 ? "Falar com Recepção"
-                : "Confirmar forma de pagamento"}
+                : existingContribution
+                  ? "Salvar e atualizar forma de pagamento"
+                  : "Confirmar forma de pagamento"}
           </button>
 
           {paymentMethod === "recepcao" && receptionContacts.length === 0 && (

@@ -22,6 +22,7 @@ type TucxaPublicHeaderProps = {
   showSessionName?: boolean;
   mobileActionColumns?: 2 | 3 | 4;
   compactMobileActions?: boolean;
+  autoHighlightCurrent?: boolean;
 };
 
 function getLocationMatchKey(href: string) {
@@ -214,15 +215,20 @@ export function TucxaPublicHeader({
   showSessionName = false,
   mobileActionColumns,
   compactMobileActions = true,
+  autoHighlightCurrent = true,
 }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
-  const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
+  const [activeHref, setActiveHref] = useState(() =>
+    autoHighlightCurrent ? getCurrentActiveHref(allLinks) : "",
+  );
   const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
   const [sessionAuthenticatedName, setSessionAuthenticatedName] = useState("");
 
   useEffect(() => {
     const updateActiveHref = () => {
-      setActiveHref(getCurrentActiveHref(allLinks));
+      if (autoHighlightCurrent) {
+        setActiveHref(getCurrentActiveHref(allLinks));
+      }
       setSupportHref(buildSupportWhatsappUrl());
     };
 
@@ -236,7 +242,7 @@ export function TucxaPublicHeader({
       window.removeEventListener("hashchange", updateActiveHref);
       window.removeEventListener("popstate", updateActiveHref);
     };
-  }, [allLinks]);
+  }, [allLinks, autoHighlightCurrent]);
 
   useEffect(() => {
     if (!showSessionName) return;

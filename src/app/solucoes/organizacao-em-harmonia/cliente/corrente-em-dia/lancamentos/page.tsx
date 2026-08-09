@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -23,7 +23,7 @@ type Entry = {
   competence_month: string;
   description_internal: string;
   description_public: string | null;
-  amount: number;
+  amount: number | string;
   payment_method: string | null;
   financial_account: string | null;
   counterparty_name: string | null;
@@ -34,102 +34,89 @@ type Entry = {
   needs_update: boolean;
   public_visible: boolean;
   notes_internal: string | null;
-  category: Category | Category[] | null;
+};
+
+type Period = {
+  id: string;
+  competence_month: string;
+  status: string;
+  workflow_status: string;
+  data_nature: string;
+  needs_update: boolean;
+  source_label: string | null;
+  finalized_at: string | null;
+  updated_at: string | null;
 };
 
 type Payload = {
   entries?: Entry[];
   categories?: Category[];
+  period?: Period | null;
   canManage?: boolean;
   error?: string;
 };
 
-type FormState = {
+type Draft = {
   id: string;
   entryType: "receita" | "despesa";
-  entryDate: string;
-  dueDate: string;
-  financialDate: string;
-  financialMonth: string;
-  competenceMonth: string;
   categoryId: string;
-  descriptionInternal: string;
-  descriptionPublic: string;
+  description: string;
   amount: string;
   paymentMethod: string;
   financialAccount: string;
   counterpartyName: string;
-  workflowStatus: string;
-  dataNature: "realizado" | "estimado";
-  isProvisional: boolean;
-  needsUpdate: boolean;
   publicVisible: boolean;
-  notesInternal: string;
 };
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
+function currentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function monthOf(date: string) {
-  return `${date.slice(0, 7)}-01`;
+function money(value: number | string) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value) || 0);
 }
 
-const emptyForm: FormState = {
-  id: "",
-  entryType: "despesa",
-  entryDate: today(),
-  dueDate: today(),
-  financialDate: today(),
-  financialMonth: monthOf(today()),
-  competenceMonth: monthOf(today()),
-  categoryId: "",
-  descriptionInternal: "",
-  descriptionPublic: "",
-  amount: "",
-  paymentMethod: "pix",
-  financialAccount: "",
-  counterpartyName: "",
-  workflowStatus: "em_revisao",
-  dataNature: "realizado",
-  isProvisional: false,
-  needsUpdate: false,
-  publicVisible: true,
-  notesInternal: "",
-};
-
-const statusLabels: Record<string, string> = {
-  rascunho: "Rascunho",
-  em_andamento: "Em andamento",
-  em_revisao: "Em revisão",
-  finalizado: "Finalizado",
-  reaberto: "Reaberto",
-};
-
-function money(value: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(Number(value) || 0);
+function monthLabel(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}-01T12:00:00Z`));
 }
 
-function categoryOf(entry: Entry) {
-  return Array.isArray(entry.category)
-    ? entry.category[0] ?? null
-    : entry.category;
+function toDraft(entry: Entry): Draft {
+  return {
+    id: entry.id,
+    entryType: entry.entry_type,
+    categoryId: entry.category_id ?? "",
+    description: entry.description_internal,
+    amount: String(Number(entry.amount) || ""),
+    paymentMethod: entry.payment_method ?? "",
+    financialAccount: entry.financial_account ?? "",
+    counterpartyName: entry.counterparty_name ?? "",
+    publicVisible: entry.public_visible,
+  };
+}
+
+function newDraft(type: "receita" | "despesa"): Draft {
+  return {
+    id: "",
+    entryType: type,
+    categoryId: "",
+    description: "",
+    amount: "",
+    paymentMethod: "pix",
+    financialAccount: "",
+    counterpartyName: "",
+    publicVisible: true,
+  };
 }
 
 export default function LancamentosPage() {
+  const [month, setMonth] = useState(currentMonth());
   const [payload, setPayload] = useState<Payload>({});
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [showForm, setShowForm] = useState(false);
-  const [monthFilter, setMonthFilter] = useState("");
-  const [financialMonthFilter, setFinancialMonthFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [newRows, setNewRows] = useState<Record<string, Draft | null>>({ receita: null, despesa: null });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ receita: true, despesa: true });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -138,737 +125,263 @@ export default function LancamentosPage() {
     return data.session?.access_token ?? "";
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (targetMonth: string) => {
     const token = await accessToken();
-    const params = new URLSearchParams();
-    if (monthFilter) params.set("month", `${monthFilter}-01`);
-    if (financialMonthFilter) {
-      params.set("financialMonth", `${financialMonthFilter}-01`);
-    }
-    if (typeFilter) params.set("type", typeFilter);
-    if (statusFilter) params.set("status", statusFilter);
-    if (query.trim()) params.set("q", query.trim());
-
     const response = await fetch(
-      `/api/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos?${params.toString()}`,
+      `/api/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos?financialMonth=${targetMonth}-01`,
       {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         cache: "no-store",
       },
     );
     const result = (await response.json()) as Payload;
-    if (!response.ok) {
-      throw new Error(result.error || "Não foi possível carregar os lançamentos.");
-    }
+    if (!response.ok) throw new Error(result.error || "Não foi possível carregar o mês financeiro.");
     setPayload(result);
-  }, [
-    accessToken,
-    financialMonthFilter,
-    monthFilter,
-    query,
-    statusFilter,
-    typeFilter,
-  ]);
+    setDrafts(Object.fromEntries((result.entries ?? []).map((entry) => [entry.id, toDraft(entry)])));
+    setNewRows({ receita: null, despesa: null });
+  }, [accessToken]);
 
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
-      void load()
+      setLoading(true);
+      setError("");
+      void load(month)
         .catch((reason) => {
-          if (active) {
-            setError(
-              reason instanceof Error
-                ? reason.message
-                : "Erro ao carregar lançamentos.",
-            );
-          }
+          if (active) setError(reason instanceof Error ? reason.message : "Erro ao carregar o mês.");
         })
         .finally(() => {
           if (active) setLoading(false);
         });
-    }, 250);
-
+    }, 0);
     return () => {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [load]);
+  }, [load, month]);
 
-  const categories = useMemo(
-    () =>
-      (payload.categories ?? []).filter(
-        (category) => category.entry_type === form.entryType,
-      ),
-    [form.entryType, payload.categories],
-  );
-
+  const entries = useMemo(() => payload.entries ?? [], [payload.entries]);
+  const finalized = payload.period?.workflow_status === "finalizado";
+  const hasSavedMonth = Boolean(payload.period || entries.length > 0);
   const totals = useMemo(
-    () =>
-      (payload.entries ?? []).reduce(
-        (acc, entry) => {
-          if (entry.entry_type === "receita") acc.revenues += Number(entry.amount) || 0;
-          else acc.expenses += Number(entry.amount) || 0;
-          return acc;
-        },
-        { revenues: 0, expenses: 0 },
-      ),
-    [payload.entries],
+    () => entries.reduce(
+      (acc, entry) => {
+        if (entry.entry_type === "receita") acc.receita += Number(entry.amount) || 0;
+        if (entry.entry_type === "despesa") acc.despesa += Number(entry.amount) || 0;
+        return acc;
+      },
+      { receita: 0, despesa: 0 },
+    ),
+    [entries],
   );
 
-  function edit(entry: Entry) {
-    setForm({
-      id: entry.id,
-      entryType: entry.entry_type,
-      entryDate: entry.entry_date,
-      dueDate: entry.due_date ?? entry.entry_date,
-      financialDate: entry.financial_date ?? entry.entry_date,
-      financialMonth: entry.financial_month ?? monthOf(entry.entry_date),
-      competenceMonth: entry.competence_month,
-      categoryId: entry.category_id ?? "",
-      descriptionInternal: entry.description_internal,
-      descriptionPublic: entry.description_public ?? "",
-      amount: String(entry.amount),
-      paymentMethod: entry.payment_method ?? "",
-      financialAccount: entry.financial_account ?? "",
-      counterpartyName: entry.counterparty_name ?? "",
-      workflowStatus: entry.workflow_status || "em_revisao",
-      dataNature: entry.data_nature || "realizado",
-      isProvisional: entry.data_nature === "estimado",
-      needsUpdate: entry.needs_update,
-      publicVisible: entry.public_visible,
-      notesInternal: entry.notes_internal ?? "",
-    });
-    setShowForm(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function resetForm() {
-    setForm({
-      ...emptyForm,
-      entryDate: today(),
-      dueDate: today(),
-      financialDate: today(),
-      financialMonth: monthOf(today()),
-      competenceMonth: monthOf(today()),
-    });
-    setShowForm(false);
-  }
+  const categoriesByType = useMemo(
+    () => ({
+      receita: (payload.categories ?? []).filter((category) => category.entry_type === "receita"),
+      despesa: (payload.categories ?? []).filter((category) => category.entry_type === "despesa"),
+    }),
+    [payload.categories],
+  );
 
   async function post(body: Record<string, unknown>) {
     const token = await accessToken();
-    const response = await fetch(
-      "/api/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos",
-      {
-        method: "POST",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+    const response = await fetch("/api/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", {
+      method: "POST",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "application/json",
       },
-    );
-    const result = (await response.json().catch(() => ({}))) as {
-      error?: string;
-      message?: string;
-    };
-    if (!response.ok) throw new Error(result.error || "Não foi possível salvar.");
+      body: JSON.stringify(body),
+    });
+    const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+    if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
+  async function replicate(mode: "last" | "average") {
+    const label = mode === "last" ? "último mês" : "média dos últimos meses";
+    if (!window.confirm(`Replicar ${label} para ${monthLabel(month)}?`)) return;
+    setBusy(`replicate:${mode}`);
+    setError("");
+    setMessage("");
+    try {
+      const result = await post({ action: "replicateMonth", targetMonth: `${month}-01`, mode });
+      setMessage(result.message || "Dados replicados. Revise antes de finalizar.");
+      await load(month);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Erro ao replicar mês.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveDraft(key: string, draft: Draft, isNew: boolean) {
+    if (!draft.description.trim()) {
+      setError("Informe a descrição do lançamento.");
+      return;
+    }
+    if (!(Number(draft.amount) > 0)) {
+      setError("Informe um valor maior que zero.");
+      return;
+    }
+
+    setBusy(`save:${key}`);
     setError("");
     setMessage("");
     try {
       const result = await post({
         action: "save",
-        ...form,
-        isProvisional: form.dataNature === "estimado",
-        amount: Number(form.amount.replace(",", ".")),
+        id: draft.id || null,
+        entryType: draft.entryType,
+        entryDate: `${month}-01`,
+        dueDate: `${month}-01`,
+        financialDate: `${month}-01`,
+        financialMonth: `${month}-01`,
+        competenceMonth: `${month}-01`,
+        categoryId: draft.categoryId || null,
+        descriptionInternal: draft.description.trim(),
+        descriptionPublic: draft.description.trim(),
+        amount: Number(draft.amount),
+        paymentMethod: draft.paymentMethod || null,
+        financialAccount: draft.financialAccount || null,
+        counterpartyName: draft.counterpartyName || null,
+        workflowStatus: "em_andamento",
+        dataNature: "realizado",
+        needsUpdate: false,
+        publicVisible: draft.publicVisible,
       });
       setMessage(result.message || "Lançamento salvo.");
-      resetForm();
-      await load();
+      if (isNew) setNewRows((current) => ({ ...current, [draft.entryType]: null }));
+      await load(month);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Erro ao salvar lançamento.",
-      );
+      setError(reason instanceof Error ? reason.message : "Erro ao salvar lançamento.");
     } finally {
-      setSaving(false);
+      setBusy("");
     }
   }
 
-  async function approve(entry: Entry) {
-    setSaving(true);
+  async function deleteEntry(id: string) {
+    if (!window.confirm("Excluir este lançamento do mês?")) return;
+    setBusy(`delete:${id}`);
     setError("");
     try {
-      const result = await post({ action: "approve", id: entry.id });
-      setMessage(result.message || "Lançamento conferido.");
-      await load();
+      const result = await post({ action: "delete", id });
+      setMessage(result.message || "Lançamento excluído.");
+      await load(month);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Erro ao aprovar.");
+      setError(reason instanceof Error ? reason.message : "Erro ao excluir lançamento.");
     } finally {
-      setSaving(false);
+      setBusy("");
     }
   }
 
-  async function remove(entry: Entry) {
-    if (!window.confirm(`Remover "${entry.description_internal}" da visão ativa?`)) {
-      return;
-    }
-    setSaving(true);
+  async function finalize() {
+    if (!window.confirm(`Finalizar ${monthLabel(month)}? Depois disso o mês ficará fechado para edição normal.`)) return;
+    setBusy("finalize");
     setError("");
+    setMessage("");
     try {
-      const result = await post({
-        action: "delete",
-        id: entry.id,
-        justification: "Removido pela Tesouraria/Financeiro na interface.",
-      });
-      setMessage(result.message || "Lançamento removido.");
-      await load();
+      const result = await post({ action: "finalizeMonth", targetMonth: `${month}-01` });
+      setMessage(result.message || "Mês finalizado.");
+      await load(month);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Erro ao remover.");
+      setError(reason instanceof Error ? reason.message : "Erro ao finalizar mês.");
     } finally {
-      setSaving(false);
+      setBusy("");
     }
+  }
+
+  function updateDraft(key: string, patch: Partial<Draft>) {
+    setDrafts((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
+  }
+
+  function updateNew(type: "receita" | "despesa", patch: Partial<Draft>) {
+    setNewRows((current) => ({
+      ...current,
+      [type]: { ...(current[type] ?? newDraft(type)), ...patch },
+    }));
+  }
+
+  function renderEditor(key: string, draft: Draft, isNew: boolean) {
+    const update = (patch: Partial<Draft>) => isNew ? updateNew(draft.entryType, patch) : updateDraft(key, patch);
+    return (
+      <div key={key} className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:grid-cols-6">
+        <input value={draft.description} onChange={(event) => update({ description: event.target.value })} disabled={finalized} placeholder="Descrição" className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100" />
+        <select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })} disabled={finalized} className="rounded-xl border border-slate-200 p-2.5 font-semibold sm:col-span-2 disabled:bg-slate-100">
+          <option value="">Categoria</option>
+          {categoriesByType[draft.entryType].map((category) => <option key={category.id} value={category.id}>{category.public_name || category.name}</option>)}
+        </select>
+        <input value={draft.amount} onChange={(event) => update({ amount: event.target.value })} disabled={finalized} inputMode="decimal" placeholder="Valor" className="rounded-xl border border-slate-200 p-2.5 font-semibold disabled:bg-slate-100" />
+        <div className="flex gap-1.5">
+          <button type="button" disabled={finalized || busy === `save:${key}`} onClick={() => void saveDraft(key, draft, isNew)} className="flex-1 rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-40">{busy === `save:${key}` ? "Salvando" : "Salvar"}</button>
+          {!isNew && <button type="button" disabled={finalized || busy === `delete:${draft.id}`} onClick={() => void deleteEntry(draft.id)} className="rounded-xl bg-white px-3 py-2.5 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-40">Excluir</button>}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <OrganizacaoClientShell
-      title="Lançamentos financeiros"
-      description="Cadastre e revise receitas e despesas. Informações individuais permanecem restritas à Tesouraria/Financeiro e à Diretoria autorizada."
-    >
-      {error && (
-        <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700">{error}</p>
-      )}
-      {message && (
-        <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800">
-          {message}
-        </p>
-      )}
-
-      <section className="grid gap-3 sm:grid-cols-3">
-        <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-            Receitas filtradas
-          </p>
-          <p className="mt-2 text-xl font-black text-[#123D2C]">
-            {money(totals.revenues)}
-          </p>
-        </article>
-        <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-            Despesas filtradas
-          </p>
-          <p className="mt-2 text-xl font-black text-[#123D2C]">
-            {money(totals.expenses)}
-          </p>
-        </article>
-        <article className="rounded-2xl bg-white p-4 shadow ring-1 ring-slate-100">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
-            Resultado
-          </p>
-          <p
-            className={`mt-2 text-xl font-black ${
-              totals.revenues - totals.expenses < 0
-                ? "text-red-700"
-                : "text-[#123D2C]"
-            }`}
-          >
-            {money(totals.revenues - totals.expenses)}
-          </p>
-        </article>
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-5">
-        <div className="grid gap-3 md:grid-cols-6">
-          <label className="grid gap-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-            Competência
-            <input
-              type="month"
-              value={monthFilter}
-              onChange={(event) => setMonthFilter(event.target.value)}
-              className="min-h-12 rounded-2xl border border-slate-200 px-4 text-sm normal-case tracking-normal text-[#123D2C]"
-            />
+    <OrganizacaoClientShell title="Registro de Receitas e Despesas" simpleFinancialHeader>
+      <section className="rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-slate-100 sm:p-5">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Mês a registrar
+            <input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} className="rounded-xl border border-slate-200 p-2.5 font-semibold" />
           </label>
-          <label className="grid gap-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-            Mês financeiro
-            <input
-              type="month"
-              value={financialMonthFilter}
-              onChange={(event) => setFinancialMonthFilter(event.target.value)}
-              className="min-h-12 rounded-2xl border border-slate-200 px-4 text-sm normal-case tracking-normal text-[#123D2C]"
-            />
-          </label>
-          <select
-            value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value)}
-            className="min-h-12 rounded-2xl border border-slate-200 px-4"
-          >
-            <option value="">Receitas e despesas</option>
-            <option value="receita">Receitas</option>
-            <option value="despesa">Despesas</option>
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className="min-h-12 rounded-2xl border border-slate-200 px-4"
-          >
-            <option value="">Todas as situações</option>
-            {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Descrição, fornecedor ou conta"
-            className="min-h-12 rounded-2xl border border-slate-200 px-4 md:col-span-2"
-          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={finalized || busy !== "" || entries.length > 0} onClick={() => void replicate("last")} className="rounded-xl bg-[#E9F2E7] px-3 py-2.5 text-xs font-black text-[#123D2C] disabled:opacity-40 sm:text-sm">Replicar último mês</button>
+            <button type="button" disabled={finalized || busy !== "" || entries.length > 0} onClick={() => void replicate("average")} className="rounded-xl bg-[#E9F2E7] px-3 py-2.5 text-xs font-black text-[#123D2C] disabled:opacity-40 sm:text-sm">Replicar média</button>
+          </div>
         </div>
 
-        {payload.canManage && (
-          <button
-            type="button"
-            onClick={() => {
-              setForm({
-                ...emptyForm,
-                entryDate: today(),
-                dueDate: today(),
-                financialDate: today(),
-                financialMonth: monthOf(today()),
-                competenceMonth: monthOf(today()),
-              });
-              setShowForm((current) => !current);
-            }}
-            className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white sm:w-fit"
-          >
-            {showForm ? "Fechar cadastro" : "Novo lançamento"}
-          </button>
+        {loading && <p className="mt-3 rounded-xl bg-emerald-50 p-3 font-bold text-emerald-800">Carregando...</p>}
+        {error && <p className="mt-3 rounded-xl bg-red-50 p-3 font-bold text-red-700">{error}</p>}
+        {message && <p className="mt-3 rounded-xl bg-emerald-50 p-3 font-bold text-emerald-800">{message}</p>}
+
+        {!loading && hasSavedMonth && !finalized && (
+          <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-black text-amber-900 ring-1 ring-amber-200">⚠ {monthLabel(month)} possui informações salvas e ainda precisa ser finalizado.</p>
+        )}
+        {!loading && finalized && (
+          <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-black text-emerald-800 ring-1 ring-emerald-200">✓ {monthLabel(month)} está finalizado.</p>
         )}
       </section>
 
-      {showForm && payload.canManage && (
-        <form
-          onSubmit={submit}
-          className="grid gap-4 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7"
-        >
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
-              {form.id ? "Editar lançamento" : "Cadastro manual"}
-            </p>
-            <h2 className="mt-1 text-xl font-black text-[#00334E]">
-              {form.id ? "Atualize os dados e preserve o histórico." : "Registre uma receita ou despesa."}
-            </h2>
-          </div>
+      <section className="overflow-hidden rounded-[1.5rem] bg-white shadow ring-1 ring-slate-100">
+        <div className="grid grid-cols-[1fr_auto] bg-[#123D2C] px-4 py-3 font-black text-white">
+          <span>Prestação de contas por mês</span>
+          <span>{monthLabel(month)}</span>
+        </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            {(["receita", "despesa"] as const).map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() =>
-                  setForm((current) => ({
-                    ...current,
-                    entryType: type,
-                    categoryId: "",
-                  }))
-                }
-                className={`rounded-2xl p-3 font-black ring-1 ${
-                  form.entryType === type
-                    ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                    : "bg-white text-[#123D2C] ring-[#123D2C]/15"
-                }`}
-              >
-                {type === "receita" ? "Receita" : "Despesa"}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Data do registro
-              <input
-                type="date"
-                value={form.entryDate}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    entryDate: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Competência
-              <input
-                type="month"
-                value={form.competenceMonth.slice(0, 7)}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    competenceMonth: `${event.target.value}-01`,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-              <span className="text-xs font-semibold text-slate-500">
-                Mês ao qual a receita ou despesa pertence.
-              </span>
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Vencimento
-              <input
-                type="date"
-                value={form.dueDate}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    dueDate: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Data financeira
-              <input
-                type="date"
-                value={form.financialDate}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    financialDate: event.target.value,
-                    financialMonth: monthOf(event.target.value),
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-              <span className="text-xs font-semibold text-slate-500">
-                Data em que o valor movimentou ou deverá movimentar o banco.
-              </span>
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Mês financeiro
-              <input
-                type="month"
-                value={form.financialMonth.slice(0, 7)}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    financialMonth: `${event.target.value}-01`,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Categoria
-              <select
-                value={form.categoryId}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    categoryId: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              >
-                <option value="">Sem categoria</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.group_name} · {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Valor
-              <input
-                value={form.amount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    amount: event.target.value,
-                  }))
-                }
-                inputMode="decimal"
-                placeholder="0,00"
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
-              Descrição interna
-              <input
-                value={form.descriptionInternal}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    descriptionInternal: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
-              Descrição pública
-              <input
-                value={form.descriptionPublic}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    descriptionPublic: event.target.value,
-                  }))
-                }
-                placeholder="Texto sem nomes ou informações sensíveis"
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Forma de pagamento
-              <select
-                value={form.paymentMethod}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    paymentMethod: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              >
-                <option value="">Não informada</option>
-                <option value="pix">Pix</option>
-                <option value="dinheiro">Dinheiro</option>
-                <option value="boleto">Boleto</option>
-                <option value="cartao">Cartão</option>
-                <option value="transferencia">Transferência</option>
-                <option value="debito_conta">Débito em conta</option>
-              </select>
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Conta financeira
-              <input
-                value={form.financialAccount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    financialAccount: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
-              Fornecedor ou origem
-              <input
-                value={form.counterpartyName}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    counterpartyName: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-4"
-              />
-            </label>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Natureza do valor
-              <select
-                value={form.dataNature}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    dataNature: event.target.value as "realizado" | "estimado",
-                    isProvisional: event.target.value === "estimado",
-                    needsUpdate: event.target.value === "estimado",
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-3"
-              >
-                <option value="realizado">Realizado</option>
-                <option value="estimado">Estimado</option>
-              </select>
-            </label>
-            <label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4">
-              <input
-                type="checkbox"
-                checked={form.publicVisible}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    publicVisible: event.target.checked,
-                  }))
-                }
-                className="mt-1 h-5 w-5"
-              />
-              <span className="font-black text-[#123D2C]">
-                Pode compor o painel público
-              </span>
-            </label>
-            <label className="grid gap-2 font-black text-[#123D2C]">
-              Etapa do fluxo
-              <select
-                value={form.workflowStatus}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    workflowStatus: event.target.value,
-                  }))
-                }
-                className="rounded-2xl border border-slate-200 p-3"
-              >
-                {Object.entries(statusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="grid gap-2 font-black text-[#123D2C]">
-            Observação restrita
-            <textarea
-              value={form.notesInternal}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  notesInternal: event.target.value,
-                }))
-              }
-              className="min-h-24 rounded-2xl border border-slate-200 p-4 font-semibold text-slate-700"
-            />
-          </label>
-
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              disabled={saving}
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-60"
-            >
-              {saving ? "Salvando..." : "Salvar lançamento"}
-            </button>
-            <button
-              type="button"
-              onClick={resetForm}
-              className="rounded-2xl bg-slate-100 px-5 py-4 font-black text-[#123D2C]"
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
-      )}
-
-      <section className="grid gap-3">
-        {loading && (
-          <p className="rounded-2xl bg-white p-4 font-bold text-slate-500">
-            Carregando lançamentos...
-          </p>
-        )}
-
-        {(payload.entries ?? []).map((entry) => {
-          const category = categoryOf(entry);
+        {(["receita", "despesa"] as const).map((type) => {
+          const label = type === "receita" ? "Receitas" : "Despesas";
+          const typeEntries = entries.filter((entry) => entry.entry_type === type);
+          const total = type === "receita" ? totals.receita : totals.despesa;
           return (
-            <article
-              key={entry.id}
-              className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-slate-100 sm:p-5"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap gap-2">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-black ${
-                        entry.entry_type === "receita"
-                          ? "bg-emerald-50 text-emerald-800"
-                          : "bg-amber-50 text-amber-800"
-                      }`}
-                    >
-                      {entry.entry_type === "receita" ? "Receita" : "Despesa"}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                      {statusLabels[entry.workflow_status] ?? entry.workflow_status}
-                    </span>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-black ${
-                        entry.data_nature === "estimado"
-                          ? "bg-amber-100 text-amber-900"
-                          : "bg-blue-50 text-blue-800"
-                      }`}
-                    >
-                      {entry.data_nature === "estimado" ? "Estimado" : "Realizado"}
-                    </span>
-                  </div>
-                  <h3 className="mt-3 break-words text-lg font-black text-[#00334E]">
-                    {entry.description_internal}
-                  </h3>
-                  <p className="mt-1 text-sm font-semibold text-slate-500">
-                    Competência {entry.competence_month.slice(0, 7)} · Financeiro {(entry.financial_month ?? entry.competence_month).slice(0, 7)}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                    Vencimento {entry.due_date ?? "não informado"} · Movimento {entry.financial_date ?? entry.entry_date} · {category?.group_name ?? "Sem grupo"} · {category?.name ?? "Sem categoria"}
-                  </p>
-                  {entry.counterparty_name && (
-                    <p className="mt-1 text-sm text-slate-600">
-                      {entry.counterparty_name}
-                    </p>
-                  )}
-                </div>
-                <p
-                  className={`text-xl font-black ${
-                    entry.entry_type === "receita"
-                      ? "text-emerald-800"
-                      : "text-amber-800"
-                  }`}
-                >
-                  {money(Number(entry.amount))}
-                </p>
-              </div>
+            <div key={type} className="border-t border-[#123D2C]/10 first:border-t-0">
+              <button type="button" onClick={() => setExpanded((current) => ({ ...current, [type]: !current[type] }))} className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 bg-[#F7FAF2] px-4 py-3 text-left">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-lg font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{expanded[type] ? "−" : "+"}</span>
+                <span className="font-black text-[#123D2C]">{label}</span>
+                <span className="font-black text-[#123D2C]">{money(total)}</span>
+              </button>
 
-              {payload.canManage && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => edit(entry)}
-                    className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-black text-[#00334E]"
-                  >
-                    Editar
-                  </button>
-                  {entry.workflow_status !== "finalizado" && (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => approve(entry)}
-                      className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800"
-                    >
-                      Conferir
-                    </button>
+              {expanded[type] && (
+                <div className="grid gap-2 p-3 sm:p-4">
+                  {typeEntries.map((entry) => drafts[entry.id] ? renderEditor(entry.id, drafts[entry.id], false) : null)}
+                  {typeEntries.length === 0 && !newRows[type] && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Nenhum lançamento neste grupo.</p>}
+                  {newRows[type] && renderEditor(`new:${type}`, newRows[type] as Draft, true)}
+                  {!finalized && !newRows[type] && (
+                    <button type="button" onClick={() => setNewRows((current) => ({ ...current, [type]: newDraft(type) }))} className="rounded-xl border-2 border-dashed border-[#123D2C]/25 bg-white px-4 py-3 text-sm font-black text-[#123D2C]">+ Incluir nova {type === "receita" ? "receita" : "despesa"}</button>
                   )}
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => remove(entry)}
-                    className="rounded-xl bg-red-50 px-3 py-2 text-sm font-black text-red-700"
-                  >
-                    Remover
-                  </button>
                 </div>
               )}
-            </article>
+            </div>
           );
         })}
-
-        {!loading && (payload.entries ?? []).length === 0 && (
-          <p className="rounded-2xl bg-white p-5 font-bold text-slate-500 shadow">
-            Nenhum lançamento encontrado com os filtros atuais.
-          </p>
-        )}
       </section>
+
+      {!finalized && hasSavedMonth && (
+        <button type="button" disabled={busy === "finalize" || loading} onClick={() => void finalize()} className="w-full rounded-2xl bg-[#123D2C] px-5 py-3.5 text-base font-black text-white shadow disabled:opacity-50">{busy === "finalize" ? "Finalizando..." : "Finalizar mês"}</button>
+      )}
     </OrganizacaoClientShell>
   );
 }

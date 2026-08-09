@@ -21,6 +21,7 @@ type FilhoCorrentePanelHeaderProps = {
   showSupport?: boolean;
   mobileActionColumns?: 2 | 3 | 4;
   compactMobileActions?: boolean;
+  autoHighlightCurrent?: boolean;
 };
 
 function redirectToFilhoLogin() {
@@ -112,6 +113,7 @@ export function FilhoCorrentePanelHeader({
   showSupport = true,
   mobileActionColumns = 4,
   compactMobileActions = true,
+  autoHighlightCurrent = true,
 }: FilhoCorrentePanelHeaderProps) {
   const authenticatedName = useFilhoCorrenteName();
 
@@ -162,6 +164,7 @@ export function FilhoCorrentePanelHeader({
       showSupport={false}
       mobileActionColumns={mobileActionColumns}
       compactMobileActions={compactMobileActions}
+      autoHighlightCurrent={autoHighlightCurrent}
     />
   );
 }

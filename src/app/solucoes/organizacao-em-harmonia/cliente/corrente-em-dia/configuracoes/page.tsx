@@ -41,6 +41,8 @@ type Settings = {
   ocrProvider: string;
   receptionContactName: string;
   receptionWhatsapp: string;
+  financeContactName: string;
+  financeWhatsapp: string;
   contributionNotificationEmails: string[];
 };
 
@@ -95,6 +97,8 @@ const defaults: Settings = {
   ocrProvider: "external_adapter",
   receptionContactName: "Recepção do Tucxa",
   receptionWhatsapp: "",
+  financeContactName: "Tesouraria/Financeiro do Tucxa",
+  financeWhatsapp: "",
   contributionNotificationEmails: ["automacao-ao-extremo@gmail.com"],
 };
 
@@ -448,6 +452,35 @@ export default function CorrenteConfiguracoesPage() {
               />
               <span className="text-xs font-semibold text-slate-500">
                 Informe DDD e número. O código do Brasil será acrescentado automaticamente quando necessário.
+              </span>
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              Nome exibido da Tesouraria/Financeiro
+              <input
+                value={settings.financeContactName}
+                onChange={(event) =>
+                  update("financeContactName", event.target.value)
+                }
+                placeholder="Tesouraria/Financeiro do Tucxa"
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+            </label>
+            <label className="grid gap-2 font-black text-[#123D2C]">
+              WhatsApp da Tesouraria/Financeiro
+              <input
+                value={settings.financeWhatsapp}
+                onChange={(event) =>
+                  update(
+                    "financeWhatsapp",
+                    event.target.value.replace(/\D/g, ""),
+                  )
+                }
+                inputMode="tel"
+                placeholder="19999999999"
+                className="rounded-2xl border border-slate-200 p-4"
+              />
+              <span className="text-xs font-semibold text-slate-500">
+                Usado quando o Filho da Corrente precisar falar com a Tesouraria/Financeiro sobre uma contribuição já enviada para aprovação.
               </span>
             </label>
             <label className="grid gap-2 font-black text-[#123D2C] md:col-span-2">
