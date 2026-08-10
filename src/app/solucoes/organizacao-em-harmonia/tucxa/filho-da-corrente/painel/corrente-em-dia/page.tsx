@@ -1,266 +1,624 @@
 "use client";
 
-import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FilhoCorrentePanelHeader,
+  filhoPanelBase,
+  filhoSignOutAction,
+  filhoSupportAction,
+  type PanelHeaderAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  MemberContributionJourney,
+  type MemberContributionSettings,
+  type MemberReceptionContact,
+} from "@/components/organizacao-em-harmonia/member-contribution-journey";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+
+const CORRENTE_BASE = `${filhoPanelBase}/corrente-em-dia`;
+const SETTINGS_HREF = `${CORRENTE_BASE}/configuracoes`;
+
+const headerActions: PanelHeaderAction[] = [
+  { label: "Início", href: "#inicio", variant: "primary" },
+  { label: "Voltar", href: filhoPanelBase, variant: "secondary" },
+  { label: "Configurações", href: SETTINGS_HREF, variant: "secondary" },
+  filhoSignOutAction,
+  filhoSupportAction,
+];
+
+type Settings = MemberContributionSettings & {
+  persuasiveText: string;
+  financeContactName?: string;
+  financeWhatsapp?: string;
+};
 
 type Contribution = {
   id: string;
-  amount: number;
+  amount: number | string;
   due_date: string;
-  paid_at: string | null;
   status: string;
   payment_method: string | null;
-  proof_url: string | null;
-  notes: string | null;
 };
 
-type Upcoming = {
+type ApprovedFamily = {
+  id: string;
+  name: string;
+  approvedAmount: number;
+  members: Array<{
+    id: string;
+    fullName: string;
+    relationshipLabel: string;
+  }>;
+};
+
+type UpcomingContribution = {
   dueDate: string;
+  scheduledDates?: string[];
   amount: number;
   status: string;
+  scheduled?: boolean;
+  contributionId?: string | null;
+  recurrenceType?: string | null;
+  recurrenceStartDate?: string | null;
+  recurrenceOccurrences?: number | null;
+  paymentMethod?: string | null;
+  notes?: string | null;
+  proofUploaded?: boolean;
+  uploadToken?: string | null;
+  trackingCode?: string | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
 };
 
 type Payload = {
-  currentPerson?: { fullName?: string };
-  settings?: {
-    defaultAmount: number;
-    familyAmount: number;
-    defaultDueDays: number[];
-    reminderBeforeDays: number;
-    reminderAfterDays: number;
-    pixKey: string;
-    persuasiveText: string;
+  currentPerson?: {
+    fullName?: string;
+    email?: string | null;
+    whatsapp?: string | null;
   };
+  canManageFinance?: boolean;
+  receptionContacts?: MemberReceptionContact[];
+  settings?: Settings;
+  approvedFamily?: ApprovedFamily | null;
   contributions?: Contribution[];
-  upcoming?: Upcoming[];
-  pixCopyPaste?: string;
-  qrCodeDataUrl?: string;
+  upcoming?: UpcomingContribution[];
+  nextAvailableContributionDate?: string;
   error?: string;
 };
 
-type PaymentMethod = "pix" | "credito" | "debito" | "dinheiro";
+type ContributionView = "menu" | "history" | "upcoming";
 
-const paymentLabels: Record<string, string> = { pix: "PIX", credito: "Crédito", debito: "Débito", dinheiro: "Dinheiro" };
 const statusLabels: Record<string, string> = {
+  intencao_registrada: "Intenção registrada",
   aguardando_pagamento: "Aguardando pagamento",
+  aguardando_comprovante: "Aguardando comprovante",
+  aguardando_recepcao: "Aguardando Recepção",
+  aprovado: "Aprovado",
   comprovante_enviado: "Comprovante enviado",
+  em_revisao: "Aguardando aprovação",
   confirmado: "Confirmado",
   pago: "Pago",
   atrasado: "Em atraso",
+  cancelado: "Cancelado",
+  programado: "Programado",
 };
 
-function loginUrl() {
-  if (typeof window === "undefined") return "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
-  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  return `/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login?returnTo=${encodeURIComponent(returnTo)}`;
+const paymentLabels: Record<string, string> = {
+  pix: "Pix",
+  credito: "Crédito",
+  debito: "Débito",
+  dinheiro: "Dinheiro",
+  recepcao: "Cartão, Débito ou Dinheiro",
+};
+
+function money(value: number | string) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(Number(value) || 0);
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+function date(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${value.slice(0, 10)}T12:00:00Z`));
 }
 
-export default function CorrenteEmDiaFilhoDaCorrentePage() {
-  const [payload, setPayload] = useState<Payload | null>(null);
+function todayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function whatsappUrl(number: string | undefined, message: string) {
+  let digits = (number ?? "").replace(/\D/g, "");
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  return digits ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}` : "";
+}
+
+export default function FilhoCorrenteCorrenteEmDiaPage() {
+  const [payload, setPayload] = useState<Payload>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
-  const [proofUrl, setProofUrl] = useState("");
-  const [notes, setNotes] = useState("");
-  const [wantsBeforeReminder, setWantsBeforeReminder] = useState(true);
-  const [wantsLateReminder, setWantsLateReminder] = useState(true);
+  const [financeOpen, setFinanceOpen] = useState(false);
+  const [contributionOpen, setContributionOpen] = useState(false);
+  const [contributionView, setContributionView] = useState<ContributionView>("menu");
+  const [upcomingPage, setUpcomingPage] = useState(1);
+  const [proofLockedItem, setProofLockedItem] = useState<UpcomingContribution | null>(null);
+  const [savingAction, setSavingAction] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+
+  const token = useCallback(async () => {
+    const { data } = await supabaseBrowser.auth.getSession();
+    return data.session?.access_token ?? "";
+  }, []);
 
   const load = useCallback(async () => {
-    const { data: sessionData } = await supabaseBrowser.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) {
-      window.location.replace(loginUrl());
-      return;
-    }
-    const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia", { headers: { Authorization: `Bearer ${token}` } });
+    const accessToken = await token();
+    const response = await fetch(
+      "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+      {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        cache: "no-store",
+      },
+    );
     const result = (await response.json()) as Payload;
-    if (!response.ok) throw new Error(result.error || "Não foi possível carregar Corrente em Dia.");
+    if (!response.ok) {
+      throw new Error(result.error || "Não foi possível carregar.");
+    }
     setPayload(result);
-    setAmount(String(result.settings?.defaultAmount ?? 50));
-    setDueDate(result.upcoming?.[0]?.dueDate ?? "");
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     let active = true;
-    const timer = window.setTimeout(() => {
-      load()
-        .catch((err) => active && setError(err instanceof Error ? err.message : "Erro ao carregar Corrente em Dia."))
-        .finally(() => active && setLoading(false));
+    const timerId = window.setTimeout(() => {
+      void load()
+        .catch((reason) => {
+          if (active) {
+            setError(
+              reason instanceof Error ? reason.message : "Erro ao carregar Corrente em Dia.",
+            );
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+
+      const params = new URLSearchParams(window.location.search);
+      if (active && params.get("financeiro") === "1") {
+        setFinanceOpen(true);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
     }, 0);
+
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearTimeout(timerId);
     };
   }, [load]);
 
-  const numericAmount = useMemo(() => {
-    const parsed = Number(amount.replace(".", "").replace(",", "."));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : payload?.settings?.defaultAmount ?? 50;
-  }, [amount, payload?.settings?.defaultAmount]);
+  const pastContributions = useMemo(
+    () =>
+      (payload.contributions ?? [])
+        .filter((item) => item.due_date.slice(0, 10) < todayIso())
+        .sort((left, right) => right.due_date.localeCompare(left.due_date)),
+    [payload.contributions],
+  );
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      const { data: sessionData } = await supabaseBrowser.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) {
-        window.location.replace(loginUrl());
-        return;
-      }
-      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia", {
+  const upcoming = useMemo(
+    () => [...(payload.upcoming ?? [])].sort((left, right) => left.dueDate.localeCompare(right.dueDate)),
+    [payload.upcoming],
+  );
+
+  const upcomingPageCount = Math.max(1, Math.ceil(upcoming.length / 2));
+  const safeUpcomingPage = Math.min(upcomingPage, upcomingPageCount);
+  const visibleUpcoming = useMemo(
+    () => upcoming.slice((safeUpcomingPage - 1) * 2, safeUpcomingPage * 2),
+    [safeUpcomingPage, upcoming],
+  );
+
+  const contributionSettings = payload.settings;
+
+  function openContribution() {
+    setContributionView("menu");
+    setUpcomingPage(1);
+    setContributionOpen(true);
+  }
+
+  function closeContributionView() {
+    if (contributionView === "menu") {
+      setContributionOpen(false);
+      return;
+    }
+    setContributionView("menu");
+  }
+
+  async function postAction(body: Record<string, unknown>) {
+    const accessToken = await token();
+    if (!accessToken) throw new Error("Sessão não encontrada.");
+
+    const response = await fetch(
+      "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+      {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "createContribution", amount: numericAmount, dueDate, paymentMethod, proofUrl, notes }),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    const result = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(result.error || "Não foi possível concluir a operação.");
+    }
+    return result;
+  }
+
+  async function deleteContribution(item: UpcomingContribution) {
+    if (!item.contributionId || !item.canDelete) return;
+    if (!window.confirm("Excluir esta contribuição/programação ainda não validada?")) return;
+
+    setSavingAction(`delete:${item.contributionId}`);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await postAction({
+        action: "cancelContribution",
+        contributionId: item.contributionId,
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível registrar a contribuição.");
-      setMessage(result.message || "Contribuição registrada.");
-      setProofUrl("");
-      setNotes("");
+      setActionMessage(result.message || "Contribuição excluída.");
       await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao registrar contribuição.");
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "Erro ao excluir a contribuição.");
     } finally {
-      setSaving(false);
+      setSavingAction("");
     }
   }
 
-  async function saveReminders() {
-    setError("");
-    setMessage("");
-    try {
-      const { data: sessionData } = await supabaseBrowser.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) return;
-      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "saveReminderPreferences", wantsBeforeReminder, wantsLateReminder }),
-      });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível salvar lembretes.");
-      setMessage(result.message || "Preferências salvas.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar lembretes.");
-    }
+  function editContactMessage(item: UpcomingContribution) {
+    const dates = (item.scheduledDates ?? [item.dueDate]).map(date).join(", ");
+    return `Olá. Sou ${payload.currentPerson?.fullName || "Filho da Corrente"}. Preciso de orientação sobre a contribuição ${item.trackingCode ? `código ${item.trackingCode}, ` : ""}programada para ${dates}, cujo comprovante já foi enviado e aguarda aprovação.`;
   }
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Corrente em Dia" />
+      <FilhoCorrentePanelHeader navLabel="Corrente em Dia" actions={headerActions} mobileActionColumns={3} />
 
-      <section className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
-        {loading && <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando Corrente em Dia...</p>}
-        {error && <p className="rounded-3xl bg-red-50 p-5 font-bold text-red-700 shadow ring-1 ring-red-100">{error}</p>}
-        {message && <p className="rounded-3xl bg-emerald-50 p-5 font-bold text-emerald-800 shadow ring-1 ring-emerald-100">{message}</p>}
+      <section id="inicio" className="mx-auto max-w-6xl space-y-4 px-3 py-3 sm:space-y-5 sm:px-6 sm:py-4 lg:px-8">
+        {loading && (
+          <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow">Carregando Corrente em Dia...</p>
+        )}
+        {error && <p className="rounded-3xl bg-red-50 p-5 font-bold text-red-700">{error}</p>}
 
-        {!loading && payload && (
-          <div className="grid gap-5">
-            <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-              <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Corrente em Dia</p>
-              <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Sua contribuição mantém a casa pronta para servir.</h1>
-              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-                {payload.settings?.persuasiveText}
-              </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <article className="rounded-3xl bg-white/10 p-4"><p className="text-2xl font-black">{formatCurrency(payload.settings?.defaultAmount ?? 50)}</p><p className="text-xs font-bold text-[#CFE2C7]">Valor padrão</p></article>
-                <article className="rounded-3xl bg-white/10 p-4"><p className="text-2xl font-black">{formatCurrency(payload.settings?.familyAmount ?? 120)}</p><p className="text-xs font-bold text-[#CFE2C7]">Família</p></article>
-                <article className="rounded-3xl bg-white/10 p-4"><p className="text-2xl font-black">Dia {(payload.settings?.defaultDueDays ?? [10]).join(", ")}</p><p className="text-xs font-bold text-[#CFE2C7]">Vencimento</p></article>
+        {!loading && contributionSettings && (
+          <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-7">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">Corrente em Dia</p>
+            <h1 className="mt-1.5 text-2xl font-black leading-tight sm:text-4xl">Sua contribuição ajuda a manter a Casa pronta para servir.</h1>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:text-base sm:leading-7">{contributionSettings.persuasiveText}</p>
+
+            {payload.approvedFamily && (
+              <div className="mt-3 rounded-2xl bg-white/10 p-3 ring-1 ring-white/20 sm:mt-5 sm:p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#CFE2C7] sm:text-xs">Contribuição familiar aprovada</p>
+                <p className="mt-0.5 text-xl font-black sm:text-2xl">{money(payload.approvedFamily.approvedAmount)}</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5 sm:mt-2 sm:gap-2">
+                  {payload.approvedFamily.members.map((member) => (
+                    <span key={member.id} className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-black sm:text-xs">{member.fullName}</span>
+                  ))}
+                </div>
               </div>
-            </section>
+            )}
 
-            <section className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-              <form onSubmit={submit} className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                <h2 className="text-2xl font-black text-[#123D2C]">Registrar contribuição</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Valor
-                    <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className="rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Vencimento
-                    <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Forma de pagamento
-                    <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} className="rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
-                      <option value="pix">PIX</option>
-                      <option value="credito">Crédito</option>
-                      <option value="debito">Débito</option>
-                      <option value="dinheiro">Dinheiro</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-                    Link/código do comprovante
-                    <input value={proofUrl} onChange={(event) => setProofUrl(event.target.value)} className="rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold" placeholder="Cole o link, nome do arquivo ou código" />
-                  </label>
-                  <label className="grid gap-1 text-sm font-black text-[#123D2C] sm:col-span-2">
-                    Observação
-                    <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-24 rounded-2xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
-                  </label>
-                </div>
-                <button disabled={saving} className="mt-4 w-full rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white shadow disabled:opacity-60">{saving ? "Registrando..." : "Enviar para conferência"}</button>
-              </form>
-
-              <section className="grid gap-4">
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                  <h2 className="text-2xl font-black text-[#123D2C]">Pix</h2>
-                  {payload.qrCodeDataUrl && <Image src={payload.qrCodeDataUrl} alt="QR Code Pix" width={240} height={240} unoptimized className="mx-auto mt-4 rounded-3xl bg-white" />}
-                  <p className="mt-3 break-all rounded-2xl bg-[#F7FAF2] p-3 text-xs font-bold text-slate-700 ring-1 ring-[#123D2C]/10">{payload.pixCopyPaste}</p>
-                </article>
-                <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                  <h2 className="text-xl font-black text-[#123D2C]">Lembretes</h2>
-                  <label className="mt-3 flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-3 font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={wantsBeforeReminder} onChange={(event) => setWantsBeforeReminder(event.target.checked)} className="mt-1 h-5 w-5 accent-[#123D2C]" /> Receber lembrete antes do vencimento</label>
-                  <label className="mt-2 flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-3 font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={wantsLateReminder} onChange={(event) => setWantsLateReminder(event.target.checked)} className="mt-1 h-5 w-5 accent-[#123D2C]" /> Receber lembrete quando estiver em atraso</label>
-                  <button type="button" onClick={saveReminders} className="mt-3 rounded-2xl bg-[#E9F2E7] px-4 py-3 font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Salvar lembretes</button>
-                </article>
-              </section>
-            </section>
-
-            <section className="grid gap-5 lg:grid-cols-2">
-              <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                <h2 className="text-2xl font-black text-[#123D2C]">Próximas contribuições</h2>
-                <div className="mt-4 grid gap-3">
-                  {(payload.upcoming ?? []).map((item) => (
-                    <div key={item.dueDate} className="flex items-center justify-between rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                      <span><span className="block font-black text-[#123D2C]">{item.dueDate}</span><span className="text-sm font-semibold text-slate-600">{item.status}</span></span>
-                      <span className="font-black text-[#123D2C]">{formatCurrency(item.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </article>
-              <article className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10 sm:p-6">
-                <h2 className="text-2xl font-black text-[#123D2C]">Histórico</h2>
-                <div className="mt-4 grid gap-3">
-                  {(payload.contributions ?? []).map((item) => (
-                    <div key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                      <div className="flex items-center justify-between gap-3"><p className="font-black text-[#123D2C]">{formatCurrency(Number(item.amount))}</p><span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{statusLabels[item.status] ?? item.status}</span></div>
-                      <p className="mt-1 text-sm font-semibold text-slate-600">{item.due_date} • {paymentLabels[item.payment_method ?? ""] ?? item.payment_method ?? "Forma não informada"}</p>
-                    </div>
-                  ))}
-                  {(payload.contributions ?? []).length === 0 && <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">Nenhum histórico registrado ainda.</p>}
-                </div>
-              </article>
-            </section>
-
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel" className="w-fit rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white">Voltar ao painel</Link>
-          </div>
+            <div className="mt-3 grid gap-2 sm:mt-5 sm:grid-cols-2 sm:gap-3">
+              <button type="button" onClick={openContribution} className="w-full rounded-2xl bg-white px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">Contribuição</button>
+              <button type="button" onClick={() => setFinanceOpen(true)} className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">Financeiro</button>
+            </div>
+          </section>
         )}
       </section>
+
+      {contributionOpen && contributionSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-2 sm:p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setContributionOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="member-contribution-center-title" className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl sm:max-h-[94vh] sm:rounded-[2rem]">
+            <header className="shrink-0 border-b border-slate-100 p-3 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">Corrente em Dia</p>
+                  <h2 id="member-contribution-center-title" className="mt-0.5 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">Contribuição do Filho da Corrente</h2>
+                </div>
+                <button type="button" onClick={closeContributionView} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white sm:px-4">Fechar</button>
+              </div>
+            </header>
+
+            <div className="min-h-0 overflow-y-auto p-3 sm:p-5">
+              {contributionView === "menu" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button type="button" onClick={() => setContributionView("history")} className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]">
+                    <span className="block text-xl font-black text-[#123D2C]">Histórico</span>
+                    <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">Consulte contribuições anteriores.</span>
+                  </button>
+                  <button type="button" onClick={() => { setUpcomingPage(1); setContributionView("upcoming"); }} className="rounded-2xl border-2 border-[#123D2C]/20 bg-[#F7FAF2] p-5 text-left shadow-sm transition hover:border-[#123D2C]">
+                    <span className="block text-xl font-black text-[#123D2C]">Próximas</span>
+                    <span className="mt-1 block text-sm font-semibold leading-5 text-slate-600">Veja e organize suas programações futuras.</span>
+                  </button>
+                </div>
+              )}
+
+              {contributionView === "history" && (
+                <div>
+                  <h3 className="text-xl font-black text-[#123D2C]">Histórico</h3>
+                  <div className="mt-3 grid gap-2.5">
+                    {pastContributions.map((item) => (
+                      <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-black text-[#123D2C]">{money(item.amount)}</p>
+                          <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black text-[#123D2C] sm:text-xs">{statusLabels[item.status] ?? item.status}</span>
+                        </div>
+                        <p className="mt-1 text-xs font-semibold text-slate-600 sm:text-sm">{date(item.due_date)} · {paymentLabels[item.payment_method ?? ""] ?? item.payment_method ?? "Forma não informada"}</p>
+                      </article>
+                    ))}
+                    {pastContributions.length === 0 && <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">Nenhuma contribuição anterior registrada.</p>}
+                  </div>
+                </div>
+              )}
+
+              {contributionView === "upcoming" && (
+                <div>
+                  <h3 className="text-xl font-black text-[#123D2C]">Próximas contribuições</h3>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">
+                    Programações recorrentes aparecem uma única vez, reunindo todas as datas.
+                  </p>
+
+                  {actionMessage && (
+                    <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">
+                      {actionMessage}
+                    </p>
+                  )}
+                  {actionError && (
+                    <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                      {actionError}
+                    </p>
+                  )}
+
+                  <article className="mt-3 rounded-2xl border-2 border-dashed border-[#123D2C]/30 bg-white p-3 sm:p-4">
+                    <p className="font-black text-[#123D2C]">Nova contribuição</p>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-slate-600">
+                      Próxima data disponível considerando todas as programações existentes:{" "}
+                      <strong>
+                        {payload.nextAvailableContributionDate
+                          ? date(payload.nextAvailableContributionDate)
+                          : "a definir"}
+                      </strong>
+                    </p>
+                    {payload.nextAvailableContributionDate && (
+                      <div className="mt-3">
+                        <MemberContributionJourney
+                          settings={contributionSettings}
+                          person={{
+                            fullName:
+                              payload.currentPerson?.fullName ||
+                              "Filho da Corrente",
+                            email: payload.currentPerson?.email ?? null,
+                            whatsapp: payload.currentPerson?.whatsapp ?? null,
+                          }}
+                          receptionContacts={payload.receptionContacts ?? []}
+                          onCompleted={load}
+                          dueDate={payload.nextAvailableContributionDate}
+                          triggerLabel="Nova contribuição"
+                        />
+                      </div>
+                    )}
+                  </article>
+
+                  <div className="mt-3 grid gap-3">
+                    {visibleUpcoming.map((item) => {
+                      const dates = item.scheduledDates?.length
+                        ? item.scheduledDates
+                        : [item.dueDate];
+                      const recurring =
+                        item.recurrenceType === "pix_agendado" ||
+                        dates.length > 1;
+
+                      return (
+                        <article
+                          key={
+                            item.contributionId ||
+                            `${item.dueDate}-${item.amount}`
+                          }
+                          className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black text-[#123D2C]">
+                                {recurring
+                                  ? "Programação recorrente"
+                                  : date(item.dueDate)}
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-600 sm:text-sm">
+                                {statusLabels[item.status] ?? item.status}
+                              </p>
+                            </div>
+                            <span className="font-black text-[#123D2C]">
+                              {money(item.amount)}
+                            </span>
+                          </div>
+
+                          {recurring && (
+                            <div className="mt-2 rounded-xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10">
+                              <p className="font-black text-[#2F6B43]">
+                                Datas desta programação
+                              </p>
+                              <p className="mt-1 font-semibold text-slate-700">
+                                {dates.map(date).join(" · ")}
+                              </p>
+                            </div>
+                          )}
+
+                          {item.proofUploaded ? (
+                            <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 text-center text-sm font-black text-amber-900 ring-1 ring-amber-200">
+                              Aguardando aprovação — edição e exclusão indisponíveis após o envio do comprovante.
+                            </div>
+                          ) : item.contributionId && item.canEdit ? (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <MemberContributionJourney
+                                settings={contributionSettings}
+                                person={{
+                                  fullName:
+                                    payload.currentPerson?.fullName ||
+                                    "Filho da Corrente",
+                                  email:
+                                    payload.currentPerson?.email ?? null,
+                                  whatsapp:
+                                    payload.currentPerson?.whatsapp ?? null,
+                                }}
+                                receptionContacts={
+                                  payload.receptionContacts ?? []
+                                }
+                                onCompleted={load}
+                                dueDate={item.dueDate}
+                                triggerLabel="Editar"
+                                existingContribution={{
+                                  id: item.contributionId,
+                                  status: item.status,
+                                  paymentMethod: item.paymentMethod,
+                                  recurrenceType: item.recurrenceType,
+                                  recurrenceStartDate:
+                                    item.recurrenceStartDate ||
+                                    item.dueDate,
+                                  recurrenceOccurrences:
+                                    item.recurrenceOccurrences,
+                                  notes: item.notes,
+                                  uploadToken: item.uploadToken,
+                                  trackingCode: item.trackingCode,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void deleteContribution(item)
+                                }
+                                disabled={
+                                  !item.canDelete ||
+                                  savingAction ===
+                                    `delete:${item.contributionId}`
+                                }
+                                className="rounded-xl bg-white px-3 py-2.5 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {savingAction ===
+                                `delete:${item.contributionId}`
+                                  ? "Excluindo..."
+                                  : "Excluir"}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-3 rounded-xl bg-white p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">
+                              Esta contribuição já está finalizada e não pode ser alterada.
+                            </p>
+                          )}
+                        </article>
+                      );
+                    })}
+
+                    {upcoming.length === 0 && (
+                      <p className="rounded-2xl bg-[#F7FAF2] p-4 font-bold text-slate-500">
+                        Nenhuma contribuição futura registrada.
+                      </p>
+                    )}
+                  </div>
+
+                  {upcomingPageCount > 1 && (
+                    <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUpcomingPage((current) =>
+                            Math.max(1, current - 1),
+                          )
+                        }
+                        disabled={safeUpcomingPage <= 1}
+                        className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:opacity-40"
+                      >
+                        Anterior
+                      </button>
+                      <span className="text-xs font-black text-[#123D2C]">
+                        Página {safeUpcomingPage} de {upcomingPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUpcomingPage((current) =>
+                            Math.min(upcomingPageCount, current + 1),
+                          )
+                        }
+                        disabled={
+                          safeUpcomingPage >= upcomingPageCount
+                        }
+                        className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:opacity-40"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {proofLockedItem && contributionSettings && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-3" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setProofLockedItem(null); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="proof-locked-title" className="w-full max-w-md rounded-[1.5rem] bg-white p-4 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">Corrente em Dia</p>
+                <h2 id="proof-locked-title" className="mt-1 text-xl font-black text-[#123D2C]">Aguardando aprovação</h2>
+              </div>
+              <button type="button" onClick={() => setProofLockedItem(null)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white">Fechar</button>
+            </div>
+            <p className="mt-4 text-sm font-semibold leading-6 text-slate-600">O comprovante desta contribuição já foi enviado. Para preservar a conferência financeira, alterações ficam bloqueadas enquanto a Tesouraria/Financeiro analisa o comprovante.</p>
+            {(proofLockedItem.scheduledDates?.length ?? 0) > 1 && (
+              <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C]">Datas: {proofLockedItem.scheduledDates?.map(date).join(" · ")}</p>
+            )}
+            {contributionSettings.financeWhatsapp ? (
+              <a href={whatsappUrl(contributionSettings.financeWhatsapp, editContactMessage(proofLockedItem))} target="_blank" rel="noreferrer" className="mt-4 block rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white">Falar com {contributionSettings.financeContactName || "Tesouraria/Financeiro"}</a>
+            ) : (
+              <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">O WhatsApp da Tesouraria/Financeiro ainda não foi configurado. Solicite ao responsável do Tucxa que cadastre esse contato nas configurações financeiras.</p>
+            )}
+          </section>
+        </div>
+      )}
+
+      {financeOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 sm:items-center sm:p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setFinanceOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="financeiro-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:max-w-xl sm:rounded-[2rem] sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Corrente em Dia</p>
+                <h2 id="financeiro-title" className="mt-2 text-2xl font-black text-[#123D2C]">Financeiro</h2>
+              </div>
+              <button type="button" onClick={() => setFinanceOpen(false)} className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+            </div>
+
+            {payload.canManageFinance ? (
+              <>
+                <p className="mt-4 text-sm leading-6 text-slate-600">Acesso restrito à Tesouraria/Financeiro usando a mesma sessão do Filho da Corrente.</p>
+                <div className="mt-5 grid gap-3">
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Acompanhamento de Contribuições</Link>
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Registro de Receitas e Despesas</Link>
+                </div>
+              </>
+            ) : (
+              <p className="mt-4 rounded-2xl bg-amber-50 p-4 font-bold leading-6 text-amber-900">Esta área é restrita às pessoas com função Tesouraria/Financeiro.</p>
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 }

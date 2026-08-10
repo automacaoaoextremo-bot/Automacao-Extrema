@@ -20,6 +20,9 @@ type TucxaPublicHeaderProps = {
   showSupport?: boolean;
   authenticatedName?: string;
   showSessionName?: boolean;
+  mobileActionColumns?: 2 | 3 | 4;
+  compactMobileActions?: boolean;
+  autoHighlightCurrent?: boolean;
 };
 
 function getLocationMatchKey(href: string) {
@@ -93,7 +96,7 @@ function supportContextMessage() {
     "",
     `Página: ${title}`,
     `Link: ${url}`,
-    "Contexto: cliquei em Dúvidas/WhatsApp no site.",
+    "Contexto: cliquei em Ajuda/WhatsApp no site.",
   ].join("\n");
 }
 
@@ -101,14 +104,14 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, active, onSelect, label = "Dúvidas?" }: { href: string; active: boolean; onSelect: () => void; label?: string }) {
+function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       onClick={onSelect}
-      className={headerActionClassName(active)}
+      className={headerActionClassName(active, compactMobile)}
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
       {label}
@@ -116,15 +119,19 @@ function SupportLink({ href, active, onSelect, label = "Dúvidas?" }: { href: st
   );
 }
 
-function headerActionClassName(active: boolean) {
-  return `inline-flex min-h-7 items-center justify-center rounded-full border px-2.5 py-1 text-center text-[0.72rem] font-black leading-tight shadow-sm transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+function headerActionClassName(active: boolean, compactMobile = false) {
+  const mobileClass = compactMobile
+    ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
+    : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
+
+  return `inline-flex items-center justify-center rounded-full border text-center font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
     active
       ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
       : "border-[#123D2C]/15 bg-white text-[#123D2C] shadow-none ring-1 ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
   }`;
 }
 
-function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void }) {
+function HeaderAction({ link, active, onSelect, compactMobile = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean }) {
   async function handleSpecialAction() {
     if (link.action === "signOutFilhoCorrente") {
       await supabaseBrowser.auth.signOut();
@@ -135,6 +142,11 @@ function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; activ
     if (link.action === "signOutConsulente") {
       await supabaseBrowser.auth.signOut();
       window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/consulente/login");
+      return;
+    }
+
+    if (link.action === "supportWhatsapp") {
+      window.open(buildSupportWhatsappUrl(), "_blank", "noopener,noreferrer");
     }
   }
 
@@ -146,7 +158,7 @@ function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; activ
           onSelect(link.href);
           void handleSpecialAction();
         }}
-        className={headerActionClassName(active)}
+        className={headerActionClassName(active, compactMobile)}
       >
         {link.label}
       </button>
@@ -161,14 +173,14 @@ function HeaderAction({ link, active, onSelect }: { link: TucxaHeaderLink; activ
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={headerActionClassName(active)}
+      className={headerActionClassName(active, compactMobile)}
     >
       {link.label}
     </Link>
   );
 }
 
-function SectionLink({ link, active, onSelect }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void }) {
+function SectionLink({ link, active, onSelect, compactMobile = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean }) {
   return (
     <Link
       href={link.href}
@@ -177,7 +189,7 @@ function SectionLink({ link, active, onSelect }: { link: TucxaHeaderLink; active
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+      className={`inline-flex items-center justify-center rounded-full text-center font-black shadow-sm ring-1 transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${compactMobile ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]" : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]"} ${
         active
           ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
           : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
@@ -201,15 +213,22 @@ export function TucxaPublicHeader({
   showSupport = true,
   authenticatedName = "",
   showSessionName = false,
+  mobileActionColumns,
+  compactMobileActions = true,
+  autoHighlightCurrent = true,
 }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
-  const [activeHref, setActiveHref] = useState(() => getCurrentActiveHref(allLinks));
+  const [activeHref, setActiveHref] = useState(() =>
+    autoHighlightCurrent ? getCurrentActiveHref(allLinks) : "",
+  );
   const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
   const [sessionAuthenticatedName, setSessionAuthenticatedName] = useState("");
 
   useEffect(() => {
     const updateActiveHref = () => {
-      setActiveHref(getCurrentActiveHref(allLinks));
+      if (autoHighlightCurrent) {
+        setActiveHref(getCurrentActiveHref(allLinks));
+      }
       setSupportHref(buildSupportWhatsappUrl());
     };
 
@@ -223,7 +242,7 @@ export function TucxaPublicHeader({
       window.removeEventListener("hashchange", updateActiveHref);
       window.removeEventListener("popstate", updateActiveHref);
     };
-  }, [allLinks]);
+  }, [allLinks, autoHighlightCurrent]);
 
   useEffect(() => {
     if (!showSessionName) return;
@@ -303,7 +322,19 @@ export function TucxaPublicHeader({
 
       {(actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+          <div
+            className={`mx-auto max-w-6xl justify-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5 ${
+              compactMobileActions
+                ? "flex flex-wrap items-center"
+                : mobileActionColumns === 4
+                  ? "grid grid-cols-4 items-stretch"
+                  : mobileActionColumns === 3
+                    ? "grid grid-cols-3 items-stretch"
+                    : mobileActionColumns === 2
+                      ? "grid grid-cols-2 items-stretch"
+                      : "flex flex-wrap items-center"
+            }`}
+          >
             {actions.map((link) =>
               link.action === "supportWhatsapp" ? (
                 <SupportLink
@@ -311,16 +342,17 @@ export function TucxaPublicHeader({
                   href={supportHref}
                   active={activeHref === link.href}
                   label={link.label}
+                  compactMobile={compactMobileActions}
                   onSelect={() => handleSelect(link.href)}
                 />
               ) : (
-                <HeaderAction key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
+                <HeaderAction key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} compactMobile={compactMobileActions} />
               ),
             )}
             {sectionLinks.map((link) => (
-              <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} />
+              <SectionLink key={`${link.label}-${link.href}`} link={link} active={activeHref === link.href} onSelect={handleSelect} compactMobile={compactMobileActions} />
             ))}
-            {showSupport && <SupportLink href={supportHref} active={activeHref === "#duvidas"} onSelect={() => handleSelect("#duvidas")} />}
+            {showSupport && <SupportLink href={supportHref} active={activeHref === "#duvidas"} compactMobile={compactMobileActions} onSelect={() => handleSelect("#duvidas")} />}
           </div>
         </nav>
       )}

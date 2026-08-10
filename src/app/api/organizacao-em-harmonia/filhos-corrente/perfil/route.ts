@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { profileHasCavalinho, resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
+import {
+  loadEligibleFamilyPeople,
+  loadFamilyRelationshipOptions,
+  loadPersonFamilyLinks,
+  parseFamilyLinks,
+  validateFamilyLinks,
+} from "@/lib/organizacao-em-harmonia/family-links";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +176,40 @@ function listDifference(nextValues: string[], previousValues: string[]) {
   return nextValues.filter((item) => !previous.has(item));
 }
 
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function hasThursdayGroup(items: DraftItem[]) {
+  return items.some((item) => {
+    const searchable = normalizeSearch(
+      [item.slug, item.label, item.description].filter(Boolean).join(" "),
+    );
+    return (
+      searchable.includes("quinta") ||
+      searchable.includes("grupo 1") ||
+      searchable.includes("grupo 2") ||
+      searchable.includes("filhos da corrente grupo")
+    );
+  });
+}
+
+function itemLabelMap(items: DraftItem[]) {
+  return new Map(items.map((item) => [item.slug, item.label]));
+}
+
+function familyKeyMap(items: Array<{ personId: string; relationshipTypeId: string; personName: string; relationshipLabel: string }>) {
+  return new Map(
+    items.map((item) => [
+      `${item.personId}:${item.relationshipTypeId}`,
+      `${item.personName} — ${item.relationshipLabel}`,
+    ]),
+  );
+}
+
 async function findTucxaOrganizationId() {
   const { data: bySlug } = await supabaseAdmin.from("oh_organizations").select("id, name").eq("slug", "tucxa").maybeSingle();
   if (bySlug?.id) return { id: bySlug.id as string, name: asText(bySlug.name) || "Tucxa" };
@@ -256,6 +297,11 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
   const cavalinhoConsulenteDefinitionCompleted = Object.prototype.hasOwnProperty.call(profile, "cavalinhoConsulenteDefinitionCompleted")
     ? profile.cavalinhoConsulenteDefinitionCompleted === true
     : linkedEntityIds.length > 0;
+  const [familyPeople, familyRelationships, familyLinks] = await Promise.all([
+    loadEligibleFamilyPeople(organizationId, person.id),
+    loadFamilyRelationshipOptions(organizationId),
+    loadPersonFamilyLinks(organizationId, person.id),
+  ]);
   return {
     person: {
       id: person.id,
@@ -285,6 +331,9 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     lastProfileUpdateAt: asText(profile.lastProfileUpdateAt),
     profileUpdateStatus: asText(profile.profileUpdateStatus),
     pendingProfileUpdate: asRecord(profile.pendingProfileUpdate),
+    familyPeople,
+    familyRelationships,
+    familyLinks,
     canReception: capabilities.canReception,
     canCambono: capabilities.canCambono,
     canCavalinho: capabilities.canCavalinho,
@@ -324,6 +373,12 @@ export async function POST(request: Request) {
     const agendaSlugs = asTextList(body.agendaSlugs);
     const selectedFunctions = asDraftItems(body.selectedFunctions);
     const selectedAgenda = asDraftItems(body.selectedAgenda);
+    const familyLinkInputs = parseFamilyLinks(body.familyLinks);
+    const selectedFamilyLinks = await validateFamilyLinks({
+      organizationId: organization.id,
+      personId: current.person.id,
+      links: familyLinkInputs,
+    });
     const cavalinhoEntityIds = Array.from(new Set(asTextList(body.cavalinhoEntityIds)));
     const cavalinhoConsulenteEntityId = asText(body.cavalinhoConsulenteEntityId);
     const cavalinhoConsulenteDefinitionCompleted = body.cavalinhoConsulenteDefinitionCompleted === true;
@@ -331,6 +386,11 @@ export async function POST(request: Request) {
     if (!fullName) throw new Error("Informe seu nome completo.");
     if (whatsapp.length < 10) throw new Error("Informe seu WhatsApp com DDD.");
     if (email && !email.includes("@")) throw new Error("Confira o e-mail informado.");
+    if (!hasThursdayGroup(selectedAgenda)) {
+      throw new Error(
+        "Selecione pelo menos um Grupo de quinta-feira para concluir a atualização.",
+      );
+    }
     const requestedProfilePreview = { functionSlugs, selectedFunctions };
     const requestedHasCavalinho = profileHasCavalinho(requestedProfilePreview);
     if (requestedHasCavalinho && cavalinhoEntityIds.length === 0) {
@@ -360,6 +420,7 @@ export async function POST(request: Request) {
     const previousAgendaSlugs = asTextList(previousProfile.agendaSlugs);
     const previousSelectedFunctions = asDraftItems(previousProfile.selectedFunctions);
     const previousSelectedAgenda = asDraftItems(previousProfile.selectedAgenda);
+    const previousFamilyLinks = await loadPersonFamilyLinks(organization.id, current.person.id);
     const { data: previousEntityLinks, error: previousEntityLinksError } = await supabaseAdmin
       .from("oh_person_entity_links")
       .select("entity_id")
@@ -372,6 +433,24 @@ export async function POST(request: Request) {
       new Set([
         ...asTextList(previousProfile.selectedEntityIds),
         ...(previousEntityLinks ?? []).map((link) => asText(link.entity_id)).filter(Boolean),
+      ]),
+    );
+    const allEntityIds = Array.from(
+      new Set([...previousEntityIds, ...cavalinhoEntityIds]),
+    );
+    const { data: changeEntityRows, error: changeEntityError } =
+      allEntityIds.length > 0
+        ? await supabaseAdmin
+            .from("oh_spiritual_entities")
+            .select("id, name")
+            .eq("organization_id", organization.id)
+            .in("id", allEntityIds)
+        : { data: [], error: null };
+    if (changeEntityError) throw changeEntityError;
+    const entityLabels = new Map(
+      (changeEntityRows ?? []).map((item) => [
+        asText(item.id),
+        asText(item.name) || asText(item.id),
       ]),
     );
     const now = new Date().toISOString();
@@ -392,7 +471,10 @@ export async function POST(request: Request) {
       selectedEntities,
       cavalinhoConsulenteEntityId: requestedHasCavalinho ? cavalinhoConsulenteEntityId : "",
       cavalinhoConsulenteDefinitionCompleted: requestedHasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
+      familyLinks: selectedFamilyLinks,
     };
+    const previousFamilyKeys = previousFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
+    const requestedFamilyKeys = selectedFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
     const changes = {
       functionsAdded: listDifference(functionSlugs, previousFunctionSlugs),
       functionsRemoved: listDifference(previousFunctionSlugs, functionSlugs),
@@ -400,6 +482,8 @@ export async function POST(request: Request) {
       agendaRemoved: listDifference(previousAgendaSlugs, agendaSlugs),
       entitiesAdded: listDifference(requestedHasCavalinho ? cavalinhoEntityIds : [], previousEntityIds),
       entitiesRemoved: listDifference(previousEntityIds, requestedHasCavalinho ? cavalinhoEntityIds : []),
+      familyAdded: listDifference(requestedFamilyKeys, previousFamilyKeys),
+      familyRemoved: listDifference(previousFamilyKeys, requestedFamilyKeys),
       personalData: [
         previousPerson.fullName !== requestedPerson.fullName ? "Nome completo" : "",
         onlyDigits(previousPerson.whatsapp) !== requestedPerson.whatsapp ? "WhatsApp" : "",
@@ -407,6 +491,46 @@ export async function POST(request: Request) {
         previousPerson.notes !== requestedPerson.notes ? "Observação" : "",
       ].filter(Boolean),
     };
+    const previousFunctionLabels = itemLabelMap(previousSelectedFunctions);
+    const requestedFunctionLabels = itemLabelMap(selectedFunctions);
+    const previousAgendaLabels = itemLabelMap(previousSelectedAgenda);
+    const requestedAgendaLabels = itemLabelMap(selectedAgenda);
+    const previousFamilyLabels = familyKeyMap(previousFamilyLinks);
+    const requestedFamilyLabels = familyKeyMap(selectedFamilyLinks);
+    const changeDetails = {
+      current: [
+        `Nome: ${previousPerson.fullName || "não informado"}`,
+        `WhatsApp: ${previousPerson.whatsapp || "não informado"}`,
+        `E-mail: ${previousPerson.email || "não informado"}`,
+        `Observação: ${previousPerson.notes || "não informada"}`,
+        `Funções: ${previousSelectedFunctions.map((item) => item.label).join(", ") || "Somente Filho da Corrente"}`,
+        `Agenda: ${previousSelectedAgenda.map((item) => item.label).join(", ") || "Nenhuma"}`,
+        `Familiares: ${previousFamilyLinks.map((item) => `${item.personName} — ${item.relationshipLabel}`).join(", ") || "Nenhum"}`,
+      ],
+      added: [
+        ...changes.functionsAdded.map((slug) => `Função: ${requestedFunctionLabels.get(slug) || slug}`),
+        ...changes.agendaAdded.map((slug) => `Agenda: ${requestedAgendaLabels.get(slug) || slug}`),
+        ...changes.familyAdded.map((key) => `Familiar: ${requestedFamilyLabels.get(key) || key}`),
+        ...changes.entitiesAdded.map((id) => `Entidade: ${entityLabels.get(id) || id}`),
+        ...changes.personalData.map((field) => `Dado alterado: ${field}`),
+      ],
+      removed: [
+        ...changes.functionsRemoved.map((slug) => `Função: ${previousFunctionLabels.get(slug) || slug}`),
+        ...changes.agendaRemoved.map((slug) => `Agenda: ${previousAgendaLabels.get(slug) || slug}`),
+        ...changes.familyRemoved.map((key) => `Familiar: ${previousFamilyLabels.get(key) || key}`),
+        ...changes.entitiesRemoved.map((id) => `Entidade: ${entityLabels.get(id) || id}`),
+      ],
+      requested: [
+        `Nome: ${requestedPerson.fullName || "não informado"}`,
+        `WhatsApp: ${requestedPerson.whatsapp || "não informado"}`,
+        `E-mail: ${requestedPerson.email || "não informado"}`,
+        `Observação: ${requestedPerson.notes || "não informada"}`,
+        `Funções: ${selectedFunctions.map((item) => item.label).join(", ") || "Somente Filho da Corrente"}`,
+        `Agenda: ${selectedAgenda.map((item) => item.label).join(", ") || "Nenhuma"}`,
+        `Familiares: ${selectedFamilyLinks.map((item) => `${item.personName} — ${item.relationshipLabel}`).join(", ") || "Nenhum"}`,
+      ],
+    };
+
     const requestSummary = {
       requestType: "profile_update",
       statusToken: updateToken,
@@ -419,9 +543,11 @@ export async function POST(request: Request) {
         selectedFunctions: previousSelectedFunctions,
         selectedAgenda: previousSelectedAgenda,
         selectedEntityIds: previousEntityIds,
+        familyLinks: previousFamilyLinks,
       },
       requestedProfile,
       changes,
+      changeDetails,
     };
 
     const nextProfile = {
@@ -463,6 +589,19 @@ export async function POST(request: Request) {
     const functionText = itemLines(selectedFunctions, "Somente Filho da Corrente").join("\n");
     const agendaText = itemLines(selectedAgenda, "Nenhuma agenda selecionada").join("\n");
     const entityText = selectedEntities.length ? selectedEntities.map((entity) => `- ${entity.name}`).join("\n") : "- Nenhuma entidade vinculada";
+    const familyText = selectedFamilyLinks.length
+      ? selectedFamilyLinks.map((item) => `- ${item.personName} — ${item.relationshipLabel}`).join("\n")
+      : "- Nenhum familiar vinculado";
+    const detailedChangeText = [
+      "Cadastro atual:",
+      ...(changeDetails.current.length ? changeDetails.current.map((item) => `- ${item}`) : ["- Nenhuma informação disponível"]),
+      "",
+      "Inclusões e alterações solicitadas:",
+      ...(changeDetails.added.length ? changeDetails.added.map((item) => `+ ${item}`) : ["- Nenhuma inclusão"]),
+      "",
+      "Retiradas solicitadas:",
+      ...(changeDetails.removed.length ? changeDetails.removed.map((item) => `- ${item}`) : ["- Nenhuma retirada"]),
+    ].join("\n");
     const consulenteEntityName = selectedEntities.find((entity) => entity.id === cavalinhoConsulenteEntityId)?.name || "Nenhuma";
     const reviewerMessage = [
       "Tucxa em Harmonia",
@@ -471,6 +610,8 @@ export async function POST(request: Request) {
       `Nome: ${fullName}`,
       `WhatsApp: ${whatsapp}`,
       `E-mail: ${displayEmail(email || current.person.email) || "não informado"}`,
+      "",
+      detailedChangeText,
       "",
       "Funções solicitadas:",
       functionText,
@@ -481,6 +622,9 @@ export async function POST(request: Request) {
       "Entidades que recebo:",
       entityText,
       `Entidade que atende Consulentes: ${consulenteEntityName}`,
+      "",
+      "Familiares vinculados:",
+      familyText,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",
@@ -510,6 +654,8 @@ export async function POST(request: Request) {
           "Sua atualização cadastral foi enviada para validação do TUCXA.",
           "Seu acesso atual continua disponível enquanto a atualização é conferida.",
           "",
+          detailedChangeText,
+          "",
           "Acompanhe o andamento:",
           absoluteStatusUrl,
           "",
@@ -527,6 +673,8 @@ export async function POST(request: Request) {
       `WhatsApp: ${whatsapp}`,
       `E-mail: ${personEmail || "não informado"}`,
       "",
+      detailedChangeText,
+      "",
       "Funções solicitadas:",
       functionText,
       "",
@@ -536,6 +684,9 @@ export async function POST(request: Request) {
       "Entidades que recebo:",
       entityText,
       `Entidade que atende Consulentes: ${consulenteEntityName}`,
+      "",
+      "Familiares vinculados:",
+      familyText,
       "",
       notes ? `Observação: ${notes}` : "Observação: não informada",
       "",

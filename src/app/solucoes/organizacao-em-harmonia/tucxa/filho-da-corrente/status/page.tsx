@@ -123,42 +123,74 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
     const entities = asEntities(summary.selectedEntities);
     const primaryId = asText(summary.cavalinhoConsulenteEntityId);
     const primaryEntity = entities.find((entity) => asText(entity.id) === primaryId) ?? null;
-    return { functions, agenda, entities, primaryEntity };
+    const hasCavalinho = functions.some((item) => {
+      const slug = asText(item.slug);
+      const label = asText(item.label)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return slug === "cavalinho" || label.includes("cavalinho");
+    });
+    return { functions, agenda, entities, primaryEntity, hasCavalinho };
   }, [request?.summary]);
 
   const presentation = statusPresentation(request?.status || "");
   const actions = [
-    { label: "Início", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente", variant: "secondary" as const },
-    { label: "Entrar", href: LOGIN_PATH, variant: "primary" as const },
+    { label: "Início", href: "#inicio", variant: "primary" as const },
+    {
+      label: "Voltar",
+      href: "/solucoes/organizacao-em-harmonia/tucxa",
+      variant: "secondary" as const,
+    },
+    { label: "Funções", href: "#funcoes", variant: "secondary" as const },
+    { label: "Agenda", href: "#agenda", variant: "secondary" as const },
+    ...(details.hasCavalinho
+      ? [{ label: "Entidades", href: "#entidades", variant: "secondary" as const }]
+      : []),
+    ...(presentation.approved
+      ? [{ label: "Entrar", href: LOGIN_PATH, variant: "secondary" as const }]
+      : []),
+    {
+      label: "Ajuda",
+      href: "#ajuda",
+      variant: "secondary" as const,
+      action: "supportWhatsapp" as const,
+    },
   ];
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <TucxaPublicHeader actions={actions} navLabel="Acompanhamento do primeiro acesso" />
-      <section className="mx-auto max-w-4xl px-4 py-5 sm:px-6 lg:px-8">
-        <article className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-[#123D2C]/10 sm:p-7">
+      <TucxaPublicHeader
+        actions={actions}
+        navLabel="Acompanhamento do primeiro acesso"
+        mobileActionColumns={4}
+        compactMobileActions
+        showSupport={false}
+      />
+      <section id="inicio" className="mx-auto max-w-4xl px-3 py-3 sm:px-5 sm:py-4 lg:px-8">
+        <article className="rounded-[1.5rem] bg-white p-4 shadow-xl ring-1 ring-[#123D2C]/10 sm:rounded-[2rem] sm:p-6">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43]">Primeiro acesso</p>
-          <h1 className="mt-2 break-words text-3xl font-black leading-tight text-[#123D2C]">Acompanhe a validação do seu cadastro.</h1>
+          <h1 className="mt-1 break-words text-2xl font-black leading-tight text-[#123D2C] sm:text-3xl">Acompanhe a validação do seu cadastro.</h1>
 
-          {loading && <p className="mt-5 rounded-2xl bg-slate-50 p-4 font-semibold text-slate-700">Consultando sua solicitação...</p>}
-          {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-200">{error}</p>}
+          {loading && <p className="mt-3 rounded-2xl bg-slate-50 p-3 font-semibold text-slate-700">Consultando sua solicitação...</p>}
+          {error && <p className="mt-3 rounded-2xl bg-red-50 p-3 font-bold text-red-700 ring-1 ring-red-200">{error}</p>}
 
           {request && (
             <>
-              <section className={`mt-5 rounded-2xl p-4 ring-1 ${presentation.className}`}>
+              <section className={`mt-3 rounded-2xl p-3 ring-1 ${presentation.className}`}>
                 <p className="text-lg font-black">{presentation.label}</p>
                 <p className="mt-1 text-sm font-semibold leading-6">{presentation.description}</p>
               </section>
 
-              <section className="mt-4 grid gap-3 rounded-[1.5rem] bg-[#EEF5EA] p-4 sm:grid-cols-2">
+              <section className="mt-3 grid gap-2 rounded-[1.25rem] bg-[#EEF5EA] p-3 text-sm sm:grid-cols-2">
                 <p><strong>Nome:</strong><br />{request.full_name || "Não informado"}</p>
                 <p><strong>WhatsApp:</strong><br />{request.whatsapp || "Não informado"}</p>
                 <p><strong>E-mail:</strong><br />{request.email || "Não informado"}</p>
                 <p><strong>Situação:</strong><br />{presentation.label}</p>
               </section>
 
-              <section className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
+              <section className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div id="funcoes" className="scroll-mt-44 rounded-[1.25rem] border border-[#123D2C]/10 p-3">
                   <h2 className="font-black text-[#123D2C]">Funções</h2>
                   <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
                     {details.functions.length > 0
@@ -166,7 +198,7 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
                       : <li>Não informadas</li>}
                   </ul>
                 </div>
-                <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
+                <div id="agenda" className="scroll-mt-44 rounded-[1.25rem] border border-[#123D2C]/10 p-3">
                   <h2 className="font-black text-[#123D2C]">Agenda</h2>
                   <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
                     {details.agenda.length > 0
@@ -176,28 +208,34 @@ export default function StatusPrimeiroAcessoFilhoCorrentePage() {
                 </div>
               </section>
 
-              {details.entities.length > 0 && (
-                <section className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
-                    <h2 className="font-black text-[#123D2C]">Entidades que recebe</h2>
-                    <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
-                      {details.entities.map((entity, index) => <li key={entity.id || `${entity.name}-${index}`}>• {entity.name || "Entidade"}</li>)}
-                    </ul>
-                  </div>
-                  <div className="rounded-[1.5rem] border border-[#123D2C]/10 p-4">
-                    <h2 className="font-black text-[#123D2C]">Entidade que atende Filhos de Fora/Consulentes</h2>
-                    <p className="mt-2 text-sm font-semibold text-slate-700">
-                      {details.primaryEntity?.name || "Nenhuma das entidades selecionadas"}
-                    </p>
-                  </div>
+              {details.hasCavalinho && (
+                <section id="entidades" className="mt-3 grid scroll-mt-44 gap-3 sm:grid-cols-2">
+                <div className="rounded-[1.25rem] border border-[#123D2C]/10 p-3">
+                  <h2 className="font-black text-[#123D2C]">Entidades que recebe</h2>
+                  <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">
+                    {details.entities.length > 0
+                      ? details.entities.map((entity, index) => (
+                          <li key={entity.id || `${entity.name}-${index}`}>
+                            • {entity.name || "Entidade"}
+                          </li>
+                        ))
+                      : <li>Não informadas</li>}
+                  </ul>
+                </div>
+                <div className="rounded-[1.25rem] border border-[#123D2C]/10 p-3">
+                  <h2 className="font-black text-[#123D2C]">Entidade que atende Filhos de Fora/Consulentes</h2>
+                  <p className="mt-2 text-sm font-semibold text-slate-700">
+                    {details.primaryEntity?.name || "Nenhuma das entidades selecionadas"}
+                  </p>
+                </div>
                 </section>
               )}
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {presentation.approved && (
-                  <Link href={LOGIN_PATH} className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Entrar no painel</Link>
+                  <Link href={LOGIN_PATH} className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white">Entrar no painel</Link>
                 )}
-                <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="rounded-2xl border border-[#123D2C]/20 px-5 py-4 text-center font-black text-[#123D2C]">Voltar ao site do Tucxa</Link>
+                <Link href="/solucoes/organizacao-em-harmonia/tucxa" className="rounded-xl border border-[#123D2C]/20 px-4 py-3 text-center font-black text-[#123D2C]">Voltar ao site do Tucxa</Link>
               </div>
             </>
           )}

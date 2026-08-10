@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -8,7 +8,7 @@ const PANEL_BASE = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pa
 const FILHO_LOGIN = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login";
 const TUCXA_SITE = "/solucoes/organizacao-em-harmonia/tucxa";
 
-type PanelHeaderAction = {
+export type PanelHeaderAction = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
@@ -19,6 +19,9 @@ type FilhoCorrentePanelHeaderProps = {
   navLabel?: string;
   actions?: PanelHeaderAction[];
   showSupport?: boolean;
+  mobileActionColumns?: 2 | 3 | 4;
+  compactMobileActions?: boolean;
+  autoHighlightCurrent?: boolean;
 };
 
 function redirectToFilhoLogin() {
@@ -29,7 +32,10 @@ function redirectToFilhoLogin() {
 function sessionName(user: { user_metadata?: Record<string, unknown> } | null | undefined) {
   const metadata = user?.user_metadata ?? {};
   const candidates = [metadata.full_name, metadata.fullName, metadata.name];
-  return candidates.find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim() ?? "";
+  return candidates.find(
+    (value): value is string =>
+      typeof value === "string" && Boolean(value.trim()),
+  )?.trim() ?? "";
 }
 
 function useFilhoCorrenteName() {
@@ -51,22 +57,29 @@ function useFilhoCorrenteName() {
       const fromSession = sessionName(data.session?.user);
       if (fromSession) setName(fromSession);
 
-      const response = await fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/filhos-corrente/perfil",
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (response.status === 401 || response.status === 403) {
         redirectToFilhoLogin();
         return;
       }
 
-      const payload = (await response.json().catch(() => ({}))) as { person?: { fullName?: string } };
-      if (active && response.ok && payload.person?.fullName) setName(payload.person.fullName);
+      const payload = (await response.json().catch(() => ({}))) as {
+        person?: { fullName?: string };
+      };
+      if (active && response.ok && payload.person?.fullName) {
+        setName(payload.person.fullName);
+      }
     }
 
     void load();
-    const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
-      if (active) setName(sessionName(session?.user));
-    });
+    const { data: listener } = supabaseBrowser.auth.onAuthStateChange(
+      (_event, session) => {
+        if (active) setName(sessionName(session?.user));
+      },
+    );
 
     return () => {
       active = false;
@@ -88,30 +101,70 @@ export const filhoSignOutAction: PanelHeaderAction = {
 };
 
 export const filhoSupportAction: PanelHeaderAction = {
-  label: "Dúvidas?",
-  href: "#duvidas",
+  label: "Ajuda",
+  href: "#ajuda",
   variant: "secondary",
   action: "supportWhatsapp",
 };
 
-export function FilhoCorrentePanelHeader({ navLabel = "Painel do Filho da Corrente", actions, showSupport = true }: FilhoCorrentePanelHeaderProps) {
+export function FilhoCorrentePanelHeader({
+  navLabel = "Painel do Filho da Corrente",
+  actions,
+  showSupport = true,
+  mobileActionColumns = 4,
+  compactMobileActions = true,
+  autoHighlightCurrent = true,
+}: FilhoCorrentePanelHeaderProps) {
   const authenticatedName = useFilhoCorrenteName();
-  const defaultActions: PanelHeaderAction[] = [
-    { label: "Início", href: PANEL_BASE, variant: "primary" },
-    { label: "Agenda Viva", href: `${PANEL_BASE}/agenda-viva`, variant: "secondary" },
-    { label: "Atendimento em Harmonia", href: `${PANEL_BASE}/atendimento`, variant: "secondary" },
-    { label: "Corrente em Dia", href: `${PANEL_BASE}/corrente-em-dia`, variant: "secondary" },
-    { label: "Cadastro", href: `${PANEL_BASE}/atualizar-dados`, variant: "secondary" },
-    filhoSignOutAction,
-  ];
+
+  const defaultActions = useMemo<PanelHeaderAction[]>(
+    () => [
+      { label: "Início", href: PANEL_BASE, variant: "primary" },
+      {
+        label: "Agenda Viva",
+        href: `${PANEL_BASE}/agenda-viva`,
+        variant: "secondary",
+      },
+      {
+        label: "Atendimento em Harmonia",
+        href: `${PANEL_BASE}/atendimento`,
+        variant: "secondary",
+      },
+      {
+        label: "Corrente em Dia",
+        href: `${PANEL_BASE}/corrente-em-dia`,
+        variant: "secondary",
+      },
+      {
+        label: "Cadastro",
+        href: `${PANEL_BASE}/atualizar-dados`,
+        variant: "secondary",
+      },
+      filhoSignOutAction,
+    ],
+    [],
+  );
+
+  const effectiveActions = useMemo(() => {
+    const selected = [...(actions ?? defaultActions)];
+    const alreadyHasSupport = selected.some(
+      (item) => item.action === "supportWhatsapp",
+    );
+
+    if (showSupport && !alreadyHasSupport) selected.push(filhoSupportAction);
+    return selected;
+  }, [actions, defaultActions, showSupport]);
 
   return (
     <TucxaPublicHeader
-      actions={actions ?? defaultActions}
+      actions={effectiveActions}
       authenticatedName={authenticatedName}
       showSessionName
       navLabel={navLabel}
-      showSupport={showSupport}
+      showSupport={false}
+      mobileActionColumns={mobileActionColumns}
+      compactMobileActions={compactMobileActions}
+      autoHighlightCurrent={autoHighlightCurrent}
     />
   );
 }

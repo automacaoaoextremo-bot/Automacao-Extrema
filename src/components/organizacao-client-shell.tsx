@@ -5,11 +5,16 @@ import Image from "next/image";
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { FinancePendingContributionsLoginModal } from "@/components/organizacao-em-harmonia/finance-pending-contributions-login-modal";
 
 type ShellProps = {
   title: string;
   description?: string;
   children: ReactNode;
+  simpleFinancialHeader?: boolean;
+  financialBackHref?: string;
+  simpleFinancialActive?: "inicio" | "voltar" | null;
+  simpleFinancialHeaderControl?: ReactNode;
 };
 
 type NavItem = {
@@ -35,6 +40,32 @@ const topNav: NavItem[] = [
   { label: "Módulos", href: "/solucoes/organizacao-em-harmonia/cliente/modulos" },
   { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes" },
   { label: "Relatórios", href: "/solucoes/organizacao-em-harmonia/cliente/relatorios" },
+];
+
+const MEMBER_PANEL =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const FINANCE_BASE = "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia";
+
+const financialMemberTopNav: NavItem[] = [
+  { label: "Painel", href: MEMBER_PANEL },
+  { label: "Corrente em Dia", href: FINANCE_BASE },
+  { label: "Contribuições", href: `${FINANCE_BASE}/contribuicoes` },
+  { label: "Lançamentos", href: `${FINANCE_BASE}/lancamentos` },
+  { label: "Gestão Financeira", href: `${FINANCE_BASE}/gestao-financeira` },
+];
+
+const financialMemberSidebarGroups: NavGroup[] = [
+  {
+    label: "Tesouraria / Financeiro",
+    description: "Acesso financeiro autorizado pela função do Filho da Corrente.",
+    items: [
+      { label: "Corrente em Dia", href: FINANCE_BASE, description: "Visão financeira e pendências." },
+      { label: "Contribuições", href: `${FINANCE_BASE}/contribuicoes`, description: "Comprovantes, validações e contribuições pendentes." },
+      { label: "Lançamentos", href: `${FINANCE_BASE}/lancamentos`, description: "Receitas e despesas." },
+      { label: "Gestão Financeira", href: `${FINANCE_BASE}/gestao-financeira`, description: "Indicadores e gestão financeira." },
+      { label: "Balancete mensal", href: `${FINANCE_BASE}/balancetes`, description: "Fechamento mensal." },
+    ],
+  },
 ];
 
 const sidebarGroups: NavGroup[] = [
@@ -89,9 +120,16 @@ const sidebarGroups: NavGroup[] = [
     description: "Soluções habilitadas para o cliente.",
     items: [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
-      { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Contribuições, comprovantes e conferência financeira." },
-      { label: "Configurações financeiras", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes", description: "Valores, Pix, vencimentos e lembretes." },
-      { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Histórico, comprovantes, pendências e conferência." },
+      { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Visão financeira, indicadores e pendências." },
+      { label: "Lançamentos", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", description: "Receitas, despesas, documentos e aprovação." },
+      { label: "Gestão Financeira", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/gestao-financeira", description: "Indicadores, cenários, competência, vencimentos e fluxo de caixa." },
+      { label: "Balancete mensal", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes", description: "Fechamento mensal de receitas, despesas e saldo bancário." },
+      { label: "Importações", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/importacoes", description: "CSV, XLSX, OFX, Google Sheets e OCR." },
+      { label: "Conciliação", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/reconciliacao", description: "Associe movimentos bancários ou crie lançamentos." },
+      { label: "Contribuições", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes", description: "Pontuais, recorrentes, identificadas ou não." },
+      { label: "Famílias", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/familias", description: "Grupos, parentescos e responsáveis financeiros." },
+      { label: "Prestação pública", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/prestacao-contas", description: "Valide o popup e o painel público em tempo real." },
+      { label: "Configurações financeiras", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/configuracoes", description: "Valor padrão, vencimentos, lembretes e sigilo." },
     ],
   },
   {
@@ -123,44 +161,142 @@ function clientLoginUrl() {
   return `/solucoes/organizacao-em-harmonia/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-export function OrganizacaoClientShell({ title, description, children }: ShellProps) {
+function sessionDisplayName(
+  user:
+    | {
+        email?: string | null;
+        user_metadata?: Record<string, unknown>;
+      }
+    | null
+    | undefined,
+) {
+  const metadata = user?.user_metadata ?? {};
+  const values = [
+    metadata.full_name,
+    metadata.fullName,
+    metadata.name,
+    metadata.nome,
+  ];
+
+  const fromMetadata = values.find(
+    (value): value is string =>
+      typeof value === "string" && Boolean(value.trim()),
+  );
+
+  if (fromMetadata) return fromMetadata.trim();
+  return user?.email?.split("@")[0]?.trim() ?? "";
+}
+
+export function OrganizacaoClientShell({
+  title,
+  description,
+  children,
+  simpleFinancialHeader = false,
+  financialBackHref = `${MEMBER_PANEL}/corrente-em-dia?financeiro=1`,
+  simpleFinancialActive = null,
+  simpleFinancialHeaderControl,
+}: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [accessGate, setAccessGate] = useState<"checking" | "allowed" | "blocked">("checking");
+  const [accessGate, setAccessGate] = useState<
+    "checking" | "client" | "financialMember" | "blocked"
+  >("checking");
+  const [authenticatedName, setAuthenticatedName] = useState("");
 
   useEffect(() => {
     let active = true;
-    supabaseBrowser.auth.getUser().then(async ({ data }) => {
+
+    void supabaseBrowser.auth.getSession().then(async ({ data }) => {
       if (!active) return;
-      if (!data.user) {
+
+      const session = data.session;
+      const user = session?.user;
+      if (!user) {
         router.replace(clientLoginUrl());
         return;
       }
 
-      const metadata = data.user.user_metadata ?? {};
-      if (metadata.oh_profile === "filho-da-corrente") {
-        setAccessGate("blocked");
-        await supabaseBrowser.auth.signOut();
-        router.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+      setAuthenticatedName(sessionDisplayName(user));
+
+      const metadata = user.user_metadata ?? {};
+      if (metadata.oh_profile !== "filho-da-corrente") {
+        setAccessGate("client");
         return;
       }
-      setAccessGate("allowed");
+
+      if (!pathname.startsWith(FINANCE_BASE)) {
+        setAccessGate("blocked");
+        router.replace(MEMBER_PANEL);
+        return;
+      }
+
+      const accessToken = session.access_token;
+      if (!accessToken) {
+        setAccessGate("blocked");
+        router.replace(MEMBER_PANEL);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as {
+          canManageFinance?: boolean;
+          currentPerson?: { fullName?: string };
+        };
+
+        if (!active) return;
+        if (payload.currentPerson?.fullName) {
+          setAuthenticatedName(payload.currentPerson.fullName);
+        }
+        if (response.ok && payload.canManageFinance === true) {
+          setAccessGate("financialMember");
+          return;
+        }
+      } catch {
+        // O bloqueio abaixo mantém a sessão do Filho da Corrente ativa.
+      }
+
+      if (!active) return;
+      setAccessGate("blocked");
+      router.replace(MEMBER_PANEL);
     });
 
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [pathname, router]);
 
   async function signOut() {
+    const wasFinancialMember = accessGate === "financialMember";
     await supabaseBrowser.auth.signOut();
-    router.replace("/solucoes/organizacao-em-harmonia/login");
+    router.replace(
+      wasFinancialMember
+        ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
+        : "/solucoes/organizacao-em-harmonia/login",
+    );
   }
 
-  const activeGroup = sidebarGroups.find((group) => group.items.some((item) => isActive(pathname, item.href))) ?? sidebarGroups[0];
-  const orderedSidebarGroups = [activeGroup, ...sidebarGroups.filter((group) => group.label !== activeGroup.label)];
+  const isFinancialMember = accessGate === "financialMember";
+  const effectiveTopNav = isFinancialMember ? financialMemberTopNav : topNav;
+  const effectiveSidebarGroups = isFinancialMember
+    ? financialMemberSidebarGroups
+    : sidebarGroups;
+  const activeGroup =
+    effectiveSidebarGroups.find((group) =>
+      group.items.some((item) => isActive(pathname, item.href)),
+    ) ?? effectiveSidebarGroups[0];
+  const orderedSidebarGroups = [
+    activeGroup,
+    ...effectiveSidebarGroups.filter((group) => group.label !== activeGroup.label),
+  ];
 
-  if (accessGate !== "allowed") {
+  if (accessGate === "checking" || accessGate === "blocked") {
     return (
       <main className="min-h-screen bg-[#F4FBF7] p-6 text-[#00334E]">
         <div className="mx-auto max-w-2xl rounded-[2rem] bg-white p-6 shadow ring-1 ring-slate-100">
@@ -168,8 +304,8 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
           <h1 className="mt-2 text-2xl font-black">{accessGate === "blocked" ? "Acesso de gestão bloqueado" : "Verificando acesso..."}</h1>
           <p className="mt-3 leading-7 text-slate-600">
             {accessGate === "blocked"
-              ? "Este usuário é de Filho da Corrente e deve usar o acesso próprio do site público do Tucxa."
-              : "Estamos conferindo se este usuário tem permissão de gestão."}
+              ? "Este acesso não possui função Tesouraria/Financeiro para a área solicitada. Você será direcionado de volta ao painel do Filho da Corrente."
+              : "Estamos conferindo se este usuário tem permissão para esta área."}
           </p>
         </div>
       </main>
@@ -181,15 +317,27 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
       <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
           <Link
-            href="/solucoes/organizacao-em-harmonia/cliente"
+            href={isFinancialMember ? MEMBER_PANEL : "/solucoes/organizacao-em-harmonia/cliente"}
             className="flex min-w-0 flex-1 items-center gap-3"
             aria-label="Ir para o início da área logada do Tucxa"
           >
             <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
               <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="Logo do Tucxa" width={72} height={72} className="h-full w-full object-contain" priority />
             </span>
-            <span className="min-w-0">
-              <span className="block whitespace-nowrap text-[1.05rem] font-black leading-[1.05] text-[#173323] sm:text-[1.45rem]">TUCXA</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-baseline gap-1 leading-[1.05] text-[#173323]">
+                <span className="shrink-0 whitespace-nowrap text-[1.05rem] font-black sm:text-[1.45rem]">
+                  TUCXA
+                </span>
+                {authenticatedName && (
+                  <span
+                    className="min-w-0 truncate text-[0.72rem] font-bold text-[#2F6B43] sm:text-sm"
+                    title={authenticatedName}
+                  >
+                    {authenticatedName}
+                  </span>
+                )}
+              </span>
               <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
                 TEMPLO DE UMBANDA CABOCLO SETE FLEXA
               </span>
@@ -221,33 +369,63 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
         </div>
 
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-            {topNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
-                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
-                  isActive(pathname, item.href)
-                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
-                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
+          {simpleFinancialHeader ? (
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+              <a
+                href="#inicio"
+                aria-current={simpleFinancialActive === "inicio" ? "page" : undefined}
+                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                  simpleFinancialActive === "inicio"
+                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:bg-[#2F6B43]"
+                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:bg-[#E9F2E7]"
                 }`}
               >
-                {item.label}
+                Início
+              </a>
+              <Link
+                href={financialBackHref}
+                aria-current={simpleFinancialActive === "voltar" ? "page" : undefined}
+                className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                  simpleFinancialActive === "voltar"
+                    ? "bg-[#123D2C] text-white ring-[#123D2C] hover:bg-[#2F6B43]"
+                    : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:bg-[#E9F2E7]"
+                }`}
+              >
+                Voltar
               </Link>
-            ))}
-            <button
-              type="button"
-              onClick={signOut}
-              className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
-            >
-              Sair
-            </button>
-          </div>
+              <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Sair
+              </button>
+              <a href="https://wa.me/5519989848246?text=Ol%C3%A1%2C%20preciso%20de%20ajuda%20na%20%C3%A1rea%20financeira%20do%20Tucxa%20em%20Harmonia." target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Ajuda
+              </a>
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+              {effectiveTopNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                  className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+                    isActive(pathname, item.href)
+                      ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
+                      : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                Sair
+              </button>
+            </div>
+          )}
         </nav>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[300px_1fr] lg:px-8">
+      <div id="inicio" className={`mx-auto max-w-7xl gap-5 px-3 py-3 sm:px-6 sm:py-5 lg:px-8 ${simpleFinancialHeader ? "block" : "grid lg:grid-cols-[300px_1fr]"}`}>
+        {!simpleFinancialHeader && (
         <aside className="hidden self-start lg:block rounded-[2rem] bg-[#06451F] p-4 text-white shadow-xl shadow-emerald-900/10 lg:sticky lg:top-44 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <div className="mb-4 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFF7DF]">Contexto atual</p>
@@ -272,16 +450,27 @@ export function OrganizacaoClientShell({ title, description, children }: ShellPr
             ))}
           </div>
         </aside>
+        )}
 
         <section className="min-w-0">
-          <div className="mb-5 rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
-            <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
-            <h1 className="mt-2 text-3xl font-black text-[#00334E]">{title}</h1>
+          <div className={`${simpleFinancialHeader ? "mb-3 rounded-[1.5rem] p-4 sm:p-5" : "mb-5 rounded-[2rem] p-5 sm:p-7"} bg-white shadow ring-1 ring-slate-100`}>
+            {!simpleFinancialHeader && (
+              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Organização em Harmonia</p>
+            )}
+            {simpleFinancialHeader && simpleFinancialHeaderControl ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+                <h1 className="text-2xl font-black text-[#00334E] sm:text-3xl">{title}</h1>
+                <div className="shrink-0">{simpleFinancialHeaderControl}</div>
+              </div>
+            ) : (
+              <h1 className={`${simpleFinancialHeader ? "text-2xl sm:text-3xl" : "mt-2 text-3xl"} font-black text-[#00334E]`}>{title}</h1>
+            )}
             {description && <p className="mt-3 max-w-4xl leading-7 text-slate-600">{description}</p>}
           </div>
           <div className="grid gap-5">{children}</div>
         </section>
       </div>
+      {!simpleFinancialHeader && <FinancePendingContributionsLoginModal />}
     </main>
   );
 }

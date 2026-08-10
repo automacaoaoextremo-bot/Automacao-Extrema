@@ -23,6 +23,10 @@ type OrganizacaoAuthResult =
   | { ok: true; context: OrganizacaoAuthContext }
   | { ok: false; response: NextResponse };
 
+type OrganizacaoAuthOptions = {
+  allowFilhoDaCorrente?: boolean;
+};
+
 function jsonError(message: string, status = 401) {
   return NextResponse.json({ error: message }, { status });
 }
@@ -339,14 +343,17 @@ async function ensureClientAdminContext(user: AuthUser) {
   };
 }
 
-export async function getOrganizacaoAuthContext(request: Request): Promise<OrganizacaoAuthResult> {
+export async function getOrganizacaoAuthContext(
+  request: Request,
+  options: OrganizacaoAuthOptions = {},
+): Promise<OrganizacaoAuthResult> {
   const token = tokenFromRequest(request);
   if (!token) return { ok: false, response: jsonError("Acesso não autenticado.", 401) };
 
   const user = await getAuthUser(token);
   if (!user) return { ok: false, response: jsonError("Sessão inválida ou expirada.", 401) };
 
-  if (isFilhoDaCorrenteUser(user)) {
+  if (!options.allowFilhoDaCorrente && isFilhoDaCorrenteUser(user)) {
     return { ok: false, response: jsonError("Este acesso é exclusivo da área cliente/gestão.", 403) };
   }
 
@@ -362,7 +369,11 @@ export async function getOrganizacaoAuthContext(request: Request): Promise<Organ
       const isClientAdmin = Boolean(profileRecord.isClientAdmin) || membershipStatus === "gestor_cliente";
       const isAllowedFallback = email ? allowedEmails.has(email) : false;
 
-      if (membershipStatus === "filho-da-corrente" || normalizedEmail(profileRecord.oh_profile) === "filho-da-corrente") {
+      if (
+        !options.allowFilhoDaCorrente &&
+        (membershipStatus === "filho-da-corrente" ||
+          normalizedEmail(profileRecord.oh_profile) === "filho-da-corrente")
+      ) {
         return { ok: false, response: jsonError("Este acesso é exclusivo da área cliente/gestão.", 403) };
       }
 

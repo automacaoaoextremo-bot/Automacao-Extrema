@@ -30,7 +30,8 @@ export default function AtendimentoEmHarmoniaConsulentePage() {
         navLabel="Atendimento em Harmonia do Filho de Fora/Consulente"
         showSupport={false}
         actions={[
-          { label: "Atendimento em Harmonia", href: pageHref, variant: "primary" },
+          { label: "Início", href: "#inicio", variant: "primary" },
+          { label: "Voltar", href: panelBase, variant: "secondary" },
           { label: "Orientações", href: "#orientacoes", variant: "secondary" },
           { label: "Acolhimento e Atendimento", href: "#agendamentos", variant: "secondary" },
           consulenteSupportAction,
