@@ -121,6 +121,7 @@ const sidebarGroups: NavGroup[] = [
     items: [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
       { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Visão financeira, indicadores e pendências." },
+      { label: "Sementinha · Despensa Viva", href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva", description: "Estoque de alimentos, lotes, validade e cestas básicas." },
       { label: "Lançamentos", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", description: "Receitas, despesas, documentos e aprovação." },
       { label: "Gestão Financeira", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/gestao-financeira", description: "Indicadores, cenários, competência, vencimentos e fluxo de caixa." },
       { label: "Balancete mensal", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/balancetes", description: "Fechamento mensal de receitas, despesas e saldo bancário." },
