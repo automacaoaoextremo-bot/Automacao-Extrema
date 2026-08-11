@@ -16,7 +16,7 @@ export const filhoDaCorrenteFunctions = [
   { slug: "coordenacao", label: "Coordenação" },
   { slug: "coordenacao-grupo-estudos", label: "Coordenação Grupo de Estudos" },
   { slug: "coordenacao-clube-livro", label: "Coordenação Clube do Livro" },
-  { slug: "coordenacao-sementinha", label: "Coordenação Sementinha" },
+  { slug: "coordenacao-sementinha", label: "Coordenador Sementinha" },
   { slug: "voluntario-sementinha", label: "Voluntário Sementinha" },
   { slug: "coordenacao-eventos", label: "Coordenação de Eventos" },
   { slug: "voluntario-eventos", label: "Voluntário Eventos" },

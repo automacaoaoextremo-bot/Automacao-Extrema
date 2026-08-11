@@ -182,7 +182,7 @@ async function listPayload(organizationId: string) {
       .order("full_name", { ascending: true }),
     supabaseAdmin
       .from("oh_roles")
-      .select("id, name, slug, description, active, is_system")
+      .select("id, name, slug, description, active, is_system, parent_role_id")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
     supabaseAdmin
@@ -408,13 +408,47 @@ async function upsertRole(organizationId: string, body: Record<string, unknown>)
   const description = asText(body.description);
   const requestedSlug = slugify(asText(body.slug) || name);
   const active = asBool(body.active, true);
+  const parentRoleId = asText(body.parentRoleId ?? body.parent_role_id);
 
   if (!name) throw new Error("Informe o nome da função.");
+  if (roleId && parentRoleId === roleId) {
+    throw new Error("Uma função não pode ser filha dela mesma.");
+  }
+
+  let normalizedParentRoleId: string | null = null;
+
+  if (parentRoleId) {
+    const { data: parentRole, error: parentError } = await supabaseAdmin
+      .from("oh_roles")
+      .select("id, parent_role_id, active")
+      .eq("organization_id", organizationId)
+      .eq("id", parentRoleId)
+      .maybeSingle();
+
+    if (parentError) throw parentError;
+    if (!parentRole?.id) {
+      throw new Error("A função principal selecionada não foi encontrada.");
+    }
+    if (parentRole.parent_role_id) {
+      throw new Error(
+        "Para manter a hierarquia simples, selecione como função principal uma função de primeiro nível.",
+      );
+    }
+
+    normalizedParentRoleId = parentRole.id;
+  }
 
   if (roleId) {
     const { error } = await supabaseAdmin
       .from("oh_roles")
-      .update({ name, slug: requestedSlug, description: description || null, active, updated_at: new Date().toISOString() })
+      .update({
+        name,
+        slug: requestedSlug,
+        description: description || null,
+        active,
+        parent_role_id: normalizedParentRoleId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", roleId)
       .eq("organization_id", organizationId);
     if (error) throw error;
@@ -423,7 +457,15 @@ async function upsertRole(organizationId: string, body: Record<string, unknown>)
 
   const { error } = await supabaseAdmin
     .from("oh_roles")
-    .insert({ organization_id: organizationId, name, slug: requestedSlug, description: description || null, active, is_system: false });
+    .insert({
+      organization_id: organizationId,
+      name,
+      slug: requestedSlug,
+      description: description || null,
+      active,
+      is_system: false,
+      parent_role_id: normalizedParentRoleId,
+    });
   if (error) throw error;
 }
 

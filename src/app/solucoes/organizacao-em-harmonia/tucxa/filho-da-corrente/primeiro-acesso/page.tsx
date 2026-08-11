@@ -2,7 +2,13 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
+import { SementinhaSubfunctionSelector } from "@/components/organizacao-em-harmonia/sementinha-subfunction-selector";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import {
+  SEMENTINHA_COORDINATOR_SLUG,
+  SEMENTINHA_SUBFUNCTIONS,
+  isSementinhaSubfunctionSlug,
+} from "@/lib/organizacao-em-harmonia/sementinha-functions";
 import {
   filhoDaCorrenteAgenda as fallbackFilhoDaCorrenteAgenda,
   filhoDaCorrenteFunctions,
@@ -374,7 +380,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
   const selectedFunctions = useMemo(
     () =>
-      filhoDaCorrenteFunctions
+      [...filhoDaCorrenteFunctions, ...SEMENTINHA_SUBFUNCTIONS]
         .filter((item) => functionSlugs.includes(item.slug))
         .map((item) => ({ slug: item.slug, label: item.label })),
     [functionSlugs],
@@ -398,6 +404,13 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   );
 
   const hasCavalinho = functionSlugs.includes("cavalinho");
+  const hasSementinhaCoordinator = functionSlugs.includes(
+    SEMENTINHA_COORDINATOR_SLUG,
+  );
+  const selectedSementinhaSubfunctionSlugs = useMemo(
+    () => functionSlugs.filter(isSementinhaSubfunctionSlug),
+    [functionSlugs],
+  );
   const selectedEntities = useMemo(
     () =>
       entityOptions
@@ -504,7 +517,19 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
   function toggleFunction(slug: string) {
     const selected = functionSlugs.includes(slug);
-    setFunctionSlugs((current) => toggleValue(current, slug));
+
+    setFunctionSlugs((current) => {
+      if (slug === SEMENTINHA_COORDINATOR_SLUG && selected) {
+        return current.filter(
+          (item) =>
+            item !== SEMENTINHA_COORDINATOR_SLUG &&
+            !isSementinhaSubfunctionSlug(item),
+        );
+      }
+
+      return toggleValue(current, slug);
+    });
+
     invalidateStep("participacao");
 
     if (slug === "cavalinho") {
@@ -519,6 +544,16 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
           0,
         );
       }
+    }
+
+    if (slug === SEMENTINHA_COORDINATOR_SLUG && !selected) {
+      window.setTimeout(
+        () =>
+          document
+            .getElementById("sementinha-subfunction-selector-button")
+            ?.click(),
+        0,
+      );
     }
   }
 
@@ -1054,6 +1089,20 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                     }}
                   />
                 )}
+              {hasSementinhaCoordinator && (
+                <SementinhaSubfunctionSelector
+                  selectedSlugs={selectedSementinhaSubfunctionSlugs}
+                  onChange={(selectedSlugs) => {
+                    invalidateStep("participacao");
+                    setFunctionSlugs((current) => [
+                      ...current.filter(
+                        (item) => !isSementinhaSubfunctionSlug(item),
+                      ),
+                      ...selectedSlugs,
+                    ]);
+                  }}
+                />
+              )}
             </section>
           ) : (
             <section>

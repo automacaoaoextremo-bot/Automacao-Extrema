@@ -44,6 +44,11 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
+    label: "Sementinha",
+    href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha",
+    variant: "secondary" as const,
+  },
+  {
     label: "Prestação de Contas",
     href: "#prestacao-contas",
     variant: "secondary" as const,
@@ -84,6 +89,12 @@ export default async function TucxaSitePage() {
       text: content.correnteEmDia.description,
       href: "/solucoes/organizacao-em-harmonia/tucxa/corrente-em-dia",
       buttonLabel: "Acessar",
+    },
+    {
+      title: "Sementinha em Harmonia",
+      text: "Ações assistenciais do Sementinha conectadas ao Tucxa. A primeira solução é a Despensa Viva, com estoque por lote e validade, composição da cesta e entregas.",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha",
+      buttonLabel: "Conhecer",
     },
   ];
 
@@ -265,10 +276,10 @@ export default async function TucxaSitePage() {
             Módulos do Tucxa
           </p>
           <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">
-            Três frentes conectadas pela mesma Base de Harmonia.
+            Quatro frentes conectadas pela mesma Base de Harmonia.
           </h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {modules.map((module) => (
             <article
               key={module.title}

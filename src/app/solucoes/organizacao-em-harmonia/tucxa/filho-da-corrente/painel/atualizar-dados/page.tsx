@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
+import { SementinhaSubfunctionSelector } from "@/components/organizacao-em-harmonia/sementinha-subfunction-selector";
 import {
   FilhoCorrentePanelHeader,
   filhoPanelBase,
@@ -18,6 +19,11 @@ import {
   type PanelHeaderAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import {
+  SEMENTINHA_COORDINATOR_SLUG,
+  SEMENTINHA_SUBFUNCTIONS,
+  isSementinhaSubfunctionSlug,
+} from "@/lib/organizacao-em-harmonia/sementinha-functions";
 import { filhoDaCorrenteFunctions } from "../../../tucxa-content";
 
 type DraftItem = {
@@ -423,6 +429,18 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     [],
   );
 
+  const allFunctionOptions = useMemo<DraftItem[]>(
+    () => [
+      ...functionOptions,
+      ...SEMENTINHA_SUBFUNCTIONS.map((item) => ({
+        slug: item.slug,
+        label: item.label,
+        description: item.description,
+      })),
+    ],
+    [functionOptions],
+  );
+
   const agendaDraftItems = useMemo<DraftItem[]>(
     () =>
       agendaOptions.map((item) => ({
@@ -434,8 +452,9 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   );
 
   const selectedFunctions = useMemo(
-    () => functionOptions.filter((item) => functionSlugs.includes(item.slug)),
-    [functionOptions, functionSlugs],
+    () =>
+      allFunctionOptions.filter((item) => functionSlugs.includes(item.slug)),
+    [allFunctionOptions, functionSlugs],
   );
   const selectedAgenda = useMemo(
     () => agendaDraftItems.filter((item) => agendaSlugs.includes(item.slug)),
@@ -445,6 +464,13 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     (item) => agendaSlugs.includes(item.slug) && isThursdayGroup(item),
   );
   const hasCavalinho = functionSlugs.includes("cavalinho");
+  const hasSementinhaCoordinator = functionSlugs.includes(
+    SEMENTINHA_COORDINATOR_SLUG,
+  );
+  const selectedSementinhaSubfunctionSlugs = useMemo(
+    () => functionSlugs.filter(isSementinhaSubfunctionSlug),
+    [functionSlugs],
+  );
   const selectedEntities = useMemo(
     () =>
       entityOptions
@@ -565,7 +591,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
 
   function toggleFunction(slug: string) {
     const selected = functionSlugs.includes(slug);
-    setFunctionSlugs((current) => toggleValue(current, slug));
+
+    setFunctionSlugs((current) => {
+      if (slug === SEMENTINHA_COORDINATOR_SLUG && selected) {
+        return current.filter(
+          (item) =>
+            item !== SEMENTINHA_COORDINATOR_SLUG &&
+            !isSementinhaSubfunctionSlug(item),
+        );
+      }
+
+      return toggleValue(current, slug);
+    });
+
     if (slug === "cavalinho") {
       if (selected) {
         setCavalinhoEntityIds([]);
@@ -578,6 +616,16 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
           0,
         );
       }
+    }
+
+    if (slug === SEMENTINHA_COORDINATOR_SLUG && !selected) {
+      window.setTimeout(
+        () =>
+          document
+            .getElementById("sementinha-subfunction-selector-button")
+            ?.click(),
+        0,
+      );
     }
   }
 
@@ -1233,6 +1281,19 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                     }}
                   />
                 )}
+              {hasSementinhaCoordinator && (
+                <SementinhaSubfunctionSelector
+                  selectedSlugs={selectedSementinhaSubfunctionSlugs}
+                  onChange={(selectedSlugs) => {
+                    setFunctionSlugs((current) => [
+                      ...current.filter(
+                        (item) => !isSementinhaSubfunctionSlug(item),
+                      ),
+                      ...selectedSlugs,
+                    ]);
+                  }}
+                />
+              )}
             </section>
           ) : (
             <section>

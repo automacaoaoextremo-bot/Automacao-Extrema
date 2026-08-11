@@ -9,6 +9,7 @@ import {
   type PanelHeaderAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { hasDespensaVivaManagement } from "@/lib/organizacao-em-harmonia/sementinha-functions";
 import { UpcomingAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-appointments-login-modal";
 import { UpcomingEntityAppointmentsLoginModal } from "@/components/organizacao-em-harmonia/upcoming-entity-appointments-login-modal";
 import { MemberPendingProofLoginModal } from "@/components/organizacao-em-harmonia/member-pending-proof-login-modal";
@@ -17,6 +18,7 @@ import { MemberContributionAlertsLoginModal } from "@/components/organizacao-em-
 type UserInfo = {
   fullName: string;
   profileUpdateStatus: string;
+  functionSlugs: string[];
 };
 
 type PanelPreferences = {
@@ -54,7 +56,7 @@ const PANEL_BASE =
   "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const SETTINGS_HREF = `${PANEL_BASE}/configuracoes`;
 
-const moduleCards = [
+const baseModuleCards = [
   {
     title: "Agenda Viva",
     description:
@@ -92,9 +94,11 @@ const defaultPreferences: PanelPreferences = {
 function ShortcutModal({
   shortcut,
   onClose,
+  canAccessDespensa,
 }: {
   shortcut: Exclude<Shortcut, null>;
   onClose: () => void;
+  canAccessDespensa: boolean;
 }) {
   const title =
     shortcut === "modules"
@@ -102,6 +106,18 @@ function ShortcutModal({
       : shortcut === "registration"
         ? "Cadastro"
         : "Configurações";
+
+  const moduleCards = canAccessDespensa
+    ? [
+        ...baseModuleCards,
+        {
+          title: "Despensa Viva",
+          description:
+            "Estoque por lote e validade, composição das cestas, entregas e histórico do Sementinha.",
+          href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva",
+        },
+      ]
+    : baseModuleCards;
 
   return (
     <div
@@ -259,6 +275,7 @@ export default function PainelFilhoDaCorrentePage() {
           typeof metadata.profile_update_status === "string"
             ? metadata.profile_update_status
             : "";
+        let functionSlugs: string[] = [];
 
         if (session.access_token) {
           const [profileResponse] = await Promise.all([
@@ -269,10 +286,16 @@ export default function PainelFilhoDaCorrentePage() {
           ]);
           const profilePayload = (await profileResponse
             .json()
-            .catch(() => ({}))) as { profileUpdateStatus?: string };
+            .catch(() => ({}))) as {
+            profileUpdateStatus?: string;
+            functionSlugs?: string[];
+          };
           if (profileResponse.ok) {
             profileUpdateStatus =
               profilePayload.profileUpdateStatus || profileUpdateStatus;
+            functionSlugs = Array.isArray(profilePayload.functionSlugs)
+              ? profilePayload.functionSlugs
+              : [];
           }
         }
 
@@ -284,6 +307,7 @@ export default function PainelFilhoDaCorrentePage() {
               ? metadata.full_name
               : user.email || "Filho da Corrente",
           profileUpdateStatus,
+          functionSlugs,
         });
         setLoading(false);
       });
@@ -298,6 +322,11 @@ export default function PainelFilhoDaCorrentePage() {
   const firstName = useMemo(
     () => userInfo?.fullName.trim().split(/\s+/)[0] || "Filho da Corrente",
     [userInfo?.fullName],
+  );
+
+  const canAccessDespensa = useMemo(
+    () => hasDespensaVivaManagement(userInfo?.functionSlugs ?? []),
+    [userInfo?.functionSlugs],
   );
 
   return (
@@ -361,7 +390,11 @@ export default function PainelFilhoDaCorrentePage() {
       </section>
 
       {shortcut && (
-        <ShortcutModal shortcut={shortcut} onClose={() => setShortcut(null)} />
+        <ShortcutModal
+          shortcut={shortcut}
+          onClose={() => setShortcut(null)}
+          canAccessDespensa={canAccessDespensa}
+        />
       )}
 
       {!loading && panelPreferences.upcomingAppointmentsPopup && (
