@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasDespensaVivaManagement } from "@/lib/organizacao-em-harmonia/sementinha-functions";
 
 export type SementinhaAccessRole = "gestor" | "consulta";
 
@@ -23,6 +24,12 @@ function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function asTextList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => text(item)).filter(Boolean)
+    : [];
 }
 
 function jsonError(message: string, status = 403) {
@@ -150,47 +157,25 @@ export async function getSementinhaAccess(
     const isClientAdmin = isClientAdminMembership(
       (membership as Record<string, unknown> | null) ?? null,
     );
+    const profile = asRecord(membership?.agenda_viva_profile);
+    const functionSlugs = asTextList(profile.functionSlugs);
 
-    let accessRole: SementinhaAccessRole | null = isClientAdmin
-      ? "gestor"
-      : null;
-
-    if (!accessRole) {
-      const { data, error } = await supabaseAdmin
-        .from("oh_sementinha_access")
-        .select("access_role, active")
-        .eq("organization_id", organizationId)
-        .eq("person_id", personId)
-        .eq("active", true)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      const role = text(data?.access_role);
-      if (role === "gestor" || role === "consulta") {
-        accessRole = role;
-      }
-    }
-
-    if (!accessRole) {
+    if (!hasDespensaVivaManagement(functionSlugs)) {
       return {
         ok: false,
         response: jsonError(
-          "Seu acesso à Despensa Viva ainda não foi liberado. Solicite a um gestor do Sementinha.",
+          "A Despensa Viva é exclusiva para quem possui a função Coordenador Sementinha e a sub-função Gestor Despensa Viva.",
           403,
         ),
       };
     }
 
-    if (minimumRole === "gestor" && accessRole !== "gestor") {
-      return {
-        ok: false,
-        response: jsonError(
-          "Seu acesso ao Sementinha é somente para consulta.",
-          403,
-        ),
-      };
-    }
+    // Quem possui a combinação Coordenador Sementinha + Gestor Despensa Viva
+    // recebe acesso de gestão. Mantemos o parâmetro para preservar a assinatura
+    // utilizada pelas rotas de leitura/escrita, embora atualmente não exista um
+    // perfil somente-consulta dentro da Despensa Viva.
+    void minimumRole;
+    const accessRole: SementinhaAccessRole = "gestor";
 
     return {
       ok: true,

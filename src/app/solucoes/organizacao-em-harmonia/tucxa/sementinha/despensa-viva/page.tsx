@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -90,21 +91,6 @@ type Expiring = {
   demoData: boolean;
 };
 
-type Person = {
-  id: string;
-  full_name: string;
-  email: string | null;
-  whatsapp: string | null;
-  active: boolean;
-};
-
-type TeamMember = {
-  id: string;
-  person_id: string;
-  access_role: "gestor" | "consulta";
-  active: boolean;
-  person: Person | null;
-};
 
 type SnapshotItem = {
   itemId: string;
@@ -143,13 +129,11 @@ type Payload = {
   };
   snapshot: SnapshotItem[] | null;
   snapshotDate: string | null;
-  team: TeamMember[];
-  people: Person[];
 };
 
-type Tab = "resumo" | "estoque" | "cestas" | "historico" | "equipe";
+type Tab = "resumo" | "estoque" | "cestas" | "historico";
 
-type FefoAllocation = {
+type PvpsAllocation = {
   itemName: string;
   batchCode: string;
   expiresAt: string | null;
@@ -160,20 +144,18 @@ type FefoAllocation = {
 const PAGE_BASE =
   "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva";
 
+const FILHO_PANEL =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+
 const headerActions = [
   {
     label: "Início",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha",
-    variant: "secondary" as const,
-  },
-  {
-    label: "Despensa Viva",
-    href: PAGE_BASE,
+    href: "#inicio",
     variant: "primary" as const,
   },
   {
-    label: "Tucxa",
-    href: "/solucoes/organizacao-em-harmonia/tucxa",
+    label: "Voltar",
+    href: FILHO_PANEL,
     variant: "secondary" as const,
   },
   {
@@ -184,12 +166,27 @@ const headerActions = [
   },
 ];
 
-const tabLabels: Array<{ id: Tab; label: string }> = [
-  { id: "resumo", label: "Resumo" },
-  { id: "estoque", label: "Estoque" },
-  { id: "cestas", label: "Cestas" },
-  { id: "historico", label: "Histórico" },
-  { id: "equipe", label: "Equipe" },
+const tabLabels: Array<{ id: Tab; label: string; description: string }> = [
+  {
+    id: "resumo",
+    label: "Resumo",
+    description: "Cestas possíveis, item limitante e próximos vencimentos.",
+  },
+  {
+    id: "estoque",
+    label: "Estoque",
+    description: "Alimentos, lotes, quantidades, entradas e validades.",
+  },
+  {
+    id: "cestas",
+    label: "Cestas",
+    description: "Composição atual, capacidade e entrega com baixa PVPS.",
+  },
+  {
+    id: "historico",
+    label: "Histórico",
+    description: "Movimentações, entregas e posição do estoque por data.",
+  },
 ];
 
 function todayIso() {
@@ -290,13 +287,133 @@ function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
   URL.revokeObjectURL(url);
 }
 
+function SectionModal({
+  title,
+  description,
+  children,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[1.4rem] bg-[#F6FAF2] shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]"
+      >
+        <header className="shrink-0 border-b border-[#123D2C]/10 bg-white px-4 py-3 sm:px-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                Despensa Viva
+              </p>
+              <h2 className="mt-0.5 text-xl font-black text-[#123D2C] sm:text-2xl">
+                {title}
+              </h2>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-600 sm:text-sm">
+                {description}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white"
+            >
+              Fechar
+            </button>
+          </div>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-3 sm:p-5">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function DemoRemovalModal({
+  open,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[230] flex items-center justify-center bg-[#10251C]/80 p-3 backdrop-blur-sm"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target && !busy) onCancel();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="Remover dados de demonstração"
+        className="w-full max-w-lg rounded-[1.5rem] bg-white p-4 shadow-2xl sm:p-5"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
+          Atenção
+        </p>
+        <h2 className="mt-1 text-xl font-black text-[#123D2C]">
+          Remover dados de demonstração?
+        </h2>
+        <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900 ring-1 ring-amber-200">
+          <strong>Dados demonstrativos:</strong> as quantidades e validades
+          iniciais servem para validar o processo, inclusive o exemplo de arroz
+          com 10 kg vencendo antes e 40 kg em lote posterior. A composição da
+          cesta é a atual; o estoque deve ser substituído pelo levantamento real
+          antes do uso definitivo.
+        </p>
+        <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+          A confirmação remove apenas lotes, movimentações e entregas marcados
+          como demonstração. A composição da cesta básica é preservada.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded-xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="rounded-xl bg-amber-800 px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+          >
+            {busy ? "Removendo..." : "Confirmar exclusão"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function DespensaVivaPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [authState, setAuthState] = useState<
     "loading" | "signed-out" | "forbidden" | "ready"
   >("loading");
-  const [tab, setTab] = useState<Tab>("resumo");
+  const [tab, setTab] = useState<Tab | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -304,6 +421,7 @@ export default function DespensaVivaPage() {
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [newBatchItemId, setNewBatchItemId] = useState("");
   const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [demoRemovalOpen, setDemoRemovalOpen] = useState(false);
 
   const [snapshotDate, setSnapshotDate] = useState(todayIso());
 
@@ -331,9 +449,6 @@ export default function DespensaVivaPage() {
     destination: "",
     notes: "",
   });
-
-  const [teamPersonId, setTeamPersonId] = useState("");
-  const [teamRole, setTeamRole] = useState<"gestor" | "consulta">("consulta");
 
   const load = useCallback(
     async (token: string, asOf = "") => {
@@ -453,8 +568,8 @@ export default function DespensaVivaPage() {
     Math.floor(Number(deliveryForm.basketCount) || 1),
   );
 
-  const fefoPlan = useMemo(() => {
-    const plan: FefoAllocation[] = [];
+  const pvpsPlan = useMemo(() => {
+    const plan: PvpsAllocation[] = [];
 
     for (const row of composition) {
       if (!row.item) continue;
@@ -492,6 +607,10 @@ export default function DespensaVivaPage() {
   }, [batchesByItem, composition, deliveryCount]);
 
   const canManage = payload?.currentUser.accessRole === "gestor";
+  const activeTab = useMemo(
+    () => tabLabels.find((entry) => entry.id === tab) ?? null,
+    [tab],
+  );
 
   async function post(body: Record<string, unknown>) {
     if (!accessToken) throw new Error("Sessão não encontrada.");
@@ -730,51 +849,6 @@ export default function DespensaVivaPage() {
     }
   }
 
-  async function handleGrantAccess(event: FormEvent) {
-    event.preventDefault();
-    if (!teamPersonId) return;
-
-    setBusy("team");
-    setError("");
-    setMessage("");
-
-    try {
-      const result = await post({
-        action: "grantAccess",
-        personId: teamPersonId,
-        accessRole: teamRole,
-      });
-      setMessage(result.message || "Acesso atualizado.");
-      setTeamPersonId("");
-      await refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Erro ao liberar acesso.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleRevokeAccess(personId: string, name: string) {
-    if (!window.confirm(`Retirar o acesso de ${name} à Despensa Viva?`)) return;
-
-    setBusy(`revoke:${personId}`);
-    setError("");
-    setMessage("");
-
-    try {
-      const result = await post({
-        action: "revokeAccess",
-        personId,
-      });
-      setMessage(result.message || "Acesso retirado.");
-      await refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Erro ao retirar acesso.");
-    } finally {
-      setBusy("");
-    }
-  }
-
   function exportCurrentStock() {
     const rows: Array<Array<string | number>> = [
       ["Alimento", "Embalagem", "Lote", "Quantidade disponível", "Entrada", "Validade", "Origem", "Demonstração"],
@@ -813,14 +887,6 @@ export default function DespensaVivaPage() {
   }
 
   async function handleClearDemo() {
-    if (
-      !window.confirm(
-        "Remover os lotes e a entrega de demonstração? A composição atual da cesta será mantida.",
-      )
-    ) {
-      return;
-    }
-
     setBusy("clear-demo");
     setError("");
     setMessage("");
@@ -828,6 +894,7 @@ export default function DespensaVivaPage() {
     try {
       const result = await post({ action: "clearDemoData" });
       setMessage(result.message || "Demonstração removida.");
+      setDemoRemovalOpen(false);
       await refresh();
     } catch (reason) {
       setError(
@@ -846,7 +913,7 @@ export default function DespensaVivaPage() {
         <TucxaPublicHeader
           actions={headerActions}
           showSupport={false}
-          mobileActionColumns={4}
+          mobileActionColumns={3}
           compactMobileActions
           showSessionName
         />
@@ -866,7 +933,7 @@ export default function DespensaVivaPage() {
         <TucxaPublicHeader
           actions={headerActions}
           showSupport={false}
-          mobileActionColumns={4}
+          mobileActionColumns={3}
           compactMobileActions
         />
         <section className="mx-auto max-w-xl px-4 py-8">
@@ -880,18 +947,12 @@ export default function DespensaVivaPage() {
             <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
               O acesso é liberado somente para pessoas autorizadas pelo Sementinha/Tucxa.
             </p>
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <div className="mt-5">
               <Link
                 href={`/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login?returnTo=${returnTo}`}
-                className="rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white"
+                className="block rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white"
               >
                 Entrar como Filho da Corrente
-              </Link>
-              <Link
-                href={`/solucoes/organizacao-em-harmonia/login?returnTo=${returnTo}`}
-                className="rounded-2xl bg-[#E9F2E7] px-5 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-              >
-                Acesso de gestão
               </Link>
             </div>
           </div>
@@ -906,7 +967,7 @@ export default function DespensaVivaPage() {
         <TucxaPublicHeader
           actions={headerActions}
           showSupport={false}
-          mobileActionColumns={4}
+          mobileActionColumns={3}
           compactMobileActions
           showSessionName
         />
@@ -916,10 +977,11 @@ export default function DespensaVivaPage() {
               Acesso não liberado
             </p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C]">
-              A Despensa Viva usa permissões próprias.
+              A Despensa Viva usa função e sub-função da Base Única.
             </h1>
             <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
-              {error || "Solicite a um gestor do Sementinha para liberar seu acesso."}
+              {error ||
+                "Para acessar, é necessário ter a função Coordenador Sementinha e a sub-função Gestor Despensa Viva."}
             </p>
           </div>
         </section>
@@ -928,11 +990,11 @@ export default function DespensaVivaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F6FAF2] text-[#173323]">
+    <main id="inicio" className="min-h-screen bg-[#F6FAF2] text-[#173323]">
       <TucxaPublicHeader
         actions={headerActions}
         showSupport={false}
-        mobileActionColumns={4}
+        mobileActionColumns={3}
         compactMobileActions
         showSessionName
       />
@@ -954,32 +1016,20 @@ export default function DespensaVivaPage() {
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-white/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] ring-1 ring-white/20">
-              {payload.currentUser.accessRole === "gestor"
-                ? "Acesso de gestão"
-                : "Somente consulta"}
+              Gestor Despensa Viva
             </span>
           </div>
         </div>
 
-        {payload.overview.demoDataPresent && (
-          <div className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">
-            <strong>Dados demonstrativos:</strong> as quantidades e validades
-            iniciais servem para validar o processo, inclusive o exemplo de
-            arroz com 10 kg vencendo antes e 40 kg em lote posterior. A
-            composição da cesta é a atual; o estoque deve ser substituído pelo
-            levantamento real antes do uso definitivo.
-            {canManage && (
-              <button
-                type="button"
-                onClick={() => void handleClearDemo()}
-                disabled={busy === "clear-demo"}
-                className="ml-2 mt-2 rounded-xl bg-amber-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50 sm:mt-0"
-              >
-                {busy === "clear-demo"
-                  ? "Removendo..."
-                  : "Remover apenas dados de demonstração"}
-              </button>
-            )}
+        {payload.overview.demoDataPresent && canManage && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setDemoRemovalOpen(true)}
+              className="w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-900 shadow-sm sm:w-auto"
+            >
+              Remover apenas dados de demonstração
+            </button>
           </div>
         )}
 
@@ -995,32 +1045,47 @@ export default function DespensaVivaPage() {
           </div>
         )}
 
-        <div className="mt-3 overflow-x-auto pb-1">
-          <div className="flex min-w-max gap-2">
-            {tabLabels
-              .filter((entry) => entry.id !== "equipe" || canManage)
-              .map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => {
-                    setTab(entry.id);
-                    setError("");
-                    setMessage("");
-                  }}
-                  className={`rounded-full px-4 py-2 text-sm font-black transition ${
-                    tab === entry.id
-                      ? "bg-[#123D2C] text-white"
-                      : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                  }`}
-                >
-                  {entry.label}
-                </button>
-              ))}
-          </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {tabLabels.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => {
+                setTab(entry.id);
+                setError("");
+                setMessage("");
+              }}
+              className="rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2]"
+            >
+              <span className="block text-sm font-black text-[#123D2C]">
+                {entry.label}
+              </span>
+              <span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">
+                {entry.description}
+              </span>
+            </button>
+          ))}
         </div>
 
-        {tab === "resumo" && (
+        {tab && activeTab && (
+          <SectionModal
+            title={activeTab.label}
+            description={activeTab.description}
+            onClose={() => setTab(null)}
+          >
+            {(message || error) && (
+              <div
+                className={`mb-3 rounded-2xl p-3 text-sm font-bold ${
+                  error
+                    ? "bg-red-50 text-red-800 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
+                }`}
+              >
+                {error || message}
+              </div>
+            )}
+
+            {tab === "resumo" && (
           <section className="mt-3 grid gap-3">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
@@ -1104,7 +1169,7 @@ export default function DespensaVivaPage() {
 
               <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
                 <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                  FEFO · usar primeiro
+                  PVPS · usar primeiro
                 </p>
                 <h2 className="mt-1 text-xl font-black">
                   Validades que pedem atenção
@@ -1557,7 +1622,7 @@ export default function DespensaVivaPage() {
                 Saída inteligente
               </p>
               <h2 className="mt-1 text-xl font-black">
-                Entregar cestas com baixa FEFO
+                Entregar cestas com baixa PVPS
               </h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-[#EEF7EA]">
                 O sistema usa primeiro os lotes com validade mais próxima. Assim,
@@ -1654,7 +1719,7 @@ export default function DespensaVivaPage() {
                     Prévia da baixa por validade
                   </p>
                   <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                    {fefoPlan.map((row, index) => (
+                    {pvpsPlan.map((row, index) => (
                       <div
                         key={`${row.itemName}-${row.batchCode}-${index}`}
                         className={`rounded-xl p-2.5 text-xs font-semibold ${
@@ -1838,116 +1903,18 @@ export default function DespensaVivaPage() {
               </article>
             </div>
           </section>
+            )}
+          </SectionModal>
         )}
 
-        {tab === "equipe" && canManage && (
-          <section className="mt-3 grid gap-3 lg:grid-cols-2">
-            <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10">
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                Quem pode acessar
-              </p>
-              <h2 className="mt-1 text-xl font-black">Equipe do Sementinha</h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Gestor pode atualizar estoque, cestas e permissões. Consulta pode acompanhar sem alterar.
-              </p>
-
-              <div className="mt-3 grid gap-2">
-                {payload.team.length === 0 && (
-                  <p className="rounded-xl bg-[#F8FAF7] p-3 text-sm font-semibold text-slate-500">
-                    Nenhuma permissão específica cadastrada.
-                  </p>
-                )}
-
-                {payload.team.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-3 rounded-xl bg-[#F8FAF7] p-3 ring-1 ring-[#123D2C]/10"
-                  >
-                    <div>
-                      <p className="font-black">
-                        {row.person?.full_name ?? "Pessoa"}
-                      </p>
-                      <p className="text-xs font-semibold text-slate-500">
-                        {row.access_role === "gestor" ? "Gestor" : "Consulta"}
-                        {!row.active ? " · acesso desativado" : ""}
-                      </p>
-                    </div>
-
-                    {row.active && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleRevokeAccess(
-                            row.person_id,
-                            row.person?.full_name ?? "esta pessoa",
-                          )
-                        }
-                        disabled={busy === `revoke:${row.person_id}`}
-                        className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50"
-                      >
-                        Retirar
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <form
-              onSubmit={(event) => void handleGrantAccess(event)}
-              className="rounded-[1.5rem] bg-[#E9F2E7] p-4 shadow ring-1 ring-[#123D2C]/10"
-            >
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                Liberar acesso
-              </p>
-              <h2 className="mt-1 text-xl font-black">
-                Escolha uma pessoa da Base Única
-              </h2>
-
-              <label className="mt-3 grid gap-1 text-sm font-black">
-                Pessoa
-                <select
-                  value={teamPersonId}
-                  onChange={(event) => setTeamPersonId(event.target.value)}
-                  className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2.5 font-semibold"
-                  required
-                >
-                  <option value="">Selecione...</option>
-                  {payload.people.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.full_name}
-                      {person.email ? ` — ${person.email}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="mt-3 grid gap-1 text-sm font-black">
-                Nível
-                <select
-                  value={teamRole}
-                  onChange={(event) =>
-                    setTeamRole(
-                      event.target.value === "gestor" ? "gestor" : "consulta",
-                    )
-                  }
-                  className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2.5 font-semibold"
-                >
-                  <option value="consulta">Consulta</option>
-                  <option value="gestor">Gestor</option>
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                disabled={busy === "team"}
-                className="mt-4 w-full rounded-xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white disabled:opacity-50"
-              >
-                {busy === "team" ? "Salvando..." : "Liberar / atualizar acesso"}
-              </button>
-            </form>
-          </section>
-        )}
+        <DemoRemovalModal
+          open={demoRemovalOpen}
+          busy={busy === "clear-demo"}
+          onCancel={() => {
+            if (busy !== "clear-demo") setDemoRemovalOpen(false);
+          }}
+          onConfirm={() => void handleClearDemo()}
+        />
       </section>
     </main>
   );

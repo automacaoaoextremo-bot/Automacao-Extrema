@@ -94,7 +94,7 @@ export default function SementinhaEmHarmoniaPage() {
               </p>
               <h2 className="mt-1 text-lg font-black">Saber o total, mas não o que vence primeiro.</h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Cada entrada vira um lote. A saída é orientada pela validade mais próxima (FEFO).
+                Cada entrada vira um lote. A saída segue o PVPS — Primeiro que Vence é o Primeiro que Sai.
               </p>
             </article>
 
@@ -134,7 +134,7 @@ export default function SementinhaEmHarmoniaPage() {
             </div>
           </div>
           <p className="mt-4 text-sm font-semibold leading-6 text-slate-700 sm:text-base">
-            A Despensa Viva usa FEFO — <strong>First Expire, First Out</strong> — para sugerir
+            A Despensa Viva usa PVPS — <strong>Primeiro que Vence é o Primeiro que Sai</strong> — para sugerir
             e executar a baixa dos lotes que vencem primeiro. Isso ajuda a reduzir perdas sem
             transformar a rotina do Sementinha em um processo complicado.
           </p>

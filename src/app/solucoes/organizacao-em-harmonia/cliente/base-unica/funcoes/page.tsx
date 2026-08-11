@@ -15,19 +15,48 @@ import {
 } from "@/components/organizacao-em-harmonia/admin-list-ui";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-type Role = { id: string; name: string; slug: string; description: string | null; active: boolean; is_system: boolean };
+type Role = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  active: boolean;
+  is_system: boolean;
+  parent_role_id: string | null;
+};
 type Payload = { roles: Role[] };
-type RoleForm = { id: string; name: string; slug: string; description: string; active: boolean };
+type RoleForm = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  active: boolean;
+  parentRoleId: string;
+};
 type Confirmation = { title: string; message: string; confirmLabel: string; tone: "primary" | "danger" | "warning"; run: () => Promise<void> };
 
-const emptyRoleForm: RoleForm = { id: "", name: "", slug: "", description: "", active: true };
+const emptyRoleForm: RoleForm = {
+  id: "",
+  name: "",
+  slug: "",
+  description: "",
+  active: true,
+  parentRoleId: "",
+};
 
 function slugFromName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function roleToForm(role: Role): RoleForm {
-  return { id: role.id, name: role.name, slug: role.slug, description: role.description ?? "", active: role.active !== false };
+  return {
+    id: role.id,
+    name: role.name,
+    slug: role.slug,
+    description: role.description ?? "",
+    active: role.active !== false,
+    parentRoleId: role.parent_role_id ?? "",
+  };
 }
 
 export default function FuncoesPage() {
@@ -94,6 +123,26 @@ export default function FuncoesPage() {
     });
   }, [payload?.roles, query, sortOrder]);
 
+  const roleById = useMemo(
+    () => new Map((payload?.roles ?? []).map((role) => [role.id, role])),
+    [payload?.roles],
+  );
+
+  const parentRoleOptions = useMemo(
+    () =>
+      (payload?.roles ?? [])
+        .filter(
+          (role) =>
+            !role.parent_role_id &&
+            role.id !== form.id &&
+            role.active !== false,
+        )
+        .sort((left, right) =>
+          left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }),
+        ),
+    [form.id, payload?.roles],
+  );
+
   function update<K extends keyof RoleForm>(key: K, value: RoleForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -122,6 +171,7 @@ export default function FuncoesPage() {
           slug: form.slug || slugFromName(form.name),
           description: form.description,
           active: form.active,
+          parentRoleId: form.parentRoleId || undefined,
         }),
       });
       if (result) setPayload(result);
@@ -230,7 +280,13 @@ export default function FuncoesPage() {
                 key={role.id}
                 icon="🧩"
                 title={role.name}
-                subtitle={role.is_system ? `${role.slug} · função do sistema` : role.slug}
+                subtitle={
+                  role.parent_role_id
+                    ? `${role.slug} · sub-função de ${roleById.get(role.parent_role_id)?.name ?? "função principal"}`
+                    : role.is_system
+                      ? `${role.slug} · função do sistema`
+                      : role.slug
+                }
                 status={<AdminStatusBadge active={role.active !== false}>{role.active === false ? "Inativa" : "Ativa"}</AdminStatusBadge>}
                 actions={
                   <>
@@ -262,6 +318,27 @@ export default function FuncoesPage() {
               <span className="text-sm font-black text-[#00334E]">Descrição / responsabilidades</span>
               <textarea value={form.description} onChange={(event) => update("description", event.target.value)} className="min-h-32 rounded-2xl border border-slate-200 p-3" />
             </label>
+            <label className="grid gap-1 md:col-span-2">
+              <span className="text-sm font-black text-[#00334E]">
+                Função principal / função mãe
+              </span>
+              <select
+                value={form.parentRoleId}
+                onChange={(event) => update("parentRoleId", event.target.value)}
+                className="rounded-2xl border border-slate-200 bg-white p-3"
+              >
+                <option value="">Nenhuma — esta é uma função principal</option>
+                {parentRoleOptions.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs font-semibold leading-5 text-slate-500">
+                Use quando esta função for uma especialização de outra. Exemplo:
+                Coordenador Sementinha → Gestor Despensa Viva.
+              </span>
+            </label>
             <label className="flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
               <input type="checkbox" checked={form.active} onChange={(event) => update("active", event.target.checked)} className="h-5 w-5" />
               <span className="text-sm font-black text-[#00334E]">Função ativa</span>
@@ -280,6 +357,11 @@ export default function FuncoesPage() {
             <AdminDetailItem label="Código interno">{viewRole.slug}</AdminDetailItem>
             <AdminDetailItem label="Situação">{viewRole.active === false ? "Inativa" : "Ativa"}</AdminDetailItem>
             <AdminDetailItem label="Origem">{viewRole.is_system ? "Função do sistema" : "Função personalizada"}</AdminDetailItem>
+            <AdminDetailItem label="Hierarquia">
+              {viewRole.parent_role_id
+                ? `Sub-função de ${roleById.get(viewRole.parent_role_id)?.name ?? "função principal"}`
+                : "Função principal"}
+            </AdminDetailItem>
             <AdminDetailItem label="Uso">Disponível para envolvidos, vínculos e permissões</AdminDetailItem>
             <AdminDetailItem label="Descrição / responsabilidades" full>{viewRole.description || "Nenhuma descrição cadastrada"}</AdminDetailItem>
           </AdminDetailGrid>

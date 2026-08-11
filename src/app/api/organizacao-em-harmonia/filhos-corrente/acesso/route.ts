@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
+  SEMENTINHA_COORDINATOR_SLUG,
+  isSementinhaSubfunctionSlug,
+} from "@/lib/organizacao-em-harmonia/sementinha-functions";
+import {
   loadEligibleFamilyPeople,
   loadFamilyRelationshipOptions,
   parseFamilyLinks,
@@ -719,6 +723,18 @@ async function submitFirstAccess(body: AccessBody) {
   const requestedEntities = asEntityItems(body.selectedEntities);
   const requestedFamilyLinks = parseFamilyLinks(body.familyLinks);
   const hasCavalinho = hasCavalinhoFunction(functionSlugs, selectedFunctions);
+  const hasSementinhaCoordinator = functionSlugs.includes(
+    SEMENTINHA_COORDINATOR_SLUG,
+  );
+  const sementinhaSubfunctions = functionSlugs.filter(
+    isSementinhaSubfunctionSlug,
+  );
+
+  if (sementinhaSubfunctions.length > 0 && !hasSementinhaCoordinator) {
+    throw new Error(
+      "As sub-funções do Sementinha só podem ser selecionadas junto com a função Coordenador Sementinha.",
+    );
+  }
 
   if (!fullName) throw new Error("Informe o nome completo.");
   if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");

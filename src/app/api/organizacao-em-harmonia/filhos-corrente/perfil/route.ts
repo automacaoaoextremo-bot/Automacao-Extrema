@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  SEMENTINHA_COORDINATOR_SLUG,
+  isSementinhaSubfunctionSlug,
+} from "@/lib/organizacao-em-harmonia/sementinha-functions";
 import { profileHasCavalinho, resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
 import {
   loadEligibleFamilyPeople,
@@ -393,6 +397,22 @@ export async function POST(request: Request) {
     }
     const requestedProfilePreview = { functionSlugs, selectedFunctions };
     const requestedHasCavalinho = profileHasCavalinho(requestedProfilePreview);
+    const requestedHasSementinhaCoordinator = functionSlugs.includes(
+      SEMENTINHA_COORDINATOR_SLUG,
+    );
+    const requestedSementinhaSubfunctions = functionSlugs.filter(
+      isSementinhaSubfunctionSlug,
+    );
+
+    if (
+      requestedSementinhaSubfunctions.length > 0 &&
+      !requestedHasSementinhaCoordinator
+    ) {
+      throw new Error(
+        "As sub-funções do Sementinha só podem ser selecionadas junto com a função Coordenador Sementinha.",
+      );
+    }
+
     if (requestedHasCavalinho && cavalinhoEntityIds.length === 0) {
       throw new Error("Selecione ao menos uma entidade que você recebe.");
     }

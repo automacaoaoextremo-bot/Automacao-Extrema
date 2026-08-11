@@ -347,39 +347,6 @@ export async function GET(request: Request) {
       ? await loadSnapshot(organizationId, items, asOf)
       : null;
 
-    let team: Array<Record<string, unknown>> = [];
-    let people: Array<Record<string, unknown>> = [];
-
-    if (accessRole === "gestor") {
-      const [accessRows, peopleRows] = await Promise.all([
-        supabaseAdmin
-          .from("oh_sementinha_access")
-          .select("id, person_id, access_role, active, created_at, updated_at")
-          .eq("organization_id", organizationId)
-          .order("created_at", { ascending: true }),
-        supabaseAdmin
-          .from("oh_people")
-          .select("id, full_name, email, whatsapp, active")
-          .eq("organization_id", organizationId)
-          .eq("active", true)
-          .order("full_name", { ascending: true })
-          .limit(500),
-      ]);
-
-      if (accessRows.error) throw accessRows.error;
-      if (peopleRows.error) throw peopleRows.error;
-
-      const peopleMap = new Map(
-        (peopleRows.data ?? []).map((person) => [person.id, person]),
-      );
-
-      team = (accessRows.data ?? []).map((row) => ({
-        ...row,
-        person: peopleMap.get(row.person_id) ?? null,
-      }));
-      people = peopleRows.data ?? [];
-    }
-
     return NextResponse.json({
       currentUser: {
         personId,
@@ -399,8 +366,6 @@ export async function GET(request: Request) {
       overview: buildOverview(items, batches, templateItems),
       snapshot,
       snapshotDate: asOf || null,
-      team,
-      people,
     });
   } catch (error) {
     const message =
@@ -426,7 +391,7 @@ export async function POST(request: Request) {
   const access = await getSementinhaAccess(request, requiredRole);
   if (!access.ok) return access.response;
 
-  const { organizationId, personId, isClientAdmin } = access.context;
+  const { organizationId, personId } = access.context;
 
   try {
     if (action === "createItem") {
@@ -622,7 +587,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         message:
-          "Entrada registrada. O lote já participa da ordem de saída por validade (FEFO).",
+          "Entrada registrada. O lote já participa do PVPS — Primeiro que Vence é o Primeiro que Sai.",
         batchId: data,
       });
     }
@@ -699,84 +664,6 @@ export async function POST(request: Request) {
         ok: true,
         message: `${basketCount} cesta(s) baixada(s). O sistema consumiu primeiro os lotes com validade mais próxima.`,
         deliveryId: data,
-      });
-    }
-
-    if (action === "grantAccess") {
-      const targetPersonId = text(body.personId);
-      const role = text(body.accessRole);
-
-      if (!targetPersonId || (role !== "gestor" && role !== "consulta")) {
-        return NextResponse.json(
-          { error: "Informe a pessoa e o nível de acesso." },
-          { status: 400 },
-        );
-      }
-
-      const { data: person, error: personError } = await supabaseAdmin
-        .from("oh_people")
-        .select("id, full_name")
-        .eq("organization_id", organizationId)
-        .eq("id", targetPersonId)
-        .eq("active", true)
-        .single();
-
-      if (personError) throw personError;
-
-      const { error } = await supabaseAdmin
-        .from("oh_sementinha_access")
-        .upsert(
-          {
-            organization_id: organizationId,
-            person_id: targetPersonId,
-            access_role: role,
-            active: true,
-            granted_by: personId,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "organization_id,person_id" },
-        );
-
-      if (error) throw error;
-
-      return NextResponse.json({
-        ok: true,
-        message: `${person.full_name} recebeu acesso de ${
-          role === "gestor" ? "gestão" : "consulta"
-        } à Despensa Viva.`,
-      });
-    }
-
-    if (action === "revokeAccess") {
-      const targetPersonId = text(body.personId);
-      if (!targetPersonId) {
-        return NextResponse.json(
-          { error: "Pessoa não informada." },
-          { status: 400 },
-        );
-      }
-
-      if (targetPersonId === personId && !isClientAdmin) {
-        return NextResponse.json(
-          {
-            error:
-              "Para evitar perda de acesso, um gestor não pode retirar o próprio acesso.",
-          },
-          { status: 409 },
-        );
-      }
-
-      const { error } = await supabaseAdmin
-        .from("oh_sementinha_access")
-        .update({ active: false, updated_at: new Date().toISOString() })
-        .eq("organization_id", organizationId)
-        .eq("person_id", targetPersonId);
-
-      if (error) throw error;
-
-      return NextResponse.json({
-        ok: true,
-        message: "Acesso ao Sementinha retirado.",
       });
     }
 
