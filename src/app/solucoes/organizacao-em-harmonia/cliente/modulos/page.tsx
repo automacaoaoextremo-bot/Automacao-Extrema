@@ -20,6 +20,18 @@ const modules = [
     href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia",
     cta: "Configurar Corrente em Dia",
   },
+  {
+    name: "Escuta em Harmonia",
+    description: "Questionamentos identificados ou anônimos para a Diretoria, prazo configurável, confirmação de resolução e ações institucionais de melhoria.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia",
+    cta: "Abrir Escuta em Harmonia",
+  },
+  {
+    name: "Cursos em Harmonia",
+    description: "Curso conectado à Base Única e Agenda Viva, com Professor, conflitos, convites, cronograma e presença antifraude.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/cursos",
+    cta: "Gerenciar Cursos",
+  },
 ];
 
 export default function OrganizacaoModulosPage() {
@@ -36,7 +48,7 @@ export default function OrganizacaoModulosPage() {
         </p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {modules.map((item) => (
           <Link key={item.href} href={item.href} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100 transition hover:-translate-y-1 hover:shadow-xl">
             <p className="text-xl font-black text-[#00334E]">{item.name}</p>
