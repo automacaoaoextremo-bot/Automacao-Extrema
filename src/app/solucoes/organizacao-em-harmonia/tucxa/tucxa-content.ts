@@ -8,7 +8,6 @@ export const tucxaTheme = {
   cream: "#F7FAF2",
   text: "#10251C",
 };
-
 export const filhoDaCorrenteFunctions = [
   { slug: "administrador-sistema", label: "Administrador do sistema" },
   { slug: "cambono", label: "Cambono" },
@@ -23,13 +22,13 @@ export const filhoDaCorrenteFunctions = [
   { slug: "diretoria", label: "Diretoria" },
   { slug: "organizacao", label: "Organização" },
   { slug: "presidente", label: "Presidente" },
+  { slug: "professor", label: "Professor" },
   { slug: "recepcao", label: "Recepção" },
   { slug: "tesouraria-financeiro", label: "Tesouraria/Financeiro" },
   { slug: "cambono-volante-reserva", label: "Cambono volante/reserva" },
   { slug: "apoia-recepcao", label: "Apoia recepção" },
   { slug: "apoia-organizacao", label: "Apoia organização" },
 ] as const;
-
 export const filhoDaCorrenteAgenda = [
   {
     slug: "atendimento-segunda",
@@ -136,7 +135,6 @@ export const filhoDaCorrenteAgenda = [
     timeLabel: "Horário a definir",
   },
 ] as const;
-
 export const consulenteServices = [
   {
     title: "Atendimento espiritual com acolhimento",
@@ -154,7 +152,6 @@ export const consulenteServices = [
       "A casa também estimula estudo, responsabilidade e crescimento, mantendo uma biblioteca aberta aos Filhos de Fora e Filhos da Corrente.",
   },
 ];
-
 export const consulenteGuidelines = [
   {
     title: "A casa é aberta a quem busca auxílio",
@@ -177,7 +174,6 @@ export const consulenteGuidelines = [
       "O silêncio e a disciplina ajudam a manter a harmonia dos trabalhos. A tecnologia deve apenas facilitar a orientação, sem substituir o acolhimento humano da casa.",
   },
 ];
-
 export const tucxaNavigation = [
   { href: "#inicio", label: "Início" },
   { href: "#visao", label: "Visão" },
