@@ -48,6 +48,50 @@ function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
 }
 
+function errorRecord(value: unknown) {
+  return record(value);
+}
+
+function errorMessage(value: unknown, fallback: string) {
+  if (value instanceof Error && value.message) return value.message;
+  const current = errorRecord(value);
+  return text(current.message) || text(current.details) || text(current.hint) || fallback;
+}
+
+function isMissingCourseSchema(value: unknown) {
+  const current = errorRecord(value);
+  const code = text(current.code).toUpperCase();
+  const message = normalize([
+    current.message,
+    current.details,
+    current.hint,
+  ].map((item) => text(item)).filter(Boolean).join(" "));
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    ((message.includes("oh_course") || message.includes("oh_courses")) &&
+      (message.includes("does not exist") ||
+        message.includes("nao existe") ||
+        message.includes("could not find") ||
+        message.includes("schema cache")))
+  );
+}
+
+function courseLoadError(value: unknown) {
+  if (isMissingCourseSchema(value)) {
+    return {
+      message:
+        "A estrutura do Cursos em Harmonia ainda não está disponível no banco. Verifique se a migration 20260811190000_oh_tucxa_escuta_cursos_v1.sql foi aplicada no Supabase.",
+      status: 503,
+    };
+  }
+
+  return {
+    message: errorMessage(value, "Erro ao carregar os cursos."),
+    status: 500,
+  };
+}
 
 function professorFromProfile(value: unknown) {
   const profile = record(value);
@@ -64,7 +108,15 @@ function professorFromProfile(value: unknown) {
 }
 
 async function loadPayload(organizationId: string) {
-  const [coursesResult, lessonsResult, teachersResult, studentsResult, attendanceResult, peopleResult, membershipsResult, eventsResult] = await Promise.all([
+  const [
+    coursesResult,
+    lessonsResult,
+    teachersResult,
+    studentsResult,
+    attendanceResult,
+    peopleResult,
+    membershipsResult,
+  ] = await Promise.all([
     supabaseAdmin
       .from("oh_courses")
       .select("id,name,slug,objective,rules,planned_content,status,active,metadata,created_at,updated_at")
@@ -99,17 +151,28 @@ async function loadPayload(organizationId: string) {
       .select("person_id,active,status,agenda_viva_profile")
       .eq("organization_id", organizationId)
       .eq("active", true),
-    supabaseAdmin
-      .from("agv_events")
-      .select("id,title,event_type,status,active,starts_at,ends_at,location,group_slug,responsible_person_id,metadata")
-      .eq("organization_id", organizationId)
-      .neq("active", false)
-      .order("starts_at", { ascending: true, nullsFirst: false }),
   ]);
 
-  for (const result of [coursesResult, lessonsResult, teachersResult, studentsResult, attendanceResult, peopleResult, membershipsResult, eventsResult]) {
+  for (const result of [
+    coursesResult,
+    lessonsResult,
+    teachersResult,
+    studentsResult,
+    attendanceResult,
+    peopleResult,
+    membershipsResult,
+  ]) {
     if (result.error) throw result.error;
   }
+
+  // A Agenda Viva agrega valor à gestão, mas uma indisponibilidade dela não deve
+  // impedir a Coordenação de Cursos de abrir a página e administrar o curso.
+  const eventsResult = await supabaseAdmin
+    .from("agv_events")
+    .select("id,title,event_type,status,active,starts_at,ends_at,location,group_slug,responsible_person_id,metadata")
+    .eq("organization_id", organizationId)
+    .neq("active", false)
+    .order("starts_at", { ascending: true, nullsFirst: false });
 
   const people = peopleResult.data ?? [];
   const personMap = new Map(people.map((person) => [person.id, person]));
@@ -134,7 +197,13 @@ async function loadPayload(organizationId: string) {
     attendance: attendanceResult.data ?? [],
     people,
     teacherCandidates: people.filter((person) => professorIds.has(person.id)),
-    agendaEvents: eventsResult.data ?? [],
+    agendaEvents: eventsResult.error ? [] : eventsResult.data ?? [],
+    agendaWarning: eventsResult.error
+      ? `A gestão de cursos foi carregada, mas a Agenda Viva não pôde ser consultada agora: ${errorMessage(
+          eventsResult.error,
+          "erro não identificado",
+        )}`
+      : null,
   };
 }
 
@@ -215,9 +284,11 @@ export async function GET(request: Request) {
   try {
     return NextResponse.json(await loadPayload(auth.context.organizationId));
   } catch (error) {
+    console.error("[Cursos em Harmonia][GET]", error);
+    const current = courseLoadError(error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Erro ao carregar os cursos." },
-      { status: 500 },
+      { error: current.message },
+      { status: current.status },
     );
   }
 }
@@ -569,9 +640,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Ação não reconhecida." }, { status: 400 });
   } catch (error) {
+    console.error("[Cursos em Harmonia][POST]", { action, error });
+    const current = courseLoadError(error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Erro ao atualizar os cursos." },
-      { status: 500 },
+      {
+        error:
+          current.status === 503
+            ? current.message
+            : errorMessage(error, "Erro ao atualizar os cursos."),
+      },
+      { status: current.status },
     );
   }
 }

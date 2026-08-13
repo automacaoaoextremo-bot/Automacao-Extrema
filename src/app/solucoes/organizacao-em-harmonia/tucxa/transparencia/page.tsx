@@ -42,7 +42,6 @@ type LivePayload = {
     message: string;
   };
   latestFinalized: MonthSummary | null;
-  currentForecast: MonthSummary;
   matrix: FinancialTransparencyMatrixData;
 };
 
@@ -82,6 +81,25 @@ function money(value: number | null | undefined) {
     style: "currency",
     currency: "BRL",
   }).format(Number(value) || 0);
+}
+
+
+function publicMessageWithoutCurrent(value?: string | null) {
+  const fallback =
+    "Acompanhe os recursos das competências finalizadas, com clareza sobre receitas, despesas, resultado e saldo.";
+  const current = (value || "").trim();
+  if (!current) return fallback;
+
+  const normalized = current
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (normalized.includes("mes atual") || normalized.includes("previsao")) {
+    return fallback;
+  }
+
+  return current;
 }
 
 function monthLabel(value: string, format: "short" | "long" = "short") {
@@ -160,14 +178,13 @@ function ContributionChoiceButtons({
 function SummaryNavigationButtons() {
   const items = [
     { label: "Finalizado", href: "#finalizado" },
-    { label: "Atual", href: "#atual" },
     { label: "Detalhado", href: "#detalhado" },
   ];
 
   return (
     <nav
       aria-label="Acessos aos quadros financeiros"
-      className="mt-5 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap"
+      className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
     >
       {items.map((item) => (
         <Link
@@ -287,8 +304,7 @@ export default function TucxaTransparenciaPage() {
             {data?.settings.headline || "Fortalecendo a confiança"}
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA]">
-            {data?.settings.message ||
-              "Acompanhe os recursos do último mês finalizado e a previsão do mês atual, com clareza sobre receitas, despesas, resultado e saldo."}
+            {publicMessageWithoutCurrent(data?.settings.message)}
           </p>
           <SummaryNavigationButtons />
           <ContributionChoiceButtons className="mt-3" inverse />
@@ -308,7 +324,7 @@ export default function TucxaTransparenciaPage() {
 
         {data && (
           <>
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div>
               {data.latestFinalized ? (
                 <FinancialSummary
                   id="finalizado"
@@ -328,13 +344,6 @@ export default function TucxaTransparenciaPage() {
                   <ContributionChoiceButtons className="mt-4" />
                 </section>
               )}
-
-              <FinancialSummary
-                id="atual"
-                title="Mês atual"
-                subtitle="Média das receitas, despesas e saldo no banco consideradas como estimativa para o mês atual."
-                month={data.currentForecast}
-              />
             </div>
 
             <div id="detalhado" className="scroll-mt-48">

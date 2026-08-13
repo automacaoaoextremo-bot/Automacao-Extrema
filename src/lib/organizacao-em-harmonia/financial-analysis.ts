@@ -62,6 +62,21 @@ function dataNature(value: string | null | undefined) {
   return value === "estimado" ? ("estimado" as const) : ("realizado" as const);
 }
 
+function monthKey(value: string | null | undefined) {
+  return typeof value === "string" ? value.slice(0, 7) : "";
+}
+
+function isFinalizedPeriod(row: FinancialPeriodRow) {
+  const workflow = (row.workflow_status || "").trim().toLowerCase();
+  const status = (row.status || "").trim().toLowerCase();
+  return (
+    workflow === "finalizado" ||
+    status === "finalizado" ||
+    status === "fechado" ||
+    status === "confirmado"
+  );
+}
+
 export async function buildFinancialAnalysisBase(organizationId: string) {
   const [periodsResult, entriesResult] = await Promise.all([
     supabaseAdmin
@@ -84,11 +99,17 @@ export async function buildFinancialAnalysisBase(organizationId: string) {
   if (periodsResult.error) throw periodsResult.error;
   if (entriesResult.error) throw entriesResult.error;
 
-  const periods = ((periodsResult.data ?? []) as FinancialPeriodRow[]).map(
+  const periodRows = (periodsResult.data ?? []) as FinancialPeriodRow[];
+  const finalizedRows = periodRows.filter(isFinalizedPeriod);
+  const finalizedMonths = new Set(
+    finalizedRows.map((row) => monthKey(row.competence_month)).filter(Boolean),
+  );
+
+  const periods = finalizedRows.map(
     (row): FinancialAnalysisPeriod => ({
       month: row.competence_month,
       status: row.status,
-      workflowStatus: row.workflow_status || row.status || "rascunho",
+      workflowStatus: row.workflow_status || row.status || "finalizado",
       dataNature: dataNature(row.data_nature),
       openingBalance: asNumber(row.opening_balance),
       closingBalance:
@@ -98,8 +119,11 @@ export async function buildFinancialAnalysisBase(organizationId: string) {
     }),
   );
 
-  const entries = ((entriesResult.data ?? []) as FinancialEntryRow[]).map(
-    (row): FinancialAnalysisEntry => {
+  const entries = ((entriesResult.data ?? []) as FinancialEntryRow[])
+    .filter((row) =>
+      finalizedMonths.has(monthKey(row.financial_month || row.competence_month)),
+    )
+    .map((row): FinancialAnalysisEntry => {
       const category = categoryFrom(row.category);
       return {
         type: row.entry_type,
@@ -112,11 +136,10 @@ export async function buildFinancialAnalysisBase(organizationId: string) {
         group: category?.group_name || "Outros",
         amount: asNumber(row.amount),
         dataNature: dataNature(row.data_nature),
-        workflowStatus: row.workflow_status || row.status || "rascunho",
+        workflowStatus: row.workflow_status || row.status || "finalizado",
         sourceType: row.source_type || "manual",
       };
-    },
-  );
+    });
 
   return {
     periods,

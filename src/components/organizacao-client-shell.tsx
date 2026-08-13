@@ -15,6 +15,7 @@ type ShellProps = {
   financialBackHref?: string;
   simpleFinancialActive?: "inicio" | "voltar" | null;
   simpleFinancialHeaderControl?: ReactNode;
+  simpleHeaderHelpMessage?: string;
 };
 
 type NavItem = {
@@ -268,6 +269,7 @@ export function OrganizacaoClientShell({
   financialBackHref = `${MEMBER_PANEL}/corrente-em-dia?financeiro=1`,
   simpleFinancialActive = null,
   simpleFinancialHeaderControl,
+  simpleHeaderHelpMessage = "Olá, preciso de ajuda na área financeira do Tucxa em Harmonia.",
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -523,7 +525,12 @@ export function OrganizacaoClientShell({
               <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
                 Sair
               </button>
-              <a href="https://wa.me/5519989848246?text=Ol%C3%A1%2C%20preciso%20de%20ajuda%20na%20%C3%A1rea%20financeira%20do%20Tucxa%20em%20Harmonia." target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+              <a
+                href={`https://wa.me/5519989848246?text=${encodeURIComponent(simpleHeaderHelpMessage)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+              >
                 Ajuda
               </a>
             </div>
