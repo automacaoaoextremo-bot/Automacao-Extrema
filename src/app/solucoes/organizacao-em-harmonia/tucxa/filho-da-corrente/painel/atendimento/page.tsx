@@ -37,7 +37,34 @@ type ProfileResponse = {
   canCambono?: boolean;
   canCavalinho?: boolean;
   consultationScope?: "manage" | "read_all" | "linked_entities" | "none";
+  functionSlugs?: string[];
+  selectedFunctions?: Array<{ slug?: string; label?: string; name?: string }>;
 };
+
+function canonicalFunction(value: unknown) {
+  return typeof value === "string"
+    ? value
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    : "";
+}
+
+function profileFunctionTokens(payload: ProfileResponse) {
+  const slugs = Array.isArray(payload.functionSlugs)
+    ? payload.functionSlugs.map(canonicalFunction).filter(Boolean)
+    : [];
+  const selected = Array.isArray(payload.selectedFunctions)
+    ? payload.selectedFunctions.flatMap((item) =>
+        [item.slug, item.label, item.name].map(canonicalFunction).filter(Boolean),
+      )
+    : [];
+
+  return Array.from(new Set([...slugs, ...selected]));
+}
 
 const modalContent = {
   orientacoes: {
@@ -76,6 +103,7 @@ export default function AtendimentoEmHarmoniaPage() {
   const [canReception, setCanReception] = useState(false);
   const [canCambono, setCanCambono] = useState(false);
   const [canCavalinho, setCanCavalinho] = useState(false);
+  const [functionTokens, setFunctionTokens] = useState<string[]>([]);
   const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => {
@@ -92,6 +120,7 @@ export default function AtendimentoEmHarmoniaPage() {
           setCanReception(payload.canReception === true);
           setCanCambono(payload.canCambono === true);
           setCanCavalinho(payload.canCavalinho === true);
+          setFunctionTokens(profileFunctionTokens(payload));
         }
       });
     }, 0);
@@ -119,6 +148,31 @@ export default function AtendimentoEmHarmoniaPage() {
       document.body.style.overflow = previousOverflow;
     };
   }, [modal]);
+
+  const isProfessor = functionTokens.some((token) =>
+    ["professor", "docente"].includes(token),
+  );
+  const canManageCourses = functionTokens.some((token) =>
+    [
+      "coordenacao",
+      "coordenador",
+      "coordenacao-de-cursos",
+      "coordenador-de-cursos",
+    ].includes(token),
+  );
+  const canManageListening = functionTokens.some((token) =>
+    [
+      "presidente",
+      "vice-presidente",
+      "diretoria",
+      "diretor",
+      "secretario",
+      "secretaria",
+      "coordenacao",
+      "coordenador",
+    ].includes(token),
+  );
+  const canOpenCourses = isProfessor || canManageCourses;
 
   const actions = useMemo<HeaderAction[]>(() => {
     const current: HeaderAction[] = [
@@ -148,7 +202,7 @@ export default function AtendimentoEmHarmoniaPage() {
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
           <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Cuidar bem começa antes do atendimento.</h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            Este módulo organiza o que precisa ser lembrado, registrado e encaminhado para que a recepção, os cambonos e a corrente trabalhem com mais clareza, sem perder o cuidado humano do Tucxa.
+            Este módulo reúne orientações, acolhimento, consultas e os submódulos Escuta em Harmonia e Cursos em Harmonia para que a corrente trabalhe com mais clareza, sem perder o cuidado humano do Tucxa.
           </p>
         </section>
 
@@ -176,6 +230,74 @@ export default function AtendimentoEmHarmoniaPage() {
               Consulta de Agendamentos
             </button>
           )}
+        </section>
+
+        <section className="mt-5">
+          <div className="mb-3">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              Submódulos do Atendimento em Harmonia
+            </p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+              Acesse aqui as soluções que complementam o acolhimento, a escuta e o acompanhamento de cursos.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+              <h2 className="text-xl font-black text-[#123D2C]">Escuta em Harmonia</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Envie uma dúvida, sugestão ou preocupação à Diretoria e acompanhe seus registros.
+              </p>
+              <div className="mt-4 grid gap-2">
+                <Link
+                  href={`${filhoPanelBase}/escuta-em-harmonia`}
+                  className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
+                >
+                  Abrir minha Escuta
+                </Link>
+                {canManageListening && (
+                  <Link
+                    href="/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia"
+                    className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                  >
+                    Acompanhamento da Diretoria
+                  </Link>
+                )}
+              </div>
+            </article>
+
+            <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+              <h2 className="text-xl font-black text-[#123D2C]">Cursos em Harmonia</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Cursos, aulas, professores, alunos, convites, Agenda Viva e presença em um fluxo integrado.
+              </p>
+
+              {canOpenCourses ? (
+                <div className="mt-4 grid gap-2">
+                  {isProfessor && (
+                    <Link
+                      href={`${filhoPanelBase}/cursos`}
+                      className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
+                    >
+                      Minhas aulas
+                    </Link>
+                  )}
+                  {canManageCourses && (
+                    <Link
+                      href="/solucoes/organizacao-em-harmonia/cliente/cursos"
+                      className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    >
+                      Gestão dos cursos
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
+                  A gestão fica disponível para Coordenação de Cursos e a sala de aula para pessoas com função Professor.
+                </p>
+              )}
+            </article>
+          </div>
         </section>
       </section>
 

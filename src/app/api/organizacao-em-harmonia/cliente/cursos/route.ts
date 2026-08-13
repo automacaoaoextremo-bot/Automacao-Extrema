@@ -208,6 +208,8 @@ export async function GET(request: Request) {
     "docente",
     "coordenacao",
     "coordenador",
+    "coordenacao-de-cursos",
+    "coordenador-de-cursos",
   ]);
   if (!auth.ok) return auth.response;
   try {
@@ -226,6 +228,8 @@ export async function POST(request: Request) {
     "docente",
     "coordenacao",
     "coordenador",
+    "coordenacao-de-cursos",
+    "coordenador-de-cursos",
   ]);
   if (!auth.ok) return auth.response;
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { filhoFunctionOptionsFromRoles } from "@/lib/organizacao-em-harmonia/filho-function-options";
 import {
   SEMENTINHA_COORDINATOR_SLUG,
   isSementinhaSubfunctionSlug,
@@ -276,7 +277,7 @@ async function currentFilho(request: Request, organizationId: string) {
 async function profilePayload(organizationId: string, person: PersonRecord, membership: MembershipRecord) {
   const profile = asRecord(membership.agenda_viva_profile);
   const [{ data: roles, error: rolesError }, { data: entities, error: entitiesError }, { data: links, error: linksError }, { data: moduleSettings }] = await Promise.all([
-    supabaseAdmin.from("oh_roles").select("id, name, slug, active").eq("organization_id", organizationId).eq("active", true).order("name"),
+    supabaseAdmin.from("oh_roles").select("id, name, slug, description, active, is_system, parent_role_id").eq("organization_id", organizationId).eq("active", true).order("name"),
     supabaseAdmin.from("oh_spiritual_entities").select("id, name, slug, line, entity_type, active, attends_consulentes, appointment_enabled").eq("organization_id", organizationId).eq("active", true).order("name"),
     supabaseAdmin.from("oh_person_entity_links").select("entity_id, relationship_type, is_primary_for_attendance, active").eq("organization_id", organizationId).eq("person_id", person.id).eq("active", true),
     supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "agenda-viva").maybeSingle(),
@@ -317,6 +318,7 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     status: membership.status || "ativo",
     modules: Array.isArray(membership.module_slugs) ? membership.module_slugs : DEFAULT_MODULE_SLUGS,
     functionSlugs: Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [],
+    availableFunctions: filhoFunctionOptionsFromRoles(roles ?? []),
     agendaSlugs: Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [],
     selectedFunctions: asDraftItems(profile.selectedFunctions),
     selectedAgenda: asDraftItems(profile.selectedAgenda),

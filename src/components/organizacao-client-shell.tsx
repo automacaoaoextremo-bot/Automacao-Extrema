@@ -55,6 +55,8 @@ function normalizeAccessToken(value: unknown) {
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
     : "";
 }
 
@@ -77,7 +79,7 @@ function memberFunctionTokens(payload: { functionSlugs?: unknown; selectedFuncti
 function hasAnyMemberFunction(tokens: string[], allowed: string[]) {
   return allowed
     .map(normalizeAccessToken)
-    .some((needle) => tokens.some((token) => token.includes(needle)));
+    .some((needle) => tokens.includes(needle));
 }
 
 const financialMemberTopNav: NavItem[] = [
@@ -126,7 +128,7 @@ const coursesMemberTopNav: NavItem[] = [
 
 const coursesMemberSidebarGroups: NavGroup[] = [
   {
-    label: "Professor · Cursos em Harmonia",
+    label: "Atendimento · Cursos em Harmonia",
     description: "Curso, aulas, professores, alunos, Agenda Viva e presença em um fluxo único.",
     items: [
       { label: "Gestão dos cursos", href: COURSES_BASE, description: "Planejar curso, aulas, professores e convites." },
@@ -181,6 +183,8 @@ const sidebarGroups: NavGroup[] = [
       { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." },
       { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/configuracoes", description: "Recorrência, ausências, troca de entidade e quarta-feira." },
       { label: "Agendamentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos", description: "Fila, filtros, impressão e status por entidade." },
+      { label: "Escuta em Harmonia", href: LISTENING_BASE, description: "Submódulo para questionamentos, SLA, resposta e ações de melhoria da Diretoria." },
+      { label: "Cursos em Harmonia", href: COURSES_BASE, description: "Submódulo para cursos, professores, alunos, Agenda Viva, convites e presença." },
     ],
   },
   {
@@ -188,8 +192,6 @@ const sidebarGroups: NavGroup[] = [
     description: "Soluções habilitadas para o cliente.",
     items: [
       { label: "Módulos habilitados", href: "/solucoes/organizacao-em-harmonia/cliente/modulos", description: "Configurações internas dos módulos." },
-      { label: "Escuta em Harmonia", href: LISTENING_BASE, description: "Questionamentos, SLA, resposta e ações de melhoria da Diretoria." },
-      { label: "Cursos em Harmonia", href: COURSES_BASE, description: "Cursos, professores, alunos, Agenda Viva, convites e presença." },
       { label: "Corrente em Dia", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia", description: "Visão financeira, indicadores e pendências." },
       { label: "Sementinha · Despensa Viva", href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva", description: "Estoque de alimentos, lotes, validade e cestas básicas." },
       { label: "Lançamentos", href: "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos", description: "Receitas, despesas, documentos e aprovação." },
@@ -360,6 +362,8 @@ export function OrganizacaoClientShell({
               "docente",
               "coordenacao",
               "coordenador",
+              "coordenacao-de-cursos",
+              "coordenador-de-cursos",
             ]);
 
           if (response.ok && (canUseListening || canUseCourses)) {

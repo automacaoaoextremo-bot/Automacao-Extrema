@@ -595,8 +595,8 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
       )}
 
       {financeOpen && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 sm:items-center sm:p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setFinanceOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="financeiro-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:max-w-xl sm:rounded-[2rem] sm:p-6">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-3 sm:p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setFinanceOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="financeiro-title" className="max-h-[calc(100dvh-1.5rem)] w-full max-w-xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Corrente em Dia</p>
@@ -611,6 +611,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                 <div className="mt-5 grid gap-3">
                   <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Acompanhamento de Contribuições</Link>
                   <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Registro de Receitas e Despesas</Link>
+                  <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises" className="rounded-2xl bg-[#F7FAF2] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Análises</Link>
                 </div>
               </>
             ) : (

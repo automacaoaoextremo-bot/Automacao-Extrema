@@ -9,7 +9,9 @@ function normalize(value: unknown) {
   return text(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -69,7 +71,7 @@ export async function getTucxaManagementAccess(
   const allowed = allowedMemberFunctions
     .map(normalize)
     .filter(Boolean)
-    .some((needle) => tokens.some((token) => token.includes(needle)));
+    .some((needle) => tokens.includes(needle));
 
   if (!allowed) {
     return {

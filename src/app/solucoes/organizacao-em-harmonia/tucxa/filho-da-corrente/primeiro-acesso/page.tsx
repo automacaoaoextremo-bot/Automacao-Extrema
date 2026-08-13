@@ -34,6 +34,12 @@ type AgendaOption = {
   description?: string;
 };
 
+type DraftItem = {
+  slug: string;
+  label: string;
+  description?: string;
+};
+
 type FamilyPersonOption = { id: string; fullName: string };
 type FamilyRelationshipOption = { id: string; slug: string; label: string };
 type FamilyLinkDraft = {
@@ -166,6 +172,16 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   const [notes, setNotes] = useState("");
 
   const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
+  const [functionOptions, setFunctionOptions] = useState<DraftItem[]>(
+    filhoDaCorrenteFunctions.map((item) => ({
+      slug: item.slug,
+      label: item.label,
+      description:
+        "description" in item && typeof item.description === "string"
+          ? item.description
+          : "",
+    })),
+  );
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
   const [agendaOptions, setAgendaOptions] = useState<AgendaOption[]>([
     ...fallbackFilhoDaCorrenteAgenda,
@@ -223,6 +239,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
           const familyResult = (await familyResponse.json().catch(() => ({}))) as {
             people?: FamilyPersonOption[];
             relationshipTypes?: FamilyRelationshipOption[];
+            functions?: DraftItem[];
           };
 
           if (!active) return;
@@ -287,6 +304,16 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
           if (familyResponse.ok) {
             setFamilyPeople(familyResult.people ?? []);
             setFamilyRelationships(familyResult.relationshipTypes ?? []);
+
+            const dynamicFunctions = (familyResult.functions ?? []).filter(
+              (item) =>
+                item?.slug &&
+                item?.label &&
+                !isSementinhaSubfunctionSlug(item.slug),
+            );
+            if (dynamicFunctions.length > 0) {
+              setFunctionOptions(dynamicFunctions);
+            }
           }
         })
         .catch(() => undefined);
@@ -380,10 +407,10 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
 
   const selectedFunctions = useMemo(
     () =>
-      [...filhoDaCorrenteFunctions, ...SEMENTINHA_SUBFUNCTIONS]
+      [...functionOptions, ...SEMENTINHA_SUBFUNCTIONS]
         .filter((item) => functionSlugs.includes(item.slug))
         .map((item) => ({ slug: item.slug, label: item.label })),
-    [functionSlugs],
+    [functionOptions, functionSlugs],
   );
 
   const selectedAgenda = useMemo(
@@ -433,13 +460,13 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   );
   const functionPageSize = Math.max(
     1,
-    Math.ceil(filhoDaCorrenteFunctions.length / 2),
+    Math.ceil(functionOptions.length / 2),
   );
   const agendaPageSize = Math.max(1, Math.ceil(agendaOptions.length / 2));
   const visibleFunctions =
     participationPage === 1
-      ? filhoDaCorrenteFunctions.slice(0, functionPageSize)
-      : filhoDaCorrenteFunctions.slice(functionPageSize);
+      ? functionOptions.slice(0, functionPageSize)
+      : functionOptions.slice(functionPageSize);
   const visibleAgenda =
     participationPage === 3
       ? agendaOptions.slice(0, agendaPageSize)

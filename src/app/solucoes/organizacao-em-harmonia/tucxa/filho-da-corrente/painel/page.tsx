@@ -66,7 +66,7 @@ const baseModuleCards = [
   {
     title: "Atendimento em Harmonia",
     description:
-      "Orientações, agendamentos e consultas de atendimento em um único módulo.",
+      "Orientações, agendamentos, Escuta em Harmonia e Cursos em Harmonia reunidos em um único módulo.",
     href: `${PANEL_BASE}/atendimento`,
   },
   {
@@ -74,12 +74,6 @@ const baseModuleCards = [
     description:
       "Contribuições, comprovantes, histórico, próximas datas e acesso financeiro autorizado.",
     href: `${PANEL_BASE}/corrente-em-dia`,
-  },
-  {
-    title: "Escuta em Harmonia",
-    description:
-      "Envie uma dúvida, sugestão ou preocupação à Diretoria, identificando-se ou usando o modo anônimo para a Diretoria.",
-    href: `${PANEL_BASE}/escuta-em-harmonia`,
   },
 ];
 
@@ -101,14 +95,10 @@ function ShortcutModal({
   shortcut,
   onClose,
   canAccessDespensa,
-  canAccessCourses,
-  canManageListening,
 }: {
   shortcut: Exclude<Shortcut, null>;
   onClose: () => void;
   canAccessDespensa: boolean;
-  canAccessCourses: boolean;
-  canManageListening: boolean;
 }) {
   const title =
     shortcut === "modules"
@@ -119,26 +109,6 @@ function ShortcutModal({
 
   const moduleCards = [
     ...baseModuleCards,
-    ...(canAccessCourses
-      ? [
-          {
-            title: "Cursos em Harmonia",
-            description:
-              "Minhas aulas como Professor, código temporário de presença e chamada da turma.",
-            href: `${PANEL_BASE}/cursos`,
-          },
-        ]
-      : []),
-    ...(canManageListening
-      ? [
-          {
-            title: "Escuta em Harmonia · Diretoria",
-            description:
-              "Acompanhe prazos, responda questionamentos e registre ações institucionais sem revelar a identidade das manifestações anônimas.",
-            href: "/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia",
-          },
-        ]
-      : []),
     ...(canAccessDespensa
       ? [
           {
@@ -361,38 +331,6 @@ export default function PainelFilhoDaCorrentePage() {
     [userInfo?.functionSlugs],
   );
 
-  const canAccessCourses = useMemo(
-    () =>
-      (userInfo?.functionSlugs ?? []).some((slug) => {
-        const normalized = slug
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
-        return normalized.includes("professor") || normalized.includes("docente");
-      }),
-    [userInfo?.functionSlugs],
-  );
-
-  const canManageListening = useMemo(
-    () =>
-      (userInfo?.functionSlugs ?? []).some((slug) => {
-        const normalized = slug
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
-        return [
-          "presidente",
-          "vice-presidente",
-          "diretoria",
-          "diretor",
-          "secretario",
-          "secretaria",
-          "coordenacao",
-          "coordenador",
-        ].some((token) => normalized.includes(token));
-      }),
-    [userInfo?.functionSlugs],
-  );
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -459,8 +397,6 @@ export default function PainelFilhoDaCorrentePage() {
           shortcut={shortcut}
           onClose={() => setShortcut(null)}
           canAccessDespensa={canAccessDespensa}
-          canAccessCourses={canAccessCourses}
-          canManageListening={canManageListening}
         />
       )}
 
