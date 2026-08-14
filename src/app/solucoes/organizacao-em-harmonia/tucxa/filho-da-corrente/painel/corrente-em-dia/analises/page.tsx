@@ -829,20 +829,6 @@ export default function AnalisesFinanceirasPage() {
     };
   }, [detailChronologicalMonths, payload.live]);
 
-  const groupChartSeries = useMemo(() => {
-    const groups = payload.live?.matrix.groups ?? [];
-    const build = (type: "receita" | "despesa") =>
-      groups
-        .filter((group) => group.type === type)
-        .map((group) => ({
-          label: group.group,
-          values: detailChronologicalMonths.map(
-            (month) => Number(group.values[month.month]) || 0,
-          ),
-        }));
-    return { receitas: build("receita"), despesas: build("despesa") };
-  }, [detailChronologicalMonths, payload.live]);
-
   const rangeError = Boolean(
     selectedRange.start &&
       selectedRange.end &&
@@ -1037,6 +1023,24 @@ export default function AnalisesFinanceirasPage() {
 
           .financial-print-detail tr {
             break-inside: avoid;
+          }
+
+          .financial-expanded-page {
+            break-before: page;
+            page-break-before: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .financial-expanded-page table {
+            font-size: 7px !important;
+            line-height: 1.02 !important;
+          }
+
+          .financial-expanded-page th,
+          .financial-expanded-page td {
+            padding-top: 1.25px !important;
+            padding-bottom: 1.25px !important;
           }
         }
       `}</style>
@@ -1702,8 +1706,8 @@ export default function AnalisesFinanceirasPage() {
                 className="print-card mt-3"
               />
 
-              <section style={{ marginTop: "10px" }}>
-                <h2 style={{ margin: "0 0 5px", fontSize: "12px", fontWeight: 800 }}>
+              <section className="financial-expanded-page" style={{ marginTop: 0 }}>
+                <h2 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
                   Informações expandidas
                 </h2>
                 <table
@@ -1855,23 +1859,6 @@ export default function AnalisesFinanceirasPage() {
                   </tbody>
                 </table>
               </section>
-
-              <FinancialLineChart
-                labels={detailSummaryChart.labels}
-                series={groupChartSeries.receitas}
-                title="Receitas expandidas por grupo"
-                description="Evolução mensal dos grupos de receitas exibidos na tabela expandida."
-                compact
-                className="print-card mt-3"
-              />
-              <FinancialLineChart
-                labels={detailSummaryChart.labels}
-                series={groupChartSeries.despesas}
-                title="Despesas expandidas por grupo"
-                description="Evolução mensal dos grupos de despesas exibidos na tabela expandida."
-                compact
-                className="print-card mt-3"
-              />
             </>
           )}
         </section>

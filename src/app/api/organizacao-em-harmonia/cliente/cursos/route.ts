@@ -273,12 +273,10 @@ async function teacherConflicts(input: {
 
 export async function GET(request: Request) {
   const auth = await getTucxaManagementAccess(request, [
-    "professor",
-    "docente",
-    "coordenacao",
-    "coordenador",
     "coordenacao-de-cursos",
     "coordenador-de-cursos",
+    "coordenacao-cursos",
+    "coordenador-cursos",
   ]);
   if (!auth.ok) return auth.response;
   try {
@@ -295,12 +293,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const auth = await getTucxaManagementAccess(request, [
-    "professor",
-    "docente",
-    "coordenacao",
-    "coordenador",
     "coordenacao-de-cursos",
     "coordenador-de-cursos",
+    "coordenacao-cursos",
+    "coordenador-cursos",
   ]);
   if (!auth.ok) return auth.response;
 

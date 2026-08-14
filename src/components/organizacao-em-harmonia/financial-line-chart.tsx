@@ -61,7 +61,13 @@ export function FinancialLineChart({
 
   const width = 980;
   const height = compact ? 270 : 340;
-  const margin = { top: 28, right: 24, bottom: compact ? 62 : 78, left: 92 };
+  const horizontalLabels = labels.length <= 12;
+  const margin = {
+    top: 28,
+    right: horizontalLabels ? 48 : 34,
+    bottom: horizontalLabels ? (compact ? 44 : 50) : compact ? 72 : 84,
+    left: horizontalLabels ? 100 : 110,
+  };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
 
@@ -91,7 +97,7 @@ export function FinancialLineChart({
     return maxValue - ratio * range;
   });
 
-  const labelStep = labels.length > 8 ? Math.ceil(labels.length / 8) : 1;
+  const labelStep = labels.length > 12 ? Math.ceil(labels.length / 10) : 1;
 
   return (
     <section className={`rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10 ${className}`}>
@@ -158,10 +164,14 @@ export function FinancialLineChart({
               <text
                 key={`${label}-${index}`}
                 x={x}
-                y={height - 18}
-                textAnchor="end"
-                transform={`rotate(-32 ${x} ${height - 18})`}
-                fontSize="11"
+                y={height - (horizontalLabels ? 14 : 18)}
+                textAnchor={horizontalLabels ? "middle" : "end"}
+                transform={
+                  horizontalLabels
+                    ? undefined
+                    : `rotate(-30 ${x} ${height - 18})`
+                }
+                fontSize={horizontalLabels ? "9.5" : "11"}
                 fontWeight="700"
                 fill="#475569"
               >

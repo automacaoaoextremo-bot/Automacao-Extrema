@@ -10,8 +10,8 @@ const pageHref = `${filhoPanelBase}/atendimento`;
 const consultationHref = `${pageHref}/consultar-agendamentos`;
 
 const filhoSupportAction = {
-  label: "Dúvidas?",
-  href: "#duvidas",
+  label: "Ajuda",
+  href: "#ajuda",
   variant: "secondary" as const,
   action: "supportWhatsapp" as const,
 };
@@ -24,6 +24,7 @@ const filhoSignOutAction = {
 };
 
 type ModalKind = "orientacoes" | "agendamentos" | "recepcao" | null;
+type SubmoduleKind = "escuta" | "cursos" | null;
 
 type HeaderAction = {
   label: string;
@@ -62,7 +63,6 @@ function profileFunctionTokens(payload: ProfileResponse) {
         [item.slug, item.label, item.name].map(canonicalFunction).filter(Boolean),
       )
     : [];
-
   return Array.from(new Set([...slugs, ...selected]));
 }
 
@@ -99,13 +99,21 @@ const modalContent = {
   },
 } as const;
 
+function TouchHint() {
+  return (
+    <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+      TOQUE PARA ABRIR
+    </span>
+  );
+}
+
 export default function AtendimentoEmHarmoniaPage() {
   const [canReception, setCanReception] = useState(false);
   const [canCambono, setCanCambono] = useState(false);
   const [canCavalinho, setCanCavalinho] = useState(false);
   const [functionTokens, setFunctionTokens] = useState<string[]>([]);
   const [modal, setModal] = useState<ModalKind>(null);
-  const [submodulesOpen, setSubmodulesOpen] = useState(false);
+  const [submodule, setSubmodule] = useState<SubmoduleKind>(null);
 
   useEffect(() => {
     let active = true;
@@ -137,30 +145,27 @@ export default function AtendimentoEmHarmoniaPage() {
       const params = new URLSearchParams(window.location.search);
       if (params.get("consulta") === "agendamentos") setModal("recepcao");
     }, 0);
-
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (!modal && !submodulesOpen) return;
+    if (!modal && !submodule) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [modal, submodulesOpen]);
+  }, [modal, submodule]);
 
-  const isProfessor = functionTokens.some((token) =>
-    ["professor", "docente"].includes(token),
-  );
   const canManageCourses = functionTokens.some((token) =>
     [
-      "coordenacao",
-      "coordenador",
       "coordenacao-de-cursos",
       "coordenador-de-cursos",
+      "coordenacao-cursos",
+      "coordenador-cursos",
     ].includes(token),
   );
+
   const canManageListening = functionTokens.some((token) =>
     [
       "presidente",
@@ -173,171 +178,125 @@ export default function AtendimentoEmHarmoniaPage() {
       "coordenador",
     ].includes(token),
   );
-  const canOpenCourses = isProfessor || canManageCourses;
 
-  const actions = useMemo<HeaderAction[]>(() => {
-    const current: HeaderAction[] = [
+  const actions = useMemo<HeaderAction[]>(
+    () => [
       { label: "Início", href: pageHref, variant: "primary" as const },
-      { label: "Orientações", href: `${pageHref}/orientacoes`, variant: "secondary" as const },
-      { label: "Agendamentos", href: `${pageHref}/agendamentos`, variant: "secondary" as const },
-    ];
-    if (canReception || canCambono || canCavalinho) {
-      current.push({ label: "Consultas", href: consultationHref, variant: "secondary" as const });
-    }
-    current.push(
-      { label: "Voltar", href: `${pageHref}/orientacoes`, variant: "secondary" as const },
+      { label: "Voltar", href: filhoPanelBase, variant: "secondary" as const },
       filhoSupportAction,
       filhoSignOutAction,
-    );
-    return current;
-  }, [canCambono, canCavalinho, canReception]);
+    ],
+    [],
+  );
 
   const selected = modal ? modalContent[modal] : null;
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Atendimento em Harmonia" showSupport={false} actions={actions} />
+      <FilhoCorrentePanelHeader
+        navLabel="Atendimento em Harmonia"
+        showSupport={false}
+        actions={actions}
+        mobileActionColumns={4}
+      />
 
-      <section className="mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
-        <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#CFE2C7]">Atendimento em Harmonia</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Cuidar bem começa antes do atendimento.</h1>
-          <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            Este módulo reúne orientações, acolhimento, consultas e os submódulos Escuta em Harmonia e Cursos em Harmonia para que a corrente trabalhe com mais clareza, sem perder o cuidado humano do Tucxa.
+      <section className="mx-auto max-w-4xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
+        <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-7">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#CFE2C7] sm:text-xs">
+            Atendimento em Harmonia
+          </p>
+          <h1 className="mt-1.5 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">
+            Cuidar bem começa antes do atendimento.
+          </h1>
+          <p className="mt-2 text-sm font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
+            Este módulo reúne orientações, acolhimento, agendamentos, escuta e gestão de cursos para que a corrente trabalhe com mais clareza, sem perder o cuidado humano do Tucxa.
           </p>
         </section>
 
-        <section className="mt-4 grid gap-3">
-          <button
-            type="button"
-            onClick={() => setModal("orientacoes")}
-            className="min-h-16 rounded-[1.5rem] bg-[#E9F4E6] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
-          >
+        <section className="mt-3 grid gap-2 sm:mt-4 sm:gap-3">
+          <button type="button" onClick={() => setModal("orientacoes")} className="min-h-14 rounded-[1.35rem] bg-[#E9F4E6] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
             Orientações práticas do Tucxa
+            <TouchHint />
           </button>
-          <button
-            type="button"
-            onClick={() => setModal("agendamentos")}
-            className="min-h-16 rounded-[1.5rem] bg-[#D6EBD5] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
-          >
+          <button type="button" onClick={() => setModal("agendamentos")} className="min-h-14 rounded-[1.35rem] bg-[#D6EBD5] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
             Acolhimento e agendamentos
+            <TouchHint />
           </button>
           {(canReception || canCambono || canCavalinho) && (
-            <button
-              type="button"
-              onClick={() => setModal("recepcao")}
-              className="min-h-16 rounded-[1.5rem] bg-[#BDDDBF] px-5 py-4 text-left text-lg font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
-            >
+            <button type="button" onClick={() => setModal("recepcao")} className="min-h-14 rounded-[1.35rem] bg-[#BDDDBF] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
               Consulta de Agendamentos
+              <TouchHint />
             </button>
           )}
         </section>
 
-        <section className="mt-5">
-          <button
-            type="button"
-            onClick={() => setSubmodulesOpen(true)}
-            className="w-full rounded-[1.5rem] bg-white px-5 py-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg"
-          >
-            <span className="block text-lg font-black text-[#123D2C]">
-              Submódulos do Atendimento em Harmonia
+        <section className={`mt-3 grid gap-2 sm:mt-4 sm:gap-3 ${canManageCourses ? "sm:grid-cols-2" : ""}`}>
+          <button type="button" onClick={() => setSubmodule("escuta")} className="min-h-20 rounded-[1.5rem] bg-white px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg sm:px-5">
+            <span className="block text-lg font-black text-[#123D2C]">Escuta dos filhos da Corrente</span>
+            <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600 sm:text-sm">
+              Envie questionamentos e sugestões à Diretoria e acompanhe o retorno.
             </span>
-            <span className="mt-2 block text-sm font-semibold leading-6 text-slate-600">
-              Acesse aqui as soluções que complementam o acolhimento, a escuta e o acompanhamento de cursos.
-            </span>
-            <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-              TOQUE PARA ABRIR
-            </span>
+            <TouchHint />
           </button>
+
+          {canManageCourses && (
+            <button type="button" onClick={() => setSubmodule("cursos")} className="min-h-20 rounded-[1.5rem] bg-white px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg sm:px-5">
+              <span className="block text-lg font-black text-[#123D2C]">Gestão de Cursos</span>
+              <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600 sm:text-sm">
+                Planeje cursos, aulas, professores, alunos e convites.
+              </span>
+              <TouchHint />
+            </button>
+          )}
         </section>
       </section>
 
-      {submodulesOpen && (
-        <div
-          className="fixed inset-0 z-[125] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="submodulos-atendimento-title"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSubmodulesOpen(false);
-          }}
-        >
-          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] bg-[#F7FAF2] shadow-2xl">
+      {submodule === "escuta" && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Escuta dos filhos da Corrente" onMouseDown={(event) => { if (event.target === event.currentTarget) setSubmodule(null); }}>
+          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-[#F7FAF2] shadow-2xl">
             <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-5 py-4">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                  Atendimento em Harmonia
-                </p>
-                <h2 id="submodulos-atendimento-title" className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
-                  Submódulos do Atendimento em Harmonia
-                </h2>
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escuta em Harmonia</p>
+                <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">Escuta dos filhos da Corrente</h2>
               </div>
-              <button
-                type="button"
-                onClick={() => setSubmodulesOpen(false)}
-                className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white"
-              >
-                Fechar
-              </button>
+              <button type="button" onClick={() => setSubmodule(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
             </header>
-
             <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                  <h3 className="text-xl font-black text-[#123D2C]">Escuta em Harmonia</h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    Envie uma dúvida, sugestão ou preocupação à Diretoria e acompanhe seus registros.
-                  </p>
-                  <div className="mt-4 grid gap-2">
-                    <Link
-                      href={`${filhoPanelBase}/escuta-em-harmonia`}
-                      className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
-                    >
-                      Abrir minha Escuta
-                    </Link>
-                    {canManageListening && (
-                      <Link
-                        href="/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia"
-                        className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                      >
-                        Acompanhamento da Diretoria
-                      </Link>
-                    )}
-                  </div>
-                </article>
-
-                <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-                  <h3 className="text-xl font-black text-[#123D2C]">Cursos em Harmonia</h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                    Cursos, aulas, professores, alunos, convites, Agenda Viva e presença em um fluxo integrado.
-                  </p>
-
-                  {canOpenCourses ? (
-                    <div className="mt-4 grid gap-2">
-                      {isProfessor && (
-                        <Link
-                          href={`${filhoPanelBase}/cursos`}
-                          className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
-                        >
-                          Minhas aulas
-                        </Link>
-                      )}
-                      {canManageCourses && (
-                        <Link
-                          href="/solucoes/organizacao-em-harmonia/cliente/cursos"
-                          className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                        >
-                          Gestão dos cursos
-                        </Link>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-4 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
-                      A gestão fica disponível para Coordenação de Cursos e a sala de aula para pessoas com função Professor.
-                    </p>
-                  )}
-                </article>
+              <p className="text-sm font-semibold leading-6 text-slate-600">
+                Envie uma dúvida, sugestão ou preocupação à Diretoria e acompanhe seus registros.
+              </p>
+              <div className="mt-4 grid gap-2">
+                <Link href={`${filhoPanelBase}/escuta-em-harmonia`} className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white">
+                  Abrir minha Escuta
+                </Link>
+                {canManageListening && (
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia" className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                    Acompanhamento da Diretoria
+                  </Link>
+                )}
               </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {submodule === "cursos" && canManageCourses && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Gestão de Cursos" onMouseDown={(event) => { if (event.target === event.currentTarget) setSubmodule(null); }}>
+          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-[#F7FAF2] shadow-2xl">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Cursos em Harmonia</p>
+                <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">Gestão de Cursos</h2>
+              </div>
+              <button type="button" onClick={() => setSubmodule(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
+            </header>
+            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+              <p className="text-sm font-semibold leading-6 text-slate-600">
+                Cursos, aulas, professores, alunos, convites, Agenda Viva e presença em um fluxo integrado.
+              </p>
+              <Link href="/solucoes/organizacao-em-harmonia/cliente/cursos" className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white">
+                Abrir Gestão de Cursos
+              </Link>
             </div>
           </section>
         </div>
@@ -348,22 +307,16 @@ export default function AtendimentoEmHarmoniaPage() {
           <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
               <p className="min-w-0 break-words text-sm font-black uppercase leading-5 tracking-[0.12em] text-[#123D2C]">{selected.eyebrow}</p>
-              <button type="button" onClick={() => setModal(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">
-                Fechar
-              </button>
+              <button type="button" onClick={() => setModal(null)} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
             </header>
             <div className="min-h-0 overflow-y-auto p-5">
               <h2 className="text-2xl font-black leading-tight text-[#123D2C]">{selected.title}</h2>
               <div className="mt-4 grid gap-3">
                 {selected.paragraphs.map((paragraph) => (
-                  <p key={paragraph} className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">
-                    {paragraph}
-                  </p>
+                  <p key={paragraph} className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">{paragraph}</p>
                 ))}
               </div>
-              <Link href={selected.href} className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">
-                {selected.cta}
-              </Link>
+              <Link href={selected.href} className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white">{selected.cta}</Link>
             </div>
           </section>
         </div>

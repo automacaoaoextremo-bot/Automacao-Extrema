@@ -360,12 +360,10 @@ export function OrganizacaoClientShell({
           const canUseCourses =
             pathname.startsWith(COURSES_BASE) &&
             hasAnyMemberFunction(functions, [
-              "professor",
-              "docente",
-              "coordenacao",
-              "coordenador",
               "coordenacao-de-cursos",
               "coordenador-de-cursos",
+              "coordenacao-cursos",
+              "coordenador-cursos",
             ]);
 
           if (response.ok && (canUseListening || canUseCourses)) {

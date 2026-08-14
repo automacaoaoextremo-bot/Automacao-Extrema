@@ -401,11 +401,13 @@ function Popup({
   subtitle,
   onClose,
   children,
+  nested = false,
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
+  nested?: boolean;
 }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -424,7 +426,7 @@ function Popup({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#10251C]/70 p-2 backdrop-blur-sm sm:p-5"
+      className={`fixed inset-0 ${nested ? "z-[120]" : "z-[100]"} flex items-center justify-center bg-[#10251C]/70 p-2 backdrop-blur-sm sm:p-5`}
       role="dialog"
       aria-modal="true"
       onMouseDown={(event) => {
@@ -473,7 +475,7 @@ function CourseSelector({
 }) {
   return (
     <label className={`grid gap-1 text-xs font-black sm:text-sm ${inverse ? "text-white" : "text-[#00334E]"}`}>
-      Curso em trabalho
+      Curso selecionado
       <select
         value={selectedCourseId}
         onChange={(event) => onChange(event.target.value)}
@@ -487,6 +489,112 @@ function CourseSelector({
         ))}
       </select>
     </label>
+  );
+}
+
+
+function CourseAgendaCalendar({
+  mode,
+  onModeChange,
+  year,
+  onYearChange,
+  availableYears,
+  fromDate,
+  onFromDateChange,
+  events,
+  selectedDay,
+  onSelectDay,
+  onApplyDate,
+}: {
+  mode: Exclude<AnnualCalendarMode, "mine">;
+  onModeChange: (value: Exclude<AnnualCalendarMode, "mine">) => void;
+  year: number;
+  onYearChange: (value: number) => void;
+  availableYears: number[];
+  fromDate: string;
+  onFromDateChange: (value: string) => void;
+  events: AnnualCalendarEvent[];
+  selectedDay: { isoDate: string; events: AnnualCalendarEvent[] } | null;
+  onSelectDay: (isoDate: string, events: AnnualCalendarEvent[]) => void;
+  onApplyDate?: (isoDate: string) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 lg:grid-cols-[auto_1fr_auto] lg:items-end">
+        <label className="grid gap-1 text-xs font-black text-[#00334E]">
+          Consultar a partir de
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(event) => onFromDateChange(event.target.value)}
+            className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold"
+          />
+        </label>
+
+        <div className="flex flex-wrap gap-2 lg:justify-center">
+          {([
+            ["tucxa", "Tucxa"],
+            ["sementinha", "Sementinha"],
+            ["events", "Eventos"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onModeChange(value)}
+              className={`rounded-xl px-3 py-2 text-xs font-black sm:text-sm ${
+                mode === value
+                  ? "bg-[#123D2C] text-white"
+                  : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => onYearChange(year - 1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700" aria-label="Ano anterior">←</button>
+          <select value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-[#123D2C]">
+            {Array.from(new Set([year - 1, year, year + 1, ...availableYears]))
+              .sort((left, right) => right - left)
+              .map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <button type="button" onClick={() => onYearChange(year + 1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700" aria-label="Próximo ano">→</button>
+        </div>
+      </div>
+
+      <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
+        {events.length} ocorrência(s) programada(s) a partir de {fromDate ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${fromDate}T12:00:00Z`)) : "hoje"}. Toque em uma data destacada para consultar os compromissos.
+      </p>
+
+      <AnnualCalendarView mode={mode} events={events} year={year} onSelectDay={onSelectDay} />
+
+      {selectedDay && (
+        <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Data selecionada</p>
+              <p className="mt-1 text-lg font-black text-[#00334E]">
+                {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedDay.isoDate}T12:00:00Z`))}
+              </p>
+            </div>
+            {onApplyDate && (
+              <button type="button" onClick={() => onApplyDate(selectedDay.isoDate)} className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white">
+                Usar esta data na aula
+              </button>
+            )}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {selectedDay.events.map((event) => (
+              <article key={event.id} className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#00334E]">{event.title}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">{event.timeLabel || "Horário não informado"}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -509,6 +617,7 @@ export default function CursosEmHarmoniaGestaoPage() {
   const [courseStatus, setCourseStatus] = useState("planejamento");
 
   const [lessonEditorOpen, setLessonEditorOpen] = useState(false);
+  const [lessonListOpen, setLessonListOpen] = useState(false);
   const [lessonId, setLessonId] = useState("");
   const [lessonTitle, setLessonTitle] = useState("");
   const [lessonContent, setLessonContent] = useState("");
@@ -521,6 +630,7 @@ export default function CursosEmHarmoniaGestaoPage() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMode, setCalendarMode] = useState<Exclude<AnnualCalendarMode, "mine">>("tucxa");
   const [calendarYear, setCalendarYear] = useState(2026);
+  const [calendarFromDate, setCalendarFromDate] = useState("");
   const [calendarSelectedDay, setCalendarSelectedDay] = useState<{
     isoDate: string;
     events: AnnualCalendarEvent[];
@@ -635,29 +745,6 @@ export default function CursosEmHarmoniaGestaoPage() {
       .slice(0, 8);
   }, [payload.people, studentSearch]);
 
-  const nearbyAgenda = useMemo(() => {
-    const datedEvents = agendaEvents.filter((event) => event.starts_at);
-
-    if (!lessonStart) {
-      return [...datedEvents]
-        .sort(
-          (a, b) =>
-            new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime(),
-        )
-        .slice(0, 12);
-    }
-
-    const start = new Date(`${lessonStart}:00-03:00`).getTime();
-    return datedEvents
-      .map((event) => ({
-        event,
-        distance: Math.abs(new Date(event.starts_at!).getTime() - start),
-      }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 12)
-      .map((item) => item.event);
-  }, [agendaEvents, lessonStart]);
-
   const availableCalendarYears = useMemo(() => {
     const values = new Set<number>();
     for (const event of agendaEvents) {
@@ -687,12 +774,32 @@ export default function CursosEmHarmoniaGestaoPage() {
     () =>
       annualCalendarEvents
         .filter((item) => item.bucket === calendarMode)
-        .map((item) => item.event),
-    [annualCalendarEvents, calendarMode],
+        .map((item) => item.event)
+        .filter(
+          (event) =>
+            !calendarFromDate ||
+            (event.startsAt?.slice(0, 10) || "") >= calendarFromDate,
+        ),
+    [annualCalendarEvents, calendarFromDate, calendarMode],
   );
 
-  function openCalendarForLesson() {
-    const selectedYear = Number(lessonStart.slice(0, 4));
+  function todayInSaoPaulo() {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(
+      parts.map((part) => [part.type, part.value]),
+    );
+    return `${values.year}-${values.month}-${values.day}`;
+  }
+
+  function prepareCalendar(referenceDate?: string) {
+    const fromDate = referenceDate || todayInSaoPaulo();
+    const selectedYear = Number(fromDate.slice(0, 4));
+    setCalendarFromDate(fromDate);
     setCalendarYear(
       Number.isInteger(selectedYear) && selectedYear > 1900
         ? selectedYear
@@ -700,7 +807,30 @@ export default function CursosEmHarmoniaGestaoPage() {
     );
     setCalendarMode("tucxa");
     setCalendarSelectedDay(null);
+  }
+
+  function openCalendarForLesson() {
+    prepareCalendar(lessonStart.slice(0, 10) || undefined);
     setCalendarOpen(true);
+  }
+
+  function openAgendaCalendar() {
+    prepareCalendar();
+    setOpenPopup("agenda");
+  }
+
+  function changeCalendarFromDate(value: string) {
+    setCalendarFromDate(value);
+    const selectedYear = Number(value.slice(0, 4));
+    if (Number.isInteger(selectedYear) && selectedYear > 1900) {
+      setCalendarYear(selectedYear);
+    }
+    setCalendarSelectedDay(null);
+  }
+
+  function changeCalendarYear(value: number) {
+    setCalendarYear(value);
+    setCalendarSelectedDay(null);
   }
 
   function applyCalendarDate(isoDateValue: string) {
@@ -820,6 +950,7 @@ export default function CursosEmHarmoniaGestaoPage() {
 
   function newLesson() {
     resetLesson();
+    setLessonListOpen(false);
     setLessonEditorOpen(true);
   }
 
@@ -837,6 +968,7 @@ export default function CursosEmHarmoniaGestaoPage() {
     );
     setConflicts([]);
     setPendingLesson(null);
+    setLessonListOpen(false);
     setLessonEditorOpen(true);
   }
 
@@ -960,10 +1092,12 @@ export default function CursosEmHarmoniaGestaoPage() {
   function openArea(next: Exclude<PopupKey, null>) {
     setError("");
     setSuccess("");
+    if (next === "agenda") {
+      openAgendaCalendar();
+      return;
+    }
     setOpenPopup(next);
   }
-
-  const courseLabel = selectedCourse?.name || "Nenhum curso selecionado";
 
   return (
     <OrganizacaoClientShell
@@ -1008,44 +1142,36 @@ export default function CursosEmHarmoniaGestaoPage() {
         </p>
       )}
 
-      <section className="rounded-[1.5rem] bg-[#00334E] p-4 text-white shadow sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <section className="rounded-[1.5rem] bg-[#00334E] p-3 text-white shadow sm:p-4">
+        <div className="grid gap-2 sm:grid-cols-[1fr_minmax(230px,360px)] sm:items-end">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#BDEFD1] sm:text-xs">
-              Gestão rápida
-            </p>
-            <h2 className="mt-1 text-lg font-black sm:text-xl">
-              O que você deseja fazer?
-            </h2>
-            <p className="mt-1 text-xs font-semibold text-[#E8FFF0] sm:text-sm">
-              {loading ? "Carregando dados..." : `Curso em trabalho: ${courseLabel}`}
-            </p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#BDEFD1] sm:text-xs">Gestão rápida</p>
+            <h2 className="mt-1 text-base font-black sm:text-xl">O que você deseja fazer?</h2>
+            {loading && <p className="mt-1 text-xs font-semibold text-[#E8FFF0]">Carregando dados...</p>}
           </div>
           {!loading && courses.length > 0 && (
-            <div className="min-w-[190px] max-w-full">
-              <CourseSelector
-                courses={courses}
-                selectedCourseId={selectedCourseId}
-                onChange={setSelectedCourseId}
-                inverse
-              />
-            </div>
+            <CourseSelector
+              courses={courses}
+              selectedCourseId={selectedCourseId}
+              onChange={setSelectedCourseId}
+              inverse
+            />
           )}
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <button
           type="button"
           onClick={() => openArea("cursos")}
           disabled={loading}
-          className="min-h-28 rounded-[1.5rem] bg-white p-4 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
+          className="min-h-20 rounded-[1.35rem] bg-white p-3 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
         >
-          <span className="text-2xl">📚</span>
-          <strong className="mt-2 block text-base text-[#00334E] sm:text-lg">
+          <span className="text-xl">📚</span>
+          <strong className="mt-1 block text-sm text-[#00334E] sm:text-base">
             Cursos
           </strong>
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+          <span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">
             Criar, selecionar e editar.
           </span>
         </button>
@@ -1054,13 +1180,13 @@ export default function CursosEmHarmoniaGestaoPage() {
           type="button"
           onClick={() => openArea("aulas")}
           disabled={loading}
-          className="min-h-28 rounded-[1.5rem] bg-white p-4 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
+          className="min-h-20 rounded-[1.35rem] bg-white p-3 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
         >
-          <span className="text-2xl">🗓️</span>
-          <strong className="mt-2 block text-base text-[#00334E] sm:text-lg">
+          <span className="text-xl">🗓️</span>
+          <strong className="mt-1 block text-sm text-[#00334E] sm:text-base">
             Aulas e professores
           </strong>
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+          <span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">
             Datas, professores e conflitos.
           </span>
         </button>
@@ -1069,13 +1195,13 @@ export default function CursosEmHarmoniaGestaoPage() {
           type="button"
           onClick={() => openArea("agenda")}
           disabled={loading}
-          className="min-h-28 rounded-[1.5rem] bg-white p-4 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
+          className="min-h-20 rounded-[1.35rem] bg-white p-3 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
         >
-          <span className="text-2xl">📅</span>
-          <strong className="mt-2 block text-base text-[#00334E] sm:text-lg">
+          <span className="text-xl">📅</span>
+          <strong className="mt-1 block text-sm text-[#00334E] sm:text-base">
             Agenda Viva
           </strong>
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+          <span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">
             Conferir compromissos e horários.
           </span>
         </button>
@@ -1084,13 +1210,13 @@ export default function CursosEmHarmoniaGestaoPage() {
           type="button"
           onClick={() => openArea("alunos")}
           disabled={loading}
-          className="min-h-28 rounded-[1.5rem] bg-white p-4 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
+          className="min-h-20 rounded-[1.35rem] bg-white p-3 text-left shadow ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-[#F4FBF7] disabled:opacity-50"
         >
-          <span className="text-2xl">👥</span>
-          <strong className="mt-2 block text-base text-[#00334E] sm:text-lg">
+          <span className="text-xl">👥</span>
+          <strong className="mt-1 block text-sm text-[#00334E] sm:text-base">
             Alunos e convites
           </strong>
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">
+          <span className="mt-1 block text-[11px] font-semibold leading-4 text-slate-500">
             Pesquisar, convidar e acompanhar.
           </span>
         </button>
@@ -1100,9 +1226,13 @@ export default function CursosEmHarmoniaGestaoPage() {
         <Popup
           title="Cursos"
           subtitle="O cadastro só é exibido quando você escolhe Novo curso ou Editar."
-          onClose={() => setOpenPopup(null)}
+          onClose={() => {
+            setCourseEditorOpen(false);
+            resetCourse();
+            setOpenPopup(null);
+          }}
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-slate-600">
               {courses.length} curso(s) cadastrado(s).
             </p>
@@ -1115,95 +1245,7 @@ export default function CursosEmHarmoniaGestaoPage() {
             </button>
           </div>
 
-          {courseEditorOpen && (
-            <form
-              onSubmit={saveCourse}
-              className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10 sm:p-5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                    Cadastro pedagógico
-                  </p>
-                  <h3 className="mt-1 text-xl font-black text-[#00334E]">
-                    {courseId ? "Editar curso" : "Novo curso"}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetCourse();
-                    setCourseEditorOpen(false);
-                  }}
-                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  Cancelar
-                </button>
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Nome
-                  <input
-                    value={courseName}
-                    onChange={(event) => setCourseName(event.target.value)}
-                    required
-                    minLength={3}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E]">
-                  Situação
-                  <select
-                    value={courseStatus}
-                    onChange={(event) => setCourseStatus(event.target.value)}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  >
-                    <option value="planejamento">Planejamento</option>
-                    <option value="inscricoes">Inscrições</option>
-                    <option value="em_andamento">Em andamento</option>
-                    <option value="concluido">Concluído</option>
-                    <option value="cancelado">Cancelado</option>
-                  </select>
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Objetivo
-                  <textarea
-                    value={courseObjective}
-                    onChange={(event) => setCourseObjective(event.target.value)}
-                    rows={3}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Regras
-                  <textarea
-                    value={courseRules}
-                    onChange={(event) => setCourseRules(event.target.value)}
-                    rows={3}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                    placeholder="Pré-requisitos, frequência mínima, critérios do curso..."
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Conteúdo previsto
-                  <textarea
-                    value={courseContent}
-                    onChange={(event) => setCourseContent(event.target.value)}
-                    rows={4}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-              </div>
-              <button
-                disabled={saving}
-                className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50"
-              >
-                {courseId ? "Salvar alterações" : "Criar curso"}
-              </button>
-            </form>
-          )}
-
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {courses.length === 0 && !loading && (
               <p className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900 sm:col-span-2">
                 Nenhum curso cadastrado. Use o botão Novo curso.
@@ -1212,7 +1254,7 @@ export default function CursosEmHarmoniaGestaoPage() {
             {courses.map((course) => (
               <article
                 key={course.id}
-                className={`rounded-2xl p-4 ring-1 ${
+                className={`rounded-2xl p-3 ring-1 ${
                   selectedCourseId === course.id
                     ? "bg-[#F4FBF7] ring-[#2F6B43]/30"
                     : "bg-white ring-slate-200"
@@ -1232,7 +1274,7 @@ export default function CursosEmHarmoniaGestaoPage() {
                     aula(s)
                   </p>
                 </button>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => setSelectedCourseId(course.id)}
@@ -1254,203 +1296,295 @@ export default function CursosEmHarmoniaGestaoPage() {
         </Popup>
       )}
 
+      {openPopup === "cursos" && courseEditorOpen && (
+        <Popup
+          nested
+          title={courseId ? "Editar curso" : "Novo curso"}
+          subtitle="Cadastro pedagógico"
+          onClose={() => {
+            resetCourse();
+            setCourseEditorOpen(false);
+          }}
+        >
+          <form onSubmit={saveCourse} className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Nome
+                <input
+                  value={courseName}
+                  onChange={(event) => setCourseName(event.target.value)}
+                  required
+                  minLength={3}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E]">
+                Situação
+                <select
+                  value={courseStatus}
+                  onChange={(event) => setCourseStatus(event.target.value)}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                >
+                  <option value="planejamento">Planejamento</option>
+                  <option value="inscricoes">Inscrições</option>
+                  <option value="em_andamento">Em andamento</option>
+                  <option value="concluido">Concluído</option>
+                  <option value="cancelado">Cancelado</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Objetivo
+                <textarea
+                  value={courseObjective}
+                  onChange={(event) => setCourseObjective(event.target.value)}
+                  rows={2}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Regras
+                <textarea
+                  value={courseRules}
+                  onChange={(event) => setCourseRules(event.target.value)}
+                  rows={2}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                  placeholder="Pré-requisitos, frequência mínima, critérios do curso..."
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Conteúdo previsto
+                <textarea
+                  value={courseContent}
+                  onChange={(event) => setCourseContent(event.target.value)}
+                  rows={3}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
+            </div>
+            <button
+              disabled={saving}
+              className="w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50"
+            >
+              {courseId ? "Salvar alterações" : "Criar curso"}
+            </button>
+          </form>
+        </Popup>
+      )}
+
       {openPopup === "aulas" && (
         <Popup
           title="Aulas e professores"
-          subtitle="Crie ou edite a aula somente quando necessário. O conflito é verificado antes da gravação."
-          onClose={() => setOpenPopup(null)}
+          subtitle="Selecione o curso e escolha a próxima ação. Cada etapa abre separadamente para reduzir a rolagem no celular."
+          onClose={() => {
+            setLessonEditorOpen(false);
+            setLessonListOpen(false);
+            setCalendarOpen(false);
+            setOpenPopup(null);
+          }}
         >
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-            <CourseSelector
-              courses={courses}
-              selectedCourseId={selectedCourseId}
-              onChange={(value) => {
-                setSelectedCourseId(value);
-                resetLesson();
-                setLessonEditorOpen(false);
-              }}
-            />
+          <CourseSelector
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            onChange={(value) => {
+              setSelectedCourseId(value);
+              resetLesson();
+              setLessonEditorOpen(false);
+              setLessonListOpen(false);
+            }}
+          />
+
+          <div className="mt-3 grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={newLesson}
               disabled={!selectedCourseId}
-              className="min-h-11 rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"
+              className="min-h-16 rounded-xl bg-[#2F6B43] px-2 py-2 text-xs font-black text-white disabled:opacity-50 sm:text-sm"
             >
               Nova aula
             </button>
+            <button
+              type="button"
+              onClick={openCalendarForLesson}
+              className="min-h-16 rounded-xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#2F6B43]/15 sm:text-sm"
+            >
+              Consultar calendário
+            </button>
+            <button
+              type="button"
+              onClick={() => setLessonListOpen(true)}
+              disabled={!selectedCourseId}
+              className="min-h-16 rounded-xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50 sm:text-sm"
+            >
+              Cronograma ({lessons.length})
+            </button>
           </div>
 
-          {lessonEditorOpen && (
-            <form
-              onSubmit={saveLesson}
-              className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10 sm:p-5"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                    Agenda integrada
-                  </p>
-                  <h3 className="mt-1 text-xl font-black text-[#00334E]">
-                    {lessonId ? "Editar aula" : "Nova aula"}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetLesson();
-                    setLessonEditorOpen(false);
-                  }}
-                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  Cancelar
-                </button>
-              </div>
+          <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
+            {selectedCourse
+              ? `Curso selecionado: ${selectedCourse.name}`
+              : "Selecione um curso para criar aulas e consultar o cronograma."}
+          </p>
+        </Popup>
+      )}
 
-              {!selectedCourseId && (
-                <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
-                  Selecione um curso.
-                </p>
-              )}
+      {openPopup === "aulas" && lessonEditorOpen && (
+        <Popup
+          nested
+          title={lessonId ? "Editar aula" : "Nova aula"}
+          subtitle="Datas, professores e verificação de conflitos com a Agenda Viva."
+          onClose={() => {
+            resetLesson();
+            setLessonEditorOpen(false);
+          }}
+        >
+          <form onSubmit={saveLesson} className="grid gap-3">
+            {!selectedCourseId && (
+              <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
+                Selecione um curso.
+              </p>
+            )}
 
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Aula
-                  <input
-                    value={lessonTitle}
-                    onChange={(event) => setLessonTitle(event.target.value)}
-                    required
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                    placeholder="Ex.: Aula 1 — Fundamentos"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E]">
-                  Início
-                  <input
-                    type="datetime-local"
-                    value={lessonStart}
-                    onChange={(event) => setLessonStart(event.target.value)}
-                    required
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E]">
-                  Término
-                  <input
-                    type="datetime-local"
-                    value={lessonEnd}
-                    onChange={(event) => setLessonEnd(event.target.value)}
-                    required
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={openCalendarForLesson}
-                  className="sm:col-span-2 flex min-h-14 w-full flex-col items-center justify-center rounded-xl border border-[#2F6B43]/20 bg-[#E9F2E7] px-4 py-3 text-center text-[#123D2C] transition hover:bg-[#DDEAD8]"
-                >
-                  <span className="font-black">Abrir calendário completo da Agenda Viva</span>
-                  <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                    TUCXA · SEMENTINHA · EVENTOS
-                  </span>
-                </button>
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Local
-                  <input
-                    value={lessonLocation}
-                    onChange={(event) => setLessonLocation(event.target.value)}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
-                  Conteúdo da aula
-                  <textarea
-                    value={lessonContent}
-                    onChange={(event) => setLessonContent(event.target.value)}
-                    rows={3}
-                    className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-3">
-                <p className="text-sm font-black text-[#00334E]">Professores</p>
-                {teacherCandidates.length === 0 ? (
-                  <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-                    Nenhum Filho da Corrente possui a função Professor. Inclua a função na Base Única antes de montar a aula.
-                  </p>
-                ) : (
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {teacherCandidates.map((person) => (
-                      <label
-                        key={person.id}
-                        className="flex items-center gap-2 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold ring-1 ring-[#2F6B43]/10"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={teacherIds.includes(person.id)}
-                          onChange={(event) =>
-                            setTeacherIds((current) =>
-                              event.target.checked
-                                ? [...current, person.id]
-                                : current.filter((id) => id !== person.id),
-                            )
-                          }
-                        />
-                        {person.full_name || "Professor"}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {conflicts.length > 0 && (
-                <div className="mt-3 rounded-2xl bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200">
-                  <p className="font-black">Conflitos encontrados</p>
-                  {conflicts.map((item, index) => (
-                    <p
-                      key={`${item.teacherId}-${index}`}
-                      className="mt-1 text-sm font-semibold"
-                    >
-                      • {item.title} — {formatDate(item.startsAt)} a{" "}
-                      {formatDate(item.endsAt)} ({item.source})
-                    </p>
-                  ))}
-                  {pendingLesson && (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() =>
-                        void saveLessonBody({ ...pendingLesson, force: true })
-                      }
-                      className="mt-3 rounded-xl bg-amber-900 px-4 py-2 text-sm font-black text-white"
-                    >
-                      Salvar mesmo assim
-                    </button>
-                  )}
-                </div>
-              )}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Aula
+                <input
+                  value={lessonTitle}
+                  onChange={(event) => setLessonTitle(event.target.value)}
+                  required
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                  placeholder="Ex.: Aula 1 — Fundamentos"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E]">
+                Início
+                <input
+                  type="datetime-local"
+                  value={lessonStart}
+                  onChange={(event) => setLessonStart(event.target.value)}
+                  required
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E]">
+                Término
+                <input
+                  type="datetime-local"
+                  value={lessonEnd}
+                  onChange={(event) => setLessonEnd(event.target.value)}
+                  required
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
 
               <button
-                disabled={saving || !selectedCourseId}
-                className="mt-4 w-full rounded-xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50"
+                type="button"
+                onClick={openCalendarForLesson}
+                className="sm:col-span-2 flex min-h-12 w-full flex-col items-center justify-center rounded-xl border border-[#2F6B43]/20 bg-[#E9F2E7] px-3 py-2 text-center text-[#123D2C]"
               >
-                Salvar aula e incluir na Agenda Viva
+                <span className="text-sm font-black">Consultar calendário da Agenda Viva</span>
+                <span className="mt-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+                  TUCXA · SEMENTINHA · EVENTOS
+                </span>
               </button>
-            </form>
-          )}
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                Cronograma
-              </p>
-              <h3 className="mt-1 text-lg font-black text-[#00334E]">
-                {selectedCourse?.name || "Selecione um curso"}
-              </h3>
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Local
+                <input
+                  value={lessonLocation}
+                  onChange={(event) => setLessonLocation(event.target.value)}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
+                Conteúdo da aula
+                <textarea
+                  value={lessonContent}
+                  onChange={(event) => setLessonContent(event.target.value)}
+                  rows={2}
+                  className="rounded-xl border border-slate-200 px-3 py-2.5 font-semibold"
+                />
+              </label>
             </div>
-            <span className="rounded-full bg-[#F4FBF7] px-3 py-2 text-xs font-black text-[#2F6B43]">
-              {lessons.length} aula(s)
-            </span>
+
+            <div>
+              <p className="text-sm font-black text-[#00334E]">Professores</p>
+              {teacherCandidates.length === 0 ? (
+                <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                  Nenhum Filho da Corrente possui a função Professor. Inclua a função na Base Única antes de montar a aula.
+                </p>
+              ) : (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {teacherCandidates.map((person) => (
+                    <label
+                      key={person.id}
+                      className="flex items-center gap-2 rounded-xl bg-[#F7FAF2] p-2.5 text-sm font-bold ring-1 ring-[#2F6B43]/10"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={teacherIds.includes(person.id)}
+                        onChange={(event) =>
+                          setTeacherIds((current) =>
+                            event.target.checked
+                              ? [...current, person.id]
+                              : current.filter((id) => id !== person.id),
+                          )
+                        }
+                      />
+                      {person.full_name || "Professor"}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {conflicts.length > 0 && (
+              <div className="rounded-2xl bg-amber-50 p-3 text-amber-900 ring-1 ring-amber-200">
+                <p className="font-black">Conflitos encontrados</p>
+                {conflicts.map((item, index) => (
+                  <p key={`${item.teacherId}-${index}`} className="mt-1 text-sm font-semibold">
+                    • {item.title} — {formatDate(item.startsAt)} a {formatDate(item.endsAt)} ({item.source})
+                  </p>
+                ))}
+                {pendingLesson && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void saveLessonBody({ ...pendingLesson, force: true })}
+                    className="mt-3 rounded-xl bg-amber-900 px-4 py-2 text-sm font-black text-white"
+                  >
+                    Salvar mesmo assim
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              disabled={saving || !selectedCourseId}
+              className="w-full rounded-xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50"
+            >
+              Salvar aula e incluir na Agenda Viva
+            </button>
+          </form>
+        </Popup>
+      )}
+
+      {openPopup === "aulas" && lessonListOpen && (
+        <Popup
+          nested
+          title="Cronograma"
+          subtitle={selectedCourse?.name || "Selecione um curso"}
+          onClose={() => setLessonListOpen(false)}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-slate-600">{lessons.length} aula(s)</p>
+            <button
+              type="button"
+              onClick={newLesson}
+              disabled={!selectedCourseId}
+              className="rounded-xl bg-[#2F6B43] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+            >
+              Nova aula
+            </button>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {selectedCourseId && lessons.length === 0 && (
@@ -1459,10 +1593,7 @@ export default function CursosEmHarmoniaGestaoPage() {
               </p>
             )}
             {lessons.map((lesson) => (
-              <article
-                key={lesson.id}
-                className="rounded-2xl bg-white p-4 ring-1 ring-[#2F6B43]/10"
-              >
+              <article key={lesson.id} className="rounded-2xl bg-white p-3 ring-1 ring-[#2F6B43]/10">
                 <p className="font-black text-[#00334E]">{lesson.title}</p>
                 <p className="mt-1 text-sm font-semibold text-slate-600">
                   {formatDate(lesson.starts_at)} → {formatDate(lesson.ends_at)}
@@ -1477,7 +1608,7 @@ export default function CursosEmHarmoniaGestaoPage() {
                 <button
                   type="button"
                   onClick={() => editLesson(lesson)}
-                  className="mt-3 rounded-lg bg-[#E8F6ED] px-3 py-2 text-xs font-black text-[#2F6B43]"
+                  className="mt-2 rounded-lg bg-[#E8F6ED] px-3 py-2 text-xs font-black text-[#2F6B43]"
                 >
                   Editar aula
                 </button>
@@ -1489,186 +1620,71 @@ export default function CursosEmHarmoniaGestaoPage() {
 
       {openPopup === "aulas" && calendarOpen && (
         <Popup
+          nested
           title="Calendário completo da Agenda Viva"
-          subtitle="Consulte a programação anual do Tucxa, Sementinha e Eventos antes de definir a data da aula."
+          subtitle="Consulte Tucxa, Sementinha e Eventos a partir da data escolhida antes de definir a aula."
           onClose={() => {
             setCalendarOpen(false);
             setCalendarSelectedDay(null);
           }}
-        >
-          <div className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-              <div className="flex flex-wrap gap-2">
-                {([
-                  ["tucxa", "Tucxa"],
-                  ["sementinha", "Sementinha"],
-                  ["events", "Eventos"],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setCalendarMode(value);
-                      setCalendarSelectedDay(null);
-                    }}
-                    className={`rounded-xl px-3 py-2 text-xs font-black sm:text-sm ${
-                      calendarMode === value
-                        ? "bg-[#123D2C] text-white"
-                        : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCalendarYear((current) => current - 1);
-                    setCalendarSelectedDay(null);
-                  }}
-                  className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700"
-                  aria-label="Ano anterior"
-                >
-                  ←
-                </button>
-                <select
-                  value={calendarYear}
-                  onChange={(event) => {
-                    setCalendarYear(Number(event.target.value));
-                    setCalendarSelectedDay(null);
-                  }}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-[#123D2C]"
-                >
-                  {Array.from(
-                    new Set([
-                      calendarYear - 1,
-                      calendarYear,
-                      calendarYear + 1,
-                      ...availableCalendarYears,
-                    ]),
-                  )
-                    .sort((left, right) => right - left)
-                    .map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCalendarYear((current) => current + 1);
-                    setCalendarSelectedDay(null);
-                  }}
-                  className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700"
-                  aria-label="Próximo ano"
-                >
-                  →
-                </button>
-              </div>
-            </div>
-
-            <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
-              {visibleCalendarEvents.length} ocorrência(s) programada(s) em {calendarYear}. Toque em uma data destacada para ver os compromissos e, se desejar, usar a data na aula.
-            </p>
-
-            <AnnualCalendarView
-              mode={calendarMode}
-              events={visibleCalendarEvents}
-              year={calendarYear}
-              onSelectDay={(isoDateValue, events) =>
-                setCalendarSelectedDay({ isoDate: isoDateValue, events })
-              }
-            />
-
-            {calendarSelectedDay && (
-              <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
-                      Data selecionada
-                    </p>
-                    <p className="mt-1 text-lg font-black text-[#00334E]">
-                      {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(
-                        new Date(`${calendarSelectedDay.isoDate}T12:00:00Z`),
-                      )}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => applyCalendarDate(calendarSelectedDay.isoDate)}
-                    className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white"
-                  >
-                    Usar esta data na aula
-                  </button>
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {calendarSelectedDay.events.map((event) => (
-                    <article
-                      key={event.id}
-                      className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"
-                    >
-                      <p className="font-black text-[#00334E]">{event.title}</p>
-                      <p className="mt-1 text-xs font-semibold text-slate-500">
-                        {event.timeLabel || "Horário não informado"}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        </Popup>
-      )}
-
-      {openPopup === "agenda" && (
-        <Popup
-          title="Agenda Viva"
-          subtitle="Confira compromissos do Tucxa antes de escolher a data da aula."
-          onClose={() => setOpenPopup(null)}
         >
           {payload.agendaWarning && (
             <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">
               {payload.agendaWarning}
             </p>
           )}
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-end">
-            <label className="grid gap-1 text-sm font-black text-[#00334E]">
-              Data/hora de referência
-              <input
-                type="datetime-local"
-                value={lessonStart}
-                onChange={(event) => setLessonStart(event.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-3 font-semibold"
-              />
-            </label>
-            <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
-              Sem uma data de referência, são exibidos os próximos compromissos disponíveis.
+          <CourseAgendaCalendar
+            mode={calendarMode}
+            onModeChange={(value) => {
+              setCalendarMode(value);
+              setCalendarSelectedDay(null);
+            }}
+            year={calendarYear}
+            onYearChange={changeCalendarYear}
+            availableYears={availableCalendarYears}
+            fromDate={calendarFromDate}
+            onFromDateChange={changeCalendarFromDate}
+            events={visibleCalendarEvents}
+            selectedDay={calendarSelectedDay}
+            onSelectDay={(isoDateValue, events) =>
+              setCalendarSelectedDay({ isoDate: isoDateValue, events })
+            }
+            onApplyDate={applyCalendarDate}
+          />
+        </Popup>
+      )}
+
+      {openPopup === "agenda" && (
+        <Popup
+          title="Agenda Viva"
+          subtitle="Consulte o calendário de Tucxa, Sementinha e Eventos da data escolhida para frente para planejar o curso."
+          onClose={() => {
+            setCalendarSelectedDay(null);
+            setOpenPopup(null);
+          }}
+        >
+          {payload.agendaWarning && (
+            <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">
+              {payload.agendaWarning}
             </p>
-          </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {nearbyAgenda.length === 0 && (
-              <p className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 md:col-span-2">
-                Nenhum evento encontrado na Agenda Viva.
-              </p>
-            )}
-            {nearbyAgenda.map((event) => (
-              <article
-                key={event.id}
-                className="rounded-xl bg-white p-4 ring-1 ring-[#2F6B43]/10"
-              >
-                <p className="font-black text-[#00334E]">{event.title}</p>
-                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                  {formatDate(event.starts_at)}
-                  {event.ends_at ? ` → ${formatDate(event.ends_at)}` : ""}
-                  {event.location ? ` • ${event.location}` : ""}
-                </p>
-              </article>
-            ))}
-          </div>
+          )}
+          <CourseAgendaCalendar
+            mode={calendarMode}
+            onModeChange={(value) => {
+              setCalendarMode(value);
+              setCalendarSelectedDay(null);
+            }}
+            year={calendarYear}
+            onYearChange={changeCalendarYear}
+            availableYears={availableCalendarYears}
+            fromDate={calendarFromDate}
+            onFromDateChange={changeCalendarFromDate}
+            events={visibleCalendarEvents}
+            selectedDay={calendarSelectedDay}
+            onSelectDay={(isoDateValue, events) =>
+              setCalendarSelectedDay({ isoDate: isoDateValue, events })
+            }
+          />
         </Popup>
       )}
 
