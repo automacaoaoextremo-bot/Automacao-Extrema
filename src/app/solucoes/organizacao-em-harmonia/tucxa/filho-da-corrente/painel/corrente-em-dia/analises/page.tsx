@@ -94,9 +94,11 @@ type RankedItem = {
 };
 
 type PopupKey = "finalizado" | "detalhado" | "analises" | "imprimir" | null;
+type AnalysisQuestionKey = "receitas" | "despesas" | "saldo" | null;
+type PrintMode = "resumo" | "detalhado" | null;
 
 const actions: PanelHeaderAction[] = [
-  { label: "Início", href: CORRENTE_BASE, variant: "primary" },
+  { label: "Início", href: PANEL_BASE, variant: "secondary" },
   { label: "Voltar", href: CORRENTE_BASE, variant: "secondary" },
   filhoSupportAction,
   filhoSignOutAction,
@@ -338,6 +340,9 @@ export default function AnalisesFinanceirasPage() {
   const [payload, setPayload] = useState<ApiPayload>({});
   const [loading, setLoading] = useState(true);
   const [openPopup, setOpenPopup] = useState<PopupKey>(null);
+  const [analysisQuestion, setAnalysisQuestion] =
+    useState<AnalysisQuestionKey>(null);
+  const [printMode, setPrintMode] = useState<PrintMode>(null);
   const [mode, setMode] = useState<FilterMode>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -379,6 +384,44 @@ export default function AnalisesFinanceirasPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const clearPrintMode = () => {
+      setPrintMode(null);
+      document.getElementById("tucxa-financial-page-size")?.remove();
+    };
+
+    window.addEventListener("afterprint", clearPrintMode);
+    return () => {
+      window.removeEventListener("afterprint", clearPrintMode);
+      document.getElementById("tucxa-financial-page-size")?.remove();
+    };
+  }, []);
+
+  function printReport(modeToPrint: Exclude<PrintMode, null>) {
+    setAnalysisQuestion(null);
+    setOpenPopup(null);
+    setPrintMode(modeToPrint);
+
+    let style = document.getElementById(
+      "tucxa-financial-page-size",
+    ) as HTMLStyleElement | null;
+
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "tucxa-financial-page-size";
+      document.head.appendChild(style);
+    }
+
+    style.textContent =
+      modeToPrint === "resumo"
+        ? "@page { size: A4 portrait; margin: 10mm; }"
+        : "@page { size: A3 portrait; margin: 8mm; }";
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.print());
+    });
+  }
 
   const availableMonths = useMemo(() => {
     const values = new Set<string>();
@@ -712,33 +755,46 @@ export default function AnalisesFinanceirasPage() {
             <Metric label="Saldo final" value={analysis.closingBalance} />
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <RankingTable
-              title="Quais, em média, os itens com maiores receitas?"
-              items={analysis.revenueRanking}
-              monthsCount={selectedMonths.length}
-            />
-            <RankingTable
-              title="Quais, em média, os itens com maiores despesas?"
-              items={analysis.expenseRanking}
-              monthsCount={selectedMonths.length}
-            />
-          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("receitas")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                Quais, em média, os itens com maiores receitas?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
 
-          <article className="mt-4 rounded-[1.75rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-            <h3 className="text-xl font-black text-[#123D2C]">
-              O que levou o saldo bancário a estar positivo ou negativo?
-            </h3>
-            <p className="mt-3 text-sm font-semibold leading-7 text-slate-700">
-              {analysis.explanation}
-            </p>
-            <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-500">
-              Leitura automática baseada somente nos lançamentos realizados das
-              competências finalizadas do período selecionado. Ela apoia a análise
-              da Tesouraria/Financeiro e Diretoria e não substitui a conferência dos
-              documentos e lançamentos de origem.
-            </p>
-          </article>
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("despesas")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                Quais, em média, os itens com maiores despesas?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("saldo")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                O que levou o saldo bancário a estar positivo ou negativo?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+          </div>
         </>
       )}
     </>
@@ -750,28 +806,49 @@ export default function AnalisesFinanceirasPage() {
         navLabel="Corrente em Dia · Análises"
         showSupport={false}
         actions={actions}
+        autoHighlightCurrent={false}
       />
 
       <style jsx global>{`
-        .print-only {
+        .financial-print-root {
           display: none;
         }
+
         @media print {
-          @page {
-            size: A4 landscape;
-            margin: 10mm;
-          }
           body {
             background: white !important;
           }
-          header,
-          .screen-only {
+
+          .screen-only,
+          [data-tucxa-public-header] {
             display: none !important;
           }
-          .print-only {
-            display: block !important;
+
+          .financial-print-root,
+          .financial-print-root * {
+            visibility: visible !important;
           }
+
+          .financial-print-root {
+            display: block !important;
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            background: white !important;
+            color: #10251c !important;
+          }
+
           .print-card {
+            break-inside: avoid;
+          }
+
+          .financial-print-detail table {
+            page-break-inside: auto;
+          }
+
+          .financial-print-detail tr {
             break-inside: avoid;
           }
         }
@@ -816,6 +893,9 @@ export default function AnalisesFinanceirasPage() {
               <span className="mt-1 block text-xs font-semibold text-slate-500">
                 Última competência encerrada
               </span>
+              <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
             </button>
             <button
               type="button"
@@ -825,6 +905,9 @@ export default function AnalisesFinanceirasPage() {
               <span className="block text-lg font-black text-[#123D2C]">Detalhado</span>
               <span className="mt-1 block text-xs font-semibold text-slate-500">
                 Competências finalizadas por item
+              </span>
+              <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
               </span>
             </button>
             <button
@@ -836,6 +919,9 @@ export default function AnalisesFinanceirasPage() {
               <span className="mt-1 block text-xs font-semibold text-slate-500">
                 Médias, tendências e saldo
               </span>
+              <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
             </button>
             <button
               type="button"
@@ -844,7 +930,10 @@ export default function AnalisesFinanceirasPage() {
             >
               <span className="block text-lg font-black text-[#123D2C]">Imprimir PDF</span>
               <span className="mt-1 block text-xs font-semibold text-slate-500">
-                Relatório completo para impressão
+                Relatórios A4 e A3
+              </span>
+              <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
               </span>
             </button>
           </nav>
@@ -883,144 +972,370 @@ export default function AnalisesFinanceirasPage() {
       {openPopup === "analises" && payload.live && (
         <Popup
           title="Análises"
-          subtitle="Filtros e respostas automáticas considerando somente competências finalizadas."
-          onClose={() => setOpenPopup(null)}
+          onClose={() => {
+            setAnalysisQuestion(null);
+            setOpenPopup(null);
+          }}
           wide
         >
           {analysisContent}
         </Popup>
       )}
 
+      {openPopup === "analises" && analysisQuestion === "receitas" && (
+        <Popup
+          title="Quais, em média, os itens com maiores receitas?"
+          subtitle="Ranking calculado somente com as competências finalizadas do período selecionado."
+          onClose={() => setAnalysisQuestion(null)}
+          wide
+        >
+          <RankingTable
+            title="Maiores receitas médias"
+            items={analysis.revenueRanking}
+            monthsCount={selectedMonths.length}
+          />
+        </Popup>
+      )}
+
+      {openPopup === "analises" && analysisQuestion === "despesas" && (
+        <Popup
+          title="Quais, em média, os itens com maiores despesas?"
+          subtitle="Ranking calculado somente com as competências finalizadas do período selecionado."
+          onClose={() => setAnalysisQuestion(null)}
+          wide
+        >
+          <RankingTable
+            title="Maiores despesas médias"
+            items={analysis.expenseRanking}
+            monthsCount={selectedMonths.length}
+          />
+        </Popup>
+      )}
+
+      {openPopup === "analises" && analysisQuestion === "saldo" && (
+        <Popup
+          title="O que levou o saldo bancário a estar positivo ou negativo?"
+          subtitle="Leitura automática baseada nos lançamentos realizados das competências finalizadas."
+          onClose={() => setAnalysisQuestion(null)}
+          wide
+        >
+          <article className="rounded-[1.75rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+            <p className="text-sm font-semibold leading-7 text-slate-700">
+              {analysis.explanation}
+            </p>
+            <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-500">
+              Esta leitura apoia a Tesouraria/Financeiro e a Diretoria e não
+              substitui a conferência dos documentos e lançamentos de origem.
+            </p>
+          </article>
+        </Popup>
+      )}
+
       {openPopup === "imprimir" && payload.live && (
         <Popup
           title="Imprimir PDF"
-          subtitle="O relatório reúne Finalizado, Detalhado e Análises."
+          subtitle="Escolha o relatório adequado ao conteúdo que deseja imprimir ou salvar em PDF."
           onClose={() => setOpenPopup(null)}
         >
-          <div className="rounded-[1.5rem] bg-white p-5 ring-1 ring-[#123D2C]/10">
-            <p className="font-bold leading-7 text-slate-700">
-              A impressão considera somente competências finalizadas e usa o período
-              atualmente selecionado na opção Análises. No diálogo de impressão do
-              navegador, escolha <strong>Salvar como PDF</strong> para gerar o arquivo.
-            </p>
-            <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold text-[#123D2C]">
-              Período das análises: {selectedRange.start && selectedRange.end
-                ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
-                : "—"} · {selectedMonths.length} {selectedMonths.length === 1
-                ? "competência finalizada"
-                : "competências finalizadas"}
-            </p>
+          <div className="grid gap-3">
             <button
               type="button"
-              onClick={() => window.print()}
-              className="mt-5 w-full rounded-xl bg-[#123D2C] px-5 py-4 font-black text-white"
+              onClick={() => printReport("resumo")}
+              className="rounded-[1.5rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
             >
-              Abrir impressão / Salvar em PDF
+              <span className="block text-lg font-black text-[#123D2C]">
+                Finalizado + Análises
+              </span>
+              <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">
+                Relatório compacto em A4 retrato, usando o período selecionado em Análises.
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => printReport("detalhado")}
+              className="rounded-[1.5rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black text-[#123D2C]">
+                Detalhado expandido
+              </span>
+              <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">
+                Relatório separado em A3 retrato, com grupos e itens expandidos.
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
             </button>
           </div>
         </Popup>
       )}
 
-      {payload.live && (
-        <section className="print-only">
-          <h1 style={{ fontSize: "22px", fontWeight: 800 }}>
-            Análises financeiras do Tucxa
-          </h1>
-          <p style={{ marginTop: "6px" }}>
-            Relatório baseado somente em competências finalizadas.
-          </p>
-
-          <div className="print-card" style={{ marginTop: "12px" }}>
-            <SummaryCard
-              title="Finalizado"
-              subtitle="Última competência conferida e encerrada pela Tesouraria/Financeiro."
-              month={payload.live.latestFinalized}
-            />
+      {payload.live && printMode === "resumo" && (
+        <section
+          className="financial-print-root financial-print-summary"
+          aria-label="Relatório A4 de competência finalizada e análises"
+          style={{
+            fontFamily: "Arial, Helvetica, sans-serif",
+            fontSize: "9px",
+            lineHeight: 1.25,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              borderBottom: "2px solid #123D2C",
+              paddingBottom: "6px",
+            }}
+          >
+            <div>
+              <h1 style={{ margin: 0, fontSize: "18px", fontWeight: 800 }}>
+                Tucxa · Finalizado e Análises
+              </h1>
+              <p style={{ margin: "3px 0 0" }}>
+                Relatório baseado somente em competências finalizadas.
+              </p>
+            </div>
+            <p style={{ margin: 0, textAlign: "right", fontWeight: 700 }}>
+              Período:{" "}
+              {selectedRange.start && selectedRange.end
+                ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
+                : "—"}
+              <br />
+              {selectedMonths.length}{" "}
+              {selectedMonths.length === 1
+                ? "competência finalizada"
+                : "competências finalizadas"}
+            </p>
           </div>
 
-          <h2 style={{ marginTop: "18px", fontSize: "18px", fontWeight: 800 }}>
-            Análises
-          </h2>
-          <p style={{ marginTop: "6px", fontWeight: 700 }}>
-            Período analisado: {selectedRange.start && selectedRange.end
-              ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
-              : "—"} · {selectedMonths.length} {selectedMonths.length === 1
-              ? "competência finalizada"
-              : "competências finalizadas"}
-          </p>
+          <section className="print-card" style={{ marginTop: "8px" }}>
+            <h2 style={{ margin: 0, fontSize: "14px", fontWeight: 800 }}>
+              Finalizado
+            </h2>
+            {payload.live.latestFinalized ? (
+              <>
+                <p style={{ margin: "2px 0 5px", fontWeight: 700 }}>
+                  Última competência encerrada:{" "}
+                  {monthLabel(payload.live.latestFinalized.month)}
+                </p>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    tableLayout: "fixed",
+                  }}
+                >
+                  <tbody>
+                    <tr>
+                      {[
+                        ["Receitas", payload.live.latestFinalized.revenues],
+                        ["Despesas", payload.live.latestFinalized.expenses],
+                        ["Resultado", payload.live.latestFinalized.result],
+                        [
+                          "Saldo final",
+                          payload.live.latestFinalized.closingBalance ??
+                            payload.live.latestFinalized.bankBalance,
+                        ],
+                      ].map(([label, value]) => (
+                        <td
+                          key={String(label)}
+                          style={{
+                            border: "1px solid #94A3B8",
+                            padding: "5px",
+                            verticalAlign: "top",
+                          }}
+                        >
+                          <strong>{String(label)}</strong>
+                          <br />
+                          {money(value as number | null)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            ) : (
+              <p style={{ margin: "4px 0 0" }}>
+                Ainda não há competência finalizada disponível.
+              </p>
+            )}
+          </section>
 
-          <div className="print-card" style={{ marginTop: "10px" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+          <section className="print-card" style={{ marginTop: "9px" }}>
+            <h2 style={{ margin: 0, fontSize: "14px", fontWeight: 800 }}>
+              Análises
+            </h2>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                tableLayout: "fixed",
+                marginTop: "5px",
+              }}
+            >
               <tbody>
-                {[
-                  ["Saldo inicial", analysis.openingBalance],
-                  ["Receitas", analysis.revenues],
-                  ["Despesas", analysis.expenses],
-                  ["Resultado", analysis.result],
-                  ["Saldo final", analysis.closingBalance],
-                ].map(([label, value]) => (
-                  <tr key={String(label)}>
-                    <td style={{ border: "1px solid #999", padding: "5px", fontWeight: 700 }}>
-                      {String(label)}
-                    </td>
-                    <td style={{ border: "1px solid #999", padding: "5px", textAlign: "right" }}>
+                <tr>
+                  {[
+                    ["Saldo inicial", analysis.openingBalance],
+                    ["Receitas", analysis.revenues],
+                    ["Despesas", analysis.expenses],
+                    ["Resultado", analysis.result],
+                    ["Saldo final", analysis.closingBalance],
+                  ].map(([label, value]) => (
+                    <td
+                      key={String(label)}
+                      style={{
+                        border: "1px solid #94A3B8",
+                        padding: "4px",
+                        verticalAlign: "top",
+                      }}
+                    >
+                      <strong>{String(label)}</strong>
+                      <br />
                       {money(value as number | null)}
                     </td>
-                  </tr>
-                ))}
+                  ))}
+                </tr>
               </tbody>
             </table>
+          </section>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px",
+              marginTop: "9px",
+            }}
+          >
+            <section className="print-card">
+              <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+                Maiores receitas médias
+              </h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {analysis.revenueRanking.slice(0, 10).map((item, index) => (
+                    <tr key={`print-receita-${item.name}-${index}`}>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px" }}>
+                        {index + 1}. {item.name}
+                      </td>
+                      <td
+                        style={{
+                          borderBottom: "1px solid #CBD5E1",
+                          padding: "2px",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {money(item.average)}/mês
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            <section className="print-card">
+              <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+                Maiores despesas médias
+              </h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {analysis.expenseRanking.slice(0, 10).map((item, index) => (
+                    <tr key={`print-despesa-${item.name}-${index}`}>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px" }}>
+                        {index + 1}. {item.name}
+                      </td>
+                      <td
+                        style={{
+                          borderBottom: "1px solid #CBD5E1",
+                          padding: "2px",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {money(item.average)}/mês
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
           </div>
 
-          <div className="print-card" style={{ marginTop: "12px" }}>
-            <h3 style={{ fontWeight: 800 }}>Maiores receitas médias</h3>
-            <ol>
-              {analysis.revenueRanking.slice(0, 10).map((item) => (
-                <li key={item.name}>
-                  {item.name}: {money(item.average)}/mês · total {money(item.total)}
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="print-card" style={{ marginTop: "12px" }}>
-            <h3 style={{ fontWeight: 800 }}>Maiores despesas médias</h3>
-            <ol>
-              {analysis.expenseRanking.slice(0, 10).map((item) => (
-                <li key={item.name}>
-                  {item.name}: {money(item.average)}/mês · total {money(item.total)}
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="print-card" style={{ marginTop: "12px" }}>
-            <h3 style={{ fontWeight: 800 }}>
+          <section
+            className="print-card"
+            style={{
+              marginTop: "9px",
+              border: "1px solid #CBD5E1",
+              padding: "7px",
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: "11px", fontWeight: 800 }}>
               O que levou o saldo bancário a estar positivo ou negativo?
             </h3>
-            <p>{analysis.explanation}</p>
-          </div>
+            <p style={{ margin: "4px 0 0" }}>{analysis.explanation}</p>
+          </section>
 
-          <h2 style={{ marginTop: "18px", fontSize: "18px", fontWeight: 800 }}>
-            Detalhado — competências finalizadas
-          </h2>
+          <p style={{ margin: "7px 0 0", fontSize: "8px", color: "#475569" }}>
+            Leitura automática de apoio à Tesouraria/Financeiro e Diretoria. A
+            conferência dos documentos e lançamentos de origem continua sendo a
+            referência oficial.
+          </p>
+        </section>
+      )}
+
+      {payload.live && printMode === "detalhado" && (
+        <section
+          className="financial-print-root financial-print-detail"
+          aria-label="Relatório A3 detalhado de competências finalizadas"
+          style={{
+            fontFamily: "Arial, Helvetica, sans-serif",
+            fontSize: "8px",
+            lineHeight: 1.15,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: "18px", fontWeight: 800 }}>
+            Tucxa · Detalhado — competências finalizadas
+          </h1>
+          <p style={{ margin: "3px 0 8px" }}>
+            Visão expandida de saldos, receitas, despesas, grupos e itens.
+          </p>
+
           <table
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              fontSize: "9px",
-              marginTop: "8px",
+              tableLayout: "fixed",
             }}
           >
             <thead>
               <tr>
-                <th style={{ border: "1px solid #999", padding: "4px" }}>
-                  Tipo / item
+                <th
+                  style={{
+                    width: "20%",
+                    border: "1px solid #64748B",
+                    padding: "3px",
+                    textAlign: "left",
+                    background: "#E9F2E7",
+                  }}
+                >
+                  Tipo / grupo / item
                 </th>
                 {payload.live.matrix.months.map((month) => (
                   <th
-                    key={month.month}
-                    style={{ border: "1px solid #999", padding: "4px" }}
+                    key={`print-head-${month.month}`}
+                    style={{
+                      border: "1px solid #64748B",
+                      padding: "3px",
+                      textAlign: "right",
+                      background: "#E9F2E7",
+                    }}
                   >
                     {monthLabel(month.month)}
                   </th>
@@ -1029,15 +1344,44 @@ export default function AnalisesFinanceirasPage() {
             </thead>
             <tbody>
               <tr>
-                <td style={{ border: "1px solid #999", padding: "4px" }}>
+                <td
+                  style={{
+                    border: "1px solid #94A3B8",
+                    padding: "3px",
+                    fontWeight: 800,
+                  }}
+                >
+                  Saldo inicial
+                </td>
+                {payload.live.matrix.months.map((month) => (
+                  <td
+                    key={`print-opening-${month.month}`}
+                    style={{
+                      border: "1px solid #94A3B8",
+                      padding: "3px",
+                      textAlign: "right",
+                    }}
+                  >
+                    {money(month.openingBalance)}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td
+                  style={{
+                    border: "1px solid #94A3B8",
+                    padding: "3px",
+                    fontWeight: 800,
+                  }}
+                >
                   Saldo final
                 </td>
                 {payload.live.matrix.months.map((month) => (
                   <td
-                    key={month.month}
+                    key={`print-closing-${month.month}`}
                     style={{
-                      border: "1px solid #999",
-                      padding: "4px",
+                      border: "1px solid #94A3B8",
+                      padding: "3px",
                       textAlign: "right",
                     }}
                   >
@@ -1045,56 +1389,102 @@ export default function AnalisesFinanceirasPage() {
                   </td>
                 ))}
               </tr>
-              {payload.live.matrix.groups.flatMap((group) => [
-                <tr key={`group-${group.type}-${group.group}`}>
-                  <td
-                    style={{
-                      border: "1px solid #999",
-                      padding: "4px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {group.type === "receita" ? "Receita" : "Despesa"} · {group.group}
-                  </td>
-                  {payload.live!.matrix.months.map((month) => (
-                    <td
-                      key={month.month}
-                      style={{
-                        border: "1px solid #999",
-                        padding: "4px",
-                        textAlign: "right",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {money(group.values[month.month] ?? 0)}
-                    </td>
-                  ))}
-                </tr>,
-                ...group.items.map((item) => (
-                  <tr key={`item-${group.type}-${group.group}-${item.name}`}>
+
+              {(["receita", "despesa"] as const).flatMap((type) => {
+                const groups = payload.live!.matrix.groups.filter(
+                  (group) => group.type === type,
+                );
+                const label = type === "receita" ? "Receitas" : "Despesas";
+
+                return [
+                  <tr key={`print-section-${type}`}>
                     <td
                       style={{
-                        border: "1px solid #999",
-                        padding: "4px 4px 4px 12px",
+                        border: "1px solid #64748B",
+                        padding: "3px",
+                        fontWeight: 900,
+                        background: "#DDEAD8",
                       }}
                     >
-                      {item.name}
+                      {label}
                     </td>
-                    {payload.live!.matrix.months.map((month) => (
+                    {payload.live!.matrix.months.map((month) => {
+                      const value = groups.reduce(
+                        (sum, group) =>
+                          sum + (Number(group.values[month.month]) || 0),
+                        0,
+                      );
+
+                      return (
+                        <td
+                          key={`print-section-${type}-${month.month}`}
+                          style={{
+                            border: "1px solid #64748B",
+                            padding: "3px",
+                            textAlign: "right",
+                            fontWeight: 900,
+                            background: "#DDEAD8",
+                          }}
+                        >
+                          {money(value)}
+                        </td>
+                      );
+                    })}
+                  </tr>,
+                  ...groups.flatMap((group) => [
+                    <tr key={`print-group-${type}-${group.group}`}>
                       <td
-                        key={month.month}
                         style={{
-                          border: "1px solid #999",
-                          padding: "4px",
-                          textAlign: "right",
+                          border: "1px solid #94A3B8",
+                          padding: "3px 3px 3px 9px",
+                          fontWeight: 800,
+                          background: "#F3F8F0",
                         }}
                       >
-                        {money(item.values[month.month] ?? 0)}
+                        {group.group}
                       </td>
-                    ))}
-                  </tr>
-                )),
-              ])}
+                      {payload.live!.matrix.months.map((month) => (
+                        <td
+                          key={`print-group-${type}-${group.group}-${month.month}`}
+                          style={{
+                            border: "1px solid #94A3B8",
+                            padding: "3px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            background: "#F3F8F0",
+                          }}
+                        >
+                          {money(group.values[month.month] ?? 0)}
+                        </td>
+                      ))}
+                    </tr>,
+                    ...group.items.map((item) => (
+                      <tr key={`print-item-${type}-${group.group}-${item.name}`}>
+                        <td
+                          style={{
+                            border: "1px solid #CBD5E1",
+                            padding: "2px 3px 2px 16px",
+                          }}
+                        >
+                          {item.name}
+                        </td>
+                        {payload.live!.matrix.months.map((month) => (
+                          <td
+                            key={`print-item-${type}-${group.group}-${item.name}-${month.month}`}
+                            style={{
+                              border: "1px solid #CBD5E1",
+                              padding: "2px 3px",
+                              textAlign: "right",
+                            }}
+                          >
+                            {money(item.values[month.month] ?? 0)}
+                          </td>
+                        ))}
+                      </tr>
+                    )),
+                  ]),
+                ];
+              })}
             </tbody>
           </table>
         </section>

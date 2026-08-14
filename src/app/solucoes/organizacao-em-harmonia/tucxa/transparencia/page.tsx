@@ -62,13 +62,23 @@ const actions = [
     variant: "secondary" as const,
   },
   {
+    label: "Finalizado",
+    href: "#finalizado",
+    variant: "secondary" as const,
+  },
+  {
+    label: "Detalhado",
+    href: "#detalhado",
+    variant: "secondary" as const,
+  },
+  {
     label: "Contribuir",
     href: "#contribuir",
     variant: "primary" as const,
   },
   {
-    label: "Dúvidas?",
-    href: "#duvidas",
+    label: "Ajuda",
+    href: "#ajuda",
     variant: "secondary" as const,
     action: "supportWhatsapp" as const,
   },

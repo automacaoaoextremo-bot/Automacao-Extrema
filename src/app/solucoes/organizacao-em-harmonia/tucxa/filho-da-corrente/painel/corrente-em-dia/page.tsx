@@ -315,8 +315,14 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
             )}
 
             <div className="mt-3 grid gap-2 sm:mt-5 sm:grid-cols-2 sm:gap-3">
-              <button type="button" onClick={openContribution} className="w-full rounded-2xl bg-white px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">Contribuição</button>
-              <button type="button" onClick={() => setFinanceOpen(true)} className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">Financeiro</button>
+              <button type="button" onClick={openContribution} className="w-full rounded-2xl bg-white px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">
+                <span className="block">Contribuição</span>
+                <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+              </button>
+              <button type="button" onClick={() => setFinanceOpen(true)} className="w-full rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-base font-black text-[#123D2C] shadow-lg ring-1 ring-white/30 transition hover:-translate-y-0.5 sm:py-4">
+                <span className="block">Financeiro</span>
+                <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+              </button>
             </div>
           </section>
         )}

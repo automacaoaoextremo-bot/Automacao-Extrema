@@ -105,6 +105,7 @@ export default function AtendimentoEmHarmoniaPage() {
   const [canCavalinho, setCanCavalinho] = useState(false);
   const [functionTokens, setFunctionTokens] = useState<string[]>([]);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [submodulesOpen, setSubmodulesOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -141,13 +142,13 @@ export default function AtendimentoEmHarmoniaPage() {
   }, []);
 
   useEffect(() => {
-    if (!modal) return;
+    if (!modal && !submodulesOpen) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [modal]);
+  }, [modal, submodulesOpen]);
 
   const isProfessor = functionTokens.some((token) =>
     ["professor", "docente"].includes(token),
@@ -233,73 +234,114 @@ export default function AtendimentoEmHarmoniaPage() {
         </section>
 
         <section className="mt-5">
-          <div className="mb-3">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+          <button
+            type="button"
+            onClick={() => setSubmodulesOpen(true)}
+            className="w-full rounded-[1.5rem] bg-white px-5 py-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg"
+          >
+            <span className="block text-lg font-black text-[#123D2C]">
               Submódulos do Atendimento em Harmonia
-            </p>
-            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+            </span>
+            <span className="mt-2 block text-sm font-semibold leading-6 text-slate-600">
               Acesse aqui as soluções que complementam o acolhimento, a escuta e o acompanhamento de cursos.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-              <h2 className="text-xl font-black text-[#123D2C]">Escuta em Harmonia</h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Envie uma dúvida, sugestão ou preocupação à Diretoria e acompanhe seus registros.
-              </p>
-              <div className="mt-4 grid gap-2">
-                <Link
-                  href={`${filhoPanelBase}/escuta-em-harmonia`}
-                  className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
-                >
-                  Abrir minha Escuta
-                </Link>
-                {canManageListening && (
-                  <Link
-                    href="/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia"
-                    className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                  >
-                    Acompanhamento da Diretoria
-                  </Link>
-                )}
-              </div>
-            </article>
-
-            <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-              <h2 className="text-xl font-black text-[#123D2C]">Cursos em Harmonia</h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Cursos, aulas, professores, alunos, convites, Agenda Viva e presença em um fluxo integrado.
-              </p>
-
-              {canOpenCourses ? (
-                <div className="mt-4 grid gap-2">
-                  {isProfessor && (
-                    <Link
-                      href={`${filhoPanelBase}/cursos`}
-                      className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
-                    >
-                      Minhas aulas
-                    </Link>
-                  )}
-                  {canManageCourses && (
-                    <Link
-                      href="/solucoes/organizacao-em-harmonia/cliente/cursos"
-                      className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                    >
-                      Gestão dos cursos
-                    </Link>
-                  )}
-                </div>
-              ) : (
-                <p className="mt-4 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
-                  A gestão fica disponível para Coordenação de Cursos e a sala de aula para pessoas com função Professor.
-                </p>
-              )}
-            </article>
-          </div>
+            </span>
+            <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              TOQUE PARA ABRIR
+            </span>
+          </button>
         </section>
       </section>
+
+      {submodulesOpen && (
+        <div
+          className="fixed inset-0 z-[125] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="submodulos-atendimento-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSubmodulesOpen(false);
+          }}
+        >
+          <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] bg-[#F7FAF2] shadow-2xl">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
+                  Atendimento em Harmonia
+                </p>
+                <h2 id="submodulos-atendimento-title" className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+                  Submódulos do Atendimento em Harmonia
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubmodulesOpen(false)}
+                className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 font-black text-white"
+              >
+                Fechar
+              </button>
+            </header>
+
+            <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                  <h3 className="text-xl font-black text-[#123D2C]">Escuta em Harmonia</h3>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                    Envie uma dúvida, sugestão ou preocupação à Diretoria e acompanhe seus registros.
+                  </p>
+                  <div className="mt-4 grid gap-2">
+                    <Link
+                      href={`${filhoPanelBase}/escuta-em-harmonia`}
+                      className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
+                    >
+                      Abrir minha Escuta
+                    </Link>
+                    {canManageListening && (
+                      <Link
+                        href="/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia"
+                        className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                      >
+                        Acompanhamento da Diretoria
+                      </Link>
+                    )}
+                  </div>
+                </article>
+
+                <article className="rounded-[1.5rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
+                  <h3 className="text-xl font-black text-[#123D2C]">Cursos em Harmonia</h3>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                    Cursos, aulas, professores, alunos, convites, Agenda Viva e presença em um fluxo integrado.
+                  </p>
+
+                  {canOpenCourses ? (
+                    <div className="mt-4 grid gap-2">
+                      {isProfessor && (
+                        <Link
+                          href={`${filhoPanelBase}/cursos`}
+                          className="rounded-xl bg-[#123D2C] px-4 py-3 text-center font-black text-white"
+                        >
+                          Minhas aulas
+                        </Link>
+                      )}
+                      {canManageCourses && (
+                        <Link
+                          href="/solucoes/organizacao-em-harmonia/cliente/cursos"
+                          className="rounded-xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                        >
+                          Gestão dos cursos
+                        </Link>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-xl bg-[#F7FAF2] p-3 text-sm font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
+                      A gestão fica disponível para Coordenação de Cursos e a sala de aula para pessoas com função Professor.
+                    </p>
+                  )}
+                </article>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {selected && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={selected.eyebrow}>
