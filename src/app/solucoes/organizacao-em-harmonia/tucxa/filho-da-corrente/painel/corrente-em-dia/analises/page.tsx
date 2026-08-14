@@ -12,8 +12,11 @@ import {
   filhoSupportAction,
   type PanelHeaderAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FinancialLineChart } from "@/components/organizacao-em-harmonia/financial-line-chart";
 import {
   FinancialTransparencyMatrix,
+  type FinancialMatrixGroup,
+  type FinancialMatrixMonth,
   type FinancialTransparencyMatrixData,
 } from "@/components/organizacao-em-harmonia/financial-transparency-matrix";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -93,12 +96,31 @@ type RankedItem = {
   activeMonths: number;
 };
 
+type AnalysisSnapshot = {
+  revenues: number;
+  expenses: number;
+  result: number;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  revenueRanking: RankedItem[];
+  expenseRanking: RankedItem[];
+  explanation: string;
+};
+
+type EventProfitability = {
+  name: string;
+  revenues: number;
+  expenses: number;
+  result: number;
+  percentage: number | null;
+};
+
 type PopupKey = "finalizado" | "detalhado" | "analises" | "imprimir" | null;
 type AnalysisQuestionKey = "receitas" | "despesas" | "saldo" | null;
 type PrintMode = "resumo" | "detalhado" | null;
 
 const actions: PanelHeaderAction[] = [
-  { label: "Início", href: PANEL_BASE, variant: "secondary" },
+  { label: "Início", href: "#inicio", variant: "secondary" },
   { label: "Voltar", href: CORRENTE_BASE, variant: "secondary" },
   filhoSupportAction,
   filhoSignOutAction,
@@ -110,6 +132,46 @@ function money(value: number | null | undefined) {
     style: "currency",
     currency: "BRL",
   }).format(Number(value) || 0);
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function signedStyle(value: number | null | undefined) {
+  const numeric = Number(value ?? 0);
+  return {
+    color: numeric < 0 ? "#B42318" : "#123D2C",
+    fontWeight: 800,
+  } as const;
+}
+
+function percent(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value / 100);
+}
+
+function average(values: Array<number | null | undefined>) {
+  return values.length > 0
+    ? values.reduce<number>((sum, value) => sum + (Number(value) || 0), 0) / values.length
+    : 0;
+}
+
+function matrixTypeValue(
+  groups: FinancialMatrixGroup[],
+  type: "receita" | "despesa",
+  month: string,
+) {
+  return groups
+    .filter((group) => group.type === type)
+    .reduce((sum, group) => sum + (Number(group.values[month]) || 0), 0);
 }
 
 function monthKey(value: string) {
@@ -246,10 +308,16 @@ function RankingTable({
                   <td className="border-b border-[#123D2C]/5 px-2 py-3 font-bold text-slate-700">
                     {index + 1}. {item.name}
                   </td>
-                  <td className="border-b border-[#123D2C]/5 px-2 py-3 text-right font-black text-[#123D2C]">
+                  <td
+                    className="border-b border-[#123D2C]/5 px-2 py-3 text-right"
+                    style={signedStyle(item.average)}
+                  >
                     {money(item.average)}
                   </td>
-                  <td className="border-b border-[#123D2C]/5 px-2 py-3 text-right font-semibold text-slate-600">
+                  <td
+                    className="border-b border-[#123D2C]/5 px-2 py-3 text-right"
+                    style={signedStyle(item.total)}
+                  >
                     {money(item.total)}
                   </td>
                 </tr>
@@ -263,6 +331,76 @@ function RankingTable({
         </p>
       )}
     </article>
+  );
+}
+
+function SignedMoney({
+  value,
+  suffix = "",
+}: {
+  value: number | null | undefined;
+  suffix?: string;
+}) {
+  return (
+    <strong style={signedStyle(value)}>
+      {money(value)}
+      {suffix}
+    </strong>
+  );
+}
+
+function BalanceExplanation({
+  analysis,
+  monthsCount,
+}: {
+  analysis: AnalysisSnapshot;
+  monthsCount: number;
+}) {
+  if (monthsCount === 0) {
+    return (
+      <p className="text-sm font-semibold leading-7 text-slate-700">
+        Não há competências finalizadas com dados realizados suficientes no período selecionado para explicar a evolução do saldo.
+      </p>
+    );
+  }
+
+  const topRevenue = analysis.revenueRanking[0];
+  const topExpense = analysis.expenseRanking[0];
+
+  return (
+    <div className="space-y-3 text-sm font-semibold leading-7 text-slate-700">
+      <p>
+        No período selecionado, o resultado entre receitas e despesas foi{" "}
+        <SignedMoney value={analysis.result} />. Foram registradas{" "}
+        <SignedMoney value={analysis.revenues} /> em receitas e{" "}
+        <SignedMoney value={analysis.expenses} /> em despesas.
+      </p>
+      <p>
+        O saldo partiu de <SignedMoney value={analysis.openingBalance} /> e encerrou em{" "}
+        <SignedMoney value={analysis.closingBalance} />.
+        {analysis.closingBalance != null && analysis.closingBalance < 0
+          ? " O encerramento permaneceu negativo no período analisado."
+          : analysis.result >= 0
+            ? " O resultado do período contribuiu positivamente para a evolução do saldo."
+            : " A diferença negativa entre entradas e saídas pressionou a evolução do saldo."}
+      </p>
+      {(topRevenue || topExpense) && (
+        <p>
+          {topRevenue && (
+            <>
+              A maior receita média foi <strong>{topRevenue.name}</strong>, com{" "}
+              <SignedMoney value={topRevenue.average} suffix="/mês" />.
+            </>
+          )}{" "}
+          {topExpense && (
+            <>
+              A maior despesa média foi <strong>{topExpense.name}</strong>, com{" "}
+              <SignedMoney value={topExpense.average} suffix="/mês" />.
+            </>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -342,6 +480,7 @@ export default function AnalisesFinanceirasPage() {
   const [openPopup, setOpenPopup] = useState<PopupKey>(null);
   const [analysisQuestion, setAnalysisQuestion] =
     useState<AnalysisQuestionKey>(null);
+  const [summaryPopupOpen, setSummaryPopupOpen] = useState(false);
   const [printMode, setPrintMode] = useState<PrintMode>(null);
   const [mode, setMode] = useState<FilterMode>("all");
   const [customStart, setCustomStart] = useState("");
@@ -400,6 +539,7 @@ export default function AnalisesFinanceirasPage() {
 
   function printReport(modeToPrint: Exclude<PrintMode, null>) {
     setAnalysisQuestion(null);
+    setSummaryPopupOpen(false);
     setOpenPopup(null);
     setPrintMode(modeToPrint);
 
@@ -416,7 +556,7 @@ export default function AnalisesFinanceirasPage() {
     style.textContent =
       modeToPrint === "resumo"
         ? "@page { size: A4 portrait; margin: 10mm; }"
-        : "@page { size: A3 portrait; margin: 8mm; }";
+        : "@page { size: A3 landscape; margin: 8mm; }";
 
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => window.print());
@@ -436,9 +576,9 @@ export default function AnalisesFinanceirasPage() {
 
   const availableYears = useMemo(
     () =>
-      Array.from(new Set(availableMonths.map((month) => month.slice(0, 4)))).sort(
-        (left, right) => right.localeCompare(left),
-      ),
+      Array.from(
+        new Set<string>(availableMonths.map((month) => month.slice(0, 4))),
+      ).sort((left: string, right: string) => right.localeCompare(left)),
     [availableMonths],
   );
 
@@ -507,7 +647,7 @@ export default function AnalisesFinanceirasPage() {
     );
   }, [availableMonths, selectedRange]);
 
-  const analysis = useMemo(() => {
+  const analysis = useMemo<AnalysisSnapshot>(() => {
     const monthSet = new Set(selectedMonths);
     const realizedEntries = (payload.analysisBase?.entries ?? []).filter(
       (entry) =>
@@ -622,6 +762,87 @@ export default function AnalisesFinanceirasPage() {
     };
   }, [payload.analysisBase, selectedMonths]);
 
+  const eventProfitability = useMemo<EventProfitability[]>(() => {
+    const monthSet = new Set(selectedMonths);
+    const entries = (payload.analysisBase?.entries ?? []).filter(
+      (entry) =>
+        entry.dataNature === "realizado" && monthSet.has(monthDate(entry.month)),
+    );
+
+    const definitions = [
+      { name: "Pizza", keywords: ["pizza"] },
+      { name: "Festa Junina", keywords: ["festa junina"] },
+      { name: "Feijoada", keywords: ["feijoada"] },
+      { name: "Confraternização", keywords: ["confraternizacao"] },
+    ];
+
+    return definitions
+      .map((definition) => {
+        const matching = entries.filter((entry) => {
+          const value = normalizeText(`${entry.item} ${entry.group}`);
+          return definition.keywords.some((keyword) => value.includes(keyword));
+        });
+        const revenues = matching
+          .filter((entry) => entry.type === "receita")
+          .reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+        const expenses = matching
+          .filter((entry) => entry.type === "despesa")
+          .reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+        const result = revenues - expenses;
+        return {
+          name: definition.name,
+          revenues,
+          expenses,
+          result,
+          percentage: revenues !== 0 ? (result / revenues) * 100 : null,
+        };
+      })
+      .sort((left, right) => right.result - left.result);
+  }, [payload.analysisBase, selectedMonths]);
+
+  const filteredMatrixMonths = useMemo<FinancialMatrixMonth[]>(() => {
+    const selected = new Set(selectedMonths);
+    return (payload.live?.matrix.months ?? []).filter((month) =>
+      selected.has(monthDate(month.month)),
+    );
+  }, [payload.live, selectedMonths]);
+
+  const detailChronologicalMonths = useMemo(
+    () =>
+      [...filteredMatrixMonths].sort((left, right) =>
+        monthDate(left.month).localeCompare(monthDate(right.month)),
+      ),
+    [filteredMatrixMonths],
+  );
+
+  const detailSummaryChart = useMemo(() => {
+    const groups = payload.live?.matrix.groups ?? [];
+    return {
+      labels: detailChronologicalMonths.map((month) => monthLabel(month.month)),
+      balance: detailChronologicalMonths.map((month) => month.bankBalance ?? 0),
+      revenues: detailChronologicalMonths.map((month) =>
+        matrixTypeValue(groups, "receita", month.month),
+      ),
+      expenses: detailChronologicalMonths.map((month) =>
+        matrixTypeValue(groups, "despesa", month.month),
+      ),
+    };
+  }, [detailChronologicalMonths, payload.live]);
+
+  const groupChartSeries = useMemo(() => {
+    const groups = payload.live?.matrix.groups ?? [];
+    const build = (type: "receita" | "despesa") =>
+      groups
+        .filter((group) => group.type === type)
+        .map((group) => ({
+          label: group.group,
+          values: detailChronologicalMonths.map(
+            (month) => Number(group.values[month.month]) || 0,
+          ),
+        }));
+    return { receitas: build("receita"), despesas: build("despesa") };
+  }, [detailChronologicalMonths, payload.live]);
+
   const rangeError = Boolean(
     selectedRange.start &&
       selectedRange.end &&
@@ -630,15 +851,9 @@ export default function AnalisesFinanceirasPage() {
 
   const analysisContent = (
     <>
-      <p className="max-w-5xl text-sm font-semibold leading-6 text-slate-600">
-        As análises consideram exclusivamente competências finalizadas. Meses em
-        andamento, em revisão, reabertos ou ainda não finalizados ficam fora das
-        médias e da explicação do saldo.
-      </p>
-
-      <div className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+      <div className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
         <label className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">
-          Período
+          Escolha o Período
         </label>
         <select
           value={mode}
@@ -755,53 +970,25 @@ export default function AnalisesFinanceirasPage() {
             <Metric label="Saldo final" value={analysis.closingBalance} />
           </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => setAnalysisQuestion("receitas")}
-              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
-            >
-              <span className="block text-lg font-black leading-6 text-[#123D2C]">
-                Quais, em média, os itens com maiores receitas?
-              </span>
-              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                TOQUE PARA ABRIR
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAnalysisQuestion("despesas")}
-              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
-            >
-              <span className="block text-lg font-black leading-6 text-[#123D2C]">
-                Quais, em média, os itens com maiores despesas?
-              </span>
-              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                TOQUE PARA ABRIR
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAnalysisQuestion("saldo")}
-              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
-            >
-              <span className="block text-lg font-black leading-6 text-[#123D2C]">
-                O que levou o saldo bancário a estar positivo ou negativo?
-              </span>
-              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
-                TOQUE PARA ABRIR
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setSummaryPopupOpen(true)}
+            className="mt-4 flex min-h-20 w-full flex-col items-center justify-center rounded-[1.75rem] bg-white p-5 text-center shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+          >
+            <span className="block text-xl font-black leading-6 text-[#123D2C]">
+              Resumos
+            </span>
+            <span className="mt-2 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              TOQUE PARA ABRIR
+            </span>
+          </button>
         </>
       )}
     </>
   );
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
         navLabel="Corrente em Dia · Análises"
         showSupport={false}
@@ -974,11 +1161,63 @@ export default function AnalisesFinanceirasPage() {
           title="Análises"
           onClose={() => {
             setAnalysisQuestion(null);
+            setSummaryPopupOpen(false);
             setOpenPopup(null);
           }}
           wide
         >
           {analysisContent}
+        </Popup>
+      )}
+
+      {openPopup === "analises" && summaryPopupOpen && (
+        <Popup
+          title="Resumos"
+          subtitle="Escolha a pergunta que deseja analisar no período selecionado."
+          onClose={() => {
+            setAnalysisQuestion(null);
+            setSummaryPopupOpen(false);
+          }}
+          wide
+        >
+          <div className="grid gap-3 lg:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("receitas")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                Quais, em média, os itens com maiores receitas?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("despesas")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                Quais, em média, os itens com maiores despesas?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnalysisQuestion("saldo")}
+              className="min-h-28 rounded-[1.75rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA]"
+            >
+              <span className="block text-lg font-black leading-6 text-[#123D2C]">
+                O que levou o saldo bancário a estar positivo ou negativo?
+              </span>
+              <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                TOQUE PARA ABRIR
+              </span>
+            </button>
+          </div>
         </Popup>
       )}
 
@@ -1020,9 +1259,10 @@ export default function AnalisesFinanceirasPage() {
           wide
         >
           <article className="rounded-[1.75rem] bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-            <p className="text-sm font-semibold leading-7 text-slate-700">
-              {analysis.explanation}
-            </p>
+            <BalanceExplanation
+              analysis={analysis}
+              monthsCount={selectedMonths.length}
+            />
             <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-500">
               Esta leitura apoia a Tesouraria/Financeiro e a Diretoria e não
               substitui a conferência dos documentos e lançamentos de origem.
@@ -1063,7 +1303,7 @@ export default function AnalisesFinanceirasPage() {
                 Detalhado expandido
               </span>
               <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">
-                Relatório separado em A3 retrato, com grupos e itens expandidos.
+                Relatório separado em A3 paisagem, com grupos e itens expandidos.
               </span>
               <span className="mt-3 block text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
                 TOQUE PARA ABRIR
@@ -1097,7 +1337,7 @@ export default function AnalisesFinanceirasPage() {
                 Tucxa · Finalizado e Análises
               </h1>
               <p style={{ margin: "3px 0 0" }}>
-                Relatório baseado somente em competências finalizadas.
+                Relatório baseado nas competências finalizadas do período selecionado.
               </p>
             </div>
             <p style={{ margin: 0, textAlign: "right", fontWeight: 700 }}>
@@ -1120,15 +1360,10 @@ export default function AnalisesFinanceirasPage() {
             {payload.live.latestFinalized ? (
               <>
                 <p style={{ margin: "2px 0 5px", fontWeight: 700 }}>
-                  Última competência encerrada:{" "}
-                  {monthLabel(payload.live.latestFinalized.month)}
+                  Última competência encerrada: {monthLabel(payload.live.latestFinalized.month)}
                 </p>
                 <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    tableLayout: "fixed",
-                  }}
+                  style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}
                 >
                   <tbody>
                     <tr>
@@ -1152,7 +1387,13 @@ export default function AnalisesFinanceirasPage() {
                         >
                           <strong>{String(label)}</strong>
                           <br />
-                          {money(value as number | null)}
+                          <span style={{ fontSize: "7px", color: "#64748B" }}>
+                            {monthLabel(payload.live!.latestFinalized!.month)}
+                          </span>
+                          <br />
+                          <span style={signedStyle(value as number | null)}>
+                            {money(value as number | null)}
+                          </span>
                         </td>
                       ))}
                     </tr>
@@ -1181,12 +1422,30 @@ export default function AnalisesFinanceirasPage() {
               <tbody>
                 <tr>
                   {[
-                    ["Saldo inicial", analysis.openingBalance],
-                    ["Receitas", analysis.revenues],
-                    ["Despesas", analysis.expenses],
-                    ["Resultado", analysis.result],
-                    ["Saldo final", analysis.closingBalance],
-                  ].map(([label, value]) => (
+                    ["Saldo inicial", analysis.openingBalance, selectedRange.start],
+                    [
+                      "Receitas",
+                      analysis.revenues,
+                      selectedRange.start && selectedRange.end
+                        ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
+                        : "—",
+                    ],
+                    [
+                      "Despesas",
+                      analysis.expenses,
+                      selectedRange.start && selectedRange.end
+                        ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
+                        : "—",
+                    ],
+                    [
+                      "Resultado",
+                      analysis.result,
+                      selectedRange.start && selectedRange.end
+                        ? `${monthLabel(selectedRange.start)} a ${monthLabel(selectedRange.end)}`
+                        : "—",
+                    ],
+                    ["Saldo final", analysis.closingBalance, selectedRange.end],
+                  ].map(([label, value, dateValue]) => (
                     <td
                       key={String(label)}
                       style={{
@@ -1197,7 +1456,15 @@ export default function AnalisesFinanceirasPage() {
                     >
                       <strong>{String(label)}</strong>
                       <br />
-                      {money(value as number | null)}
+                      <span style={{ fontSize: "7px", color: "#64748B" }}>
+                        {typeof dateValue === "string" && /^\d{4}-\d{2}/.test(dateValue)
+                          ? monthLabel(dateValue)
+                          : String(dateValue || "—")}
+                      </span>
+                      <br />
+                      <span style={signedStyle(value as number | null)}>
+                        {money(value as number | null)}
+                      </span>
                     </td>
                   ))}
                 </tr>
@@ -1230,6 +1497,7 @@ export default function AnalisesFinanceirasPage() {
                           padding: "2px",
                           textAlign: "right",
                           whiteSpace: "nowrap",
+                          ...signedStyle(item.average),
                         }}
                       >
                         {money(item.average)}/mês
@@ -1257,6 +1525,7 @@ export default function AnalisesFinanceirasPage() {
                           padding: "2px",
                           textAlign: "right",
                           whiteSpace: "nowrap",
+                          ...signedStyle(item.average),
                         }}
                       >
                         {money(item.average)}/mês
@@ -1268,24 +1537,68 @@ export default function AnalisesFinanceirasPage() {
             </section>
           </div>
 
+          <section className="print-card" style={{ marginTop: "9px" }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+              Resultado de eventos com receitas e despesas relacionadas
+            </h3>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Evento", "Receitas", "Despesas", "Resultado", "Resultado %"].map(
+                    (label) => (
+                      <th
+                        key={label}
+                        style={{
+                          border: "1px solid #94A3B8",
+                          padding: "3px",
+                          textAlign: label === "Evento" ? "left" : "right",
+                          background: "#E9F2E7",
+                        }}
+                      >
+                        {label}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {eventProfitability.map((item) => (
+                  <tr key={`profit-${item.name}`}>
+                    <td style={{ border: "1px solid #CBD5E1", padding: "3px", fontWeight: 700 }}>
+                      {item.name}
+                    </td>
+                    <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.revenues) }}>
+                      {money(item.revenues)}
+                    </td>
+                    <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.expenses) }}>
+                      {money(item.expenses)}
+                    </td>
+                    <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.result) }}>
+                      {money(item.result)}
+                    </td>
+                    <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.percentage) }}>
+                      {percent(item.percentage)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
           <section
             className="print-card"
-            style={{
-              marginTop: "9px",
-              border: "1px solid #CBD5E1",
-              padding: "7px",
-            }}
+            style={{ marginTop: "9px", border: "1px solid #CBD5E1", padding: "7px" }}
           >
             <h3 style={{ margin: 0, fontSize: "11px", fontWeight: 800 }}>
               O que levou o saldo bancário a estar positivo ou negativo?
             </h3>
-            <p style={{ margin: "4px 0 0" }}>{analysis.explanation}</p>
+            <div style={{ marginTop: "4px" }}>
+              <BalanceExplanation analysis={analysis} monthsCount={selectedMonths.length} />
+            </div>
           </section>
 
           <p style={{ margin: "7px 0 0", fontSize: "8px", color: "#475569" }}>
-            Leitura automática de apoio à Tesouraria/Financeiro e Diretoria. A
-            conferência dos documentos e lançamentos de origem continua sendo a
-            referência oficial.
+            Leitura automática de apoio à Tesouraria/Financeiro e Diretoria. A conferência dos documentos e lançamentos de origem continua sendo a referência oficial.
           </p>
         </section>
       )}
@@ -1304,189 +1617,263 @@ export default function AnalisesFinanceirasPage() {
             Tucxa · Detalhado — competências finalizadas
           </h1>
           <p style={{ margin: "3px 0 8px" }}>
-            Visão expandida de saldos, receitas, despesas, grupos e itens.
+            Visão resumida e expandida de saldos, receitas, despesas, grupos e itens no período selecionado.
           </p>
 
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              tableLayout: "fixed",
-            }}
-          >
-            <thead>
-              <tr>
-                <th
-                  style={{
-                    width: "20%",
-                    border: "1px solid #64748B",
-                    padding: "3px",
-                    textAlign: "left",
-                    background: "#E9F2E7",
-                  }}
-                >
-                  Tipo / grupo / item
-                </th>
-                {payload.live.matrix.months.map((month) => (
-                  <th
-                    key={`print-head-${month.month}`}
-                    style={{
-                      border: "1px solid #64748B",
-                      padding: "3px",
-                      textAlign: "right",
-                      background: "#E9F2E7",
-                    }}
-                  >
-                    {monthLabel(month.month)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td
-                  style={{
-                    border: "1px solid #94A3B8",
-                    padding: "3px",
-                    fontWeight: 800,
-                  }}
-                >
-                  Saldo inicial
-                </td>
-                {payload.live.matrix.months.map((month) => (
-                  <td
-                    key={`print-opening-${month.month}`}
-                    style={{
-                      border: "1px solid #94A3B8",
-                      padding: "3px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {money(month.openingBalance)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td
-                  style={{
-                    border: "1px solid #94A3B8",
-                    padding: "3px",
-                    fontWeight: 800,
-                  }}
-                >
-                  Saldo final
-                </td>
-                {payload.live.matrix.months.map((month) => (
-                  <td
-                    key={`print-closing-${month.month}`}
-                    style={{
-                      border: "1px solid #94A3B8",
-                      padding: "3px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {money(month.closingBalance)}
-                  </td>
-                ))}
-              </tr>
+          {filteredMatrixMonths.length === 0 ? (
+            <p style={{ margin: "10px 0", fontWeight: 700 }}>
+              O período selecionado não contém competências finalizadas para o relatório detalhado.
+            </p>
+          ) : (
+            <>
+              <section className="print-card">
+                <h2 style={{ margin: "0 0 5px", fontSize: "12px", fontWeight: 800 }}>
+                  Resumo do período
+                </h2>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "15%", border: "1px solid #64748B", padding: "3px", textAlign: "left", background: "#123D2C", color: "white" }}>
+                        Tipo
+                      </th>
+                      <th style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#123D2C", color: "white" }}>
+                        Média
+                      </th>
+                      {filteredMatrixMonths.map((month) => (
+                        <th
+                          key={`summary-head-${month.month}`}
+                          style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#123D2C", color: "white" }}
+                        >
+                          {monthLabel(month.month)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      {
+                        label: "Saldo bancário",
+                        values: filteredMatrixMonths.map((month) => month.bankBalance ?? 0),
+                      },
+                      {
+                        label: "Receitas",
+                        values: filteredMatrixMonths.map((month) =>
+                          matrixTypeValue(payload.live!.matrix.groups, "receita", month.month),
+                        ),
+                      },
+                      {
+                        label: "Despesas",
+                        values: filteredMatrixMonths.map((month) =>
+                          matrixTypeValue(payload.live!.matrix.groups, "despesa", month.month),
+                        ),
+                      },
+                    ].map((row) => (
+                      <tr key={`summary-row-${row.label}`}>
+                        <td style={{ border: "1px solid #94A3B8", padding: "4px", fontWeight: 800, background: "#E9F2E7" }}>
+                          {row.label}
+                        </td>
+                        <td style={{ border: "1px solid #94A3B8", padding: "4px", textAlign: "right", background: "#F7FAF2", ...signedStyle(average(row.values)) }}>
+                          {money(average(row.values))}
+                        </td>
+                        {row.values.map((value, index) => (
+                          <td
+                            key={`${row.label}-${filteredMatrixMonths[index]?.month}`}
+                            style={{ border: "1px solid #94A3B8", padding: "4px", textAlign: "right", ...signedStyle(value) }}
+                          >
+                            {money(value)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
 
-              {(["receita", "despesa"] as const).flatMap((type) => {
-                const groups = payload.live!.matrix.groups.filter(
-                  (group) => group.type === type,
-                );
-                const label = type === "receita" ? "Receitas" : "Despesas";
+              <FinancialLineChart
+                labels={detailSummaryChart.labels}
+                series={[
+                  { label: "Saldo bancário", values: detailSummaryChart.balance },
+                  { label: "Receitas", values: detailSummaryChart.revenues },
+                  { label: "Despesas", values: detailSummaryChart.expenses },
+                ]}
+                title="Evolução de saldo, receitas e despesas"
+                description="Gráfico referente às mesmas competências finalizadas do filtro selecionado."
+                compact
+                className="print-card mt-3"
+              />
 
-                return [
-                  <tr key={`print-section-${type}`}>
-                    <td
-                      style={{
-                        border: "1px solid #64748B",
-                        padding: "3px",
-                        fontWeight: 900,
-                        background: "#DDEAD8",
-                      }}
-                    >
-                      {label}
-                    </td>
-                    {payload.live!.matrix.months.map((month) => {
-                      const value = groups.reduce(
-                        (sum, group) =>
-                          sum + (Number(group.values[month.month]) || 0),
-                        0,
-                      );
-
-                      return (
-                        <td
-                          key={`print-section-${type}-${month.month}`}
+              <section style={{ marginTop: "10px" }}>
+                <h2 style={{ margin: "0 0 5px", fontSize: "12px", fontWeight: 800 }}>
+                  Informações expandidas
+                </h2>
+                <table
+                  style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}
+                >
+                  <thead>
+                    <tr>
+                      <th
+                        style={{
+                          width: "18%",
+                          border: "1px solid #64748B",
+                          padding: "3px",
+                          textAlign: "left",
+                          background: "#E9F2E7",
+                        }}
+                      >
+                        Tipo / grupo / item
+                      </th>
+                      <th
+                        style={{
+                          border: "1px solid #64748B",
+                          padding: "3px",
+                          textAlign: "right",
+                          background: "#E9F2E7",
+                        }}
+                      >
+                        Média
+                      </th>
+                      {filteredMatrixMonths.map((month) => (
+                        <th
+                          key={`print-head-${month.month}`}
                           style={{
                             border: "1px solid #64748B",
                             padding: "3px",
                             textAlign: "right",
-                            fontWeight: 900,
-                            background: "#DDEAD8",
+                            background: "#E9F2E7",
                           }}
                         >
-                          {money(value)}
-                        </td>
-                      );
-                    })}
-                  </tr>,
-                  ...groups.flatMap((group) => [
-                    <tr key={`print-group-${type}-${group.group}`}>
-                      <td
-                        style={{
-                          border: "1px solid #94A3B8",
-                          padding: "3px 3px 3px 9px",
-                          fontWeight: 800,
-                          background: "#F3F8F0",
-                        }}
-                      >
-                        {group.group}
-                      </td>
-                      {payload.live!.matrix.months.map((month) => (
-                        <td
-                          key={`print-group-${type}-${group.group}-${month.month}`}
-                          style={{
-                            border: "1px solid #94A3B8",
-                            padding: "3px",
-                            textAlign: "right",
-                            fontWeight: 700,
-                            background: "#F3F8F0",
-                          }}
-                        >
-                          {money(group.values[month.month] ?? 0)}
-                        </td>
+                          {monthLabel(month.month)}
+                        </th>
                       ))}
-                    </tr>,
-                    ...group.items.map((item) => (
-                      <tr key={`print-item-${type}-${group.group}-${item.name}`}>
-                        <td
-                          style={{
-                            border: "1px solid #CBD5E1",
-                            padding: "2px 3px 2px 16px",
-                          }}
-                        >
-                          {item.name}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      {
+                        label: "Saldo inicial",
+                        key: "opening" as const,
+                        values: filteredMatrixMonths.map((month) => month.openingBalance ?? 0),
+                      },
+                      {
+                        label: "Saldo final",
+                        key: "closing" as const,
+                        values: filteredMatrixMonths.map((month) => month.closingBalance ?? 0),
+                      },
+                    ].map((row) => (
+                      <tr key={`print-${row.key}`}>
+                        <td style={{ border: "1px solid #94A3B8", padding: "3px", fontWeight: 800 }}>
+                          {row.label}
                         </td>
-                        {payload.live!.matrix.months.map((month) => (
+                        <td style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", ...signedStyle(average(row.values)) }}>
+                          {money(average(row.values))}
+                        </td>
+                        {row.values.map((value, index) => (
                           <td
-                            key={`print-item-${type}-${group.group}-${item.name}-${month.month}`}
-                            style={{
-                              border: "1px solid #CBD5E1",
-                              padding: "2px 3px",
-                              textAlign: "right",
-                            }}
+                            key={`print-${row.key}-${filteredMatrixMonths[index]?.month}`}
+                            style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", ...signedStyle(value) }}
                           >
-                            {money(item.values[month.month] ?? 0)}
+                            {money(value)}
                           </td>
                         ))}
                       </tr>
-                    )),
-                  ]),
-                ];
-              })}
-            </tbody>
-          </table>
+                    ))}
+
+                    {(["receita", "despesa"] as const).flatMap((type) => {
+                      const groups = payload.live!.matrix.groups.filter(
+                        (group) => group.type === type,
+                      );
+                      const label = type === "receita" ? "Receitas" : "Despesas";
+                      const sectionValues = filteredMatrixMonths.map((month) =>
+                        matrixTypeValue(groups, type, month.month),
+                      );
+
+                      return [
+                        <tr key={`print-section-${type}`}>
+                          <td style={{ border: "1px solid #64748B", padding: "3px", fontWeight: 900, background: "#DDEAD8" }}>
+                            {label}
+                          </td>
+                          <td style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#DDEAD8", ...signedStyle(average(sectionValues)) }}>
+                            {money(average(sectionValues))}
+                          </td>
+                          {sectionValues.map((value, index) => (
+                            <td
+                              key={`print-section-${type}-${filteredMatrixMonths[index]?.month}`}
+                              style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#DDEAD8", ...signedStyle(value) }}
+                            >
+                              {money(value)}
+                            </td>
+                          ))}
+                        </tr>,
+                        ...groups.flatMap((group) => {
+                          const groupValues = filteredMatrixMonths.map(
+                            (month) => Number(group.values[month.month]) || 0,
+                          );
+                          return [
+                            <tr key={`print-group-${type}-${group.group}`}>
+                              <td style={{ border: "1px solid #94A3B8", padding: "3px 3px 3px 9px", fontWeight: 800, background: "#F3F8F0" }}>
+                                {group.group}
+                              </td>
+                              <td style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", background: "#F3F8F0", ...signedStyle(average(groupValues)) }}>
+                                {money(average(groupValues))}
+                              </td>
+                              {groupValues.map((value, index) => (
+                                <td
+                                  key={`print-group-${type}-${group.group}-${filteredMatrixMonths[index]?.month}`}
+                                  style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", background: "#F3F8F0", ...signedStyle(value) }}
+                                >
+                                  {money(value)}
+                                </td>
+                              ))}
+                            </tr>,
+                            ...group.items.map((item) => {
+                              const itemValues = filteredMatrixMonths.map(
+                                (month) => Number(item.values[month.month]) || 0,
+                              );
+                              return (
+                                <tr key={`print-item-${type}-${group.group}-${item.name}`}>
+                                  <td style={{ border: "1px solid #CBD5E1", padding: "2px 3px 2px 16px" }}>
+                                    {item.name}
+                                  </td>
+                                  <td style={{ border: "1px solid #CBD5E1", padding: "2px 3px", textAlign: "right", ...signedStyle(average(itemValues)) }}>
+                                    {money(average(itemValues))}
+                                  </td>
+                                  {itemValues.map((value, index) => (
+                                    <td
+                                      key={`print-item-${type}-${group.group}-${item.name}-${filteredMatrixMonths[index]?.month}`}
+                                      style={{ border: "1px solid #CBD5E1", padding: "2px 3px", textAlign: "right", ...signedStyle(value) }}
+                                    >
+                                      {money(value)}
+                                    </td>
+                                  ))}
+                                </tr>
+                              );
+                            }),
+                          ];
+                        }),
+                      ];
+                    })}
+                  </tbody>
+                </table>
+              </section>
+
+              <FinancialLineChart
+                labels={detailSummaryChart.labels}
+                series={groupChartSeries.receitas}
+                title="Receitas expandidas por grupo"
+                description="Evolução mensal dos grupos de receitas exibidos na tabela expandida."
+                compact
+                className="print-card mt-3"
+              />
+              <FinancialLineChart
+                labels={detailSummaryChart.labels}
+                series={groupChartSeries.despesas}
+                title="Despesas expandidas por grupo"
+                description="Evolução mensal dos grupos de despesas exibidos na tabela expandida."
+                compact
+                className="print-card mt-3"
+              />
+            </>
+          )}
         </section>
       )}
     </main>

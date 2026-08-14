@@ -169,7 +169,7 @@ async function loadPayload(organizationId: string) {
   // impedir a Coordenação de Cursos de abrir a página e administrar o curso.
   const eventsResult = await supabaseAdmin
     .from("agv_events")
-    .select("id,title,event_type,status,active,starts_at,ends_at,location,group_slug,responsible_person_id,metadata")
+    .select("id,title,event_type,status,active,starts_at,ends_at,all_day,recurrence_rule,location,group_slug,responsible_person_id,metadata")
     .eq("organization_id", organizationId)
     .neq("active", false)
     .order("starts_at", { ascending: true, nullsFirst: false });

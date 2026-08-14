@@ -615,9 +615,18 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
               <>
                 <p className="mt-4 text-sm leading-6 text-slate-600">Acesso restrito à Tesouraria/Financeiro usando a mesma sessão do Filho da Corrente.</p>
                 <div className="mt-5 grid gap-3">
-                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes" className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">Acompanhamento de Contribuições</Link>
-                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos" className="rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Registro de Receitas e Despesas</Link>
-                  <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises" className="rounded-2xl bg-[#F7FAF2] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Análises</Link>
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/contribuicoes" className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center font-black text-white">
+                    <span>Acompanhamento de Contribuições</span>
+                    <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#DDEAD8]">TOQUE PARA ABRIR</span>
+                  </Link>
+                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos" className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                    <span>Registro de Receitas e Despesas</span>
+                    <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+                  </Link>
+                  <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises" className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#F7FAF2] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+                    <span>Análises</span>
+                    <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+                  </Link>
                 </div>
               </>
             ) : (

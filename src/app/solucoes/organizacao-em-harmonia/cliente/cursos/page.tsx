@@ -9,6 +9,15 @@ import {
   type ReactNode,
 } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
+import {
+  AnnualCalendarView,
+  type AnnualCalendarEvent,
+  type AnnualCalendarMode,
+} from "@/components/organizacao-em-harmonia/annual-calendar-modal";
+import {
+  isMonthOccurrenceAllowed,
+  isRecurringWeekdayOccurrenceAllowed,
+} from "@/lib/organizacao-em-harmonia/agenda-event-occurrences";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const API = "/api/organizacao-em-harmonia/cliente/cursos";
@@ -77,10 +86,16 @@ type AgendaEvent = {
   id: string;
   title: string;
   event_type?: string | null;
+  status?: string | null;
+  active?: boolean | null;
   starts_at?: string | null;
   ends_at?: string | null;
+  all_day?: boolean | null;
+  recurrence_rule?: string | null;
   location?: string | null;
+  group_slug?: string | null;
   responsible_person_id?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type Conflict = {
@@ -138,6 +153,243 @@ function normalize(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function metadataText(event: AgendaEvent, keys: string[]) {
+  const metadata = event.metadata ?? {};
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function eventClassification(event: AgendaEvent) {
+  const explicit = metadataText(event, [
+    "eventClassification",
+    "event_classification",
+    "classification",
+    "classificacao",
+  ]);
+  const source = normalize(metadataText(event, ["source"]));
+  const collection = normalize(
+    metadataText(event, ["eventCollection", "event_collection"]),
+  );
+  const searchable = normalize(
+    `${event.title} ${event.event_type ?? ""} ${event.group_slug ?? ""} ${source} ${collection}`,
+  );
+
+  if (normalize(explicit).includes("sementinha") || searchable.includes("sementinha")) {
+    return "sementinha";
+  }
+  if (
+    collection === "eventos-tucxa" ||
+    source.includes("calendario-eventos-tucxa") ||
+    normalize(explicit).includes("social")
+  ) {
+    return "social";
+  }
+  return explicit || "umbanda";
+}
+
+function calendarBucket(event: AgendaEvent): Exclude<AnnualCalendarMode, "mine"> {
+  const classification = normalize(eventClassification(event));
+  const collection = normalize(
+    metadataText(event, ["eventCollection", "event_collection"]),
+  );
+  if (classification.includes("sementinha")) return "sementinha";
+  if (classification.includes("social") || collection === "eventos-tucxa") {
+    return "events";
+  }
+  return "tucxa";
+}
+
+function saoPauloParts(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(map.year),
+    month: Number(map.month),
+    day: Number(map.day),
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+  };
+}
+
+function isoDate(year: number, monthIndex: number, day: number) {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function weekdayFromCode(value: string) {
+  const days: Record<string, number> = {
+    SU: 0,
+    MO: 1,
+    TU: 2,
+    WE: 3,
+    TH: 4,
+    FR: 5,
+    SA: 6,
+  };
+  return days[value.toUpperCase()] ?? null;
+}
+
+function recurrenceWeekday(rule: string, fallback: number) {
+  const match = rule.toUpperCase().match(/BYDAY=([^;]+)/);
+  return weekdayFromCode(match?.[1]?.split(",")[0] ?? "") ?? fallback;
+}
+
+function recurrenceSetPositions(rule: string) {
+  const match = rule.toUpperCase().match(/BYSETPOS=([^;]+)/);
+  return (match?.[1] ?? "")
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item !== 0);
+}
+
+function nthWeekdayOfMonth(
+  year: number,
+  monthIndex: number,
+  weekday: number,
+  position: number,
+) {
+  const matches: number[] = [];
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  for (let day = 1; day <= lastDay; day += 1) {
+    if (new Date(year, monthIndex, day).getDay() === weekday) matches.push(day);
+  }
+  const selected = position < 0 ? matches[matches.length + position] : matches[position - 1];
+  return selected ? isoDate(year, monthIndex, selected) : "";
+}
+
+function recurrenceUntil(rule: string) {
+  const match = rule.toUpperCase().match(/UNTIL=(\d{4})(\d{2})(\d{2})/);
+  if (!match) return "";
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function occurrenceDatesForYear(event: AgendaEvent, year: number) {
+  const start = saoPauloParts(event.starts_at);
+  if (!start) return [];
+  const startKey = isoDate(start.year, start.month - 1, start.day);
+  const rule = (event.recurrence_rule ?? "").trim();
+  const recurring = Boolean(rule) || event.metadata?.recurring === true;
+  if (!recurring) return start.year === year ? [startKey] : [];
+
+  const ruleUpper = rule.toUpperCase();
+  const until = recurrenceUntil(ruleUpper);
+  const lastKey = until || `${year}-12-31`;
+  const firstAllowed = startKey > `${year}-01-01` ? startKey : `${year}-01-01`;
+  if (firstAllowed > `${year}-12-31` || lastKey < `${year}-01-01`) return [];
+
+  const weekday = recurrenceWeekday(
+    ruleUpper,
+    new Date(start.year, start.month - 1, start.day).getDay(),
+  );
+  const dates: string[] = [];
+
+  if (ruleUpper.includes("FREQ=MONTHLY")) {
+    const positions = recurrenceSetPositions(ruleUpper);
+    for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+      const candidates = positions.length
+        ? positions.map((position) =>
+            nthWeekdayOfMonth(year, monthIndex, weekday, position),
+          )
+        : [nthWeekdayOfMonth(year, monthIndex, weekday, 1)];
+      for (const current of candidates) {
+        if (
+          current &&
+          current >= firstAllowed &&
+          current <= lastKey &&
+          isMonthOccurrenceAllowed(event.metadata, current)
+        ) {
+          dates.push(current);
+        }
+      }
+    }
+    return dates;
+  }
+
+  const intervalDays = ruleUpper.includes("INTERVAL=2") ? 14 : 7;
+  let cursor = new Date(start.year, start.month - 1, start.day, 12);
+  while (cursor.getFullYear() < year) {
+    cursor = new Date(
+      cursor.getFullYear(),
+      cursor.getMonth(),
+      cursor.getDate() + intervalDays,
+      12,
+    );
+  }
+  while (cursor.getFullYear() === year) {
+    const current = isoDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+    if (
+      current >= firstAllowed &&
+      current <= lastKey &&
+      isRecurringWeekdayOccurrenceAllowed(event.metadata, current)
+    ) {
+      dates.push(current);
+    }
+    cursor = new Date(
+      cursor.getFullYear(),
+      cursor.getMonth(),
+      cursor.getDate() + intervalDays,
+      12,
+    );
+  }
+  return dates;
+}
+
+function timeText(value?: string | null) {
+  const parts = saoPauloParts(value);
+  if (!parts) return "";
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
+function calendarEventForOccurrence(
+  event: AgendaEvent,
+  occurrenceDate: string,
+): AnnualCalendarEvent {
+  const startTime = event.all_day ? "12:00" : timeText(event.starts_at) || "12:00";
+  const endTime = event.all_day ? "12:00" : timeText(event.ends_at) || startTime;
+  const classification = eventClassification(event);
+  const collection = metadataText(event, ["eventCollection", "event_collection"]);
+  const subtype = metadataText(event, [
+    "sementinhaEventType",
+    "sementinha_event_type",
+    "eventSubtype",
+    "event_subtype",
+  ]);
+  const colorKey = metadataText(event, ["calendarColorKey", "calendar_color_key"]);
+
+  return {
+    id: `${event.id}:${occurrenceDate}`,
+    title: event.title,
+    status: event.status || "aprovado",
+    eventType: event.event_type || "evento",
+    eventTypeLabel: event.event_type || "Evento",
+    classification,
+    eventCollection: collection || undefined,
+    calendarColorKey: colorKey || undefined,
+    eventSubtype: subtype || undefined,
+    startsAt: `${occurrenceDate}T${startTime}:00-03:00`,
+    endsAt: `${occurrenceDate}T${endTime}:00-03:00`,
+    timeLabel: event.all_day
+      ? "Dia inteiro"
+      : endTime && endTime !== startTime
+        ? `${startTime} às ${endTime}`
+        : startTime,
+    associatedToCurrentPerson: false,
+  };
 }
 
 function studentName(student: Student) {
@@ -266,6 +518,13 @@ export default function CursosEmHarmoniaGestaoPage() {
   const [teacherIds, setTeacherIds] = useState<string[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [pendingLesson, setPendingLesson] = useState<Record<string, unknown> | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMode, setCalendarMode] = useState<Exclude<AnnualCalendarMode, "mine">>("tucxa");
+  const [calendarYear, setCalendarYear] = useState(2026);
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState<{
+    isoDate: string;
+    events: AnnualCalendarEvent[];
+  } | null>(null);
 
   const [studentInviteOpen, setStudentInviteOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
@@ -398,6 +657,60 @@ export default function CursosEmHarmoniaGestaoPage() {
       .slice(0, 12)
       .map((item) => item.event);
   }, [agendaEvents, lessonStart]);
+
+  const availableCalendarYears = useMemo(() => {
+    const values = new Set<number>();
+    for (const event of agendaEvents) {
+      const parts = saoPauloParts(event.starts_at);
+      if (parts?.year) values.add(parts.year);
+    }
+    for (const lesson of payload.lessons ?? []) {
+      const parts = saoPauloParts(lesson.starts_at);
+      if (parts?.year) values.add(parts.year);
+    }
+    if (values.size === 0) values.add(2026);
+    return Array.from(values).sort((left, right) => right - left);
+  }, [agendaEvents, payload.lessons]);
+
+  const annualCalendarEvents = useMemo(() => {
+    return agendaEvents
+      .filter((event) => event.active !== false)
+      .flatMap((event) =>
+        occurrenceDatesForYear(event, calendarYear).map((occurrenceDate) => ({
+          bucket: calendarBucket(event),
+          event: calendarEventForOccurrence(event, occurrenceDate),
+        })),
+      );
+  }, [agendaEvents, calendarYear]);
+
+  const visibleCalendarEvents = useMemo(
+    () =>
+      annualCalendarEvents
+        .filter((item) => item.bucket === calendarMode)
+        .map((item) => item.event),
+    [annualCalendarEvents, calendarMode],
+  );
+
+  function openCalendarForLesson() {
+    const selectedYear = Number(lessonStart.slice(0, 4));
+    setCalendarYear(
+      Number.isInteger(selectedYear) && selectedYear > 1900
+        ? selectedYear
+        : availableCalendarYears[0] || 2026,
+    );
+    setCalendarMode("tucxa");
+    setCalendarSelectedDay(null);
+    setCalendarOpen(true);
+  }
+
+  function applyCalendarDate(isoDateValue: string) {
+    const startTime = lessonStart.slice(11, 16) || "19:30";
+    const endTime = lessonEnd.slice(11, 16) || "21:20";
+    setLessonStart(`${isoDateValue}T${startTime}`);
+    setLessonEnd(`${isoDateValue}T${endTime}`);
+    setCalendarOpen(false);
+    setCalendarSelectedDay(null);
+  }
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch(API, {
@@ -1030,6 +1343,16 @@ export default function CursosEmHarmoniaGestaoPage() {
                     className="rounded-xl border border-slate-200 px-3 py-3 font-semibold"
                   />
                 </label>
+                <button
+                  type="button"
+                  onClick={openCalendarForLesson}
+                  className="sm:col-span-2 flex min-h-14 w-full flex-col items-center justify-center rounded-xl border border-[#2F6B43]/20 bg-[#E9F2E7] px-4 py-3 text-center text-[#123D2C] transition hover:bg-[#DDEAD8]"
+                >
+                  <span className="font-black">Abrir calendário completo da Agenda Viva</span>
+                  <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+                    TUCXA · SEMENTINHA · EVENTOS
+                  </span>
+                </button>
                 <label className="grid gap-1 text-sm font-black text-[#00334E] sm:col-span-2">
                   Local
                   <input
@@ -1160,6 +1483,143 @@ export default function CursosEmHarmoniaGestaoPage() {
                 </button>
               </article>
             ))}
+          </div>
+        </Popup>
+      )}
+
+      {openPopup === "aulas" && calendarOpen && (
+        <Popup
+          title="Calendário completo da Agenda Viva"
+          subtitle="Consulte a programação anual do Tucxa, Sementinha e Eventos antes de definir a data da aula."
+          onClose={() => {
+            setCalendarOpen(false);
+            setCalendarSelectedDay(null);
+          }}
+        >
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ["tucxa", "Tucxa"],
+                  ["sementinha", "Sementinha"],
+                  ["events", "Eventos"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setCalendarMode(value);
+                      setCalendarSelectedDay(null);
+                    }}
+                    className={`rounded-xl px-3 py-2 text-xs font-black sm:text-sm ${
+                      calendarMode === value
+                        ? "bg-[#123D2C] text-white"
+                        : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarYear((current) => current - 1);
+                    setCalendarSelectedDay(null);
+                  }}
+                  className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700"
+                  aria-label="Ano anterior"
+                >
+                  ←
+                </button>
+                <select
+                  value={calendarYear}
+                  onChange={(event) => {
+                    setCalendarYear(Number(event.target.value));
+                    setCalendarSelectedDay(null);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-[#123D2C]"
+                >
+                  {Array.from(
+                    new Set([
+                      calendarYear - 1,
+                      calendarYear,
+                      calendarYear + 1,
+                      ...availableCalendarYears,
+                    ]),
+                  )
+                    .sort((left, right) => right - left)
+                    .map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarYear((current) => current + 1);
+                    setCalendarSelectedDay(null);
+                  }}
+                  className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700"
+                  aria-label="Próximo ano"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+
+            <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
+              {visibleCalendarEvents.length} ocorrência(s) programada(s) em {calendarYear}. Toque em uma data destacada para ver os compromissos e, se desejar, usar a data na aula.
+            </p>
+
+            <AnnualCalendarView
+              mode={calendarMode}
+              events={visibleCalendarEvents}
+              year={calendarYear}
+              onSelectDay={(isoDateValue, events) =>
+                setCalendarSelectedDay({ isoDate: isoDateValue, events })
+              }
+            />
+
+            {calendarSelectedDay && (
+              <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">
+                      Data selecionada
+                    </p>
+                    <p className="mt-1 text-lg font-black text-[#00334E]">
+                      {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(
+                        new Date(`${calendarSelectedDay.isoDate}T12:00:00Z`),
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => applyCalendarDate(calendarSelectedDay.isoDate)}
+                    className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white"
+                  >
+                    Usar esta data na aula
+                  </button>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {calendarSelectedDay.events.map((event) => (
+                    <article
+                      key={event.id}
+                      className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"
+                    >
+                      <p className="font-black text-[#00334E]">{event.title}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {event.timeLabel || "Horário não informado"}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         </Popup>
       )}
