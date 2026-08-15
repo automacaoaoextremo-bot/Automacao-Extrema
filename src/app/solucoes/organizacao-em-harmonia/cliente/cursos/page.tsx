@@ -12,7 +12,6 @@ import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import {
   AnnualCalendarView,
   type AnnualCalendarEvent,
-  type AnnualCalendarMode,
 } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
 import {
   isMonthOccurrenceAllowed,
@@ -192,7 +191,7 @@ function eventClassification(event: AgendaEvent) {
   return explicit || "umbanda";
 }
 
-function calendarBucket(event: AgendaEvent): Exclude<AnnualCalendarMode, "mine"> {
+function calendarBucket(event: AgendaEvent): "tucxa" | "events" | "sementinha" {
   const classification = normalize(eventClassification(event));
   const collection = normalize(
     metadataText(event, ["eventCollection", "event_collection"]),
@@ -388,6 +387,7 @@ function calendarEventForOccurrence(
       : endTime && endTime !== startTime
         ? `${startTime} às ${endTime}`
         : startTime,
+    location: event.location || undefined,
     associatedToCurrentPerson: false,
   };
 }
@@ -479,7 +479,7 @@ function CourseSelector({
       <select
         value={selectedCourseId}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold"
+        className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#00334E]"
       >
         <option value="">Selecione um curso</option>
         {courses.map((course) => (
@@ -494,8 +494,6 @@ function CourseSelector({
 
 
 function CourseAgendaCalendar({
-  mode,
-  onModeChange,
   year,
   onYearChange,
   availableYears,
@@ -504,10 +502,10 @@ function CourseAgendaCalendar({
   events,
   selectedDay,
   onSelectDay,
+  onCloseSelectedDay,
   onApplyDate,
+  onlyEventMonths = false,
 }: {
-  mode: Exclude<AnnualCalendarMode, "mine">;
-  onModeChange: (value: Exclude<AnnualCalendarMode, "mine">) => void;
   year: number;
   onYearChange: (value: number) => void;
   availableYears: number[];
@@ -516,43 +514,49 @@ function CourseAgendaCalendar({
   events: AnnualCalendarEvent[];
   selectedDay: { isoDate: string; events: AnnualCalendarEvent[] } | null;
   onSelectDay: (isoDate: string, events: AnnualCalendarEvent[]) => void;
+  onCloseSelectedDay: () => void;
   onApplyDate?: (isoDate: string) => void;
+  onlyEventMonths?: boolean;
 }) {
+  const fromYear = Number(fromDate.slice(0, 4));
+  const fromMonth = Number(fromDate.slice(5, 7)) - 1;
+  const eventMonths = Array.from(
+    new Set(
+      events
+        .map((event) => event.startsAt?.slice(0, 7) || "")
+        .filter((value) => value.startsWith(`${year}-`))
+        .map((value) => Number(value.slice(5, 7)) - 1)
+        .filter((value) => value >= 0 && value <= 11),
+    ),
+  ).sort((left, right) => left - right);
+  const visibleMonths = onlyEventMonths
+    ? eventMonths
+    : Number.isInteger(fromYear) && year === fromYear && fromMonth >= 0
+      ? Array.from({ length: 12 - fromMonth }, (_, index) => fromMonth + index)
+      : Number.isInteger(fromYear) && year < fromYear
+        ? []
+        : Array.from({ length: 12 }, (_, month) => month);
+
   return (
     <div className="grid gap-3">
-      <div className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 lg:grid-cols-[auto_1fr_auto] lg:items-end">
-        <label className="grid gap-1 text-xs font-black text-[#00334E]">
-          Consultar a partir de
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(event) => onFromDateChange(event.target.value)}
-            className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold"
-          />
-        </label>
+      <div className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 lg:grid-cols-[1fr_auto] lg:items-end">
+        {!onlyEventMonths ? (
+          <label className="grid gap-1 text-xs font-black text-[#00334E]">
+            Consultar a partir de
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(event) => onFromDateChange(event.target.value)}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold"
+            />
+          </label>
+        ) : (
+          <div className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-bold leading-5 text-[#123D2C]">
+            Curso concluído: o calendário exibe somente os meses que possuem aulas deste curso.
+          </div>
+        )}
 
-        <div className="flex flex-wrap gap-2 lg:justify-center">
-          {([
-            ["tucxa", "Tucxa"],
-            ["sementinha", "Sementinha"],
-            ["events", "Eventos"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onModeChange(value)}
-              className={`rounded-xl px-3 py-2 text-xs font-black sm:text-sm ${
-                mode === value
-                  ? "bg-[#123D2C] text-white"
-                  : "bg-[#F7FAF2] text-[#123D2C] ring-1 ring-[#123D2C]/10"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 lg:justify-end">
           <button type="button" onClick={() => onYearChange(year - 1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700" aria-label="Ano anterior">←</button>
           <select value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-[#123D2C]">
             {Array.from(new Set([year - 1, year, year + 1, ...availableYears]))
@@ -564,35 +568,56 @@ function CourseAgendaCalendar({
       </div>
 
       <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
-        {events.length} ocorrência(s) programada(s) a partir de {fromDate ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${fromDate}T12:00:00Z`)) : "hoje"}. Toque em uma data destacada para consultar os compromissos.
+        {onlyEventMonths
+          ? `${events.length} aula(s) encontrada(s). Toque em uma data destacada para abrir os detalhes da aula.`
+          : `${events.length} ocorrência(s) programada(s) a partir de ${fromDate ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${fromDate}T12:00:00Z`)) : "hoje"}. Tucxa, Sementinha e Eventos estão reunidos no mesmo calendário. Toque em qualquer data exibida para consultar ou incluir uma aula.`}
       </p>
 
-      <AnnualCalendarView mode={mode} events={events} year={year} onSelectDay={onSelectDay} />
+      {visibleMonths.length > 0 ? (
+        <AnnualCalendarView
+          mode="all"
+          events={events}
+          year={year}
+          onSelectDay={onSelectDay}
+          visibleMonths={visibleMonths}
+          minDate={onlyEventMonths ? undefined : fromDate || undefined}
+          allowEmptyDaySelection={!onlyEventMonths}
+        />
+      ) : (
+        <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">
+          Não há meses disponíveis neste ano para o período selecionado.
+        </p>
+      )}
 
       {selectedDay && (
-        <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Data selecionada</p>
-              <p className="mt-1 text-lg font-black text-[#00334E]">
-                {new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedDay.isoDate}T12:00:00Z`))}
-              </p>
+        <Popup
+          nested
+          title="Data selecionada"
+          subtitle={new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${selectedDay.isoDate}T12:00:00Z`))}
+          onClose={onCloseSelectedDay}
+        >
+          {selectedDay.events.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {selectedDay.events.map((event) => (
+                <article key={event.id} className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="font-black text-[#00334E]">{event.title}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{event.timeLabel || "Horário não informado"}</p>
+                  {event.location && <p className="mt-1 text-xs font-semibold text-slate-500">Local: {event.location}</p>}
+                  {event.description && <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">{event.description}</p>}
+                </article>
+              ))}
             </div>
-            {onApplyDate && (
-              <button type="button" onClick={() => onApplyDate(selectedDay.isoDate)} className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white">
-                Usar esta data na aula
-              </button>
-            )}
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {selectedDay.events.map((event) => (
-              <article key={event.id} className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#00334E]">{event.title}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">{event.timeLabel || "Horário não informado"}</p>
-              </article>
-            ))}
-          </div>
-        </section>
+          ) : (
+            <p className="rounded-xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-600 ring-1 ring-[#123D2C]/10">
+              Nenhum evento está programado para esta data.
+            </p>
+          )}
+          {onApplyDate && !onlyEventMonths && (
+            <button type="button" onClick={() => onApplyDate(selectedDay.isoDate)} className="mt-4 w-full rounded-xl bg-[#2F6B43] px-4 py-3 text-sm font-black text-white">
+              {selectedDay.events.length > 0 ? "Usar esta data na aula" : "Incluir uma aula nesta data"}
+            </button>
+          )}
+        </Popup>
       )}
     </div>
   );
@@ -628,13 +653,14 @@ export default function CursosEmHarmoniaGestaoPage() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [pendingLesson, setPendingLesson] = useState<Record<string, unknown> | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [calendarMode, setCalendarMode] = useState<Exclude<AnnualCalendarMode, "mine">>("tucxa");
+  const [calendarScope, setCalendarScope] = useState<"agenda" | "course">("agenda");
   const [calendarYear, setCalendarYear] = useState(2026);
   const [calendarFromDate, setCalendarFromDate] = useState("");
   const [calendarSelectedDay, setCalendarSelectedDay] = useState<{
     isoDate: string;
     events: AnnualCalendarEvent[];
   } | null>(null);
+  const [attendanceLessonId, setAttendanceLessonId] = useState("");
 
   const [studentInviteOpen, setStudentInviteOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
@@ -731,6 +757,39 @@ export default function CursosEmHarmoniaGestaoPage() {
     [courses, selectedCourseId],
   );
 
+  const selectedCourseCompleted = useMemo(() => {
+    const status = normalize(selectedCourse?.status || "");
+    return ["concluido", "finalizado", "encerrado"].some((token) => status.includes(token));
+  }, [selectedCourse?.status]);
+
+  const courseLessonCalendarEvents = useMemo<AnnualCalendarEvent[]>(() =>
+    lessons.map((lesson) => {
+      const linkedTeachers = teachers
+        .filter((item) => item.lesson_id === lesson.id)
+        .map((item) => item.teacher?.full_name || "Professor")
+        .join(", ");
+      const starts = saoPauloParts(lesson.starts_at);
+      const ends = saoPauloParts(lesson.ends_at);
+      const startTime = starts ? `${String(starts.hour).padStart(2, "0")}:${String(starts.minute).padStart(2, "0")}` : "";
+      const endTime = ends ? `${String(ends.hour).padStart(2, "0")}:${String(ends.minute).padStart(2, "0")}` : "";
+      return {
+        id: `lesson:${lesson.id}`,
+        title: lesson.title,
+        status: lesson.status || "realizada",
+        eventType: "curso",
+        eventTypeLabel: "Aula",
+        classification: "estudos",
+        startsAt: lesson.starts_at,
+        endsAt: lesson.ends_at,
+        timeLabel: startTime && endTime ? `${startTime} às ${endTime}` : startTime || "Horário não informado",
+        location: lesson.location || undefined,
+        description: [lesson.planned_content, linkedTeachers ? `Professor(es): ${linkedTeachers}` : ""].filter(Boolean).join(" · ") || undefined,
+        associatedToCurrentPerson: false,
+      };
+    }),
+    [lessons, teachers],
+  );
+
   const studentSuggestions = useMemo(() => {
     const needle = normalize(studentSearch.trim());
     if (needle.length < 2) return [];
@@ -773,14 +832,13 @@ export default function CursosEmHarmoniaGestaoPage() {
   const visibleCalendarEvents = useMemo(
     () =>
       annualCalendarEvents
-        .filter((item) => item.bucket === calendarMode)
         .map((item) => item.event)
         .filter(
           (event) =>
             !calendarFromDate ||
             (event.startsAt?.slice(0, 10) || "") >= calendarFromDate,
         ),
-    [annualCalendarEvents, calendarFromDate, calendarMode],
+    [annualCalendarEvents, calendarFromDate],
   );
 
   function todayInSaoPaulo() {
@@ -805,17 +863,25 @@ export default function CursosEmHarmoniaGestaoPage() {
         ? selectedYear
         : availableCalendarYears[0] || 2026,
     );
-    setCalendarMode("tucxa");
     setCalendarSelectedDay(null);
   }
 
   function openCalendarForLesson() {
-    prepareCalendar(lessonStart.slice(0, 10) || undefined);
+    if (selectedCourseCompleted && lessons.length > 0) {
+      const firstLessonDate = [...lessons]
+        .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0]?.starts_at.slice(0, 10);
+      prepareCalendar(firstLessonDate || undefined);
+      setCalendarScope("course");
+    } else {
+      prepareCalendar(lessonStart.slice(0, 10) || undefined);
+      setCalendarScope("agenda");
+    }
     setCalendarOpen(true);
   }
 
   function openAgendaCalendar() {
     prepareCalendar();
+    setCalendarScope("agenda");
     setOpenPopup("agenda");
   }
 
@@ -840,6 +906,16 @@ export default function CursosEmHarmoniaGestaoPage() {
     setLessonEnd(`${isoDateValue}T${endTime}`);
     setCalendarOpen(false);
     setCalendarSelectedDay(null);
+  }
+
+  function startLessonFromAgendaDate(isoDateValue: string) {
+    if (!selectedCourseId || selectedCourseCompleted) return;
+    resetLesson();
+    setLessonStart(`${isoDateValue}T19:30`);
+    setLessonEnd(`${isoDateValue}T21:20`);
+    setCalendarSelectedDay(null);
+    setOpenPopup("aulas");
+    setLessonEditorOpen(true);
   }
 
   async function post(body: Record<string, unknown>) {
@@ -949,12 +1025,14 @@ export default function CursosEmHarmoniaGestaoPage() {
   }
 
   function newLesson() {
+    if (selectedCourseCompleted) return;
     resetLesson();
     setLessonListOpen(false);
     setLessonEditorOpen(true);
   }
 
   function editLesson(lesson: Lesson) {
+    if (selectedCourseCompleted) return;
     setLessonId(lesson.id);
     setLessonTitle(lesson.title);
     setLessonContent(lesson.planned_content || "");
@@ -1104,7 +1182,7 @@ export default function CursosEmHarmoniaGestaoPage() {
       title="Cursos em Harmonia"
       description="Escolha o que deseja fazer. Cada atividade abre em uma janela própria, mantendo a gestão simples também no celular."
       simpleFinancialHeader
-      financialBackHref={`${MEMBER_PANEL}/atendimento`}
+      financialBackHref={`${MEMBER_PANEL}/atendimento?abrir=cursos`}
       simpleHeaderHelpMessage="Olá, preciso de ajuda no Cursos em Harmonia do Tucxa em Harmonia."
     >
       {error && (
@@ -1390,6 +1468,8 @@ export default function CursosEmHarmoniaGestaoPage() {
               resetLesson();
               setLessonEditorOpen(false);
               setLessonListOpen(false);
+              setAttendanceLessonId("");
+              setCalendarSelectedDay(null);
             }}
           />
 
@@ -1397,10 +1477,10 @@ export default function CursosEmHarmoniaGestaoPage() {
             <button
               type="button"
               onClick={newLesson}
-              disabled={!selectedCourseId}
+              disabled={!selectedCourseId || selectedCourseCompleted}
               className="min-h-16 rounded-xl bg-[#2F6B43] px-2 py-2 text-xs font-black text-white disabled:opacity-50 sm:text-sm"
             >
-              Nova aula
+              {selectedCourseCompleted ? "Curso concluído" : "Nova aula"}
             </button>
             <button
               type="button"
@@ -1421,7 +1501,7 @@ export default function CursosEmHarmoniaGestaoPage() {
 
           <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
             {selectedCourse
-              ? `Curso selecionado: ${selectedCourse.name}`
+              ? `Curso selecionado: ${selectedCourse.name}${selectedCourseCompleted ? " · concluído — cronograma somente para consulta" : ""}`
               : "Selecione um curso para criar aulas e consultar o cronograma."}
           </p>
         </Popup>
@@ -1559,7 +1639,7 @@ export default function CursosEmHarmoniaGestaoPage() {
             )}
 
             <button
-              disabled={saving || !selectedCourseId}
+              disabled={saving || !selectedCourseId || selectedCourseCompleted}
               className="w-full rounded-xl bg-[#2F6B43] px-4 py-3 font-black text-white disabled:opacity-50"
             >
               Salvar aula e incluir na Agenda Viva
@@ -1577,14 +1657,16 @@ export default function CursosEmHarmoniaGestaoPage() {
         >
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-slate-600">{lessons.length} aula(s)</p>
-            <button
-              type="button"
-              onClick={newLesson}
-              disabled={!selectedCourseId}
-              className="rounded-xl bg-[#2F6B43] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
-            >
-              Nova aula
-            </button>
+            {!selectedCourseCompleted && (
+              <button
+                type="button"
+                onClick={newLesson}
+                disabled={!selectedCourseId}
+                className="rounded-xl bg-[#2F6B43] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+              >
+                Nova aula
+              </button>
+            )}
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {selectedCourseId && lessons.length === 0 && (
@@ -1605,15 +1687,67 @@ export default function CursosEmHarmoniaGestaoPage() {
                     .map((item) => item.teacher?.full_name || "Professor")
                     .join(", ") || "—"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => editLesson(lesson)}
-                  className="mt-2 rounded-lg bg-[#E8F6ED] px-3 py-2 text-xs font-black text-[#2F6B43]"
-                >
-                  Editar aula
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {!selectedCourseCompleted && (
+                    <button
+                      type="button"
+                      onClick={() => editLesson(lesson)}
+                      className="rounded-lg bg-[#E8F6ED] px-3 py-2 text-xs font-black text-[#2F6B43]"
+                    >
+                      Editar aula
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceLessonId(lesson.id)}
+                    className="rounded-lg bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]"
+                  >
+                    Presenças ({attendance.filter((item) => item.lesson_id === lesson.id).length})
+                  </button>
+                </div>
               </article>
             ))}
+          </div>
+        </Popup>
+      )}
+
+      {openPopup === "aulas" && attendanceLessonId && (
+        <Popup
+          nested
+          title="Presenças da aula"
+          subtitle={lessons.find((lesson) => lesson.id === attendanceLessonId)?.title || "Aula"}
+          onClose={() => setAttendanceLessonId("")}
+        >
+          <div className="grid gap-2">
+            {students.length === 0 ? (
+              <p className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">Nenhum aluno está vinculado a este curso.</p>
+            ) : (
+              students.map((student) => {
+                const record = attendance.find(
+                  (item) => item.lesson_id === attendanceLessonId && item.course_student_id === student.id,
+                );
+                return (
+                  <article key={student.id} className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-black text-[#00334E]">{studentName(student)}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">
+                          {record
+                            ? `Registro: ${record.status.replaceAll("_", " ")} · ${record.checkin_method === "professor" ? "chamada do professor" : "registro do aluno"}`
+                            : "Sem presença registrada"}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide ${record ? "bg-[#E8F6ED] text-[#2F6B43]" : "bg-amber-50 text-amber-800"}`}>
+                        {record ? record.status.replaceAll("_", " ") : "sem registro"}
+                      </span>
+                    </div>
+                    {record?.checked_in_at && (
+                      <p className="mt-2 text-xs font-semibold text-slate-500">Registrado em {formatDate(record.checked_in_at)}.</p>
+                    )}
+                  </article>
+                );
+              })
+            )}
           </div>
         </Popup>
       )}
@@ -1634,22 +1768,19 @@ export default function CursosEmHarmoniaGestaoPage() {
             </p>
           )}
           <CourseAgendaCalendar
-            mode={calendarMode}
-            onModeChange={(value) => {
-              setCalendarMode(value);
-              setCalendarSelectedDay(null);
-            }}
             year={calendarYear}
             onYearChange={changeCalendarYear}
             availableYears={availableCalendarYears}
             fromDate={calendarFromDate}
             onFromDateChange={changeCalendarFromDate}
-            events={visibleCalendarEvents}
+            events={calendarScope === "course" ? courseLessonCalendarEvents : visibleCalendarEvents}
             selectedDay={calendarSelectedDay}
             onSelectDay={(isoDateValue, events) =>
               setCalendarSelectedDay({ isoDate: isoDateValue, events })
             }
-            onApplyDate={applyCalendarDate}
+            onCloseSelectedDay={() => setCalendarSelectedDay(null)}
+            onApplyDate={calendarScope === "course" ? undefined : applyCalendarDate}
+            onlyEventMonths={calendarScope === "course"}
           />
         </Popup>
       )}
@@ -1663,17 +1794,27 @@ export default function CursosEmHarmoniaGestaoPage() {
             setOpenPopup(null);
           }}
         >
+          <div className="mb-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+            <CourseSelector
+              courses={courses}
+              selectedCourseId={selectedCourseId}
+              onChange={(value) => {
+                setSelectedCourseId(value);
+                setCalendarSelectedDay(null);
+              }}
+            />
+            {selectedCourseCompleted && (
+              <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
+                O curso selecionado está concluído. Escolha um curso em andamento para incluir uma nova aula em uma data livre.
+              </p>
+            )}
+          </div>
           {payload.agendaWarning && (
             <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">
               {payload.agendaWarning}
             </p>
           )}
           <CourseAgendaCalendar
-            mode={calendarMode}
-            onModeChange={(value) => {
-              setCalendarMode(value);
-              setCalendarSelectedDay(null);
-            }}
             year={calendarYear}
             onYearChange={changeCalendarYear}
             availableYears={availableCalendarYears}
@@ -1684,6 +1825,8 @@ export default function CursosEmHarmoniaGestaoPage() {
             onSelectDay={(isoDateValue, events) =>
               setCalendarSelectedDay({ isoDate: isoDateValue, events })
             }
+            onCloseSelectedDay={() => setCalendarSelectedDay(null)}
+            onApplyDate={selectedCourseCompleted ? undefined : startLessonFromAgendaDate}
           />
         </Popup>
       )}

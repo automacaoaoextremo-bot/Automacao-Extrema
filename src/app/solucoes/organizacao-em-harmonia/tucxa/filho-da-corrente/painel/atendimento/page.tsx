@@ -144,6 +144,7 @@ export default function AtendimentoEmHarmoniaPage() {
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
       if (params.get("consulta") === "agendamentos") setModal("recepcao");
+      if (params.get("abrir") === "cursos") setSubmodule("cursos");
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -231,20 +232,14 @@ export default function AtendimentoEmHarmoniaPage() {
         </section>
 
         <section className={`mt-3 grid gap-2 sm:mt-4 sm:gap-3 ${canManageCourses ? "sm:grid-cols-2" : ""}`}>
-          <button type="button" onClick={() => setSubmodule("escuta")} className="min-h-20 rounded-[1.5rem] bg-white px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg sm:px-5">
-            <span className="block text-lg font-black text-[#123D2C]">Escuta dos filhos da Corrente</span>
-            <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600 sm:text-sm">
-              Envie questionamentos e sugestões à Diretoria e acompanhe o retorno.
-            </span>
+          <button type="button" onClick={() => setSubmodule("escuta")} className="min-h-20 rounded-[1.5rem] bg-[#DDEAD8] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#CFE2C7] hover:shadow-lg sm:px-5">
+            <span className="block text-base font-black text-[#123D2C] sm:text-lg">Escuta dos filhos da Corrente</span>
             <TouchHint />
           </button>
 
           {canManageCourses && (
-            <button type="button" onClick={() => setSubmodule("cursos")} className="min-h-20 rounded-[1.5rem] bg-white px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#EEF7EA] hover:shadow-lg sm:px-5">
-              <span className="block text-lg font-black text-[#123D2C]">Gestão de Cursos</span>
-              <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600 sm:text-sm">
-                Planeje cursos, aulas, professores, alunos e convites.
-              </span>
+            <button type="button" onClick={() => setSubmodule("cursos")} className="min-h-20 rounded-[1.5rem] bg-[#DDEAD8] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#CFE2C7] hover:shadow-lg sm:px-5">
+              <span className="block text-base font-black text-[#123D2C] sm:text-lg">Gestão de Cursos</span>
               <TouchHint />
             </button>
           )}

@@ -381,6 +381,22 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Associe pelo menos um Professor à aula." }, { status: 400 });
       }
 
+      const { data: course, error: courseError } = await supabaseAdmin
+        .from("oh_courses")
+        .select("id,name,slug,status")
+        .eq("organization_id", organizationId)
+        .eq("id", courseId)
+        .single();
+      if (courseError) throw courseError;
+
+      const courseStatus = normalize(course.status);
+      if (["concluido", "finalizado", "encerrado"].some((token) => courseStatus.includes(token))) {
+        return NextResponse.json(
+          { error: "Este curso está concluído e o cronograma é somente para consulta." },
+          { status: 409 },
+        );
+      }
+
       const conflicts = await teacherConflicts({
         organizationId,
         teacherIds,
@@ -397,14 +413,6 @@ export async function POST(request: Request) {
           { status: 409 },
         );
       }
-
-      const { data: course, error: courseError } = await supabaseAdmin
-        .from("oh_courses")
-        .select("id,name,slug")
-        .eq("organization_id", organizationId)
-        .eq("id", courseId)
-        .single();
-      if (courseError) throw courseError;
 
       const lessonPayload = {
         organization_id: organizationId,

@@ -319,6 +319,15 @@ export default async function TucxaSitePage() {
             <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA] sm:text-lg sm:leading-8">
               Cada atendimento e cada atividade dependem de uma estrutura que precisa continuar funcionando: água, energia, limpeza, segurança, manutenção, materiais e organização.
             </p>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
+              className="mt-5 inline-flex w-full justify-center rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] shadow-lg shadow-green-950/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:w-auto sm:text-base"
+            >
+              Acompanhar prestação de contas
+            </Link>
+            <p className="mt-1.5 text-center text-[10px] font-black uppercase tracking-[0.18em] text-[#CFE2C7] sm:w-fit sm:px-4 sm:text-xs">
+              TOQUE PARA ABRIR
+            </p>
           </div>
 
           <div className="grid gap-4 p-5 sm:p-7 md:grid-cols-3">
@@ -346,12 +355,6 @@ export default async function TucxaSitePage() {
             <p className="max-w-4xl text-base leading-7 text-slate-700">
               Quando as informações são apresentadas com clareza, a contribuição deixa de parecer apenas um valor e passa a representar estrutura, continuidade e cuidado em movimento.
             </p>
-            <Link
-              href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
-              className="mt-5 inline-flex w-full justify-center rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 hover:bg-[#2F6B43] sm:w-auto sm:text-base"
-            >
-              Acompanhar prestação de contas
-            </Link>
           </div>
         </article>
       </section>

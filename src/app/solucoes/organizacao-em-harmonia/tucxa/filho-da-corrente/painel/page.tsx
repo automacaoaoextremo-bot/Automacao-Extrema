@@ -19,6 +19,7 @@ type UserInfo = {
   fullName: string;
   profileUpdateStatus: string;
   functionSlugs: string[];
+  functionLabels: string[];
 };
 
 type PanelPreferences = {
@@ -278,6 +279,7 @@ export default function PainelFilhoDaCorrentePage() {
             ? metadata.profile_update_status
             : "";
         let functionSlugs: string[] = [];
+        let functionLabels: string[] = [];
 
         if (session.access_token) {
           const [profileResponse] = await Promise.all([
@@ -291,12 +293,19 @@ export default function PainelFilhoDaCorrentePage() {
             .catch(() => ({}))) as {
             profileUpdateStatus?: string;
             functionSlugs?: string[];
+            selectedFunctions?: Array<{ slug?: string; label?: string; name?: string }>;
           };
           if (profileResponse.ok) {
             profileUpdateStatus =
               profilePayload.profileUpdateStatus || profileUpdateStatus;
             functionSlugs = Array.isArray(profilePayload.functionSlugs)
               ? profilePayload.functionSlugs
+              : [];
+            functionLabels = Array.isArray(profilePayload.selectedFunctions)
+              ? profilePayload.selectedFunctions
+                  .map((item) => item.label || item.name || item.slug || "")
+                  .map((item) => item.trim())
+                  .filter(Boolean)
               : [];
           }
         }
@@ -310,6 +319,7 @@ export default function PainelFilhoDaCorrentePage() {
               : user.email || "Filho da Corrente",
           profileUpdateStatus,
           functionSlugs,
+          functionLabels,
         });
         setLoading(false);
       });
@@ -330,6 +340,23 @@ export default function PainelFilhoDaCorrentePage() {
     () => hasDespensaVivaManagement(userInfo?.functionSlugs ?? []),
     [userInfo?.functionSlugs],
   );
+
+  const functionSummary = useMemo(() => {
+    if (!userInfo) return "Somente Filho da Corrente";
+    if (userInfo.functionLabels.length > 0) return userInfo.functionLabels.join(", ");
+    if (userInfo.functionSlugs.length > 0) {
+      return userInfo.functionSlugs
+        .map((slug) =>
+          slug
+            .split("-")
+            .filter(Boolean)
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(" "),
+        )
+        .join(", ");
+    }
+    return "Somente Filho da Corrente";
+  }, [userInfo]);
 
 
   return (
@@ -357,8 +384,9 @@ export default function PainelFilhoDaCorrentePage() {
               </h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
                 Este é o seu espaço de consulta e orientação. Use os atalhos
-                abaixo para abrir módulos, atualizar seu cadastro e escolher
-                quais avisos deseja receber.
+                abaixo para abrir módulos, atualizar seu cadastro (atualmente
+                suas funções são {functionSummary}) e escolher quais avisos
+                deseja receber.
               </p>
             </section>
 
