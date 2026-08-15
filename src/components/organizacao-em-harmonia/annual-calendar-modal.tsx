@@ -63,10 +63,9 @@ const umbandaLegendNotes = [
 ] as const;
 
 const sementinhaLegend = [
-  { key: "community-action", label: "Ação em comunidade", color: "#FFE500" },
-  { key: "bazar", label: "Bazar", color: "#45CED0" },
-  { key: "bazar-simple", label: "Bazar simples", color: "#D07BE0" },
-  { key: "bingo", label: "Bingo", color: "#A7F34B" },
+  { key: "bazar", label: "Bazar", color: "#C97ADC" },
+  { key: "community-action", label: "Ação na comunidade", color: "#F59E52" },
+  { key: "solidarity-football", label: "Futebol solidário", color: "#66D7D5" },
 ] as const;
 
 function normalize(value: string) {
@@ -155,17 +154,17 @@ function socialTone(event: AnnualCalendarEvent): CalendarTone {
 
 function sementinhaSubtype(event: AnnualCalendarEvent) {
   const explicit = normalize(event.eventSubtype ?? "");
-  if (["community-action", "bazar", "bazar-simple", "bingo"].includes(explicit)) return explicit;
+  if (["community-action", "bazar", "solidarity-football"].includes(explicit)) return explicit;
+
   const text = normalize(`${event.title} ${event.eventType} ${event.calendarColorKey ?? ""}`);
-  if (text.includes("bingo")) return "bingo";
-  if (text.includes("bazar simples")) return "bazar-simple";
+  if (text.includes("futebol")) return "solidarity-football";
   if (text.includes("bazar")) return "bazar";
   return "community-action";
 }
 
 function sementinhaTone(event: AnnualCalendarEvent): CalendarTone {
   const subtype = sementinhaSubtype(event);
-  const color = sementinhaLegend.find((item) => item.key === subtype)?.color ?? "#FFE500";
+  const color = sementinhaLegend.find((item) => item.key === subtype)?.color ?? "#F59E52";
   return { background: color, border: color, text: "#243129" };
 }
 
@@ -453,7 +452,6 @@ function IntegratedCalendar({
     <section className="overflow-hidden rounded-3xl bg-gradient-to-b from-[#EDF5EB] to-white p-3 ring-1 ring-[#123D2C]/10 sm:p-6" data-agenda-pdf>
       <div className="mb-3 text-center">
         <h2 className="text-2xl font-black text-[#123D2C]">Agenda Viva Integrada - {year}</h2>
-        <p className="mt-1 text-xs font-semibold text-slate-600">Tucxa, Sementinha e Eventos reunidos em um único calendário.</p>
       </div>
       <AnnualGrid
         events={events}

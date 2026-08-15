@@ -62,7 +62,19 @@ const headerActions = [
 ];
 
 const audienceButtonClass =
-  "rounded-2xl px-4 py-3.5 text-center text-sm font-black transition hover:-translate-y-0.5 sm:text-base";
+  "inline-flex min-h-12 flex-col items-center justify-center rounded-2xl px-3 py-2.5 text-center text-sm font-black leading-tight transition hover:-translate-y-0.5 sm:min-h-14 sm:px-4 sm:py-3 sm:text-base";
+
+function AudienceTouchHint({ inverse = false }: { inverse?: boolean }) {
+  return (
+    <span
+      className={`mt-1 block text-[8px] font-black uppercase tracking-[0.14em] sm:text-[10px] sm:tracking-[0.18em] ${
+        inverse ? "text-white/75" : "text-[#2F6B43]"
+      }`}
+    >
+      TOQUE PARA ABRIR
+    </span>
+  );
+}
 
 export default async function TucxaSitePage() {
   const content = await getTucxaPublicContent();
@@ -197,70 +209,76 @@ export default async function TucxaSitePage() {
         <div className="grid items-stretch gap-4 lg:grid-cols-2">
           <article
             id="corrente"
-            className="scroll-mt-48 flex h-full flex-col rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
+            className="scroll-mt-48 flex h-full flex-col rounded-[1.6rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:rounded-[1.75rem] sm:p-6"
           >
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">
               Filhos da Corrente
             </p>
-            <h2 className="mt-2 text-2xl font-black leading-tight text-[#123D2C] sm:text-3xl">
+            <h2 className="mt-1.5 text-xl font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-3xl">
               Compromisso, desenvolvimento e cuidado com a Corrente.
             </h2>
-            <p className="mt-3 text-base leading-7 text-slate-700 sm:leading-8">
+            <p className="mt-2 text-sm leading-6 text-slate-700 sm:mt-3 sm:text-base sm:leading-8">
               Os Filhos da Corrente são integrantes que assumem compromisso com o Tucxa, com o grupo e com os Trabalhos Espirituais. Participam do desenvolvimento mediúnico e podem servir em diferentes frentes, ajudando a manter a harmonia, a organização e o cuidado com todos.
             </p>
-            <div className="mt-auto grid gap-2 pt-5">
+            <div className="mt-auto grid gap-1.5 pt-3 sm:gap-2 sm:pt-5">
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente"
                 className={`${audienceButtonClass} bg-[#123D2C] text-white`}
               >
-                Acessar página do Filho da Corrente
+                <span>Acessar página do Filho da Corrente</span>
+                <AudienceTouchHint inverse />
               </Link>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso"
                 className={`${audienceButtonClass} bg-[#E9F2E7] text-[#123D2C] ring-1 ring-[#123D2C]/10`}
               >
-                Fazer primeiro acesso
+                <span>Fazer primeiro acesso</span>
+                <AudienceTouchHint />
               </Link>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
                 className={`${audienceButtonClass} bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10 hover:bg-[#F7FAF2]`}
               >
-                Já tenho acesso
+                <span>Já tenho acesso</span>
+                <AudienceTouchHint />
               </Link>
             </div>
           </article>
 
           <article
             id="consulentes"
-            className="scroll-mt-48 flex h-full flex-col rounded-[1.75rem] bg-white p-5 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
+            className="scroll-mt-48 flex h-full flex-col rounded-[1.6rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:rounded-[1.75rem] sm:p-6"
           >
             <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">
               Consulentes / Filhos de Fora
             </p>
-            <h2 className="mt-2 text-2xl font-black leading-tight text-[#123D2C] sm:text-3xl">
+            <h2 className="mt-1.5 text-xl font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-3xl">
               Acolhimento para quem busca auxílio e crescimento espiritual.
             </h2>
-            <p className="mt-3 text-base leading-7 text-slate-700 sm:leading-8">
+            <p className="mt-2 text-sm leading-6 text-slate-700 sm:mt-3 sm:text-base sm:leading-8">
               O Tucxa é aberto a pessoas que buscam auxílio espiritual. Aqui o consulente encontra uma explicação simples do atendimento e pode deixar seus dados para orientação, agendamento e contribuição.
             </p>
-            <div className="mt-auto grid gap-2 pt-5">
+            <div className="mt-auto grid gap-1.5 pt-3 sm:gap-2 sm:pt-5">
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/consulente"
                 className={`${audienceButtonClass} bg-[#123D2C] text-white`}
               >
-                Acessar página do Consulente
+                <span>Acessar página do Consulente</span>
+                <AudienceTouchHint inverse />
               </Link>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro"
                 className={`${audienceButtonClass} bg-[#E9F2E7] text-[#123D2C] ring-1 ring-[#123D2C]/10`}
               >
-                Fazer cadastro
+                <span>Fazer cadastro</span>
+                <AudienceTouchHint />
               </Link>
               <Link
                 href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login"
                 className={`${audienceButtonClass} bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10 hover:bg-[#F7FAF2]`}
               >
-                Já tenho cadastro
+                <span>Já tenho cadastro</span>
+                <AudienceTouchHint />
               </Link>
             </div>
           </article>

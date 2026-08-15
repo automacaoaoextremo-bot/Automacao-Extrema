@@ -214,7 +214,7 @@ export default function AtendimentoEmHarmoniaPage() {
           </p>
         </section>
 
-        <section className="mt-3 grid gap-2 sm:mt-4 sm:gap-3">
+        <section className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3">
           <button type="button" onClick={() => setModal("orientacoes")} className="min-h-14 rounded-[1.35rem] bg-[#E9F4E6] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
             Orientações práticas do Tucxa
             <TouchHint />
@@ -224,7 +224,7 @@ export default function AtendimentoEmHarmoniaPage() {
             <TouchHint />
           </button>
           {(canReception || canCambono || canCavalinho) && (
-            <button type="button" onClick={() => setModal("recepcao")} className="min-h-14 rounded-[1.35rem] bg-[#BDDDBF] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
+            <button type="button" onClick={() => setModal("recepcao")} className="col-span-2 min-h-14 rounded-[1.35rem] bg-[#BDDDBF] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
               Consulta de Agendamentos
               <TouchHint />
             </button>

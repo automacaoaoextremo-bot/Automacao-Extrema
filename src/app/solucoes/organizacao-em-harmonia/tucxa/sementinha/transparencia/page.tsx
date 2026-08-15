@@ -260,7 +260,7 @@ function SummaryCard({ month }: { month: MonthSummary | null }) {
   );
 }
 
-function SementinhaActionButtons({
+function ContributionChoiceButtons({
   className = "",
   inverse = false,
 }: {
@@ -268,13 +268,19 @@ function SementinhaActionButtons({
   inverse?: boolean;
 }) {
   const items = [
-    { label: "Voltar ao Sementinha", href: SEMENTINHA_BASE },
-    { label: "Abrir Despensa Viva", href: `${SEMENTINHA_BASE}/despensa-viva` },
+    {
+      label: "Contribuição Anônima",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/contribuir#contribuicao-anonima",
+    },
+    {
+      label: "Contribuição com Cadastro",
+      href: "/solucoes/organizacao-em-harmonia/tucxa/contribuir#com-cadastro",
+    },
   ];
 
   return (
     <nav
-      aria-label="Atalhos do Sementinha"
+      aria-label="Formas de contribuição"
       className={`grid w-full grid-cols-2 gap-2 ${className}`}
     >
       {items.map((item, index) => (
@@ -598,6 +604,22 @@ export default function SementinhaTransparenciaPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const openFromHash = () => {
+      const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+      if (hash === "finalizado" || hash === "detalhado" || hash === "analises") {
+        setOpenPopup(hash as Exclude<PopupKey, null>);
+      }
+    };
+
+    const timerId = window.setTimeout(openFromHash, 0);
+    window.addEventListener("hashchange", openFromHash);
+    return () => {
+      window.clearTimeout(timerId);
+      window.removeEventListener("hashchange", openFromHash);
+    };
+  }, []);
+
   const data = payload.live;
 
   const availableMonths = useMemo(
@@ -903,7 +925,7 @@ export default function SementinhaTransparenciaPage() {
             {publicMessageWithoutCurrent(data?.settings.message)}
           </p>
           <SummaryNavigationButtons onOpen={setOpenPopup} />
-          <SementinhaActionButtons className="mt-3" inverse />
+          <ContributionChoiceButtons className="mt-3" inverse />
         </header>
 
         {loading && (
@@ -932,7 +954,15 @@ export default function SementinhaTransparenciaPage() {
             <p className="mt-3 max-w-4xl leading-7 text-slate-700">
               Receitas, despesas, resultado e saldo permanecem separados por competência para facilitar a conferência no celular. Use os botões de resumo, detalhamento e análises para mudar apenas a forma de leitura — não os valores de origem.
             </p>
-            <SementinhaActionButtons className="mt-5 max-w-xl" />
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa/contribuir"
+              className="mt-5 inline-flex min-h-14 w-full flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-6 py-3 text-center text-lg font-black text-white shadow sm:w-auto"
+            >
+              <span>Acessar formas de contribuição</span>
+              <span className="mt-1 text-[9px] font-black uppercase tracking-[0.16em] text-white/75 sm:text-[10px]">
+                TOQUE PARA ABRIR
+              </span>
+            </Link>
           </section>
         )}
       </section>

@@ -287,7 +287,17 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
 
   const ruleUpper = rule.toUpperCase();
   const until = recurrenceUntil(ruleUpper);
-  const lastKey = until || `${year}-12-31`;
+  const metadataUntil = metadataText(event, [
+    "recurrenceUntil",
+    "recurrence_until",
+    "recurrenceEnd",
+    "recurrence_end",
+  ]).slice(0, 10);
+  const explicitEnd = /^\d{4}-\d{2}-\d{2}$/.test(metadataUntil) ? metadataUntil : "";
+  // Sem uma data final explicitamente programada, a recorrência vale somente
+  // até o fim do ano em que foi cadastrada. Isso evita projetar automaticamente
+  // eventos de 2026 para 2027/2028 sem que exista planejamento registrado.
+  const lastKey = until || explicitEnd || `${start.year}-12-31`;
   const firstAllowed = startKey > `${year}-01-01` ? startKey : `${year}-01-01`;
   if (firstAllowed > `${year}-12-31` || lastKey < `${year}-01-01`) return [];
 
@@ -536,18 +546,20 @@ function CourseAgendaCalendar({
       : Number.isInteger(fromYear) && year < fromYear
         ? []
         : Array.from({ length: 12 }, (_, month) => month);
+  const yearOptions = Array.from(new Set([year, ...availableYears]))
+    .sort((left, right) => right - left);
 
   return (
     <div className="grid gap-3">
-      <div className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 lg:grid-cols-[1fr_auto] lg:items-end">
+      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-end gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
         {!onlyEventMonths ? (
-          <label className="grid gap-1 text-xs font-black text-[#00334E]">
+          <label className="grid min-w-0 gap-1 text-xs font-black text-[#00334E]">
             Consultar a partir de
             <input
               type="date"
               value={fromDate}
               onChange={(event) => onFromDateChange(event.target.value)}
-              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold"
+              className="min-h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold sm:px-3 sm:text-sm"
             />
           </label>
         ) : (
@@ -556,21 +568,22 @@ function CourseAgendaCalendar({
           </div>
         )}
 
-        <div className="flex items-center gap-2 lg:justify-end">
-          <button type="button" onClick={() => onYearChange(year - 1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700" aria-label="Ano anterior">←</button>
-          <select value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-[#123D2C]">
-            {Array.from(new Set([year - 1, year, year + 1, ...availableYears]))
-              .sort((left, right) => right - left)
-              .map((item) => <option key={item} value={item}>{item}</option>)}
+        <label className="grid gap-1 text-xs font-black text-[#00334E]">
+          Ano
+          <select
+            value={year}
+            onChange={(event) => onYearChange(Number(event.target.value))}
+            className="min-h-10 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm font-black text-[#123D2C]"
+          >
+            {yearOptions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <button type="button" onClick={() => onYearChange(year + 1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-black text-slate-700" aria-label="Próximo ano">→</button>
-        </div>
+        </label>
       </div>
 
       <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
         {onlyEventMonths
           ? `${events.length} aula(s) encontrada(s). Toque em uma data destacada para abrir os detalhes da aula.`
-          : `${events.length} ocorrência(s) programada(s) a partir de ${fromDate ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${fromDate}T12:00:00Z`)) : "hoje"}. Tucxa, Sementinha e Eventos estão reunidos no mesmo calendário. Toque em qualquer data exibida para consultar ou incluir uma aula.`}
+          : `${events.length} ocorrência(s) programada(s) a partir de ${fromDate ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${fromDate}T12:00:00Z`)) : "hoje"}.Toque em qualquer data exibida para consultar ou incluir uma aula.`}
       </p>
 
       {visibleMonths.length > 0 ? (
@@ -1788,7 +1801,7 @@ export default function CursosEmHarmoniaGestaoPage() {
       {openPopup === "agenda" && (
         <Popup
           title="Agenda Viva"
-          subtitle="Consulte o calendário de Tucxa, Sementinha e Eventos da data escolhida para frente para planejar o curso."
+          subtitle="Consulte o calendário de Tucxa, Sementinha e Eventos reunidos em um único da data escolhida para frente para planejar o curso."
           onClose={() => {
             setCalendarSelectedDay(null);
             setOpenPopup(null);
@@ -1855,38 +1868,34 @@ export default function CursosEmHarmoniaGestaoPage() {
                 setLastInvite(null);
                 setStudentInviteOpen(true);
               }}
-              disabled={!selectedCourseId}
-              className="min-h-11 rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"
+              disabled={!selectedCourseId || selectedCourseCompleted}
+              className="min-h-11 rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+              title={selectedCourseCompleted ? "Curso concluído: novos convites estão bloqueados." : undefined}
             >
               Convidar aluno
             </button>
           </div>
 
-          {studentInviteOpen && (
-            <form
-              onSubmit={inviteStudent}
-              className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10 sm:p-5"
+          {studentInviteOpen && !selectedCourseCompleted && (
+            <Popup
+              nested
+              title="Convidar aluno"
+              subtitle={selectedCourse?.name || "Curso selecionado"}
+              onClose={() => {
+                resetStudentInvite();
+                setStudentInviteOpen(false);
+              }}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
-                    Convite
-                  </p>
-                  <h3 className="mt-1 text-xl font-black text-[#00334E]">
-                    Localizar e convidar
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetStudentInvite();
-                    setStudentInviteOpen(false);
-                  }}
-                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  Cancelar
-                </button>
-              </div>
+              <form
+                onSubmit={inviteStudent}
+                className="rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-5"
+              >
+                <p className="text-xs font-black uppercase tracking-[0.15em] text-[#2F6B43]">
+                  Convite
+                </p>
+                <h3 className="mt-1 text-xl font-black text-[#00334E]">
+                  Localizar e convidar
+                </h3>
 
               <label className="mt-3 grid gap-1 text-sm font-black text-[#00334E]">
                 Pesquisar na Base Única
@@ -1952,13 +1961,14 @@ export default function CursosEmHarmoniaGestaoPage() {
                 </label>
               </div>
 
-              <button
-                disabled={saving || !selectedCourseId}
-                className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50"
-              >
-                Gerar e enviar convite
-              </button>
-            </form>
+                <button
+                  disabled={saving || !selectedCourseId}
+                  className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50"
+                >
+                  Gerar e enviar convite
+                </button>
+              </form>
+            </Popup>
           )}
 
           {lastInvite && (

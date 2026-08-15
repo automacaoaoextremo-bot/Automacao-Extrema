@@ -943,9 +943,12 @@ export default function TucxaTransparenciaPage() {
 
             <Link
               href="/solucoes/organizacao-em-harmonia/tucxa/contribuir"
-              className="mt-5 inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#123D2C] px-6 py-4 text-center text-lg font-black text-white shadow sm:w-auto"
+              className="mt-5 inline-flex min-h-14 w-full flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-6 py-3 text-center text-lg font-black text-white shadow sm:w-auto"
             >
-              Acessar formas de contribuição
+              <span>Acessar formas de contribuição</span>
+              <span className="mt-1 text-[9px] font-black uppercase tracking-[0.16em] text-white/75 sm:text-[10px]">
+                TOQUE PARA ABRIR
+              </span>
             </Link>
           </section>
         )}

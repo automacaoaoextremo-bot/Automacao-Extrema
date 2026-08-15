@@ -88,6 +88,7 @@ type Payload = {
 };
 
 type ContributionView = "menu" | "history" | "upcoming";
+type FinanceChoice = "lancamentos" | "analises" | null;
 
 const statusLabels: Record<string, string> = {
   intencao_registrada: "Intenção registrada",
@@ -142,6 +143,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [financeChoice, setFinanceChoice] = useState<FinanceChoice>(null);
   const [contributionOpen, setContributionOpen] = useState(false);
   const [contributionView, setContributionView] = useState<ContributionView>("menu");
   const [upcomingPage, setUpcomingPage] = useState(1);
@@ -619,14 +621,22 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                     <span>Acompanhamento de Contribuições</span>
                     <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#DDEAD8]">TOQUE PARA ABRIR</span>
                   </Link>
-                  <Link href="/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos" className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  <button
+                    type="button"
+                    onClick={() => setFinanceChoice("lancamentos")}
+                    className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#E9F2E7] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                  >
                     <span>Registro de Receitas e Despesas</span>
                     <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
-                  </Link>
-                  <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises" className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#F7FAF2] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFinanceChoice("analises")}
+                    className="flex min-h-16 flex-col items-center justify-center rounded-2xl bg-[#F7FAF2] px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                  >
                     <span>Análises</span>
                     <span className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
-                  </Link>
+                  </button>
                 </div>
               </>
             ) : (
@@ -635,6 +645,69 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
           </section>
         </div>
       )}
+
+
+      {financeChoice && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/65 p-3 sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setFinanceChoice(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="finance-choice-title"
+            className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Corrente em Dia</p>
+                <h2 id="finance-choice-title" className="mt-1 text-2xl font-black text-[#123D2C]">
+                  {financeChoice === "lancamentos" ? "Registro de Receitas e Despesas" : "Análises"}
+                </h2>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                  Selecione qual prestação de contas deseja acessar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFinanceChoice(null)}
+                className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Link
+                href={
+                  financeChoice === "lancamentos"
+                    ? "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos"
+                    : "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises"
+                }
+                className="flex min-h-24 flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-4 py-4 text-center font-black text-white shadow"
+              >
+                <span className="text-lg">Tucxa</span>
+                <span className="mt-1 text-[9px] uppercase tracking-[0.16em] text-white/75">TOQUE PARA ABRIR</span>
+              </Link>
+              <Link
+                href={
+                  financeChoice === "lancamentos"
+                    ? "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos?contexto=sementinha"
+                    : "/solucoes/organizacao-em-harmonia/tucxa/sementinha/transparencia#analises"
+                }
+                className="flex min-h-24 flex-col items-center justify-center rounded-2xl bg-[#E9F2E7] px-4 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+              >
+                <span className="text-lg">Sementinha</span>
+                <span className="mt-1 text-[9px] uppercase tracking-[0.16em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+              </Link>
+            </div>
+          </section>
+        </div>
+      )}
+
     </main>
   );
 }
