@@ -7,8 +7,10 @@ import {
   filhoSupportAction,
   type PanelHeaderAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { FinancialLineChart } from "@/components/organizacao-em-harmonia/financial-line-chart";
 import {
   FinancialTransparencyMatrix,
+  type FinancialMatrixMonth,
   type FinancialTransparencyMatrixData,
 } from "@/components/organizacao-em-harmonia/financial-transparency-matrix";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -57,12 +59,62 @@ type RankedItem = {
   average: number;
 };
 
+type AnalysisSnapshot = {
+  revenues: number;
+  expenses: number;
+  result: number;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  revenueRanking: RankedItem[];
+  expenseRanking: RankedItem[];
+};
+
+type EventProfitability = {
+  name: string;
+  revenues: number;
+  expenses: number;
+  result: number;
+  percentage: number | null;
+};
+
 function money(value: number | null | undefined) {
   if (value == null) return "—";
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(Number(value) || 0);
+}
+
+function signedStyle(value: number | null | undefined) {
+  const numeric = Number(value ?? 0);
+  return {
+    color: numeric < 0 ? "#B42318" : "#123D2C",
+    fontWeight: 800,
+  } as const;
+}
+
+function percent(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value / 100);
+}
+
+function average(values: Array<number | null | undefined>) {
+  return values.length > 0
+    ? values.reduce<number>((sum, value) => sum + (Number(value) || 0), 0) / values.length
+    : 0;
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function monthKey(value: string) {
@@ -131,6 +183,76 @@ function Metric({ label, value }: { label: string; value: number | null | undefi
         {label}
       </p>
       <p className={`mt-1 text-base font-black ${signedClass(value)}`}>{money(value)}</p>
+    </div>
+  );
+}
+
+function SignedMoney({
+  value,
+  suffix = "",
+}: {
+  value: number | null | undefined;
+  suffix?: string;
+}) {
+  return (
+    <strong style={signedStyle(value)}>
+      {money(value)}
+      {suffix}
+    </strong>
+  );
+}
+
+function BalanceExplanation({
+  analysis,
+  monthsCount,
+}: {
+  analysis: AnalysisSnapshot;
+  monthsCount: number;
+}) {
+  if (monthsCount === 0) {
+    return (
+      <p className="text-sm font-semibold leading-7 text-slate-700">
+        Não há competências finalizadas com dados suficientes no período selecionado para explicar a evolução do saldo.
+      </p>
+    );
+  }
+
+  const topRevenue = analysis.revenueRanking[0];
+  const topExpense = analysis.expenseRanking[0];
+
+  return (
+    <div className="space-y-3 text-sm font-semibold leading-7 text-slate-700">
+      <p>
+        No período selecionado, o resultado entre receitas e despesas foi{" "}
+        <SignedMoney value={analysis.result} />. Foram registradas{" "}
+        <SignedMoney value={analysis.revenues} /> em receitas e{" "}
+        <SignedMoney value={analysis.expenses} /> em despesas.
+      </p>
+      <p>
+        O saldo partiu de <SignedMoney value={analysis.openingBalance} /> e encerrou em{" "}
+        <SignedMoney value={analysis.closingBalance} />.
+        {analysis.closingBalance != null && analysis.closingBalance < 0
+          ? " O encerramento permaneceu negativo no período analisado."
+          : analysis.result >= 0
+            ? " O resultado do período contribuiu positivamente para a evolução do saldo."
+            : " A diferença negativa entre entradas e saídas pressionou a evolução do saldo."}
+      </p>
+      {(topRevenue || topExpense) && (
+        <p>
+          {topRevenue && (
+            <>
+              A maior receita média foi <strong>{topRevenue.name}</strong>, com{" "}
+              <SignedMoney value={topRevenue.average} suffix="/mês" />.
+            </>
+          )}{" "}
+          {topExpense && (
+            <>
+              A maior despesa média foi <strong>{topExpense.name}</strong>, com{" "}
+              <SignedMoney value={topExpense.average} suffix="/mês" />.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -336,6 +458,69 @@ export default function AnalisesFinanceirasSementinhaPage() {
     };
   }, [data, selectedMonths]);
 
+  const filteredMatrixMonths = useMemo<FinancialMatrixMonth[]>(() => {
+    if (!data) return [];
+    const selected = new Set(selectedMonths.map(monthKey));
+    return data.matrix.months.filter((month) => selected.has(monthKey(month.month)));
+  }, [data, selectedMonths]);
+
+  const detailChronologicalMonths = useMemo(
+    () =>
+      [...filteredMatrixMonths].sort((left, right) =>
+        monthDate(left.month).localeCompare(monthDate(right.month)),
+      ),
+    [filteredMatrixMonths],
+  );
+
+  const detailSummaryChart = useMemo(() => {
+    if (!data) {
+      return { labels: [] as string[], balance: [] as number[], revenues: [] as number[], expenses: [] as number[] };
+    }
+    return {
+      labels: detailChronologicalMonths.map((month) => monthLabel(month.month)),
+      balance: detailChronologicalMonths.map((month) => month.bankBalance ?? month.closingBalance ?? 0),
+      revenues: detailChronologicalMonths.map((month) =>
+        matrixTypeValue(data.matrix, "receita", month.month),
+      ),
+      expenses: detailChronologicalMonths.map((month) =>
+        matrixTypeValue(data.matrix, "despesa", month.month),
+      ),
+    };
+  }, [data, detailChronologicalMonths]);
+
+  const eventProfitability = useMemo<EventProfitability[]>(() => {
+    if (!data || !selectedMonths.length) return [];
+    const selected = new Set(selectedMonths.map(monthKey));
+    const totals = new Map<string, { name: string; revenues: number; expenses: number }>();
+
+    for (const group of data.matrix.groups) {
+      for (const item of group.items) {
+        const key = normalizeText(item.name);
+        if (!key) continue;
+        const amount = data.matrix.months
+          .filter((month) => selected.has(monthKey(month.month)))
+          .reduce((sum, month) => sum + (Number(item.values[month.month]) || 0), 0);
+        if (!amount) continue;
+        const current = totals.get(key) ?? { name: item.name, revenues: 0, expenses: 0 };
+        if (group.type === "receita") current.revenues += amount;
+        if (group.type === "despesa") current.expenses += amount;
+        totals.set(key, current);
+      }
+    }
+
+    return Array.from(totals.values())
+      .filter((item) => item.revenues > 0 && item.expenses > 0)
+      .map((item) => {
+        const result = item.revenues - item.expenses;
+        return {
+          ...item,
+          result,
+          percentage: item.revenues !== 0 ? (result / item.revenues) * 100 : null,
+        };
+      })
+      .sort((left, right) => right.result - left.result);
+  }, [data, selectedMonths]);
+
   function printReport(mode: Exclude<PrintMode, null>) {
     setOpenPopup(null);
     setPrintMode(mode);
@@ -372,17 +557,63 @@ export default function AnalisesFinanceirasSementinhaPage() {
       />
 
       <style jsx global>{`
-        .sementinha-print-root { display: none; }
+        .financial-print-root {
+          display: none;
+        }
+
         @media print {
-          body * { visibility: hidden !important; }
-          .sementinha-print-root, .sementinha-print-root * { visibility: visible !important; }
-          .sementinha-print-root {
+          body {
+            background: white !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          .financial-print-root,
+          .financial-print-root * {
+            visibility: visible !important;
+          }
+
+          .financial-print-root {
             display: block !important;
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            color: #10251c;
-            background: white;
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            background: white !important;
+            color: #10251c !important;
+          }
+
+          .print-card {
+            break-inside: avoid;
+          }
+
+          .financial-print-detail table {
+            page-break-inside: auto;
+          }
+
+          .financial-print-detail tr {
+            break-inside: avoid;
+          }
+
+          .financial-expanded-page {
+            break-before: page;
+            page-break-before: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .financial-expanded-page table {
+            font-size: 7px !important;
+            line-height: 1.02 !important;
+          }
+
+          .financial-expanded-page th,
+          .financial-expanded-page td {
+            padding-top: 1.25px !important;
+            padding-bottom: 1.25px !important;
           }
         }
       `}</style>
@@ -572,74 +803,351 @@ export default function AnalisesFinanceirasSementinhaPage() {
       )}
 
       {data && printMode === "resumo" && (
-        <section className="sementinha-print-root" aria-label="Relatório A4 do Sementinha" style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "10px" }}>
-          <header style={{ borderBottom: "2px solid #123D2C", paddingBottom: "7px" }}>
-            <h1 style={{ margin: 0, fontSize: "20px" }}>Sementinha · Finalizado e Análises</h1>
-            <p style={{ margin: "4px 0 0" }}>Período: {periodLabel}</p>
-          </header>
-          <section style={{ marginTop: "10px" }}>
-            <h2 style={{ fontSize: "15px", margin: "0 0 5px" }}>Competência finalizada</h2>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                {[
-                  ["Competência", data.latestFinalized ? monthLabel(data.latestFinalized.month) : "—"],
-                  ["Receitas", money(data.latestFinalized?.revenues)],
-                  ["Despesas", money(data.latestFinalized?.expenses)],
-                  ["Resultado", money(data.latestFinalized?.result)],
-                  ["Saldo final", money(data.latestFinalized?.closingBalance ?? data.latestFinalized?.bankBalance)],
-                ].map(([label, value]) => (
-                  <tr key={label}>
-                    <th style={{ border: "1px solid #cbd5e1", padding: "5px", textAlign: "left", width: "35%" }}>{label}</th>
-                    <td style={{ border: "1px solid #cbd5e1", padding: "5px", fontWeight: 700 }}>{value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-          <section style={{ marginTop: "10px" }}>
-            <h2 style={{ fontSize: "15px", margin: "0 0 5px" }}>Análises do período</h2>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                {[
-                  ["Saldo inicial", money(analysis.openingBalance)],
-                  ["Receitas", money(analysis.revenues)],
-                  ["Despesas", money(analysis.expenses)],
-                  ["Resultado", money(analysis.result)],
-                  ["Saldo final", money(analysis.closingBalance)],
-                ].map(([label, value]) => (
-                  <tr key={label}>
-                    <th style={{ border: "1px solid #cbd5e1", padding: "5px", textAlign: "left", width: "35%" }}>{label}</th>
-                    <td style={{ border: "1px solid #cbd5e1", padding: "5px", fontWeight: 700 }}>{value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "10px" }}>
-            {[ ["Maiores receitas médias", analysis.revenueRanking], ["Maiores despesas médias", analysis.expenseRanking] ].map(([title, ranking]) => (
-              <section key={String(title)}>
-                <h2 style={{ fontSize: "14px", margin: "0 0 5px" }}>{String(title)}</h2>
-                <ol style={{ margin: 0, paddingLeft: "18px" }}>
-                  {(ranking as RankedItem[]).slice(0, 8).map((item) => (
-                    <li key={item.name} style={{ marginBottom: "3px" }}>{item.name}: <strong>{money(item.average)}/mês</strong></li>
-                  ))}
-                </ol>
-              </section>
-            ))}
+        <section
+          className="financial-print-root financial-print-summary"
+          aria-label="Relatório A4 de competência finalizada e análises do Sementinha"
+          style={{
+            fontFamily: "Arial, Helvetica, sans-serif",
+            fontSize: "9px",
+            lineHeight: 1.25,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              borderBottom: "2px solid #123D2C",
+              paddingBottom: "6px",
+            }}
+          >
+            <div>
+              <h1 style={{ margin: 0, fontSize: "18px", fontWeight: 800 }}>
+                Sementinha · Finalizado e Análises
+              </h1>
+              <p style={{ margin: "3px 0 0" }}>
+                Relatório baseado nas competências finalizadas do período selecionado.
+              </p>
+            </div>
+            <p style={{ margin: 0, textAlign: "right", fontWeight: 700 }}>
+              Período: {periodLabel}
+              <br />
+              {selectedMonths.length}{" "}
+              {selectedMonths.length === 1
+                ? "competência finalizada"
+                : "competências finalizadas"}
+            </p>
           </div>
+
+          <section className="print-card" style={{ marginTop: "8px" }}>
+            <h2 style={{ margin: 0, fontSize: "14px", fontWeight: 800 }}>
+              Finalizado
+            </h2>
+            {data.latestFinalized ? (
+              <>
+                <p style={{ margin: "2px 0 5px", fontWeight: 700 }}>
+                  Última competência encerrada: {monthLabel(data.latestFinalized.month)}
+                </p>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <tbody>
+                    <tr>
+                      {[
+                        ["Receitas", data.latestFinalized.revenues],
+                        ["Despesas", data.latestFinalized.expenses],
+                        ["Resultado", data.latestFinalized.result],
+                        ["Saldo final", data.latestFinalized.closingBalance ?? data.latestFinalized.bankBalance],
+                      ].map(([label, value]) => (
+                        <td
+                          key={String(label)}
+                          style={{ border: "1px solid #94A3B8", padding: "5px", verticalAlign: "top" }}
+                        >
+                          <strong>{String(label)}</strong>
+                          <br />
+                          <span style={{ fontSize: "7px", color: "#64748B" }}>
+                            {monthLabel(data.latestFinalized!.month)}
+                          </span>
+                          <br />
+                          <span style={signedStyle(value as number | null)}>
+                            {money(value as number | null)}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            ) : (
+              <p style={{ margin: "4px 0 0" }}>Ainda não há competência finalizada disponível.</p>
+            )}
+          </section>
+
+          <section className="print-card" style={{ marginTop: "9px" }}>
+            <h2 style={{ margin: 0, fontSize: "14px", fontWeight: 800 }}>Análises</h2>
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", marginTop: "5px" }}>
+              <tbody>
+                <tr>
+                  {[
+                    ["Saldo inicial", analysis.openingBalance, selectedMonths[0]],
+                    ["Receitas", analysis.revenues, periodLabel],
+                    ["Despesas", analysis.expenses, periodLabel],
+                    ["Resultado", analysis.result, periodLabel],
+                    ["Saldo final", analysis.closingBalance, selectedMonths[selectedMonths.length - 1]],
+                  ].map(([label, value, dateValue]) => (
+                    <td
+                      key={String(label)}
+                      style={{ border: "1px solid #94A3B8", padding: "4px", verticalAlign: "top" }}
+                    >
+                      <strong>{String(label)}</strong>
+                      <br />
+                      <span style={{ fontSize: "7px", color: "#64748B" }}>
+                        {typeof dateValue === "string" && /^\d{4}-\d{2}/.test(dateValue)
+                          ? monthLabel(dateValue)
+                          : String(dateValue || "—")}
+                      </span>
+                      <br />
+                      <span style={signedStyle(value as number | null)}>
+                        {money(value as number | null)}
+                      </span>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "9px" }}>
+            <section className="print-card">
+              <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+                Maiores receitas médias
+              </h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {analysis.revenueRanking.slice(0, 10).map((item, index) => (
+                    <tr key={`print-receita-${item.name}-${index}`}>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px" }}>
+                        {index + 1}. {item.name}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px", textAlign: "right", whiteSpace: "nowrap", ...signedStyle(item.average) }}>
+                        {money(item.average)}/mês
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            <section className="print-card">
+              <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+                Maiores despesas médias
+              </h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {analysis.expenseRanking.slice(0, 10).map((item, index) => (
+                    <tr key={`print-despesa-${item.name}-${index}`}>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px" }}>
+                        {index + 1}. {item.name}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #CBD5E1", padding: "2px", textAlign: "right", whiteSpace: "nowrap", ...signedStyle(item.average) }}>
+                        {money(item.average)}/mês
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          </div>
+
+          {eventProfitability.length > 0 && (
+            <section className="print-card" style={{ marginTop: "9px" }}>
+              <h3 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>
+                Resultado de eventos com receitas e despesas relacionadas
+              </h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Evento", "Receitas", "Despesas", "Resultado", "Resultado %"].map((label) => (
+                      <th
+                        key={label}
+                        style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: label === "Evento" ? "left" : "right", background: "#E9F2E7" }}
+                      >
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {eventProfitability.map((item) => (
+                    <tr key={`profit-${item.name}`}>
+                      <td style={{ border: "1px solid #CBD5E1", padding: "3px", fontWeight: 700 }}>{item.name}</td>
+                      <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.revenues) }}>{money(item.revenues)}</td>
+                      <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.expenses) }}>{money(item.expenses)}</td>
+                      <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.result) }}>{money(item.result)}</td>
+                      <td style={{ border: "1px solid #CBD5E1", padding: "3px", textAlign: "right", ...signedStyle(item.percentage) }}>{percent(item.percentage)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          <section className="print-card" style={{ marginTop: "9px", border: "1px solid #CBD5E1", padding: "7px" }}>
+            <h3 style={{ margin: 0, fontSize: "11px", fontWeight: 800 }}>
+              O que levou o saldo bancário a estar positivo ou negativo?
+            </h3>
+            <div style={{ marginTop: "4px" }}>
+              <BalanceExplanation analysis={analysis} monthsCount={selectedMonths.length} />
+            </div>
+          </section>
+
+          <p style={{ margin: "7px 0 0", fontSize: "8px", color: "#475569" }}>
+            Leitura automática de apoio à Tesouraria/Financeiro e Diretoria. A conferência dos documentos e lançamentos de origem continua sendo a referência oficial.
+          </p>
         </section>
       )}
 
       {data && printMode === "detalhado" && (
-        <section className="sementinha-print-root" aria-label="Relatório A3 detalhado do Sementinha" style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "9px" }}>
-          <h1 style={{ margin: "0 0 6px", fontSize: "18px" }}>Sementinha · Detalhado — competências finalizadas</h1>
-          <FinancialTransparencyMatrix
-            matrix={data.matrix}
-            title="Detalhado"
-            description="Competências finalizadas do Sementinha, com receitas, despesas, saldos, grupos e itens."
-          />
+        <section
+          className="financial-print-root financial-print-detail"
+          aria-label="Relatório A3 detalhado de competências finalizadas do Sementinha"
+          style={{ fontFamily: "Arial, Helvetica, sans-serif", fontSize: "8px", lineHeight: 1.15 }}
+        >
+          <h1 style={{ margin: 0, fontSize: "18px", fontWeight: 800 }}>
+            Sementinha · Detalhado — competências finalizadas
+          </h1>
+          <p style={{ margin: "3px 0 8px" }}>
+            Visão resumida e expandida de saldos, receitas, despesas, grupos e itens no período selecionado.
+          </p>
+
+          {filteredMatrixMonths.length === 0 ? (
+            <p style={{ margin: "10px 0", fontWeight: 700 }}>
+              O período selecionado não contém competências finalizadas para o relatório detalhado.
+            </p>
+          ) : (
+            <>
+              <section className="print-card">
+                <h2 style={{ margin: "0 0 5px", fontSize: "12px", fontWeight: 800 }}>Resumo do período</h2>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "15%", border: "1px solid #64748B", padding: "3px", textAlign: "left", background: "#123D2C", color: "white" }}>Tipo</th>
+                      <th style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#123D2C", color: "white" }}>Média</th>
+                      {filteredMatrixMonths.map((month) => (
+                        <th key={`summary-head-${month.month}`} style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#123D2C", color: "white" }}>
+                          {monthLabel(month.month)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: "Saldo bancário", values: filteredMatrixMonths.map((month) => month.bankBalance ?? month.closingBalance ?? 0) },
+                      { label: "Receitas", values: filteredMatrixMonths.map((month) => matrixTypeValue(data.matrix, "receita", month.month)) },
+                      { label: "Despesas", values: filteredMatrixMonths.map((month) => matrixTypeValue(data.matrix, "despesa", month.month)) },
+                    ].map((row) => (
+                      <tr key={`summary-row-${row.label}`}>
+                        <td style={{ border: "1px solid #94A3B8", padding: "4px", fontWeight: 800, background: "#E9F2E7" }}>{row.label}</td>
+                        <td style={{ border: "1px solid #94A3B8", padding: "4px", textAlign: "right", background: "#F7FAF2", ...signedStyle(average(row.values)) }}>{money(average(row.values))}</td>
+                        {row.values.map((value, index) => (
+                          <td key={`${row.label}-${filteredMatrixMonths[index]?.month}`} style={{ border: "1px solid #94A3B8", padding: "4px", textAlign: "right", ...signedStyle(value) }}>
+                            {money(value)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+
+              <FinancialLineChart
+                labels={detailSummaryChart.labels}
+                series={[
+                  { label: "Saldo bancário", values: detailSummaryChart.balance },
+                  { label: "Receitas", values: detailSummaryChart.revenues },
+                  { label: "Despesas", values: detailSummaryChart.expenses },
+                ]}
+                title="Evolução de saldo, receitas e despesas"
+                description="Gráfico referente às mesmas competências finalizadas do filtro selecionado."
+                compact
+                className="print-card mt-3"
+              />
+
+              <section className="financial-expanded-page" style={{ marginTop: 0 }}>
+                <h2 style={{ margin: "0 0 4px", fontSize: "11px", fontWeight: 800 }}>Informações expandidas</h2>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "18%", border: "1px solid #64748B", padding: "3px", textAlign: "left", background: "#E9F2E7" }}>Tipo / grupo / item</th>
+                      <th style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#E9F2E7" }}>Média</th>
+                      {filteredMatrixMonths.map((month) => (
+                        <th key={`print-head-${month.month}`} style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#E9F2E7" }}>
+                          {monthLabel(month.month)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: "Saldo inicial", key: "opening" as const, values: filteredMatrixMonths.map((month) => month.openingBalance ?? 0) },
+                      { label: "Saldo final", key: "closing" as const, values: filteredMatrixMonths.map((month) => month.closingBalance ?? month.bankBalance ?? 0) },
+                    ].map((row) => (
+                      <tr key={`print-${row.key}`}>
+                        <td style={{ border: "1px solid #94A3B8", padding: "3px", fontWeight: 800 }}>{row.label}</td>
+                        <td style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", ...signedStyle(average(row.values)) }}>{money(average(row.values))}</td>
+                        {row.values.map((value, index) => (
+                          <td key={`print-${row.key}-${filteredMatrixMonths[index]?.month}`} style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", ...signedStyle(value) }}>
+                            {money(value)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+
+                    {(["receita", "despesa"] as const).flatMap((type) => {
+                      const groups = data.matrix.groups.filter((group) => group.type === type);
+                      const label = type === "receita" ? "Receitas" : "Despesas";
+                      const sectionValues = filteredMatrixMonths.map((month) => matrixTypeValue(data.matrix, type, month.month));
+
+                      return [
+                        <tr key={`print-section-${type}`}>
+                          <td style={{ border: "1px solid #64748B", padding: "3px", fontWeight: 900, background: "#DDEAD8" }}>{label}</td>
+                          <td style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#DDEAD8", ...signedStyle(average(sectionValues)) }}>{money(average(sectionValues))}</td>
+                          {sectionValues.map((value, index) => (
+                            <td key={`print-section-${type}-${filteredMatrixMonths[index]?.month}`} style={{ border: "1px solid #64748B", padding: "3px", textAlign: "right", background: "#DDEAD8", ...signedStyle(value) }}>{money(value)}</td>
+                          ))}
+                        </tr>,
+                        ...groups.flatMap((group) => {
+                          const groupValues = filteredMatrixMonths.map((month) => Number(group.values[month.month]) || 0);
+                          return [
+                            <tr key={`print-group-${type}-${group.group}`}>
+                              <td style={{ border: "1px solid #94A3B8", padding: "3px 3px 3px 9px", fontWeight: 800, background: "#F3F8F0" }}>{group.group}</td>
+                              <td style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", background: "#F3F8F0", ...signedStyle(average(groupValues)) }}>{money(average(groupValues))}</td>
+                              {groupValues.map((value, index) => (
+                                <td key={`print-group-${type}-${group.group}-${filteredMatrixMonths[index]?.month}`} style={{ border: "1px solid #94A3B8", padding: "3px", textAlign: "right", background: "#F3F8F0", ...signedStyle(value) }}>{money(value)}</td>
+                              ))}
+                            </tr>,
+                            ...group.items.map((item) => {
+                              const itemValues = filteredMatrixMonths.map((month) => Number(item.values[month.month]) || 0);
+                              return (
+                                <tr key={`print-item-${type}-${group.group}-${item.name}`}>
+                                  <td style={{ border: "1px solid #CBD5E1", padding: "2px 3px 2px 16px" }}>{item.name}</td>
+                                  <td style={{ border: "1px solid #CBD5E1", padding: "2px 3px", textAlign: "right", ...signedStyle(average(itemValues)) }}>{money(average(itemValues))}</td>
+                                  {itemValues.map((value, index) => (
+                                    <td key={`print-item-${type}-${group.group}-${item.name}-${filteredMatrixMonths[index]?.month}`} style={{ border: "1px solid #CBD5E1", padding: "2px 3px", textAlign: "right", ...signedStyle(value) }}>{money(value)}</td>
+                                  ))}
+                                </tr>
+                              );
+                            }),
+                          ];
+                        }),
+                      ];
+                    })}
+                  </tbody>
+                </table>
+              </section>
+            </>
+          )}
         </section>
       )}
+
     </main>
   );
 }

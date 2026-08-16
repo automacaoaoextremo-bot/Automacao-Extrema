@@ -215,12 +215,16 @@ export default function AtendimentoEmHarmoniaPage() {
         </section>
 
         <section className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3">
-          <button type="button" onClick={() => setModal("orientacoes")} className="min-h-14 rounded-[1.35rem] bg-[#E9F4E6] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
-            Orientações práticas do Tucxa
+          <button type="button" onClick={() => setModal("orientacoes")} className="min-h-14 rounded-[1.35rem] bg-[#E9F4E6] px-4 py-3 text-left text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4">
+            <span className="block text-base font-black text-[#123D2C] sm:text-lg" style={{ fontWeight: 900 }}>
+              Orientações práticas do Tucxa
+            </span>
             <TouchHint />
           </button>
-          <button type="button" onClick={() => setModal("agendamentos")} className="min-h-14 rounded-[1.35rem] bg-[#D6EBD5] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
-            Acolhimento e agendamentos
+          <button type="button" onClick={() => setModal("agendamentos")} className="min-h-14 rounded-[1.35rem] bg-[#D6EBD5] px-4 py-3 text-left text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4">
+            <span className="block text-base font-black text-[#123D2C] sm:text-lg" style={{ fontWeight: 900 }}>
+              Acolhimento e agendamentos
+            </span>
             <TouchHint />
           </button>
           {(canReception || canCambono || canCavalinho) && (

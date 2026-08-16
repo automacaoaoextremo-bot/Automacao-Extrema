@@ -250,9 +250,46 @@ function weekdayFromCode(value: string) {
   return days[value.toUpperCase()] ?? null;
 }
 
-function recurrenceWeekday(rule: string, fallback: number) {
+function weekdayFromText(value: string) {
+  const normalized = normalize(value);
+  if (normalized.includes("domingo")) return 0;
+  if (normalized.includes("segunda")) return 1;
+  if (normalized.includes("terca")) return 2;
+  if (normalized.includes("quarta")) return 3;
+  if (normalized.includes("quinta")) return 4;
+  if (normalized.includes("sexta")) return 5;
+  if (normalized.includes("sabado")) return 6;
+  return null;
+}
+
+function recurrenceWeekday(event: AgendaEvent, rule: string, fallback: number) {
+  // O dia configurado no metadata é o dado semântico que o usuário escolheu
+  // (segunda, terça, quarta...). Ele tem precedência sobre timestamps antigos
+  // que possam ter sido normalizados com um dia de diferença.
+  const metadataWeekday = weekdayFromText(
+    metadataText(event, ["recurrenceWeekday", "recurrence_weekday"]),
+  );
+  if (metadataWeekday != null) return metadataWeekday;
+
   const match = rule.toUpperCase().match(/BYDAY=([^;]+)/);
   return weekdayFromCode(match?.[1]?.split(",")[0] ?? "") ?? fallback;
+}
+
+function recurrenceFrequency(event: AgendaEvent, rule: string) {
+  const normalizedRule = rule.toUpperCase();
+  const metadataFrequency = normalize(
+    metadataText(event, ["recurrenceFrequency", "recurrence_frequency"]),
+  );
+  return {
+    monthly:
+      normalizedRule.includes("FREQ=MONTHLY") ||
+      metadataFrequency.includes("mensal") ||
+      metadataFrequency.includes("month"),
+    intervalDays:
+      normalizedRule.includes("INTERVAL=2") || metadataFrequency.includes("quinzen")
+        ? 14
+        : 7,
+  };
 }
 
 function recurrenceSetPositions(rule: string) {
@@ -309,12 +346,14 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
   if (firstAllowed > `${year}-12-31` || lastKey < `${year}-01-01`) return [];
 
   const weekday = recurrenceWeekday(
+    event,
     ruleUpper,
     new Date(Date.UTC(start.year, start.month - 1, start.day, 12)).getUTCDay(),
   );
+  const frequency = recurrenceFrequency(event, ruleUpper);
   const dates: string[] = [];
 
-  if (ruleUpper.includes("FREQ=MONTHLY")) {
+  if (frequency.monthly) {
     const positions = recurrenceSetPositions(ruleUpper);
     for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
       const candidates = positions.length
@@ -336,8 +375,31 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
     return dates;
   }
 
-  const intervalDays = ruleUpper.includes("INTERVAL=2") ? 14 : 7;
+  const intervalDays = frequency.intervalDays;
   let cursor = new Date(Date.UTC(start.year, start.month - 1, start.day, 12));
+
+  // Em recorrências semanais, o dia configurado (metadata/BYDAY) é a fonte de
+  // verdade para a coluna do calendário. Se starts_at tiver sido gravado ou
+  // normalizado em outro dia da semana, repetir apenas de 7 em 7 dias mantém
+  // o erro para sempre (ex.: segunda exibida na terça).
+  const hasConfiguredWeekday =
+    ruleUpper.includes("BYDAY=") ||
+    Boolean(metadataText(event, ["recurrenceWeekday", "recurrence_weekday"]));
+  if (hasConfiguredWeekday) {
+    const currentWeekday = cursor.getUTCDay();
+    const daysUntilRuleWeekday = (weekday - currentWeekday + 7) % 7;
+    if (daysUntilRuleWeekday > 0) {
+      cursor = new Date(
+        Date.UTC(
+          cursor.getUTCFullYear(),
+          cursor.getUTCMonth(),
+          cursor.getUTCDate() + daysUntilRuleWeekday,
+          12,
+        ),
+      );
+    }
+  }
+
   while (cursor.getUTCFullYear() < year) {
     cursor = new Date(
       Date.UTC(
