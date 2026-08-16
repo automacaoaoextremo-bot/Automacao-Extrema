@@ -39,8 +39,8 @@ type Lesson = {
   course_id: string;
   title: string;
   planned_content?: string | null;
-  starts_at: string;
-  ends_at: string;
+  starts_at: string | null;
+  ends_at: string | null;
   location?: string | null;
   agenda_event_id?: string | null;
   status: string;
@@ -154,6 +154,13 @@ function normalize(value: string) {
     .toLowerCase();
 }
 
+function isCompletedCourse(course?: Pick<Course, "status"> | null) {
+  const status = normalize(course?.status || "");
+  return ["concluido", "finalizado", "encerrado"].some((token) =>
+    status.includes(token),
+  );
+}
+
 function metadataText(event: AgendaEvent, keys: string[]) {
   const metadata = event.metadata ?? {};
   for (const key of keys) {
@@ -265,7 +272,7 @@ function nthWeekdayOfMonth(
   const matches: number[] = [];
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
   for (let day = 1; day <= lastDay; day += 1) {
-    if (new Date(year, monthIndex, day).getDay() === weekday) matches.push(day);
+    if (new Date(Date.UTC(year, monthIndex, day, 12)).getUTCDay() === weekday) matches.push(day);
   }
   const selected = position < 0 ? matches[matches.length + position] : matches[position - 1];
   return selected ? isoDate(year, monthIndex, selected) : "";
@@ -303,7 +310,7 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
 
   const weekday = recurrenceWeekday(
     ruleUpper,
-    new Date(start.year, start.month - 1, start.day).getDay(),
+    new Date(Date.UTC(start.year, start.month - 1, start.day, 12)).getUTCDay(),
   );
   const dates: string[] = [];
 
@@ -330,17 +337,23 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
   }
 
   const intervalDays = ruleUpper.includes("INTERVAL=2") ? 14 : 7;
-  let cursor = new Date(start.year, start.month - 1, start.day, 12);
-  while (cursor.getFullYear() < year) {
+  let cursor = new Date(Date.UTC(start.year, start.month - 1, start.day, 12));
+  while (cursor.getUTCFullYear() < year) {
     cursor = new Date(
-      cursor.getFullYear(),
-      cursor.getMonth(),
-      cursor.getDate() + intervalDays,
-      12,
+      Date.UTC(
+        cursor.getUTCFullYear(),
+        cursor.getUTCMonth(),
+        cursor.getUTCDate() + intervalDays,
+        12,
+      ),
     );
   }
-  while (cursor.getFullYear() === year) {
-    const current = isoDate(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+  while (cursor.getUTCFullYear() === year) {
+    const current = isoDate(
+      cursor.getUTCFullYear(),
+      cursor.getUTCMonth(),
+      cursor.getUTCDate(),
+    );
     if (
       current >= firstAllowed &&
       current <= lastKey &&
@@ -349,10 +362,12 @@ function occurrenceDatesForYear(event: AgendaEvent, year: number) {
       dates.push(current);
     }
     cursor = new Date(
-      cursor.getFullYear(),
-      cursor.getMonth(),
-      cursor.getDate() + intervalDays,
-      12,
+      Date.UTC(
+        cursor.getUTCFullYear(),
+        cursor.getUTCMonth(),
+        cursor.getUTCDate() + intervalDays,
+        12,
+      ),
     );
   }
   return dates;
@@ -770,13 +785,18 @@ export default function CursosEmHarmoniaGestaoPage() {
     [courses, selectedCourseId],
   );
 
-  const selectedCourseCompleted = useMemo(() => {
-    const status = normalize(selectedCourse?.status || "");
-    return ["concluido", "finalizado", "encerrado"].some((token) => status.includes(token));
-  }, [selectedCourse?.status]);
+  const selectedCourseCompleted = useMemo(
+    () => isCompletedCourse(selectedCourse),
+    [selectedCourse],
+  );
+
+  const agendaCourses = useMemo(
+    () => courses.filter((course) => !isCompletedCourse(course)),
+    [courses],
+  );
 
   const courseLessonCalendarEvents = useMemo<AnnualCalendarEvent[]>(() =>
-    lessons.map((lesson) => {
+    lessons.filter((lesson) => Boolean(lesson.starts_at)).map((lesson) => {
       const linkedTeachers = teachers
         .filter((item) => item.lesson_id === lesson.id)
         .map((item) => item.teacher?.full_name || "Professor")
@@ -881,8 +901,11 @@ export default function CursosEmHarmoniaGestaoPage() {
 
   function openCalendarForLesson() {
     if (selectedCourseCompleted && lessons.length > 0) {
-      const firstLessonDate = [...lessons]
-        .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0]?.starts_at.slice(0, 10);
+      const firstLessonDate = lessons
+        .map((lesson) => lesson.starts_at)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0]
+        ?.slice(0, 10);
       prepareCalendar(firstLessonDate || undefined);
       setCalendarScope("course");
     } else {
@@ -895,6 +918,9 @@ export default function CursosEmHarmoniaGestaoPage() {
   function openAgendaCalendar() {
     prepareCalendar();
     setCalendarScope("agenda");
+    if (!selectedCourse || isCompletedCourse(selectedCourse)) {
+      setSelectedCourseId(agendaCourses[0]?.id || "");
+    }
     setOpenPopup("agenda");
   }
 
@@ -998,6 +1024,19 @@ export default function CursosEmHarmoniaGestaoPage() {
     setCourseContent(course.planned_content || "");
     setCourseStatus(course.status);
     setCourseEditorOpen(true);
+  }
+
+  async function copyCourse(course: Course) {
+    if (!window.confirm(`Copiar o curso “${course.name}”? As datas e o cronograma não serão copiados.`)) {
+      return;
+    }
+    const result = await run(
+      { action: "copy-course", courseId: course.id },
+      "Curso copiado. Revise o nome e planeje as novas datas.",
+    );
+    const copiedCourseId =
+      typeof result?.courseId === "string" ? result.courseId : "";
+    if (copiedCourseId) setSelectedCourseId(copiedCourseId);
   }
 
   async function saveCourse(event: FormEvent) {
@@ -1379,6 +1418,15 @@ export default function CursosEmHarmoniaGestaoPage() {
                     className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"
                   >
                     Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyCourse(course)}
+                    disabled={saving}
+                    className="rounded-lg bg-[#FFF7DB] px-3 py-2 text-xs font-black text-[#6F5400] disabled:opacity-50"
+                    title="Copia o cadastro pedagógico sem datas nem cronograma"
+                  >
+                    Copiar curso
                   </button>
                 </div>
               </article>
@@ -1809,16 +1857,20 @@ export default function CursosEmHarmoniaGestaoPage() {
         >
           <div className="mb-3 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
             <CourseSelector
-              courses={courses}
-              selectedCourseId={selectedCourseId}
+              courses={agendaCourses}
+              selectedCourseId={
+                agendaCourses.some((course) => course.id === selectedCourseId)
+                  ? selectedCourseId
+                  : ""
+              }
               onChange={(value) => {
                 setSelectedCourseId(value);
                 setCalendarSelectedDay(null);
               }}
             />
-            {selectedCourseCompleted && (
+            {agendaCourses.length === 0 && (
               <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
-                O curso selecionado está concluído. Escolha um curso em andamento para incluir uma nova aula em uma data livre.
+                Não há curso em andamento disponível para incluir novas aulas.
               </p>
             )}
           </div>
@@ -1839,7 +1891,7 @@ export default function CursosEmHarmoniaGestaoPage() {
               setCalendarSelectedDay({ isoDate: isoDateValue, events })
             }
             onCloseSelectedDay={() => setCalendarSelectedDay(null)}
-            onApplyDate={selectedCourseCompleted ? undefined : startLessonFromAgendaDate}
+            onApplyDate={agendaCourses.length ? startLessonFromAgendaDate : undefined}
           />
         </Popup>
       )}

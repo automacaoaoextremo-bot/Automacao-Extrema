@@ -696,7 +696,7 @@ export default function FilhoCorrenteCorrenteEmDiaPage() {
                 href={
                   financeChoice === "lancamentos"
                     ? "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia/lancamentos?contexto=sementinha"
-                    : "/solucoes/organizacao-em-harmonia/tucxa/sementinha/transparencia#analises"
+                    : "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/corrente-em-dia/analises-sementinha"
                 }
                 className="flex min-h-24 flex-col items-center justify-center rounded-2xl bg-[#E9F2E7] px-4 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
               >

@@ -231,7 +231,7 @@ export default function AtendimentoEmHarmoniaPage() {
           )}
         </section>
 
-        <section className={`mt-3 grid gap-2 sm:mt-4 sm:gap-3 ${canManageCourses ? "sm:grid-cols-2" : ""}`}>
+        <section className={`mt-3 grid gap-2 sm:mt-4 sm:gap-3 ${canManageCourses ? "grid-cols-2" : "grid-cols-1"}`}>
           <button type="button" onClick={() => setSubmodule("escuta")} className="min-h-20 rounded-[1.5rem] bg-[#DDEAD8] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#CFE2C7] hover:shadow-lg sm:px-5">
             <span className="block text-base font-black text-[#123D2C] sm:text-lg">Escuta dos filhos da Corrente</span>
             <TouchHint />

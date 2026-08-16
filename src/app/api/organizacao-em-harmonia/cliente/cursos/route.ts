@@ -33,6 +33,26 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "") || `curso-${Date.now()}`;
 }
 
+function copyCourseMetadata(value: unknown) {
+  const source = record(value);
+  const result: Record<string, unknown> = {};
+  for (const [key, current] of Object.entries(source)) {
+    const normalizedKey = normalize(key);
+    if (
+      normalizedKey.includes("date") ||
+      normalizedKey.includes("data") ||
+      normalizedKey.includes("start") ||
+      normalizedKey.includes("inicio") ||
+      normalizedKey.includes("end") ||
+      normalizedKey.includes("fim")
+    ) {
+      continue;
+    }
+    result[key] = current;
+  }
+  return result;
+}
+
 function dateIso(value: unknown) {
   const raw = text(value);
   if (!raw) return "";
@@ -345,6 +365,125 @@ export async function POST(request: Request) {
         .single();
       if (error) throw error;
       return NextResponse.json({ ok: true, courseId: data.id });
+    }
+
+    if (action === "copy-course") {
+      const sourceCourseId = text(body.courseId);
+      if (!sourceCourseId) {
+        return NextResponse.json({ error: "Selecione o curso que deseja copiar." }, { status: 400 });
+      }
+
+      const { data: sourceCourse, error: sourceError } = await supabaseAdmin
+        .from("oh_courses")
+        .select("id,name,slug,objective,rules,planned_content,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", sourceCourseId)
+        .single();
+      if (sourceError) throw sourceError;
+
+      const copiedName = `${sourceCourse.name} - Cópia`;
+      const copiedSlug = `${slugify(sourceCourse.slug || sourceCourse.name)}-copia-${Date.now().toString(36)}`;
+      const copiedMetadata = {
+        ...copyCourseMetadata(sourceCourse.metadata),
+        copiedFromCourseId: sourceCourse.id,
+        copiedAt: now,
+        copyWithoutDates: true,
+      };
+
+      const { data: copiedCourse, error: copyError } = await supabaseAdmin
+        .from("oh_courses")
+        .insert({
+          organization_id: organizationId,
+          name: copiedName,
+          slug: copiedSlug,
+          objective: sourceCourse.objective,
+          rules: sourceCourse.rules,
+          planned_content: sourceCourse.planned_content,
+          status: "planejamento",
+          active: true,
+          metadata: copiedMetadata,
+          created_by_person_id: actorPersonId,
+          created_at: now,
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+      if (copyError) throw copyError;
+
+      const { data: sourceLessons, error: sourceLessonsError } = await supabaseAdmin
+        .from("oh_course_lessons")
+        .select("id,title,planned_content,location,status,metadata")
+        .eq("organization_id", organizationId)
+        .eq("course_id", sourceCourseId)
+        .order("created_at", { ascending: true });
+      if (sourceLessonsError) throw sourceLessonsError;
+
+      const lessonIdMap = new Map<string, string>();
+      for (const sourceLesson of sourceLessons ?? []) {
+        const { data: copiedLesson, error: copiedLessonError } = await supabaseAdmin
+          .from("oh_course_lessons")
+          .insert({
+            organization_id: organizationId,
+            course_id: copiedCourse.id,
+            title: sourceLesson.title,
+            planned_content: sourceLesson.planned_content,
+            starts_at: null,
+            ends_at: null,
+            location: sourceLesson.location,
+            agenda_event_id: null,
+            status: "prevista",
+            metadata: {
+              ...copyCourseMetadata(sourceLesson.metadata),
+              copiedFromLessonId: sourceLesson.id,
+              copiedAt: now,
+              datesPending: true,
+            },
+            created_by_person_id: actorPersonId,
+            created_at: now,
+            updated_at: now,
+          })
+          .select("id")
+          .single();
+        if (copiedLessonError) throw copiedLessonError;
+        lessonIdMap.set(sourceLesson.id, copiedLesson.id);
+      }
+
+      if (lessonIdMap.size) {
+        const sourceLessonIds = Array.from(lessonIdMap.keys());
+        const { data: sourceTeachers, error: sourceTeachersError } = await supabaseAdmin
+          .from("oh_course_teachers")
+          .select("lesson_id,teacher_person_id")
+          .eq("organization_id", organizationId)
+          .in("lesson_id", sourceLessonIds);
+        if (sourceTeachersError) throw sourceTeachersError;
+
+        const copiedTeachers = (sourceTeachers ?? [])
+          .map((teacher) => {
+            const copiedLessonId = lessonIdMap.get(teacher.lesson_id);
+            return copiedLessonId
+              ? {
+                  organization_id: organizationId,
+                  lesson_id: copiedLessonId,
+                  teacher_person_id: teacher.teacher_person_id,
+                }
+              : null;
+          })
+          .filter((teacher): teacher is { organization_id: string; lesson_id: string; teacher_person_id: string } => Boolean(teacher));
+
+        if (copiedTeachers.length) {
+          const { error: copiedTeachersError } = await supabaseAdmin
+            .from("oh_course_teachers")
+            .insert(copiedTeachers);
+          if (copiedTeachersError) throw copiedTeachersError;
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        courseId: copiedCourse.id,
+        sourceCourseId,
+        copiedLessons: lessonIdMap.size,
+      });
     }
 
     if (action === "check-conflicts") {
