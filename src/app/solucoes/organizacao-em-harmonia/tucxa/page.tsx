@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FinancialTransparencyPopup } from "@/components/organizacao-em-harmonia/financial-transparency-popup";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { TucxaSystemGuideModal } from "@/components/organizacao-em-harmonia/tucxa-system-guide-modal";
 import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,12 @@ const headerActions = [
     label: "Prestação de Contas",
     href: "#prestacao-contas",
     variant: "secondary" as const,
+  },
+  {
+    label: "Guia",
+    href: "#guia",
+    variant: "secondary" as const,
+    action: "openTucxaGuide" as const,
   },
   {
     label: "Ajuda",
@@ -119,6 +126,7 @@ export default async function TucxaSitePage() {
         compactMobileActions
       />
       <FinancialTransparencyPopup />
+      <TucxaSystemGuideModal />
 
       <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">

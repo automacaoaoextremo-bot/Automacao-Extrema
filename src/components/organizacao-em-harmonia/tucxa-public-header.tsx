@@ -10,7 +10,7 @@ type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente" | "signOutConsulente" | "supportWhatsapp";
+  action?: "signOutFilhoCorrente" | "signOutConsulente" | "supportWhatsapp" | "openTucxaGuide";
 };
 
 type TucxaPublicHeaderProps = {
@@ -147,6 +147,11 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
 
     if (link.action === "supportWhatsapp") {
       window.open(buildSupportWhatsappUrl(), "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (link.action === "openTucxaGuide") {
+      window.dispatchEvent(new Event("tucxa:open-system-guide"));
     }
   }
 
