@@ -6,8 +6,8 @@ const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrent
 const atendimentoHref = `${filhoPanelBase}/atendimento`;
 
 const filhoSupportAction = {
-  label: "Dúvidas?",
-  href: "#duvidas",
+  label: "Ajuda",
+  href: "#ajuda",
   variant: "secondary" as const,
   action: "supportWhatsapp" as const,
 };
@@ -22,13 +22,13 @@ const orientacoesHref = `${atendimentoHref}/orientacoes`;
 
 const navItems = [
   { label: "Início", href: orientacoesHref, variant: "primary" as const },
+  { label: "Voltar", href: `${atendimentoHref}?abrir=orientacoes`, variant: "secondary" as const },
   { label: "Organização", href: "#organizacao", variant: "secondary" as const },
   { label: "Antes de Chegar", href: "#antes-de-chegar", variant: "secondary" as const },
   { label: "Postura", href: "#postura", variant: "secondary" as const },
   { label: "Cambonos", href: "#cambonos", variant: "secondary" as const },
   { label: "Cuidados", href: "#cuidados", variant: "secondary" as const },
   { label: "Compromisso", href: "#compromisso", variant: "secondary" as const },
-  { label: "Atendimento em Harmonia", href: atendimentoHref, variant: "secondary" as const },
   filhoSupportAction,
   filhoSignOutAction,
 ];

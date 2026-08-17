@@ -231,6 +231,23 @@ export default function PainelFilhoDaCorrentePage() {
   const [upcoming, setUpcoming] = useState<UpcomingContribution[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("abrir") !== "modulos") return;
+
+      setShortcut("modules");
+      url.searchParams.delete("abrir");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const loadPanelData = useCallback(async (accessToken: string) => {
     const response = await fetch(
       "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",

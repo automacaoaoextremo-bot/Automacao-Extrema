@@ -142,9 +142,37 @@ export default function AtendimentoEmHarmoniaPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("consulta") === "agendamentos") setModal("recepcao");
-      if (params.get("abrir") === "cursos") setSubmodule("cursos");
+      const url = new URL(window.location.href);
+      const consulta = url.searchParams.get("consulta");
+      const abrir = url.searchParams.get("abrir");
+      let consumed = false;
+
+      if (consulta === "agendamentos") {
+        setModal("recepcao");
+        url.searchParams.delete("consulta");
+        consumed = true;
+      }
+      if (abrir === "orientacoes") {
+        setModal("orientacoes");
+        url.searchParams.delete("abrir");
+        consumed = true;
+      } else if (abrir === "agendamentos") {
+        setModal("agendamentos");
+        url.searchParams.delete("abrir");
+        consumed = true;
+      } else if (abrir === "cursos") {
+        setSubmodule("cursos");
+        url.searchParams.delete("abrir");
+        consumed = true;
+      }
+
+      if (consumed) {
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -227,15 +255,16 @@ export default function AtendimentoEmHarmoniaPage() {
             </span>
             <TouchHint />
           </button>
+
           {(canReception || canCambono || canCavalinho) && (
-            <button type="button" onClick={() => setModal("recepcao")} className="col-span-2 min-h-14 rounded-[1.35rem] bg-[#BDDDBF] px-4 py-3 text-left text-base font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:min-h-16 sm:px-5 sm:py-4 sm:text-lg">
-              Consulta de Agendamentos
+            <button type="button" onClick={() => setModal("recepcao")} className="min-h-20 rounded-[1.5rem] bg-[#BDDDBF] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg sm:px-5">
+              <span className="block text-base font-black text-[#123D2C] sm:text-lg" style={{ fontWeight: 900 }}>
+                Consulta de Agendamentos
+              </span>
               <TouchHint />
             </button>
           )}
-        </section>
 
-        <section className={`mt-3 grid gap-2 sm:mt-4 sm:gap-3 ${canManageCourses ? "grid-cols-2" : "grid-cols-1"}`}>
           <button type="button" onClick={() => setSubmodule("escuta")} className="min-h-20 rounded-[1.5rem] bg-[#DDEAD8] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#CFE2C7] hover:shadow-lg sm:px-5">
             <span className="block text-base font-black text-[#123D2C] sm:text-lg">Escuta dos filhos da Corrente</span>
             <TouchHint />
