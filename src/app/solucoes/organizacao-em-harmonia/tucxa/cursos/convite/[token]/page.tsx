@@ -231,19 +231,19 @@ export default function ConviteCursoTucxaPage() {
         actions={[
           {
             label: "Início",
-            href: "/solucoes/organizacao-em-harmonia/tucxa",
+            href: "#inicio",
             variant: "primary",
           },
           {
-            label: "Sou Consulente",
-            href: "/solucoes/organizacao-em-harmonia/tucxa/consulente",
+            label: "Tucxa",
+            href: "/solucoes/organizacao-em-harmonia/tucxa",
           },
         ]}
         navLabel="Convite para curso do Tucxa"
         mobileActionColumns={2}
       />
 
-      <section className="mx-auto grid max-w-3xl gap-4 px-3 py-4 sm:px-6 sm:py-7">
+      <section id="inicio" className="mx-auto grid max-w-3xl scroll-mt-44 gap-4 px-3 py-4 sm:px-6 sm:py-7">
         {loading && (
           <p className="rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">
             Carregando seu convite...
