@@ -195,6 +195,10 @@ export default function AtendimentoEmHarmoniaPage() {
     ].includes(token),
   );
 
+  const canProfessor = functionTokens.some(
+    (token) => token === "professor" || token === "docente" || token.includes("professor"),
+  );
+
   const canManageListening = functionTokens.some((token) =>
     [
       "presidente",
@@ -275,6 +279,16 @@ export default function AtendimentoEmHarmoniaPage() {
               <span className="block text-base font-black text-[#123D2C] sm:text-lg">Gestão de Cursos</span>
               <TouchHint />
             </button>
+          )}
+
+          {canProfessor && (
+            <Link
+              href={`${filhoPanelBase}/cursos`}
+              className="min-h-20 rounded-[1.5rem] bg-[#CFE2C7] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#BDDDBF] hover:shadow-lg sm:px-5"
+            >
+              <span className="block text-base font-black text-[#123D2C] sm:text-lg">Presenças das aulas</span>
+              <TouchHint />
+            </Link>
           )}
         </section>
       </section>

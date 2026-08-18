@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import { ConsulentePanelHeader } from "@/components/organizacao-em-harmonia/consulente-panel-header";
+import { ConsulentePanelHeader, consulenteSignOutAction } from "@/components/organizacao-em-harmonia/consulente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
@@ -1202,7 +1202,16 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <ConsulentePanelHeader navLabel="Agenda Viva do Filho de Fora/Consulente" />
+      <ConsulentePanelHeader
+        navLabel="Agenda Viva do Filho de Fora/Consulente"
+        showSupport={false}
+        actions={[
+          { label: "Início", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel", variant: "primary" },
+          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel?abrir=modulos", variant: "secondary" },
+          { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
+          consulenteSignOutAction,
+        ]}
+      />
 
       <section className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
