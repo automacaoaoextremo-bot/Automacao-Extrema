@@ -10,7 +10,7 @@ import {
 const panelBase = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel";
 const pageHref = `${panelBase}/atendimento`;
 
-type CardId = "orientacoes" | "agendamentos";
+type CardId = "orientacoes" | "agendamentos" | "acervo";
 
 const cards = [
   {
@@ -30,6 +30,15 @@ const cards = [
       "Abra o calendário de atendimento para verificar dias disponíveis, entidades, orientações e registrar sua solicitação quando o fluxo estiver habilitado.",
     cta: "Abrir atendimento",
     href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/agendar",
+  },
+  {
+    id: "acervo" as const,
+    eyebrow: "Acervo Vivo — Biblioteca do Tucxa",
+    title: "Encontre livros e caminhos de estudo.",
+    description:
+      "Consulte o catálogo, descubra trilhas e reserve títulos usando o mesmo cadastro que você já utiliza como Filho de Fora/Consulente.",
+    cta: "Abrir Acervo Vivo",
+    href: `${pageHref}/acervo-vivo`,
   },
 ];
 

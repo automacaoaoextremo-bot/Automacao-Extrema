@@ -242,7 +242,7 @@ export default function AtendimentoEmHarmoniaPage() {
             Cuidar bem começa antes do atendimento.
           </h1>
           <p className="mt-2 text-sm font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
-            Este módulo reúne orientações, acolhimento, agendamentos, escuta e gestão de cursos para que a corrente trabalhe com mais clareza, sem perder o cuidado humano do Tucxa.
+            Este módulo reúne orientações, acolhimento, agendamentos, escuta, cursos e o Acervo Vivo para que a corrente encontre cuidado, formação e conhecimento em um só fluxo, sem perder o cuidado humano do Tucxa.
           </p>
         </section>
 
@@ -273,6 +273,15 @@ export default function AtendimentoEmHarmoniaPage() {
             <span className="block text-base font-black text-[#123D2C] sm:text-lg">Escuta dos filhos da Corrente</span>
             <TouchHint />
           </button>
+
+          <Link
+            href={`${pageHref}/acervo-vivo`}
+            className="min-h-20 rounded-[1.5rem] bg-[#E7F0E2] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#D6EBD5] hover:shadow-lg sm:px-5"
+          >
+            <span className="block text-base font-black text-[#123D2C] sm:text-lg">Acervo Vivo</span>
+            <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">Livros, trilhas e conteúdos para acompanhar sua caminhada.</span>
+            <TouchHint />
+          </Link>
 
           {canManageCourses && (
             <button type="button" onClick={() => setSubmodule("cursos")} className="min-h-20 rounded-[1.5rem] bg-[#DDEAD8] px-4 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#CFE2C7] hover:shadow-lg sm:px-5">
