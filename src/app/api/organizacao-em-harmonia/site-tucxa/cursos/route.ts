@@ -60,6 +60,8 @@ async function publicPayload(token: string) {
     invitation: {
       id: invitation.id,
       name: invitation.invited_name || "Aluno",
+      email: invitation.invited_email || null,
+      whatsapp: invitation.invited_whatsapp || null,
       status: invitation.invitation_status,
       linked: Boolean(invitation.person_id),
       invitedAt: invitation.invited_at,
@@ -143,15 +145,29 @@ export async function POST(request: Request) {
         }
 
         if (!person?.id) {
+          const now = new Date().toISOString();
           await supabaseAdmin
             .from("oh_course_students")
-            .update({ invitation_status: "aguardando_cadastro", updated_at: new Date().toISOString() })
+            .update({
+              invited_email: email || null,
+              invited_whatsapp: whatsapp || invitation.invited_whatsapp || null,
+              invitation_status: "aguardando_cadastro",
+              updated_at: now,
+            })
             .eq("id", invitation.id);
+
+          const registerParams = new URLSearchParams({
+            name: invitation.invited_name || "",
+            whatsapp: whatsapp || invitation.invited_whatsapp || "",
+            returnTo: `/solucoes/organizacao-em-harmonia/tucxa/cursos/convite/${token}`,
+          });
+          if (email) registerParams.set("email", email);
+
           return NextResponse.json({
             ok: false,
             needsRegistration: true,
-            message: "Seu cadastro ainda não foi localizado. Faça o cadastro como Consulente / Filho de Fora e depois volte a este convite para confirmar.",
-            registerUrl: "/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro",
+            message: "Seu cadastro ainda não foi localizado. Confirme os dados no cadastro rápido e depois volte a este convite para finalizar a participação.",
+            registerUrl: `/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro?${registerParams.toString()}`,
           });
         }
         personId = person.id;

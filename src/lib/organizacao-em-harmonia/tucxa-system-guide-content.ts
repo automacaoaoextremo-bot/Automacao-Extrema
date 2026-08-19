@@ -1,8 +1,7 @@
 export type TucxaGuideScreenshot = {
   id: string;
-  fileName: string;
+  fileNames: string[];
   label: string;
-  priority: 1 | 2;
 };
 
 export type TucxaGuideNode = {
@@ -28,37 +27,65 @@ const CONSULENTE = `${TUCXA}/consulente`;
 const CONSULENTE_PAINEL = `${CONSULENTE}/painel`;
 const CLIENTE = "/solucoes/organizacao-em-harmonia/cliente";
 
+export const TUCXA_GUIDE_SCREENSHOT_BASE =
+  "/organizacao-em-harmonia/tucxa/guia";
+
 export const tucxaGuideScreenshots: TucxaGuideScreenshot[] = [
-  { id: "principal-topo", fileName: "01-principal-topo-mobile.png", label: "Página principal — cabeçalho, chamada inicial e acesso aos públicos", priority: 1 },
-  { id: "principal-modulos", fileName: "02-principal-modulos-mobile.png", label: "Página principal — módulos do Tucxa", priority: 1 },
-  { id: "filho-inicio", fileName: "03-filho-corrente-inicio-mobile.png", label: "Página do Filho da Corrente", priority: 1 },
-  { id: "filho-primeiro-acesso", fileName: "04-filho-primeiro-acesso-mobile.png", label: "Primeiro acesso do Filho da Corrente", priority: 1 },
-  { id: "filho-login", fileName: "05-filho-login-mobile.png", label: "Login do Filho da Corrente", priority: 1 },
-  { id: "filho-painel", fileName: "06-filho-painel-mobile.png", label: "Painel do Filho da Corrente", priority: 1 },
-  { id: "filho-atendimento", fileName: "07-filho-atendimento-mobile.png", label: "Atendimento em Harmonia — painel com Orientações, Acolhimento, Escuta e Cursos", priority: 1 },
-  { id: "filho-orientacoes", fileName: "08-filho-orientacoes-mobile.png", label: "Orientações práticas do Filho da Corrente", priority: 1 },
-  { id: "filho-agendamentos", fileName: "09-filho-acolhimento-agendamentos-mobile.png", label: "Acolhimento e agendamentos do Filho da Corrente", priority: 1 },
-  { id: "filho-consulta", fileName: "10-filho-consulta-agendamentos-mobile.png", label: "Consulta de agendamentos / Recepção", priority: 1 },
-  { id: "filho-escuta", fileName: "11-filho-escuta-mobile.png", label: "Escuta dos Filhos da Corrente", priority: 1 },
-  { id: "filho-agenda", fileName: "12-filho-agenda-viva-mobile.png", label: "Agenda Viva no painel do Filho da Corrente", priority: 1 },
-  { id: "filho-atualizar", fileName: "13-filho-atualizar-dados-mobile.png", label: "Atualização de cadastro do Filho da Corrente", priority: 1 },
-  { id: "filho-corrente", fileName: "14-filho-corrente-em-dia-mobile.png", label: "Corrente em Dia no painel do Filho da Corrente", priority: 1 },
-  { id: "cursos-gestao", fileName: "15-cursos-gestao-mobile.png", label: "Gestão de Cursos — curso, aulas, alunos e Agenda Viva", priority: 1 },
-  { id: "cursos-professor", fileName: "16-cursos-sala-professor-mobile.png", label: "Sala de aula do Professor — código e chamada", priority: 1 },
-  { id: "consulente-inicio", fileName: "17-consulente-inicio-mobile.png", label: "Página do Consulente / Filho de Fora", priority: 1 },
-  { id: "consulente-cadastro", fileName: "18-consulente-cadastro-mobile.png", label: "Cadastro do Consulente", priority: 1 },
-  { id: "consulente-login", fileName: "19-consulente-login-mobile.png", label: "Login do Consulente", priority: 1 },
-  { id: "consulente-painel", fileName: "20-consulente-painel-mobile.png", label: "Painel do Consulente", priority: 1 },
-  { id: "consulente-atendimento", fileName: "21-consulente-atendimento-mobile.png", label: "Atendimento em Harmonia do Consulente", priority: 1 },
-  { id: "consulente-agendar", fileName: "22-consulente-agendar-mobile.png", label: "Tela de agendamento do Consulente", priority: 1 },
-  { id: "agenda-publica", fileName: "23-agenda-viva-publica-mobile.png", label: "Agenda Viva pública", priority: 1 },
-  { id: "sementinha-inicio", fileName: "24-sementinha-inicio-mobile.png", label: "Página principal do Sementinha em Harmonia", priority: 1 },
-  { id: "sementinha-despensa", fileName: "25-sementinha-despensa-viva-mobile.png", label: "Despensa Viva", priority: 1 },
-  { id: "sementinha-transparencia", fileName: "26-sementinha-transparencia-mobile.png", label: "Prestação de Contas / Transparência do Sementinha", priority: 2 },
-  { id: "gestao-base", fileName: "27-gestao-base-unica-mobile.png", label: "Base Única administrativa", priority: 2 },
-  { id: "gestao-agenda", fileName: "28-gestao-agenda-viva-mobile.png", label: "Agenda Viva administrativa", priority: 2 },
-  { id: "gestao-validacoes", fileName: "29-gestao-validacoes-mobile.png", label: "Validações administrativas", priority: 2 },
-  { id: "gestao-corrente", fileName: "30-gestao-corrente-em-dia-mobile.png", label: "Corrente em Dia administrativo", priority: 2 },
+  {
+    id: "principal-topo",
+    fileNames: [
+      "01-principal-topo-mobile.png",
+      "02-principal-modulos-mobile-01.png",
+      "02-principal-modulos-mobile-02.png",
+    ],
+    label: "Página principal e módulos do Tucxa em Harmonia",
+  },
+  { id: "filho-inicio", fileNames: ["03-filho-corrente-inicio-mobile.png"], label: "Página do Filho da Corrente" },
+  { id: "filho-primeiro-acesso", fileNames: ["04-filho-primeiro-acesso-mobile.png"], label: "Primeiro acesso do Filho da Corrente" },
+  { id: "filho-login", fileNames: ["05-filho-login-mobile.png"], label: "Login do Filho da Corrente" },
+  { id: "filho-painel", fileNames: ["06-filho-painel-mobile.png"], label: "Painel do Filho da Corrente" },
+  { id: "filho-atendimento", fileNames: ["07-filho-atendimento-mobile.png"], label: "Atendimento em Harmonia do Filho da Corrente" },
+  {
+    id: "filho-orientacoes",
+    fileNames: ["08-filho-orientacoes-mobile-01.png", "08-filho-orientacoes-mobile-02.png"],
+    label: "Orientações práticas do Filho da Corrente",
+  },
+  {
+    id: "filho-agendamentos",
+    fileNames: ["09-filho-acolhimento-agendamentos-mobile-01.png", "09-filho-acolhimento-agendamentos-mobile-02.png"],
+    label: "Acolhimento e agendamentos do Filho da Corrente",
+  },
+  {
+    id: "filho-consulta",
+    fileNames: ["10-filho-consulta-agendamentos-mobile-01.png", "10-filho-consulta-agendamentos-mobile-02.png"],
+    label: "Consulta de agendamentos / Recepção",
+  },
+  {
+    id: "filho-escuta",
+    fileNames: ["11-filho-escuta-mobile-01.png", "11-filho-escuta-mobile-02.png"],
+    label: "Escuta dos Filhos da Corrente",
+  },
+  { id: "filho-agenda", fileNames: ["12-filho-agenda-viva-mobile.png"], label: "Agenda Viva no painel do Filho da Corrente" },
+  {
+    id: "filho-atualizar",
+    fileNames: ["13-filho-atualizar-dados-mobile-01.png", "13-filho-atualizar-dados-mobile-02.png"],
+    label: "Atualização de cadastro do Filho da Corrente",
+  },
+  { id: "filho-corrente", fileNames: ["14-filho-corrente-em-dia-mobile.png"], label: "Corrente em Dia no painel do Filho da Corrente" },
+  {
+    id: "cursos-gestao",
+    fileNames: ["15-cursos-gestao-mobile-01.png", "15-cursos-gestao-mobile-02.png"],
+    label: "Gestão de Cursos — curso, aulas, alunos e Agenda Viva",
+  },
+  { id: "consulente-inicio", fileNames: ["17-consulente-inicio-mobile.png"], label: "Página do Consulente / Filho de Fora" },
+  { id: "consulente-login", fileNames: ["19-consulente-login-mobile.png"], label: "Login do Consulente" },
+  { id: "consulente-painel", fileNames: ["20-consulente-painel-mobile.png"], label: "Painel do Consulente" },
+  { id: "consulente-atendimento", fileNames: ["21-consulente-atendimento-mobile.png"], label: "Atendimento em Harmonia do Consulente" },
+  { id: "consulente-agendar", fileNames: ["22-consulente-agendar-mobile.png"], label: "Tela de agendamento do Consulente" },
+  { id: "agenda-publica", fileNames: ["23-agenda-viva-publica-mobile.png"], label: "Agenda Viva pública" },
+  { id: "sementinha-inicio", fileNames: ["24-sementinha-inicio-mobile.png"], label: "Página principal do Sementinha em Harmonia" },
+  { id: "sementinha-despensa", fileNames: ["25-sementinha-despensa-viva-mobile.png"], label: "Despensa Viva" },
+  { id: "sementinha-transparencia", fileNames: ["26-sementinha-transparencia-mobile.png"], label: "Prestação de Contas / Transparência do Sementinha" },
 ];
 
 export const tucxaSystemGuide: TucxaGuideNode = {
@@ -108,7 +135,6 @@ export const tucxaSystemGuide: TucxaGuideNode = {
           ],
           attention: ["Use dados da própria pessoa que será atendida para evitar duplicidade de cadastro."],
           outcome: "Seus próximos acessos ficam ligados ao mesmo cadastro.",
-          screenshotId: "consulente-cadastro",
         },
         {
           id: "consulente-login",
@@ -402,7 +428,6 @@ export const tucxaSystemGuide: TucxaGuideNode = {
             "Quando necessário, marque Presente, Ausente ou Justificada manualmente.",
           ],
           outcome: "A presença fica registrada no mesmo contexto do curso e da aula.",
-          screenshotId: "cursos-professor",
         },
       ],
     },
@@ -433,10 +458,9 @@ export const tucxaSystemGuide: TucxaGuideNode = {
           summary: "Use a Base Única como referência central para os demais módulos.",
           href: `${CLIENTE}/base-unica`,
           ctaLabel: "Abrir Base Única",
-          accessNote: "Requer acesso administrativo.",
+          accessNote: "Esta etapa depende da validação e do acesso liberado pelo administrador do Tucxa em Harmonia.",
           steps: ["Abra a Base Única.", "Escolha o cadastro que precisa manter.", "Revise antes de salvar para não duplicar pessoas ou funções."],
           outcome: "Os demais módulos passam a consumir a mesma referência de cadastro.",
-          screenshotId: "gestao-base",
         },
         {
           id: "gestao-agenda",
@@ -445,10 +469,9 @@ export const tucxaSystemGuide: TucxaGuideNode = {
           summary: "Use as opções administrativas da Agenda Viva para manter o calendário confiável.",
           href: `${CLIENTE}/agenda-viva`,
           ctaLabel: "Abrir Agenda Viva administrativa",
-          accessNote: "Requer acesso administrativo.",
+          accessNote: "Esta etapa depende da validação e do acesso liberado pelo administrador do Tucxa em Harmonia.",
           steps: ["Escolha cadastros, eventos, calendário, aprovações, presenças ou configurações.", "Faça a alteração necessária.", "Confira o calendário depois de salvar."],
           outcome: "Quem consulta a agenda encontra informação mais consistente.",
-          screenshotId: "gestao-agenda",
         },
         {
           id: "gestao-validacoes",
@@ -457,10 +480,9 @@ export const tucxaSystemGuide: TucxaGuideNode = {
           summary: "Use a validação para manter a qualidade da Base Única e das permissões.",
           href: `${CLIENTE}/validacoes`,
           ctaLabel: "Abrir Validações",
-          accessNote: "Requer função/permissão de validação.",
+          accessNote: "Esta etapa depende da validação e do acesso liberado pelo administrador do Tucxa em Harmonia.",
           steps: ["Abra a fila de validações.", "Confira a solicitação e os dados relacionados.", "Aprove ou trate conforme as opções da tela."],
           outcome: "O acesso deixa de ser liberado automaticamente sem revisão quando a regra exige validação.",
-          screenshotId: "gestao-validacoes",
         },
         {
           id: "gestao-corrente",
@@ -469,10 +491,9 @@ export const tucxaSystemGuide: TucxaGuideNode = {
           summary: "As telas financeiras separam registro, conferência e apresentação para reduzir retrabalho.",
           href: `${CLIENTE}/corrente-em-dia`,
           ctaLabel: "Abrir Corrente em Dia administrativo",
-          accessNote: "Requer acesso financeiro/administrativo.",
+          accessNote: "Esta etapa depende da validação e do acesso liberado pelo administrador do Tucxa em Harmonia.",
           steps: ["Escolha o processo financeiro que precisa executar.", "Registre ou confira os dados.", "Use reconciliação e prestação de contas conforme a etapa do processo."],
           outcome: "A informação financeira fica mais rastreável e preparada para consulta.",
-          screenshotId: "gestao-corrente",
         },
       ],
     },

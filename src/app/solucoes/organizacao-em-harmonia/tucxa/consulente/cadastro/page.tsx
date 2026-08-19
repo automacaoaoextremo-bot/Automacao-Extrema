@@ -50,6 +50,7 @@ export default function CadastroConsulenteTucxaPage() {
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [step, setStep] = useState<Step>(1);
+  const [returnTo, setReturnTo] = useState("");
 
   const stepOneValid = name.trim().length > 0 && onlyDigits(whatsapp).length >= 10;
   const stepTwoValid = password.length >= 8 && (!email.trim() || email.includes("@"));
@@ -59,6 +60,36 @@ export default function CadastroConsulenteTucxaPage() {
     () => [stepOneValid, stepTwoValid, privacyNoticeAccepted],
     [privacyNoticeAccepted, stepOneValid, stepTwoValid],
   );
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prefilledName = params.get("name")?.trim() || "";
+    const prefilledWhatsapp = params.get("whatsapp")?.trim() || "";
+    const prefilledEmail = params.get("email")?.trim() || "";
+    const requestedReturnTo = params.get("returnTo")?.trim() || "";
+
+    // Os parâmetros da URL são uma fonte externa ao estado do React. Aplicamos o
+    // preenchimento após o efeito iniciar para evitar atualizações síncronas de
+    // estado dentro do próprio effect (react-hooks/set-state-in-effect).
+    const timer = window.setTimeout(() => {
+      if (prefilledName) setName(prefilledName);
+      if (prefilledWhatsapp) setWhatsapp(prefilledWhatsapp);
+      if (prefilledEmail) setEmail(prefilledEmail);
+      if (
+        requestedReturnTo.startsWith("/solucoes/organizacao-em-harmonia/tucxa/") &&
+        !requestedReturnTo.startsWith("//")
+      ) {
+        setReturnTo(requestedReturnTo);
+      }
+
+      if (prefilledName || prefilledWhatsapp || prefilledEmail) {
+        setFormOpen(true);
+        setStep(1);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!formOpen) return;
@@ -146,6 +177,10 @@ export default function CadastroConsulenteTucxaPage() {
       });
       const result = (await response.json()) as ConsulenteResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar suas informações.");
+      if (returnTo) {
+        window.location.href = returnTo;
+        return;
+      }
       if (result.redirectUrl) {
         window.location.href = result.redirectUrl;
         return;
