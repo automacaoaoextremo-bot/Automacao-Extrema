@@ -15,6 +15,7 @@ type ShellProps = {
   financialBackHref?: string;
   simpleFinancialActive?: "inicio" | "voltar" | null;
   simpleFinancialHeaderControl?: ReactNode;
+  simpleHeaderHelpMessage?: string;
 };
 
 type NavItem = {
@@ -45,6 +46,42 @@ const topNav: NavItem[] = [
 const MEMBER_PANEL =
   "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const FINANCE_BASE = "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia";
+const LISTENING_BASE = "/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia";
+const COURSES_BASE = "/solucoes/organizacao-em-harmonia/cliente/cursos";
+
+function normalizeAccessToken(value: unknown) {
+  return typeof value === "string"
+    ? value
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    : "";
+}
+
+function memberFunctionTokens(payload: { functionSlugs?: unknown; selectedFunctions?: unknown }) {
+  const functionSlugs = Array.isArray(payload.functionSlugs)
+    ? payload.functionSlugs.map(normalizeAccessToken).filter(Boolean)
+    : [];
+  const selectedFunctions = Array.isArray(payload.selectedFunctions)
+    ? payload.selectedFunctions.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const current = item as Record<string, unknown>;
+        return [current.slug, current.label, current.name]
+          .map(normalizeAccessToken)
+          .filter(Boolean);
+      })
+    : [];
+  return [...functionSlugs, ...selectedFunctions];
+}
+
+function hasAnyMemberFunction(tokens: string[], allowed: string[]) {
+  return allowed
+    .map(normalizeAccessToken)
+    .some((needle) => tokens.includes(needle));
+}
 
 const financialMemberTopNav: NavItem[] = [
   { label: "Painel", href: MEMBER_PANEL },
@@ -64,6 +101,40 @@ const financialMemberSidebarGroups: NavGroup[] = [
       { label: "Lançamentos", href: `${FINANCE_BASE}/lancamentos`, description: "Receitas e despesas." },
       { label: "Gestão Financeira", href: `${FINANCE_BASE}/gestao-financeira`, description: "Indicadores e gestão financeira." },
       { label: "Balancete mensal", href: `${FINANCE_BASE}/balancetes`, description: "Fechamento mensal." },
+    ],
+  },
+];
+
+const listeningMemberTopNav: NavItem[] = [
+  { label: "Painel", href: MEMBER_PANEL },
+  { label: "Escuta em Harmonia", href: LISTENING_BASE },
+];
+
+const listeningMemberSidebarGroups: NavGroup[] = [
+  {
+    label: "Diretoria · Escuta em Harmonia",
+    description: "Questionamentos, prazo de resposta, retorno do solicitante e ações de melhoria.",
+    items: [
+      { label: "Acompanhamento", href: LISTENING_BASE, description: "Responder, acompanhar SLA e registrar ações." },
+      { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },
+    ],
+  },
+];
+
+const coursesMemberTopNav: NavItem[] = [
+  { label: "Painel", href: MEMBER_PANEL },
+  { label: "Cursos em Harmonia", href: COURSES_BASE },
+  { label: "Minhas aulas", href: `${MEMBER_PANEL}/cursos` },
+];
+
+const coursesMemberSidebarGroups: NavGroup[] = [
+  {
+    label: "Atendimento · Cursos em Harmonia",
+    description: "Curso, aulas, professores, alunos, Agenda Viva e presença em um fluxo único.",
+    items: [
+      { label: "Gestão dos cursos", href: COURSES_BASE, description: "Planejar curso, aulas, professores e convites." },
+      { label: "Minhas aulas", href: `${MEMBER_PANEL}/cursos`, description: "Código de presença e chamada do Professor." },
+      { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },
     ],
   },
 ];
@@ -113,6 +184,8 @@ const sidebarGroups: NavGroup[] = [
       { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." },
       { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/configuracoes", description: "Recorrência, ausências, troca de entidade e quarta-feira." },
       { label: "Agendamentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos", description: "Fila, filtros, impressão e status por entidade." },
+      { label: "Escuta em Harmonia", href: LISTENING_BASE, description: "Submódulo para questionamentos, SLA, resposta e ações de melhoria da Diretoria." },
+      { label: "Cursos em Harmonia", href: COURSES_BASE, description: "Submódulo para cursos, professores, alunos, Agenda Viva, convites e presença." },
     ],
   },
   {
@@ -196,11 +269,12 @@ export function OrganizacaoClientShell({
   financialBackHref = `${MEMBER_PANEL}/corrente-em-dia?financeiro=1`,
   simpleFinancialActive = null,
   simpleFinancialHeaderControl,
+  simpleHeaderHelpMessage = "Olá, preciso de ajuda na área financeira do Tucxa em Harmonia.",
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [accessGate, setAccessGate] = useState<
-    "checking" | "client" | "financialMember" | "blocked"
+    "checking" | "client" | "financialMember" | "moduleMember" | "blocked"
   >("checking");
   const [authenticatedName, setAuthenticatedName] = useState("");
 
@@ -225,12 +299,6 @@ export function OrganizacaoClientShell({
         return;
       }
 
-      if (!pathname.startsWith(FINANCE_BASE)) {
-        setAccessGate("blocked");
-        router.replace(MEMBER_PANEL);
-        return;
-      }
-
       const accessToken = session.access_token;
       if (!accessToken) {
         setAccessGate("blocked");
@@ -239,25 +307,69 @@ export function OrganizacaoClientShell({
       }
 
       try {
-        const response = await fetch(
-          "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            cache: "no-store",
-          },
-        );
-        const payload = (await response.json().catch(() => ({}))) as {
-          canManageFinance?: boolean;
-          currentPerson?: { fullName?: string };
-        };
+        if (pathname.startsWith(FINANCE_BASE)) {
+          const response = await fetch(
+            "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              cache: "no-store",
+            },
+          );
+          const payload = (await response.json().catch(() => ({}))) as {
+            canManageFinance?: boolean;
+            currentPerson?: { fullName?: string };
+          };
 
-        if (!active) return;
-        if (payload.currentPerson?.fullName) {
-          setAuthenticatedName(payload.currentPerson.fullName);
-        }
-        if (response.ok && payload.canManageFinance === true) {
-          setAccessGate("financialMember");
-          return;
+          if (!active) return;
+          if (payload.currentPerson?.fullName) {
+            setAuthenticatedName(payload.currentPerson.fullName);
+          }
+          if (response.ok && payload.canManageFinance === true) {
+            setAccessGate("financialMember");
+            return;
+          }
+        } else if (pathname.startsWith(LISTENING_BASE) || pathname.startsWith(COURSES_BASE)) {
+          const response = await fetch(
+            "/api/organizacao-em-harmonia/filhos-corrente/perfil",
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              cache: "no-store",
+            },
+          );
+          const payload = (await response.json().catch(() => ({}))) as {
+            person?: { fullName?: string };
+            functionSlugs?: unknown;
+            selectedFunctions?: unknown;
+          };
+          if (!active) return;
+          if (payload.person?.fullName) setAuthenticatedName(payload.person.fullName);
+
+          const functions = memberFunctionTokens(payload);
+          const canUseListening =
+            pathname.startsWith(LISTENING_BASE) &&
+            hasAnyMemberFunction(functions, [
+              "presidente",
+              "vice-presidente",
+              "diretoria",
+              "diretor",
+              "secretario",
+              "secretaria",
+              "coordenacao",
+              "coordenador",
+            ]);
+          const canUseCourses =
+            pathname.startsWith(COURSES_BASE) &&
+            hasAnyMemberFunction(functions, [
+              "coordenacao-de-cursos",
+              "coordenador-de-cursos",
+              "coordenacao-cursos",
+              "coordenador-cursos",
+            ]);
+
+          if (response.ok && (canUseListening || canUseCourses)) {
+            setAccessGate("moduleMember");
+            return;
+          }
         }
       } catch {
         // O bloqueio abaixo mantém a sessão do Filho da Corrente ativa.
@@ -274,20 +386,34 @@ export function OrganizacaoClientShell({
   }, [pathname, router]);
 
   async function signOut() {
-    const wasFinancialMember = accessGate === "financialMember";
+    const wasMember = accessGate === "financialMember" || accessGate === "moduleMember";
     await supabaseBrowser.auth.signOut();
     router.replace(
-      wasFinancialMember
+      wasMember
         ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
         : "/solucoes/organizacao-em-harmonia/login",
     );
   }
 
   const isFinancialMember = accessGate === "financialMember";
-  const effectiveTopNav = isFinancialMember ? financialMemberTopNav : topNav;
+  const isModuleMember = accessGate === "moduleMember";
+  const isMemberAccess = isFinancialMember || isModuleMember;
+  const moduleMemberTopNav = pathname.startsWith(LISTENING_BASE)
+    ? listeningMemberTopNav
+    : coursesMemberTopNav;
+  const moduleMemberSidebarGroups = pathname.startsWith(LISTENING_BASE)
+    ? listeningMemberSidebarGroups
+    : coursesMemberSidebarGroups;
+  const effectiveTopNav = isFinancialMember
+    ? financialMemberTopNav
+    : isModuleMember
+      ? moduleMemberTopNav
+      : topNav;
   const effectiveSidebarGroups = isFinancialMember
     ? financialMemberSidebarGroups
-    : sidebarGroups;
+    : isModuleMember
+      ? moduleMemberSidebarGroups
+      : sidebarGroups;
   const activeGroup =
     effectiveSidebarGroups.find((group) =>
       group.items.some((item) => isActive(pathname, item.href)),
@@ -305,7 +431,7 @@ export function OrganizacaoClientShell({
           <h1 className="mt-2 text-2xl font-black">{accessGate === "blocked" ? "Acesso de gestão bloqueado" : "Verificando acesso..."}</h1>
           <p className="mt-3 leading-7 text-slate-600">
             {accessGate === "blocked"
-              ? "Este acesso não possui função Tesouraria/Financeiro para a área solicitada. Você será direcionado de volta ao painel do Filho da Corrente."
+              ? "Sua função atual no Tucxa não possui permissão para a área solicitada. Você será direcionado de volta ao painel do Filho da Corrente."
               : "Estamos conferindo se este usuário tem permissão para esta área."}
           </p>
         </div>
@@ -318,7 +444,7 @@ export function OrganizacaoClientShell({
       <header className="sticky top-0 z-40 border-b border-[#123D2C]/10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
           <Link
-            href={isFinancialMember ? MEMBER_PANEL : "/solucoes/organizacao-em-harmonia/cliente"}
+            href={isMemberAccess ? MEMBER_PANEL : "/solucoes/organizacao-em-harmonia/cliente"}
             className="flex min-w-0 flex-1 items-center gap-3"
             aria-label="Ir para o início da área logada do Tucxa"
           >
@@ -397,7 +523,12 @@ export function OrganizacaoClientShell({
               <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
                 Sair
               </button>
-              <a href="https://wa.me/5519989848246?text=Ol%C3%A1%2C%20preciso%20de%20ajuda%20na%20%C3%A1rea%20financeira%20do%20Tucxa%20em%20Harmonia." target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+              <a
+                href={`https://wa.me/5519989848246?text=${encodeURIComponent(simpleHeaderHelpMessage)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+              >
                 Ajuda
               </a>
             </div>
@@ -471,7 +602,9 @@ export function OrganizacaoClientShell({
           <div className="grid gap-5">{children}</div>
         </section>
       </div>
-      {!simpleFinancialHeader && <FinancePendingContributionsLoginModal />}
+      {!simpleFinancialHeader && !isModuleMember && (
+        <FinancePendingContributionsLoginModal />
+      )}
     </main>
   );
 }

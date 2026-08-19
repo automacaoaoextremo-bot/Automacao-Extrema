@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { loadFilhoFunctionOptions } from "@/lib/organizacao-em-harmonia/filho-function-options";
 import {
   SEMENTINHA_COORDINATOR_SLUG,
   isSementinhaSubfunctionSlug,
@@ -936,11 +937,17 @@ export async function POST(request: Request) {
     if (!organization) throw new Error("Organização Tucxa não encontrada.");
 
     if (action === "family-options") {
-      const [people, relationshipTypes] = await Promise.all([
+      const [people, relationshipTypes, functions] = await Promise.all([
         loadEligibleFamilyPeople(organization.id),
         loadFamilyRelationshipOptions(organization.id),
+        loadFilhoFunctionOptions(organization.id),
       ]);
-      return NextResponse.json({ ok: true, people, relationshipTypes });
+      return NextResponse.json({
+        ok: true,
+        people,
+        relationshipTypes,
+        functions,
+      });
     }
 
     if (action === "lookup") {

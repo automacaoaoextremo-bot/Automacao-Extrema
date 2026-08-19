@@ -2,8 +2,36 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FilhoCorrentePanelHeader,
+  type PanelHeaderAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+
+const FILHO_PANEL_BASE =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const ATENDIMENTO_HREF = `${FILHO_PANEL_BASE}/atendimento`;
+
+const headerActions: PanelHeaderAction[] = [
+  { label: "Início", href: FILHO_PANEL_BASE, variant: "primary" },
+  {
+    label: "Voltar",
+    href: `${ATENDIMENTO_HREF}?abrir=agendamentos`,
+    variant: "secondary",
+  },
+  {
+    label: "Ajuda",
+    href: "#ajuda",
+    variant: "secondary",
+    action: "supportWhatsapp",
+  },
+  {
+    label: "Sair",
+    href: "#sair",
+    variant: "secondary",
+    action: "signOutFilhoCorrente",
+  },
+];
 
 type Mode = "self" | "reception";
 type ModalKind = "calendar" | "attendance" | "entities" | "entityInfo" | "existing" | "confirmSelf" | "lookup" | "confirmReception" | "success" | null;
@@ -601,7 +629,12 @@ function AgendamentosFilhoCorrenteContent() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Agendamentos do Atendimento" />
+      <FilhoCorrentePanelHeader
+        navLabel="Agendamentos do Atendimento"
+        actions={headerActions}
+        showSupport={false}
+        mobileActionColumns={4}
+      />
       <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6 lg:px-8">
         <article className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl sm:p-7">
           <p className="text-[0.68rem] font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia</p>

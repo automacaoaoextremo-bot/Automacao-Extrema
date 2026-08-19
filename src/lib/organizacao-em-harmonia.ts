@@ -83,7 +83,17 @@ export const ORGANIZACAO_CLIENT_NAV_ITEMS: OrganizacaoClientNavItem[] = [
   {
     href: "/solucoes/organizacao-em-harmonia/cliente/modulos",
     label: "Módulos",
-    description: "Corrente em Dia, Atendimento em Harmonia e Agenda Viva.",
+    description: "Corrente em Dia, Atendimento, Agenda Viva, Escuta em Harmonia e Cursos em Harmonia.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia",
+    label: "Escuta em Harmonia",
+    description: "Questionamentos, SLA de resposta, retorno do solicitante e ações da Diretoria.",
+  },
+  {
+    href: "/solucoes/organizacao-em-harmonia/cliente/cursos",
+    label: "Cursos em Harmonia",
+    description: "Cursos, aulas, professores, alunos, Agenda Viva, convites e presença.",
   },
   {
     href: "/solucoes/organizacao-em-harmonia/cliente/configuracoes",
@@ -230,6 +240,7 @@ export const TUCXA_BASE_UNICA_PROFILE_FIELDS = [
   "Disponibilidade por dia da semana",
   "Grupo 1, Grupo 2 ou ambos nas quintas",
   "Permissão para aprovar eventos ou alterar calendário",
+  "Professor / docente e cursos em que atua",
 ] as const;
 
 export const AGENDA_VIVA_TUCXA_EVENT_TYPES = [
@@ -245,6 +256,7 @@ export const AGENDA_VIVA_TUCXA_EVENT_TYPES = [
   "Encerramento",
   "Clube do Livro",
   "Grupo de Estudos",
+  "Curso / Formação",
   "Bazar",
   "Bingo",
   "Venda de pizzas",

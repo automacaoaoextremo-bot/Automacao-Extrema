@@ -19,6 +19,7 @@ type UserInfo = {
   fullName: string;
   profileUpdateStatus: string;
   functionSlugs: string[];
+  functionLabels: string[];
 };
 
 type PanelPreferences = {
@@ -66,7 +67,7 @@ const baseModuleCards = [
   {
     title: "Atendimento em Harmonia",
     description:
-      "Orientações, agendamentos e consultas de atendimento em um único módulo.",
+      "Orientações, agendamentos, Escuta em Harmonia e Cursos em Harmonia reunidos em um único módulo.",
     href: `${PANEL_BASE}/atendimento`,
   },
   {
@@ -107,17 +108,19 @@ function ShortcutModal({
         ? "Cadastro"
         : "Configurações";
 
-  const moduleCards = canAccessDespensa
-    ? [
-        ...baseModuleCards,
-        {
-          title: "Despensa Viva",
-          description:
-            "Estoque por lote e validade, composição das cestas, entregas e histórico do Sementinha.",
-          href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva",
-        },
-      ]
-    : baseModuleCards;
+  const moduleCards = [
+    ...baseModuleCards,
+    ...(canAccessDespensa
+      ? [
+          {
+            title: "Despensa Viva",
+            description:
+              "Estoque por lote e validade, composição das cestas, entregas e histórico do Sementinha.",
+            href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva",
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div
@@ -228,6 +231,23 @@ export default function PainelFilhoDaCorrentePage() {
   const [upcoming, setUpcoming] = useState<UpcomingContribution[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("abrir") !== "modulos") return;
+
+      setShortcut("modules");
+      url.searchParams.delete("abrir");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const loadPanelData = useCallback(async (accessToken: string) => {
     const response = await fetch(
       "/api/organizacao-em-harmonia/filhos-corrente/corrente-em-dia",
@@ -276,6 +296,7 @@ export default function PainelFilhoDaCorrentePage() {
             ? metadata.profile_update_status
             : "";
         let functionSlugs: string[] = [];
+        let functionLabels: string[] = [];
 
         if (session.access_token) {
           const [profileResponse] = await Promise.all([
@@ -289,12 +310,19 @@ export default function PainelFilhoDaCorrentePage() {
             .catch(() => ({}))) as {
             profileUpdateStatus?: string;
             functionSlugs?: string[];
+            selectedFunctions?: Array<{ slug?: string; label?: string; name?: string }>;
           };
           if (profileResponse.ok) {
             profileUpdateStatus =
               profilePayload.profileUpdateStatus || profileUpdateStatus;
             functionSlugs = Array.isArray(profilePayload.functionSlugs)
               ? profilePayload.functionSlugs
+              : [];
+            functionLabels = Array.isArray(profilePayload.selectedFunctions)
+              ? profilePayload.selectedFunctions
+                  .map((item) => item.label || item.name || item.slug || "")
+                  .map((item) => item.trim())
+                  .filter(Boolean)
               : [];
           }
         }
@@ -308,6 +336,7 @@ export default function PainelFilhoDaCorrentePage() {
               : user.email || "Filho da Corrente",
           profileUpdateStatus,
           functionSlugs,
+          functionLabels,
         });
         setLoading(false);
       });
@@ -328,6 +357,24 @@ export default function PainelFilhoDaCorrentePage() {
     () => hasDespensaVivaManagement(userInfo?.functionSlugs ?? []),
     [userInfo?.functionSlugs],
   );
+
+  const functionSummary = useMemo(() => {
+    if (!userInfo) return "Somente Filho da Corrente";
+    if (userInfo.functionLabels.length > 0) return userInfo.functionLabels.join(", ");
+    if (userInfo.functionSlugs.length > 0) {
+      return userInfo.functionSlugs
+        .map((slug) =>
+          slug
+            .split("-")
+            .filter(Boolean)
+            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(" "),
+        )
+        .join(", ");
+    }
+    return "Somente Filho da Corrente";
+  }, [userInfo]);
+
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -354,8 +401,9 @@ export default function PainelFilhoDaCorrentePage() {
               </h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
                 Este é o seu espaço de consulta e orientação. Use os atalhos
-                abaixo para abrir módulos, atualizar seu cadastro e escolher
-                quais avisos deseja receber.
+                abaixo para abrir módulos, atualizar seu cadastro (atualmente
+                suas funções são {functionSummary}) e escolher quais avisos
+                deseja receber.
               </p>
             </section>
 

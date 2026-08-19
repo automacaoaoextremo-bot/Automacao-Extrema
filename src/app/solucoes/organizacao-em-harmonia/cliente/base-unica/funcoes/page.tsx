@@ -177,7 +177,7 @@ export default function FuncoesPage() {
       if (result) setPayload(result);
       setForm(emptyRoleForm);
       setEditorOpen(false);
-      setMessage("Função salva. Ela já fica disponível no cadastro de envolvidos, vínculos e permissões.");
+      setMessage("Função salva. Ela já fica disponível no Primeiro Acesso, na atualização de cadastro, em envolvidos, vínculos e permissões.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar função.");
     } finally {

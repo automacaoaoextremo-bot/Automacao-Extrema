@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import {
+  FilhoCorrentePanelHeader,
+  type PanelHeaderAction,
+} from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
@@ -9,6 +12,30 @@ import {
   type AnnualCalendarEvent,
   type AnnualCalendarMode,
 } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
+
+const FILHO_PANEL_BASE =
+  "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+
+const headerActions: PanelHeaderAction[] = [
+  { label: "Início", href: FILHO_PANEL_BASE, variant: "primary" },
+  {
+    label: "Voltar",
+    href: `${FILHO_PANEL_BASE}?abrir=modulos`,
+    variant: "secondary",
+  },
+  {
+    label: "Ajuda",
+    href: "#ajuda",
+    variant: "secondary",
+    action: "supportWhatsapp",
+  },
+  {
+    label: "Sair",
+    href: "#sair",
+    variant: "secondary",
+    action: "signOutFilhoCorrente",
+  },
+];
 
 type AgendaEvent = {
   id: string;
@@ -1200,7 +1227,12 @@ export default function AgendaVivaFilhoDaCorrentePage() {
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Agenda Viva" />
+      <FilhoCorrentePanelHeader
+        navLabel="Agenda Viva"
+        actions={headerActions}
+        showSupport={false}
+        mobileActionColumns={4}
+      />
 
       <section className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">

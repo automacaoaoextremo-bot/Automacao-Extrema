@@ -942,10 +942,10 @@ export default function DespensaVivaPage() {
               Despensa Viva
             </p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C]">
-              Entre para consultar ou atualizar o estoque.
+              Informações públicas ainda em validação.
             </h1>
             <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
-              O acesso é liberado somente para pessoas autorizadas pelo Sementinha/Tucxa.
+              As informações públicas da Despensa do Sementinha ainda estão em validação. Por enquanto, o acesso está liberado para o coordenador do Sementinha com a função Gestor Despensa Viva. Caso este seja o seu caso, entre como Filho da Corrente.
             </p>
             <div className="mt-5">
               <Link
@@ -977,12 +977,16 @@ export default function DespensaVivaPage() {
               Acesso não liberado
             </p>
             <h1 className="mt-2 text-2xl font-black text-[#123D2C]">
-              A Despensa Viva usa função e sub-função da Base Única.
+              Acesso temporariamente restrito à gestão da Despensa Viva.
             </h1>
             <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
-              {error ||
-                "Para acessar, é necessário ter a função Coordenador Sementinha e a sub-função Gestor Despensa Viva."}
+              As informações públicas da Despensa do Sementinha ainda estão em validação. Por enquanto, o acesso está liberado para o coordenador do Sementinha com a função Gestor Despensa Viva.
             </p>
+            {error && (
+              <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold leading-6 text-red-700 ring-1 ring-red-100">
+                {error}
+              </p>
+            )}
           </div>
         </section>
       </main>

@@ -72,6 +72,7 @@ type ProfilePayload = {
     notes?: string;
   };
   functionSlugs?: string[];
+  availableFunctions?: DraftItem[];
   agendaSlugs?: string[];
   profileUpdateStatus?: string;
   selectedEntityIds?: string[];
@@ -260,6 +261,16 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [originalEmail, setOriginalEmail] = useState("");
   const [originalNotes, setOriginalNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
+  const [functionOptions, setFunctionOptions] = useState<DraftItem[]>(
+    filhoDaCorrenteFunctions.map((item) => ({
+      slug: item.slug,
+      label: item.label,
+      description:
+        "description" in item && typeof item.description === "string"
+          ? item.description
+          : "",
+    })),
+  );
   const [agendaSlugs, setAgendaSlugs] = useState<string[]>([]);
   const [originalFunctionSlugs, setOriginalFunctionSlugs] = useState<string[]>([]);
   const [originalAgendaSlugs, setOriginalAgendaSlugs] = useState<string[]>([]);
@@ -359,6 +370,15 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setOriginalEmail(loadedEmail);
     setOriginalNotes(loadedNotes);
     setFunctionSlugs(profile.functionSlugs ?? []);
+    const dynamicFunctions = (profile.availableFunctions ?? []).filter(
+      (item) =>
+        item?.slug &&
+        item?.label &&
+        !isSementinhaSubfunctionSlug(item.slug),
+    );
+    if (dynamicFunctions.length > 0) {
+      setFunctionOptions(dynamicFunctions);
+    }
     setAgendaSlugs(resolvedAgendaSlugs);
     setOriginalFunctionSlugs(profile.functionSlugs ?? []);
     setOriginalAgendaSlugs(resolvedAgendaSlugs);
@@ -415,19 +435,6 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       window.clearTimeout(timer);
     };
   }, [load]);
-
-  const functionOptions = useMemo<DraftItem[]>(
-    () =>
-      filhoDaCorrenteFunctions.map((item) => ({
-        slug: item.slug,
-        label: item.label,
-        description:
-          "description" in item && typeof item.description === "string"
-            ? item.description
-            : "",
-      })),
-    [],
-  );
 
   const allFunctionOptions = useMemo<DraftItem[]>(
     () => [

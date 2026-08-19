@@ -96,7 +96,20 @@ function weekdayFromDate(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][date.getDay()] ?? "";
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+  }).format(date);
+  const codes: Record<string, string> = {
+    Sun: "SU",
+    Mon: "MO",
+    Tue: "TU",
+    Wed: "WE",
+    Thu: "TH",
+    Fri: "FR",
+    Sat: "SA",
+  };
+  return codes[weekday] ?? "";
 }
 
 function buildRecurrenceRule(input: { isRecurring: boolean; frequency: string; weekday: string; startsAt: string | null }) {
