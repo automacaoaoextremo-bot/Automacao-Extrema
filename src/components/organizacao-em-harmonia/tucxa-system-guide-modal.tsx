@@ -180,7 +180,15 @@ function StepsPanel({ node }: { node: TucxaGuideNode }) {
   );
 }
 
-function ScreenshotPanel({ screenshotId }: { screenshotId?: string }) {
+function ScreenshotPanel({
+  screenshotId,
+  href,
+  ctaLabel,
+}: {
+  screenshotId?: string;
+  href?: string;
+  ctaLabel?: string;
+}) {
   const screenshot = findTucxaGuideScreenshot(screenshotId);
   const [index, setIndex] = useState(0);
 
@@ -211,6 +219,15 @@ function ScreenshotPanel({ screenshotId }: { screenshotId?: string }) {
           priority={false}
         />
       </div>
+
+      {href && (
+        <Link
+          href={href}
+          className="mt-2 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-[#123D2C] px-4 py-2.5 text-center text-xs font-black text-white sm:text-sm"
+        >
+          {ctaLabel ?? "Abrir esta tela"}
+        </Link>
+      )}
 
       {screenshot.fileNames.length > 1 && (
         <div className="mt-2 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-2">
@@ -587,6 +604,8 @@ export function TucxaSystemGuideModal() {
             <ScreenshotPanel
               key={current.screenshotId ?? "guide-screenshot"}
               screenshotId={current.screenshotId}
+              href={current.href}
+              ctaLabel={current.ctaLabel}
             />
           </GuideSubModal>
         ) : null}

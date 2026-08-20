@@ -242,7 +242,7 @@ export default function AtendimentoEmHarmoniaPage() {
             Cuidar bem começa antes do atendimento.
           </h1>
           <p className="mt-2 text-sm font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
-            Este módulo reúne orientações, acolhimento, agendamentos, escuta, cursos e o Acervo Vivo para que a corrente encontre cuidado, formação e conhecimento em um só fluxo, sem perder o cuidado humano do Tucxa.
+            Este espaço reúne orientações, acolhimento, agendamentos, escuta, cursos e o Acervo Vivo para que a corrente encontre cuidado, formação e conhecimento em um só fluxo, sem perder o cuidado humano do Tucxa.
           </p>
         </section>
 

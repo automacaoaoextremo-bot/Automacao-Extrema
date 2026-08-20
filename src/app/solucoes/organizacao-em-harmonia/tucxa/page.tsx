@@ -2,13 +2,17 @@ import Link from "next/link";
 import { FinancialTransparencyPopup } from "@/components/organizacao-em-harmonia/financial-transparency-popup";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { TucxaSystemGuideModal } from "@/components/organizacao-em-harmonia/tucxa-system-guide-modal";
+import {
+  TucxaInfoPopupGrid,
+  type TucxaInfoPopupItem,
+} from "@/components/organizacao-em-harmonia/tucxa-info-popup-grid";
 import { getTucxaPublicContent } from "@/lib/organizacao-em-harmonia/tucxa-public-content";
 
 export const dynamic = "force-dynamic";
 
 const benefits = [
   "Menos mensagens perdidas nos grupos de WhatsApp.",
-  "Dados atualizados uma única vez e usados nos três módulos.",
+  "Dados atualizados uma única vez e aproveitados nas diferentes áreas do Tucxa em Harmonia.",
   "Mais segurança para liberar acesso apenas após validação do responsável.",
   "Uso simples no celular, pensando também nos filhos com pouca familiaridade tecnológica.",
 ];
@@ -40,7 +44,7 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
-    label: "Módulos",
+    label: "Acessos",
     href: "#modulos",
     variant: "secondary" as const,
   },
@@ -85,35 +89,65 @@ function AudienceTouchHint({ inverse = false }: { inverse?: boolean }) {
 
 export default async function TucxaSitePage() {
   const content = await getTucxaPublicContent();
-  const modules: Array<{
-    title: string;
-    text: string;
-    href?: string;
-    buttonLabel?: string;
-  }> = [
+  const accesses: TucxaInfoPopupItem[] = [
     {
+      id: "agenda-viva",
       title: "Agenda Viva",
-      text: "Organiza atividades, grupos, escalas, estudos e eventos em um calendário simples para consulta pelo celular.",
+      eyebrow: "Agenda e atividades",
+      summary:
+        "Consulte atividades, grupos, escalas, estudos e eventos em um calendário simples pelo celular.",
+      description:
+        "A Agenda Viva reúne atividades do Tucxa em um calendário único, com visualizações e detalhes que ajudam cada pessoa a entender o que acontece e quando.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva",
-      buttonLabel: "Acessar",
+      ctaLabel: "Abrir Agenda Viva",
+      highlights: [
+        "Atividades e eventos em um só calendário.",
+        "Consulta simples pelo celular.",
+        "Integração com cursos, estudos e ações do Tucxa.",
+      ],
     },
     {
-      title: content.atendimentoEmHarmonia.title,
-      text: content.atendimentoEmHarmonia.description,
+      id: "atendimento-em-harmonia",
+      title: "Atendimento em Harmonia",
+      eyebrow: "Acolhimento, orientação e formação",
+      summary:
+        "Orientações, agendamentos, Escuta em Harmonia, Cursos em Harmonia e Acervo Vivo conectados no mesmo fluxo.",
+      description:
+        "O Atendimento em Harmonia reúne o que ajuda Filhos de Fora/Consulentes e Filhos da Corrente antes, durante e depois do atendimento. Além de orientações e agendamentos, o espaço já conecta consultas autorizadas da Recepção, Escuta em Harmonia, Cursos em Harmonia e o Acervo Vivo — Biblioteca do Tucxa.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/atendimento-em-harmonia",
-      buttonLabel: "Acessar",
+      ctaLabel: "Conhecer Atendimento em Harmonia",
+      highlights: [
+        "Orientações práticas e acolhimento.",
+        "Agendamentos e consultas autorizadas.",
+        "Escuta em Harmonia.",
+        "Cursos em Harmonia e presença nas aulas.",
+        "Acervo Vivo — livros, trilhas e conteúdos.",
+      ],
     },
     {
+      id: "corrente-em-dia",
       title: content.correnteEmDia.title,
-      text: content.correnteEmDia.description,
+      eyebrow: "Contribuições e transparência",
+      summary: content.correnteEmDia.description,
+      description: content.correnteEmDia.description,
       href: "/solucoes/organizacao-em-harmonia/tucxa/corrente-em-dia",
-      buttonLabel: "Acessar",
+      ctaLabel: "Conhecer Corrente em Dia",
     },
     {
+      id: "sementinha-em-harmonia",
       title: "Sementinha em Harmonia",
-      text: "Ações assistenciais do Sementinha conectadas ao Tucxa. A primeira solução é a Despensa Viva, com estoque por lote e validade, composição da cesta e entregas.",
+      eyebrow: "Ações assistenciais",
+      summary:
+        "Ações assistenciais conectadas ao Tucxa, começando pela Despensa Viva e sua organização de alimentos e entregas.",
+      description:
+        "O Sementinha em Harmonia reúne ações assistenciais do Tucxa. A Despensa Viva organiza estoque por lote e validade, composição das cestas, entregas e histórico, preservando também a transparência das ações.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha",
-      buttonLabel: "Conhecer",
+      ctaLabel: "Conhecer Sementinha em Harmonia",
+      highlights: [
+        "Despensa Viva.",
+        "Organização de cestas e entregas.",
+        "Transparência das ações assistenciais.",
+      ],
     },
   ];
 
@@ -295,38 +329,26 @@ export default async function TucxaSitePage() {
 
       <section
         id="modulos"
-        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8"
+        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8"
       >
-        <div className="mb-4">
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">
-            Módulos do Tucxa
-          </p>
-          <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">
-            Quatro frentes conectadas pela mesma Base de Harmonia.
-          </h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {modules.map((module) => (
-            <article
-              key={module.title}
-              className="rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6"
-            >
-              <h3 className="text-lg font-black text-[#123D2C] sm:text-xl">
-                {module.title}
-              </h3>
-              <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-                {module.text}
-              </p>
-              {module.href && (
-                <Link
-                  href={module.href}
-                  className="mt-4 inline-flex rounded-2xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#2F6B43]"
-                >
-                  {module.buttonLabel || "Abrir módulo"}
-                </Link>
-              )}
-            </article>
-          ))}
+        <div className="rounded-[1.75rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10 sm:p-5">
+          <div className="mb-3 sm:mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#2F6B43] sm:text-sm">
+              O que você pode acessar
+            </p>
+            <h2 className="mt-1.5 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">
+              Escolha o que você precisa. Os detalhes aparecem sem alongar a página.
+            </h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600 sm:text-base">
+              No celular, os quatro acessos ficam juntos. Toque em uma opção para entender o que ela oferece e abrir a página correspondente.
+            </p>
+          </div>
+
+          <TucxaInfoPopupGrid
+            items={accesses}
+            ariaLabel="Acessos do Tucxa em Harmonia"
+            columns={4}
+          />
         </div>
       </section>
 

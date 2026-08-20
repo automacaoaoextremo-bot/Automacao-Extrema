@@ -67,7 +67,7 @@ const baseModuleCards = [
   {
     title: "Atendimento em Harmonia",
     description:
-      "Orientações, agendamentos, Escuta em Harmonia e Cursos em Harmonia reunidos em um único módulo.",
+      "Orientações, agendamentos, Escuta em Harmonia, Cursos em Harmonia e Acervo Vivo reunidos em um único espaço.",
     href: `${PANEL_BASE}/atendimento`,
   },
   {
@@ -103,7 +103,7 @@ function ShortcutModal({
 }) {
   const title =
     shortcut === "modules"
-      ? "Módulos"
+      ? "Acessos"
       : shortcut === "registration"
         ? "Cadastro"
         : "Configurações";
@@ -401,7 +401,7 @@ export default function PainelFilhoDaCorrentePage() {
               </h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
                 Este é o seu espaço de consulta e orientação. Use os atalhos
-                abaixo para abrir módulos, atualizar seu cadastro (atualmente
+                abaixo para abrir seus acessos, atualizar seu cadastro (atualmente
                 suas funções são {functionSummary}) e escolher quais avisos
                 deseja receber.
               </p>
@@ -413,7 +413,7 @@ export default function PainelFilhoDaCorrentePage() {
                 onClick={() => setShortcut("modules")}
                 className="rounded-2xl border-2 border-[#123D2C] bg-[#E9F2E7] px-2 py-3 text-center text-xs font-black text-[#123D2C] shadow-lg shadow-green-900/10 ring-2 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-white focus:outline-none focus:ring-4 focus:ring-[#123D2C]/20 sm:px-4 sm:py-4 sm:text-sm"
               >
-                <span className="block">Módulos</span>
+                <span className="block">Acessos</span>
                 <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-[10px]">Toque para abrir</span>
               </button>
               <button

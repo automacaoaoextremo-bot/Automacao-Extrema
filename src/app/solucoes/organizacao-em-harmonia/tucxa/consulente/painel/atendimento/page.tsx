@@ -90,7 +90,7 @@ export default function AtendimentoEmHarmoniaConsulentePage() {
             Cuidar bem começa antes do atendimento.
           </h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            Este módulo organiza as informações que o Filho de Fora/Consulente precisa conhecer para chegar, aguardar, receber seu atendimento e seguir corretamente uma orientação de retorno ou Transformação.
+            Este espaço organiza as informações que o Filho de Fora/Consulente precisa conhecer para chegar, aguardar, receber seu atendimento e seguir corretamente uma orientação de retorno ou Transformação.
           </p>
         </section>
 

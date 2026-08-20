@@ -25,7 +25,7 @@ const moduleCards = [
   {
     title: "Atendimento em Harmonia",
     description:
-      "Orientações do Tucxa para Filhos de Fora/Consulentes: horários, chegada, senha, atendimento, retorno, transformação e acolhimento.",
+      "Orientações, acolhimento, agendamentos e Acervo Vivo reunidos para orientar o atendimento e os caminhos de estudo do Filho de Fora/Consulente.",
     href: `${panelBase}/atendimento`,
   },
   {
@@ -129,7 +129,7 @@ export default function PainelConsulenteTucxaPage() {
                 Olá, {userInfo.fullName.split(/\s+/)[0]}.
               </h1>
               <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-                Este é o seu espaço de consulta e orientação. Abra os módulos quando precisar acompanhar a Agenda Viva, consultar informações de atendimento ou acessar o Corrente em Dia.
+                Este é o seu espaço de consulta e orientação. Abra seus acessos quando precisar acompanhar a Agenda Viva, consultar informações de atendimento ou acessar o Corrente em Dia.
               </p>
             </section>
 
@@ -138,7 +138,7 @@ export default function PainelConsulenteTucxaPage() {
               onClick={() => setModulesOpen(true)}
               className="w-full rounded-[1.5rem] bg-[#E9F2E7] px-5 py-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#DDEAD8] hover:shadow-lg sm:max-w-sm"
             >
-              <span className="block text-lg font-black text-[#123D2C]">Módulos</span>
+              <span className="block text-lg font-black text-[#123D2C]">Acessos</span>
               <TouchHint />
             </button>
           </div>
@@ -150,7 +150,7 @@ export default function PainelConsulenteTucxaPage() {
           className="fixed inset-0 z-[180] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-label="Módulos do Filho de Fora/Consulente"
+          aria-label="Acessos do Filho de Fora/Consulente"
           onMouseDown={(event) => {
             if (event.currentTarget === event.target) setModulesOpen(false);
           }}
@@ -161,7 +161,7 @@ export default function PainelConsulenteTucxaPage() {
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">
                   Área do Filho de Fora/Consulente
                 </p>
-                <h2 className="mt-1 text-2xl font-black text-[#123D2C]">Módulos</h2>
+                <h2 className="mt-1 text-2xl font-black text-[#123D2C]">Acessos</h2>
               </div>
               <button
                 type="button"

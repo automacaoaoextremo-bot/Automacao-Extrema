@@ -177,7 +177,7 @@ export const consulenteGuidelines = [
 export const tucxaNavigation = [
   { href: "#inicio", label: "Início" },
   { href: "#visao", label: "Visão" },
-  { href: "#modulos", label: "Módulos" },
+  { href: "#modulos", label: "Acessos" },
   { href: "#corrente", label: "Filhos da Corrente" },
   { href: "#consulentes", label: "Consulente" },
   { href: "#como-funciona", label: "Como funciona" },
