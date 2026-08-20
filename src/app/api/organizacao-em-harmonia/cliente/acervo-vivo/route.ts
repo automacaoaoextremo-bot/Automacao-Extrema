@@ -69,6 +69,10 @@ type ReservationRow = {
 
 const MANAGEMENT_FUNCTIONS = [
   "biblioteca-acervo-vivo",
+  "gestor-acervo-vivo-biblioteca",
+  "gestor-acervo-vivo-folha-verde",
+  "gestor-acervo-vivo-grupo-de-estudos",
+  "gestor-acervo-vivo-clube-do-livro",
   "biblioteca",
   "bibliotecario",
   "presidente",
@@ -80,6 +84,70 @@ const MANAGEMENT_FUNCTIONS = [
   "coordenacao",
   "coordenador",
 ];
+
+type ManagementPermissions = {
+  library: boolean;
+  libraryRules: boolean;
+  folhaVerde: boolean;
+  grupoEstudos: boolean;
+  clubeLivro: boolean;
+  systemAdmin: boolean;
+};
+
+function membershipTokens(membership: Record<string, unknown> | null) {
+  const profile = record(membership?.agenda_viva_profile);
+  const functionSlugs = Array.isArray(profile.functionSlugs)
+    ? profile.functionSlugs.map((item) => normalize(item)).filter(Boolean)
+    : [];
+  const selectedFunctions = Array.isArray(profile.selectedFunctions)
+    ? profile.selectedFunctions.flatMap((item) => {
+        const current = record(item);
+        return [current.slug, current.label, current.name].map((value) => normalize(value)).filter(Boolean);
+      })
+    : [];
+  return Array.from(new Set([...functionSlugs, ...selectedFunctions]));
+}
+
+async function permissionsForContext(context: {
+  membership: Record<string, unknown> | null;
+}) {
+  const membership = context.membership;
+  const profile = record(membership?.agenda_viva_profile);
+  const tokens = membershipTokens(membership);
+  const roleId = text(membership?.role_id);
+  if (roleId) {
+    const { data: role, error } = await supabaseAdmin
+      .from("oh_roles")
+      .select("slug,name")
+      .eq("id", roleId)
+      .maybeSingle();
+    if (error) throw error;
+    if (role) tokens.push(normalize(role.slug), normalize(role.name));
+  }
+
+  const systemAdmin =
+    profile.isClientAdmin === true ||
+    normalize(membership?.status) === "gestor_cliente" ||
+    tokens.some((token) => ["administrador-sistema", "gestor-cliente", "administrador"].includes(token));
+
+  const has = (...needles: string[]) => needles.some((needle) => tokens.includes(normalize(needle)));
+
+  const dedicatedLibrary = has("biblioteca-acervo-vivo", "gestor-acervo-vivo-biblioteca", "biblioteca", "bibliotecario");
+  const legacyBroadManagement = has("presidente", "vice-presidente", "diretoria", "diretor", "secretario", "secretaria", "coordenacao", "coordenador");
+
+  return {
+    library: systemAdmin || dedicatedLibrary || legacyBroadManagement,
+    libraryRules: systemAdmin || dedicatedLibrary,
+    folhaVerde: systemAdmin || has("gestor-acervo-vivo-folha-verde"),
+    grupoEstudos: systemAdmin || has("gestor-acervo-vivo-grupo-de-estudos"),
+    clubeLivro: systemAdmin || has("gestor-acervo-vivo-clube-do-livro"),
+    systemAdmin,
+  } satisfies ManagementPermissions;
+}
+
+function forbiddenCapability(message: string) {
+  return NextResponse.json({ error: message }, { status: 403 });
+}
 
 function numberValue(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -120,7 +188,7 @@ async function audit(organizationId: string, personId: string | undefined, actio
   });
 }
 
-async function loadPayload(organizationId: string) {
+async function loadPayload(organizationId: string, permissions: ManagementPermissions) {
   const [
     settings,
     titles,
@@ -202,7 +270,38 @@ async function loadPayload(organizationId: string) {
     pendingCovers: titleRows.filter((row) => !row.cover_url || ["pendente", "sugerida"].includes(row.cover_match_status ?? "")).length,
   };
 
+  let catalogWarning: string | null = null;
+  if (metrics.titles === 0 || metrics.copies === 0) {
+    const [otherTitles, otherCopies] = await Promise.all([
+      supabaseAdmin.from("oh_acervo_titles").select("organization_id").limit(5000),
+      supabaseAdmin.from("oh_acervo_copies").select("organization_id").limit(5000),
+    ]);
+    if (!otherTitles.error && !otherCopies.error) {
+      const titleCounts = new Map<string, number>();
+      const copyCounts = new Map<string, number>();
+      for (const row of otherTitles.data ?? []) {
+        const key = text(row.organization_id);
+        if (key) titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+      }
+      for (const row of otherCopies.data ?? []) {
+        const key = text(row.organization_id);
+        if (key) copyCounts.set(key, (copyCounts.get(key) ?? 0) + 1);
+      }
+      const candidates = Array.from(new Set([...titleCounts.keys(), ...copyCounts.keys()]))
+        .filter((id) => id !== organizationId)
+        .map((id) => ({ id, titles: titleCounts.get(id) ?? 0, copies: copyCounts.get(id) ?? 0 }))
+        .sort((left, right) => (right.titles + right.copies) - (left.titles + left.copies));
+      const candidate = candidates[0];
+      catalogWarning = candidate && (candidate.titles > 0 || candidate.copies > 0)
+        ? `O Acervo desta organização está vazio, mas foram encontrados ${candidate.titles} título(s) e ${candidate.copies} exemplar(es) vinculados a outro cadastro de organização. Aplique a migration de reparo do Ajuste 15.`
+        : "O Acervo desta organização está vazio. Aplique a migration de reparo do catálogo do Ajuste 15 e confirme o projeto Supabase usado pelo Vercel.";
+    }
+  }
+
   return {
+    permissions,
+    organizationId,
+    catalogWarning,
     settings: settings.data ?? null,
     titles: titleRows,
     copies: copyRows,
@@ -233,7 +332,8 @@ export async function GET(request: Request) {
   if (!access.ok) return access.response;
 
   try {
-    return NextResponse.json(await loadPayload(access.context.organizationId));
+    const permissions = await permissionsForContext(access.context);
+    return NextResponse.json(await loadPayload(access.context.organizationId, permissions));
   } catch (error) {
     const current = record(error);
     const schemaMissing = text(current.code).toUpperCase() === "42P01" || text(current.code).toUpperCase() === "PGRST205";
@@ -299,7 +399,11 @@ export async function POST(request: Request) {
   const action = text(body.action);
 
   try {
+    const permissions = await permissionsForContext(access.context);
     if (action === "save-settings") {
+      if (!permissions.libraryRules) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar as regras de empréstimo, renovação, reservas e pendências.");
+      }
       const payload = {
         organization_id: organizationId,
         loan_days: Math.max(1, Math.min(365, numberValue(body.loanDays, 30))),
@@ -308,8 +412,11 @@ export async function POST(request: Request) {
         renewal_limit: Math.max(0, Math.min(20, numberValue(body.renewalLimit, 1))),
         reservation_hold_days: Math.max(1, Math.min(30, numberValue(body.reservationHoldDays, 3))),
         public_catalog_enabled: boolValue(body.publicCatalogEnabled, true),
+        member_loans_enabled: boolValue(body.memberLoansEnabled, true),
         member_reservations_enabled: boolValue(body.memberReservationsEnabled, true),
         member_renewals_enabled: boolValue(body.memberRenewalsEnabled, true),
+        block_new_loans_with_overdue: boolValue(body.blockNewLoansWithOverdue, true),
+        block_new_loans_with_pending_fee: boolValue(body.blockNewLoansWithPendingFee, true),
         updated_at: nowIso(),
       };
       const { error } = await supabaseAdmin.from("oh_acervo_settings").upsert(payload, { onConflict: "organization_id" });
@@ -319,6 +426,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-title" || action === "update-title") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar livros.");
       const title = text(body.title);
       if (title.length < 2) return NextResponse.json({ error: "Informe o título da obra." }, { status: 400 });
       const publicationYear = numberValue(body.publicationYear, 0);
@@ -361,6 +469,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "enrich-covers") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode enriquecer capas do catálogo.");
       const limit = Math.max(1, Math.min(12, numberValue(body.limit, 6)));
       const { data: pending, error: pendingError } = await supabaseAdmin
         .from("oh_acervo_titles")
@@ -415,6 +524,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "search-cover") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode pesquisar capas para o catálogo.");
       const titleId = text(body.titleId);
       const { data: title, error } = await supabaseAdmin
         .from("oh_acervo_titles")
@@ -429,6 +539,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "apply-cover") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode confirmar capas do catálogo.");
       const titleId = text(body.titleId);
       const coverUrl = text(body.coverUrl);
       if (!coverUrl) return NextResponse.json({ error: "Capa não informada." }, { status: 400 });
@@ -448,6 +559,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-copy" || action === "update-copy") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar exemplares.");
       const titleId = text(body.titleId);
       if (!titleId) return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
       let assetCode = text(body.assetCode);
@@ -491,20 +603,40 @@ export async function POST(request: Request) {
     }
 
     if (action === "loan") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode registrar empréstimos pela gestão.");
       const copyId = text(body.copyId);
       const personId = text(body.personId);
       if (!copyId || !personId) return NextResponse.json({ error: "Informe o exemplar e a pessoa." }, { status: 400 });
 
-      const [{ data: settings }, { data: copy, error: copyError }, activeLoans, membership] = await Promise.all([
-        supabaseAdmin.from("oh_acervo_settings").select("loan_days,max_active_loans").eq("organization_id", organizationId).maybeSingle(),
+      const [{ data: settings }, { data: copy, error: copyError }, activeLoans, membership, pendingFees] = await Promise.all([
+        supabaseAdmin.from("oh_acervo_settings").select("loan_days,max_active_loans,block_new_loans_with_overdue,block_new_loans_with_pending_fee").eq("organization_id", organizationId).maybeSingle(),
         supabaseAdmin.from("oh_acervo_copies").select("id,title_id,status,active").eq("organization_id", organizationId).eq("id", copyId).maybeSingle(),
-        supabaseAdmin.from("oh_acervo_loans").select("id", { count: "exact" }).eq("organization_id", organizationId).eq("person_id", personId).is("returned_at", null).in("status", ["ativo", "atrasado"]),
-        supabaseAdmin.from("oh_memberships").select("id,active,status").eq("organization_id", organizationId).eq("person_id", personId).eq("active", true).eq("status", "ativo").limit(1).maybeSingle(),
+        supabaseAdmin.from("oh_acervo_loans").select("id,copy_id,due_at,status").eq("organization_id", organizationId).eq("person_id", personId).is("returned_at", null).in("status", ["ativo", "atrasado"]),
+        supabaseAdmin.from("oh_memberships").select("id,active,status").eq("organization_id", organizationId).eq("person_id", personId).eq("active", true).in("status", ["ativo", "gestor_cliente"]).limit(1).maybeSingle(),
+        supabaseAdmin.from("oh_acervo_loans").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("person_id", personId).eq("late_fee_status", "pendente"),
       ]);
-      if (copyError || activeLoans.error || membership.error) throw copyError || activeLoans.error || membership.error;
+      if (copyError || activeLoans.error || membership.error || pendingFees.error) throw copyError || activeLoans.error || membership.error || pendingFees.error;
       if (!membership.data?.id) return NextResponse.json({ error: "A pessoa não possui vínculo ativo com o Tucxa para realizar empréstimos." }, { status: 409 });
       if (!copy?.id || copy.active === false || copy.status !== "disponivel") return NextResponse.json({ error: "Este exemplar não está disponível para empréstimo." }, { status: 409 });
-      if ((activeLoans.count ?? 0) >= (settings?.max_active_loans ?? 3)) return NextResponse.json({ error: "A pessoa atingiu o limite de empréstimos ativos." }, { status: 409 });
+      if ((activeLoans.data ?? []).length >= (settings?.max_active_loans ?? 3)) return NextResponse.json({ error: "A pessoa atingiu o limite de empréstimos ativos." }, { status: 409 });
+      if (settings?.block_new_loans_with_overdue !== false && (activeLoans.data ?? []).some((loan) => loan.status === "atrasado" || new Date(loan.due_at).getTime() < Date.now())) {
+        return NextResponse.json({ error: "A pessoa possui empréstimo em atraso. Regularize antes de registrar um novo empréstimo." }, { status: 409 });
+      }
+      if (settings?.block_new_loans_with_pending_fee !== false && (pendingFees.count ?? 0) > 0) {
+        return NextResponse.json({ error: "A pessoa possui pendência de atraso registrada. Regularize antes de registrar um novo empréstimo." }, { status: 409 });
+      }
+      const activeCopyIds = (activeLoans.data ?? []).map((loan) => loan.copy_id).filter(Boolean);
+      if (activeCopyIds.length > 0) {
+        const { data: activeCopies, error: activeCopiesError } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("title_id")
+          .eq("organization_id", organizationId)
+          .in("id", activeCopyIds);
+        if (activeCopiesError) throw activeCopiesError;
+        if ((activeCopies ?? []).some((item) => item.title_id === copy.title_id)) {
+          return NextResponse.json({ error: "A pessoa já possui um exemplar deste título em empréstimo." }, { status: 409 });
+        }
+      }
 
       const loanDays = settings?.loan_days ?? 30;
       const dueAt = new Date(Date.now() + loanDays * 86_400_000).toISOString();
@@ -528,6 +660,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "return") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode registrar devoluções.");
       const loanId = text(body.loanId);
       const { data: loan, error: loanError } = await supabaseAdmin.from("oh_acervo_loans").select("id,copy_id,due_at,returned_at").eq("organization_id", organizationId).eq("id", loanId).maybeSingle();
       if (loanError) throw loanError;
@@ -566,6 +699,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "update-late-fee") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar pendências e taxas.");
       const loanId = text(body.loanId);
       const status = text(body.status);
       if (!["pendente", "pago", "isento", "nao_aplicavel"].includes(status)) return NextResponse.json({ error: "Situação da taxa inválida." }, { status: 400 });
@@ -576,6 +710,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "generate-qr") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode gerar etiquetas de exemplares.");
       const copyId = text(body.copyId);
       const { data: copy, error } = await supabaseAdmin
         .from("oh_acervo_copies")
@@ -591,6 +726,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-inventory-session") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode iniciar inventários.");
       const name = text(body.name) || `Inventário ${new Date().toLocaleDateString("pt-BR")}`;
       const { data, error } = await supabaseAdmin.from("oh_acervo_inventory_sessions").insert({
         organization_id: organizationId,
@@ -605,6 +741,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "inventory-scan") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode conferir inventários.");
       const sessionId = text(body.sessionId);
       let code = text(body.code);
       if (code.toLowerCase().startsWith("acervo-vivo:")) code = code.slice("acervo-vivo:".length);
@@ -654,6 +791,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "close-inventory-session") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode concluir inventários.");
       const sessionId = text(body.sessionId);
       const [{ count: expected, error: expectedError }, { count: scanned, error: scannedError }] = await Promise.all([
         supabaseAdmin.from("oh_acervo_copies").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("active", true).neq("status", "baixado"),
@@ -674,11 +812,31 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-resource" || action === "update-resource") {
+      let targetResourceType = text(body.resourceType) || "outro";
+      if (action === "update-resource" && !text(body.resourceType)) {
+        const { data: existingResource, error: existingResourceError } = await supabaseAdmin
+          .from("oh_acervo_resources")
+          .select("resource_type")
+          .eq("organization_id", organizationId)
+          .eq("id", text(body.resourceId))
+          .maybeSingle();
+        if (existingResourceError) throw existingResourceError;
+        targetResourceType = text(existingResource?.resource_type) || targetResourceType;
+      }
+      const canManageResource = targetResourceType === "folha_verde"
+        ? permissions.folhaVerde || permissions.library
+        : permissions.library;
+      if (!canManageResource) {
+        return forbiddenCapability(targetResourceType === "folha_verde"
+          ? "Somente o Gestor Acervo Vivo - Folha Verde ou o Gestor Acervo Vivo - Biblioteca pode atualizar o Folha Verde."
+          : "Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar este conteúdo.");
+      }
+
       const title = text(body.title);
       if (!title) return NextResponse.json({ error: "Informe o título do conteúdo." }, { status: 400 });
       const payload = {
         organization_id: organizationId,
-        resource_type: text(body.resourceType) || "outro",
+        resource_type: targetResourceType,
         title,
         description: text(body.description) || null,
         subjects: asTextList(body.subjects),
@@ -705,6 +863,22 @@ export async function POST(request: Request) {
       const resourceId = text(body.resourceId);
       const versionLabel = text(body.versionLabel);
       if (!resourceId || !versionLabel) return NextResponse.json({ error: "Informe o conteúdo e a versão." }, { status: 400 });
+      const { data: versionResource, error: versionResourceError } = await supabaseAdmin
+        .from("oh_acervo_resources")
+        .select("resource_type")
+        .eq("organization_id", organizationId)
+        .eq("id", resourceId)
+        .maybeSingle();
+      if (versionResourceError) throw versionResourceError;
+      const versionResourceType = text(versionResource?.resource_type);
+      const canVersion = versionResourceType === "folha_verde"
+        ? permissions.folhaVerde || permissions.library
+        : permissions.library;
+      if (!canVersion) {
+        return forbiddenCapability(versionResourceType === "folha_verde"
+          ? "Somente o Gestor Acervo Vivo - Folha Verde ou o Gestor Acervo Vivo - Biblioteca pode versionar o Folha Verde."
+          : "Somente o Gestor Acervo Vivo - Biblioteca pode versionar este conteúdo.");
+      }
       if (boolValue(body.isCurrent, false)) {
         const { error } = await supabaseAdmin.from("oh_acervo_resource_versions").update({ is_current: false }).eq("organization_id", organizationId).eq("resource_id", resourceId);
         if (error) throw error;
@@ -727,6 +901,9 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-trail" || action === "update-trail") {
+      if (!(permissions.library || permissions.grupoEstudos || permissions.folhaVerde)) {
+        return forbiddenCapability("Sua função não possui permissão para criar ou atualizar trilhas de estudos.");
+      }
       const name = text(body.name);
       if (!name) return NextResponse.json({ error: "Informe o nome da trilha." }, { status: 400 });
       const payload = {
@@ -757,6 +934,9 @@ export async function POST(request: Request) {
     }
 
     if (action === "add-trail-item") {
+      if (!(permissions.library || permissions.grupoEstudos || permissions.folhaVerde)) {
+        return forbiddenCapability("Sua função não possui permissão para atualizar trilhas de estudos.");
+      }
       const trailId = text(body.trailId);
       const itemType = text(body.itemType);
       if (!trailId || !["title", "resource"].includes(itemType)) return NextResponse.json({ error: "Item da trilha inválido." }, { status: 400 });
@@ -777,6 +957,9 @@ export async function POST(request: Request) {
     }
 
     if (action === "remove-trail-item") {
+      if (!(permissions.library || permissions.grupoEstudos || permissions.folhaVerde)) {
+        return forbiddenCapability("Sua função não possui permissão para atualizar trilhas de estudos.");
+      }
       const itemId = text(body.itemId);
       const { error } = await supabaseAdmin.from("oh_acervo_trail_items").delete().eq("organization_id", organizationId).eq("id", itemId);
       if (error) throw error;
@@ -785,11 +968,27 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-curation") {
+      const curationType = text(body.curationType) || "destaque";
+      const allowedCuration =
+        curationType === "clube_do_livro"
+          ? permissions.clubeLivro || permissions.library
+          : curationType === "grupo_de_estudos"
+            ? permissions.grupoEstudos || permissions.library
+            : permissions.library || permissions.grupoEstudos;
+      if (!allowedCuration) {
+        return forbiddenCapability(
+          curationType === "clube_do_livro"
+            ? "Somente o Gestor Acervo Vivo - Clube do Livro ou o Gestor Acervo Vivo - Biblioteca pode atualizar esta curadoria."
+            : curationType === "grupo_de_estudos"
+              ? "Somente o Gestor Acervo Vivo - Grupo de Estudos ou o Gestor Acervo Vivo - Biblioteca pode atualizar esta curadoria."
+              : "Sua função não possui permissão para criar esta integração.",
+        );
+      }
       const title = text(body.title);
       if (!title) return NextResponse.json({ error: "Informe o título da curadoria." }, { status: 400 });
       const { data, error } = await supabaseAdmin.from("oh_acervo_curations").insert({
         organization_id: organizationId,
-        curation_type: text(body.curationType) || "destaque",
+        curation_type: curationType,
         title,
         description: text(body.description) || null,
         title_id: text(body.titleId) || null,
@@ -808,6 +1007,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "cancel-reservation") {
+      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cancelar reservas pela gestão.");
       const reservationId = text(body.reservationId);
       const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
       if (reservationError) throw reservationError;

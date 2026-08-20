@@ -18,6 +18,17 @@ type TitleRow = {
   availableCopies?: number;
 };
 
+type CopyRow = {
+  id: string;
+  title_id: string;
+  status: string;
+  asset_code?: string | null;
+  legacy_code?: string | null;
+  shelf?: string | null;
+  shelf_position?: string | null;
+  condition?: string | null;
+};
+
 type LoanRow = {
   id: string;
   copy_id: string;
@@ -25,6 +36,8 @@ type LoanRow = {
   returned_at?: string | null;
   status: string;
   renewed_count?: number;
+  title?: TitleRow | null;
+  copy?: CopyRow | null;
 };
 
 type ReservationRow = {
@@ -33,6 +46,7 @@ type ReservationRow = {
   status: string;
   requested_at: string;
   hold_until?: string | null;
+  title?: TitleRow | null;
 };
 
 type ResourceRow = {
@@ -83,14 +97,20 @@ type Curation = {
 
 type Payload = {
   reader?: { personName?: string; profile?: string };
+  catalogWarning?: string | null;
   settings?: {
     loan_days?: number;
     daily_late_fee?: number;
+    max_active_loans?: number;
     renewal_limit?: number;
+    member_loans_enabled?: boolean;
     member_reservations_enabled?: boolean;
     member_renewals_enabled?: boolean;
+    block_new_loans_with_overdue?: boolean;
+    block_new_loans_with_pending_fee?: boolean;
   };
   titles?: TitleRow[];
+  copies?: CopyRow[];
   trails?: Trail[];
   trailItems?: TrailItem[];
   resources?: ResourceRow[];
@@ -109,6 +129,9 @@ type Props = {
 };
 
 type View = "descobrir" | "trilhas" | "meus";
+type MyView = "emprestimos" | "reservas";
+
+const PAGE_SIZE = 4;
 
 function normalize(value: string) {
   return value
@@ -143,21 +166,80 @@ function typeLabel(value: string) {
   return labels[value] ?? value;
 }
 
-function Cover({ title }: { title: TitleRow }) {
+function copyStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    disponivel: "Disponível",
+    emprestado: "Emprestado",
+    reservado: "Reservado",
+    manutencao: "Em manutenção",
+    perdido: "Não localizado",
+    baixado: "Baixado",
+  };
+  return labels[value] ?? value;
+}
+
+function initialKey(title: string) {
+  const first = normalize(title.trim()).charAt(0).toUpperCase();
+  if (/[A-Z]/.test(first)) return first;
+  if (/[0-9]/.test(first)) return "0-9";
+  return "#";
+}
+
+function Cover({ title, compact = false }: { title: TitleRow; compact?: boolean }) {
+  const size = compact ? "h-16 w-11" : "h-28 w-20 sm:h-32 sm:w-24";
   if (title.cover_url) {
     return (
       <div
         role="img"
         aria-label={`Capa de ${title.title}`}
-        className="h-36 w-24 shrink-0 rounded-xl bg-cover bg-center shadow ring-1 ring-black/10 sm:h-40 sm:w-28"
+        className={`${size} shrink-0 rounded-lg bg-cover bg-center shadow ring-1 ring-black/10`}
         style={{ backgroundImage: `url(${title.cover_url})` }}
       />
     );
   }
   return (
-    <div className="flex h-36 w-24 shrink-0 items-center justify-center rounded-xl bg-[#E6EFE3] p-3 text-center text-xs font-black leading-4 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:h-40 sm:w-28">
+    <div className={`flex ${size} shrink-0 items-center justify-center rounded-lg bg-[#E6EFE3] p-1.5 text-center text-[9px] font-black leading-3 text-[#123D2C] ring-1 ring-[#123D2C]/10`}>
       {title.title}
     </div>
+  );
+}
+
+function Modal({ title, eyebrow, onClose, children, z = 200 }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode; z?: number }) {
+  return (
+    <div className="fixed inset-0 flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" style={{ zIndex: z }} role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <section className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] bg-white p-4 shadow-2xl sm:p-5">
+        <div className="flex shrink-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">{eyebrow}</p>
+            <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">{title}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
+        </div>
+        <div className="mt-3 min-h-0 flex-1">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (page: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pages <= 1) return null;
+  return (
+    <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <button type="button" disabled={page <= 1} onClick={() => onChange(page - 1)} className="rounded-xl bg-[#F4F8F1] px-3 py-2 text-xs font-black text-[#123D2C] disabled:opacity-35">Anterior</button>
+      <span className="text-xs font-black text-slate-500">{page}/{pages}</span>
+      <button type="button" disabled={page >= pages} onClick={() => onChange(page + 1)} className="rounded-xl bg-[#F4F8F1] px-3 py-2 text-xs font-black text-[#123D2C] disabled:opacity-35">Próxima</button>
+    </div>
+  );
+}
+
+function AccessButton({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="min-h-24 rounded-2xl bg-white px-2 py-3 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98]">
+      <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
+      <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
+      <span className="mt-2 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+    </button>
   );
 }
 
@@ -168,10 +250,18 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [view, setView] = useState<View | null>(null);
+  const [myView, setMyView] = useState<MyView>("emprestimos");
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("descobrir");
+  const [searchPage, setSearchPage] = useState(1);
+  const [selectedLetter, setSelectedLetter] = useState("");
+  const [letterPage, setLetterPage] = useState(1);
+  const [trailPage, setTrailPage] = useState(1);
   const [selectedTitleId, setSelectedTitleId] = useState("");
+  const [copyPage, setCopyPage] = useState(1);
   const [selectedTrailId, setSelectedTrailId] = useState("");
+  const [trailItemPage, setTrailItemPage] = useState(1);
+  const [myPage, setMyPage] = useState(1);
 
   const load = useCallback(async (accessToken: string) => {
     const response = await fetch(api, {
@@ -202,25 +292,48 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
         if (active) setLoading(false);
       }
     });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [load]);
 
+  useEffect(() => {
+    function closeTop(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (selectedTitleId) setSelectedTitleId("");
+      else if (selectedTrailId) setSelectedTrailId("");
+      else if (selectedLetter) setSelectedLetter("");
+      else if (view) setView(null);
+    }
+    window.addEventListener("keydown", closeTop);
+    return () => window.removeEventListener("keydown", closeTop);
+  }, [selectedLetter, selectedTitleId, selectedTrailId, view]);
+
   const titles = useMemo(() => payload.titles ?? [], [payload.titles]);
+  const copies = useMemo(() => payload.copies ?? [], [payload.copies]);
   const trails = useMemo(() => payload.trails ?? [], [payload.trails]);
   const trailItems = useMemo(() => payload.trailItems ?? [], [payload.trailItems]);
   const resources = useMemo(() => payload.resources ?? [], [payload.resources]);
   const versions = useMemo(() => payload.resourceVersions ?? [], [payload.resourceVersions]);
-  const curations = useMemo(() => payload.curations ?? [], [payload.curations]);
   const loans = useMemo(() => payload.myLoans ?? [], [payload.myLoans]);
   const reservations = useMemo(() => payload.myReservations ?? [], [payload.myReservations]);
   const titleMap = useMemo(() => new Map(titles.map((item) => [item.id, item])), [titles]);
   const resourceMap = useMemo(() => new Map(resources.map((item) => [item.id, item])), [resources]);
 
-  const filteredTitles = useMemo(() => {
+  const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
+  const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
+  const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
+  const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
+
+  const letters = useMemo(() => Array.from(new Set(titles.map((item) => initialKey(item.title)))).sort((a, b) => {
+    if (a === "0-9") return -1;
+    if (b === "0-9") return 1;
+    if (a === "#") return 1;
+    if (b === "#") return -1;
+    return a.localeCompare(b, "pt-BR");
+  }), [titles]);
+
+  const searchedTitles = useMemo(() => {
     const needle = normalize(query.trim());
-    if (!needle) return titles;
+    if (!needle) return [];
     return titles.filter((item) => normalize([
       item.title,
       item.subtitle || "",
@@ -229,16 +342,18 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
     ].join(" ")).includes(needle));
   }, [query, titles]);
 
-  const spotlight = useMemo(() => {
-    const prioritized = curations.find((item) => item.curation_type === "clube_do_livro" && item.title_id)
-      ?? curations.find((item) => item.curation_type === "destaque" && item.title_id);
-    return prioritized?.title_id ? titleMap.get(prioritized.title_id) ?? null : titles[0] ?? null;
-  }, [curations, titleMap, titles]);
-
-  const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
-  const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
-  const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
-  const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
+  const letterTitles = useMemo(() => selectedLetter ? titles.filter((item) => initialKey(item.title) === selectedLetter) : [], [selectedLetter, titles]);
+  const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
+  const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
+  const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
+  const selectedTrailItems = selectedTrail ? trailItems.filter((item) => item.trail_id === selectedTrail.id) : [];
+  const currentTrailItems = selectedTrailItems.slice((trailItemPage - 1) * PAGE_SIZE, trailItemPage * PAGE_SIZE);
+  const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
+  const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
+  const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
+  const currentSelectedCopies = selectedCopies.slice((copyPage - 1) * PAGE_SIZE, copyPage * PAGE_SIZE);
+  const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
+  const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
 
   async function run(body: Record<string, unknown>, message: string) {
     if (!token || saving) return;
@@ -262,187 +377,239 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
     }
   }
 
+  function openTitle(titleId: string) {
+    setCopyPage(1);
+    setSelectedTitleId(titleId);
+  }
+
+  function openView(next: View) {
+    setView(next);
+    setQuery("");
+    setSearchPage(1);
+    setSelectedLetter("");
+    setTrailPage(1);
+    setMyPage(1);
+  }
+
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       {header}
 
-      <section className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
-        <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-7">
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#CFE2C7] sm:text-xs">Acervo Vivo • {audienceLabel}</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">O que você quer estudar hoje?</h1>
-          <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            Encontre livros, materiais da Casa e trilhas que ajudam a transformar uma dúvida em próximo passo de estudo — sem criar outro cadastro para quem já está na Base Única do Tucxa.
+      <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
+        <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
+          <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">
+            Encontre livros, materiais da Casa e trilhas que ajudem a transformar uma dúvida em próximo passo de estudo.
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex gap-2">
             <Link href={homeHref} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C]">Início</Link>
             <Link href={backHref} className="rounded-xl bg-[#D9E8D6] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar</Link>
           </div>
         </section>
 
         {(error || success) && (
-          <div className={`mt-3 rounded-2xl p-4 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>
+          <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>
             {error || success}
           </div>
         )}
 
-        <nav className="mt-3 grid grid-cols-3 gap-2 rounded-2xl bg-white p-2 shadow ring-1 ring-[#123D2C]/10">
-          {([
-            ["descobrir", "Descobrir"],
-            ["trilhas", "Trilhas"],
-            ["meus", `Meus (${activeLoans.length})`],
-          ] as Array<[View, string]>).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setView(value)} className={`rounded-xl px-2 py-2.5 text-xs font-black sm:text-sm ${view === value ? "bg-[#123D2C] text-white" : "bg-[#F4F8F1] text-[#123D2C]"}`}>
-              {label}
-            </button>
-          ))}
-        </nav>
+        {payload.catalogWarning && !error && (
+          <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-5 text-amber-900 ring-1 ring-amber-200">{payload.catalogWarning}</div>
+        )}
 
         {loading ? (
-          <p className="mt-4 rounded-3xl bg-white p-5 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
-        ) : view === "descobrir" ? (
-          <div className="mt-4 grid gap-4">
-            <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-              <label className="grid gap-2 text-sm font-black text-[#123D2C]">
-                Buscar por título, autor ou tema
-                <input value={query} onChange={(event) => setQuery(event.target.value)} className="rounded-2xl border border-[#123D2C]/15 bg-[#F9FBF7] px-4 py-3 text-base font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
-              </label>
-            </section>
-
-            {spotlight && (
-              <section className="rounded-3xl bg-[#E7F0E2] p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43]">Em destaque</p>
-                <div className="mt-3 flex gap-4">
-                  <Cover title={spotlight} />
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-black leading-tight text-[#123D2C]">{spotlight.title}</h2>
-                    {(spotlight.authors ?? []).length > 0 && <p className="mt-1 text-sm font-bold text-slate-600">{spotlight.authors?.join(", ")}</p>}
-                    <p className="mt-3 text-sm font-semibold text-slate-700">{spotlight.availableCopies ? `${spotlight.availableCopies} exemplar(es) disponível(is)` : "Reserve para entrar na fila de leitura."}</p>
-                    <button type="button" onClick={() => setSelectedTitleId(spotlight.id)} className="mt-3 rounded-xl bg-[#123D2C] px-4 py-2.5 text-sm font-black text-white">Conhecer</button>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredTitles.map((item) => (
-                <button key={item.id} type="button" onClick={() => setSelectedTitleId(item.id)} className="flex min-h-44 gap-3 rounded-3xl bg-white p-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg">
-                  <Cover title={item} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-base font-black leading-tight text-[#123D2C]">{item.title}</span>
-                    {(item.authors ?? []).length > 0 && <span className="mt-1 block text-xs font-bold leading-5 text-slate-500">{item.authors?.join(", ")}</span>}
-                    <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-[10px] font-black ${item.availableCopies ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{item.availableCopies ? `${item.availableCopies} disponível(is)` : "Reservar"}</span>
-                  </span>
-                </button>
-              ))}
-              {filteredTitles.length === 0 && <p className="rounded-3xl bg-white p-5 text-sm font-semibold text-slate-500 shadow ring-1 ring-slate-100 sm:col-span-2 xl:col-span-3">Nenhum título encontrado. Tente outro tema ou palavra-chave.</p>}
-            </section>
-          </div>
-        ) : view === "trilhas" ? (
-          <section className="mt-4 grid gap-3 sm:grid-cols-2">
-            {trails.map((trail) => {
-              const count = trailItems.filter((item) => item.trail_id === trail.id).length;
-              return (
-                <button key={trail.id} type="button" onClick={() => setSelectedTrailId(trail.id)} className="rounded-3xl bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
-                  <h2 className="mt-2 text-xl font-black text-[#123D2C]">{trail.name}</h2>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
-                  <p className="mt-3 text-xs font-black text-[#2F6B43]">{count} item(ns) na trilha • TOQUE PARA ABRIR</p>
-                </button>
-              );
-            })}
-          </section>
+          <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
         ) : (
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Meus empréstimos</p>
-              <div className="mt-3 grid gap-2">
-                {activeLoans.map((loan) => (
-                  <article key={loan.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="font-black text-[#123D2C]">Empréstimo ativo</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">Devolver até {formatDate(loan.due_at)} • {loan.renewed_count ?? 0} renovação(ões)</p>
-                    {payload.settings?.member_renewals_enabled !== false && (
-                      <button disabled={saving} type="button" onClick={() => void run({ action: "renew", loanId: loan.id }, "Empréstimo renovado.")} className="mt-3 rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white disabled:opacity-50">Solicitar renovação</button>
-                    )}
-                  </article>
-                ))}
-                {activeLoans.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Você não possui empréstimos ativos.</p>}
-              </div>
-            </section>
-
-            <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-[#123D2C]/10">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Minhas reservas</p>
-              <div className="mt-3 grid gap-2">
-                {activeReservations.map((reservation) => (
-                  <article key={reservation.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="font-black text-[#123D2C]">{titleMap.get(reservation.title_id)?.title || "Livro reservado"}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">{reservation.status === "disponivel" ? `Disponível para retirada${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}.` : `Na fila desde ${formatDate(reservation.requested_at)}.`}</p>
-                    <button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-3 rounded-xl bg-white px-4 py-2 text-xs font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar reserva</button>
-                  </article>
-                ))}
-                {activeReservations.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Você não possui reservas ativas.</p>}
-              </div>
-            </section>
-          </div>
+          <section className="mt-3 grid grid-cols-3 gap-2">
+            <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
+            <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
+            <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
+          </section>
         )}
       </section>
 
-      {selectedTitle && (
-        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedTitleId(""); }}>
-          <section className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 gap-4">
-                <Cover title={selectedTitle} />
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">Livro do Acervo Vivo</p>
-                  <h2 className="mt-1 text-2xl font-black leading-tight text-[#123D2C]">{selectedTitle.title}</h2>
-                  {(selectedTitle.authors ?? []).length > 0 && <p className="mt-1 text-sm font-bold text-slate-500">{selectedTitle.authors?.join(", ")}</p>}
-                </div>
+      {view === "descobrir" && (
+        <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
+          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+            Buscar por título, autor ou tema
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
+          </label>
+
+          {query.trim() ? (
+            <div className="mt-3">
+              <div className="grid gap-2">
+                {currentSearch.map((item) => (
+                  <button key={item.id} type="button" onClick={() => openTitle(item.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
+                    <Cover title={item} compact />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
+                      <span className="mt-1 block text-xs font-semibold text-slate-500">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
+                    </span>
+                    <span className="text-[10px] font-black text-[#2F6B43]">ABRIR</span>
+                  </button>
+                ))}
+                {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
               </div>
-              <button type="button" onClick={() => setSelectedTitleId("")} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
+              <Pager page={searchPage} total={searchedTitles.length} pageSize={PAGE_SIZE} onChange={setSearchPage} />
+              <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
             </div>
-            {selectedTitle.description && <p className="mt-4 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{selectedTitle.description}</p>}
-            {(selectedTitle.subjects ?? []).length > 0 && <div className="mt-4 flex flex-wrap gap-2">{selectedTitle.subjects?.map((subject) => <span key={subject} className="rounded-full bg-[#E7F0E2] px-3 py-1 text-xs font-black text-[#2F6B43]">{subject}</span>)}</div>}
-            <div className="mt-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="font-black text-[#123D2C]">{selectedTitle.availableCopies ? `${selectedTitle.availableCopies} exemplar(es) disponível(is)` : "Nenhum exemplar disponível agora"}</p>
-              <p className="mt-1 text-xs font-semibold text-slate-500">Prazo padrão de empréstimo: {payload.settings?.loan_days ?? 30} dias.</p>
-              {payload.settings?.member_reservations_enabled !== false && !activeReservations.some((item) => item.title_id === selectedTitle.id) && (
-                <button disabled={saving} type="button" onClick={() => void run({ action: "reserve", titleId: selectedTitle.id }, "Reserva registrada. Você poderá acompanhar em Meus empréstimos e reservas.")} className="mt-3 w-full rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Reservar este título</button>
-              )}
+          ) : (
+            <div className="mt-3">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Ou toque na letra inicial</p>
+              <div className="mt-2 grid grid-cols-6 gap-2 sm:grid-cols-9">
+                {letters.map((letter) => (
+                  <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>
+                ))}
+              </div>
+              <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+                O índice mostra somente as iniciais existentes no cadastro. Cada letra abre os títulos e seus exemplares em páginas curtas, sem uma lista longa na tela.
+              </p>
             </div>
-          </section>
-        </div>
+          )}
+        </Modal>
+      )}
+
+      {selectedLetter && (
+        <Modal title={`Títulos com ${selectedLetter}`} eyebrow="Índice alfabético" onClose={() => setSelectedLetter("")} z={220}>
+          <div className="grid gap-2">
+            {currentLetter.map((item) => (
+              <button key={item.id} type="button" onClick={() => { setSelectedLetter(""); openTitle(item.id); }} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
+                <Cover title={item} compact />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
+                  <span className="mt-1 block text-xs font-semibold text-slate-500">{(item.authors ?? []).join(", ") || "Autor não informado"}</span>
+                  <span className="mt-1 block text-[10px] font-black text-[#2F6B43]">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <Pager page={letterPage} total={letterTitles.length} pageSize={PAGE_SIZE} onChange={setLetterPage} />
+        </Modal>
+      )}
+
+      {view === "trilhas" && (
+        <Modal title="Trilhas de estudos" eyebrow="Conhecimento em movimento" onClose={() => setView(null)}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {currentTrails.map((trail) => {
+              const count = trailItems.filter((item) => item.trail_id === trail.id).length;
+              return (
+                <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setTrailItemPage(1); }} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
+                  <h3 className="mt-1 text-base font-black leading-tight text-[#123D2C]">{trail.name}</h3>
+                  <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
+                  <p className="mt-2 text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{count} item(ns) • TOQUE PARA ABRIR</p>
+                </button>
+              );
+            })}
+            {trails.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 sm:col-span-2">As trilhas ainda estão sendo configuradas.</p>}
+          </div>
+          <Pager page={trailPage} total={trails.length} pageSize={PAGE_SIZE} onChange={setTrailPage} />
+        </Modal>
       )}
 
       {selectedTrail && (
-        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedTrailId(""); }}>
-          <section className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">Trilha de estudos</p>
-                <h2 className="mt-1 text-2xl font-black text-[#123D2C]">{selectedTrail.name}</h2>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{selectedTrail.objective || selectedTrail.description}</p>
+        <Modal title={selectedTrail.name} eyebrow="Trilha de estudos" onClose={() => setSelectedTrailId("")} z={220}>
+          <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{selectedTrail.objective || selectedTrail.description}</p>
+          <div className="mt-3 grid gap-2">
+            {currentTrailItems.map((item, index) => {
+              const absoluteIndex = (trailItemPage - 1) * PAGE_SIZE + index;
+              const title = item.title_id ? titleMap.get(item.title_id) : null;
+              const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
+              const currentVersion = resource ? versions.find((version) => version.resource_id === resource.id) : null;
+              return (
+                <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {title ? "Livro" : resource ? typeLabel(resource.resource_type) : "Conteúdo"}{item.required ? " • recomendado" : ""}</p>
+                  <p className="mt-1 truncate text-sm font-black text-[#123D2C]">{title?.title || resource?.title || "Item em configuração"}</p>
+                  {item.note && <p className="mt-1 line-clamp-1 text-xs font-semibold text-slate-600">{item.note}</p>}
+                  {title && <button type="button" onClick={() => { setSelectedTrailId(""); openTitle(title.id); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Ver livro</button>}
+                  {resource && currentVersion?.source_url && <a href={currentVersion.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Abrir conteúdo vigente</a>}
+                </article>
+              );
+            })}
+            {selectedTrailItems.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Esta trilha está criada, mas sua curadoria ainda está em validação.</p>}
+          </div>
+          <Pager page={trailItemPage} total={selectedTrailItems.length} pageSize={PAGE_SIZE} onChange={setTrailItemPage} />
+        </Modal>
+      )}
+
+      {view === "meus" && (
+        <Modal title="Meus livros" eyebrow="Empréstimos e reservas" onClose={() => setView(null)}>
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
+            <button type="button" onClick={() => { setMyView("emprestimos"); setMyPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${myView === "emprestimos" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Empréstimos ({activeLoans.length})</button>
+            <button type="button" onClick={() => { setMyView("reservas"); setMyPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${myView === "reservas" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Reservas ({activeReservations.length})</button>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            {myView === "emprestimos" ? currentMyRows.map((row) => {
+              const loan = row as LoanRow;
+              return (
+                <article key={loan.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="truncate text-sm font-black text-[#123D2C]">{loan.title?.title || "Livro em empréstimo"}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-600">{loan.copy?.asset_code ? `${loan.copy.asset_code} • ` : ""}Devolver até {formatDate(loan.due_at)}</p>
+                  {payload.settings?.member_renewals_enabled !== false && (
+                    <button disabled={saving} type="button" onClick={() => void run({ action: "renew", loanId: loan.id }, "Empréstimo renovado.")} className="mt-2 rounded-lg bg-[#123D2C] px-3 py-1.5 text-[10px] font-black text-white disabled:opacity-50">Solicitar renovação</button>
+                  )}
+                </article>
+              );
+            }) : currentMyRows.map((row) => {
+              const reservation = row as ReservationRow;
+              return (
+                <article key={reservation.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="truncate text-sm font-black text-[#123D2C]">{reservation.title?.title || "Livro reservado"}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-600">{reservation.status === "disponivel" ? `Disponível para retirada${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}.` : `Na fila desde ${formatDate(reservation.requested_at)}.`}</p>
+                  <button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar reserva</button>
+                </article>
+              );
+            })}
+            {myRows.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum registro ativo nesta área.</p>}
+          </div>
+          <Pager page={myPage} total={myRows.length} pageSize={PAGE_SIZE} onChange={setMyPage} />
+        </Modal>
+      )}
+
+      {selectedTitle && (
+        <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" onClose={() => setSelectedTitleId("")} z={240}>
+          <div className="flex gap-3">
+            <Cover title={selectedTitle} />
+            <div className="min-w-0 flex-1">
+              {(selectedTitle.authors ?? []).length > 0 && <p className="text-xs font-bold text-slate-500">{selectedTitle.authors?.join(", ")}</p>}
+              {selectedTitle.description && <p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-slate-600">{selectedTitle.description}</p>}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(selectedTitle.subjects ?? []).slice(0, 3).map((subject) => <span key={subject} className="rounded-full bg-[#E7F0E2] px-2 py-1 text-[9px] font-black text-[#2F6B43]">{subject}</span>)}
               </div>
-              <button type="button" onClick={() => setSelectedTrailId("")} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
             </div>
-            <div className="mt-4 grid gap-2">
-              {trailItems.filter((item) => item.trail_id === selectedTrail.id).map((item, index) => {
-                const title = item.title_id ? titleMap.get(item.title_id) : null;
-                const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
-                const currentVersion = resource ? versions.find((version) => version.resource_id === resource.id) : null;
-                return (
-                  <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">{index + 1}. {title ? "Livro" : resource ? typeLabel(resource.resource_type) : "Conteúdo"}{item.required ? " • recomendado" : ""}</p>
-                    <p className="mt-1 font-black text-[#123D2C]">{title?.title || resource?.title || "Item em configuração"}</p>
-                    {item.note && <p className="mt-1 text-sm font-semibold text-slate-600">{item.note}</p>}
-                    {title && <button type="button" onClick={() => { setSelectedTrailId(""); setSelectedTitleId(title.id); }} className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Ver livro</button>}
-                    {resource && currentVersion?.source_url && <a href={currentVersion.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-xl bg-white px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Abrir conteúdo vigente</a>}
-                  </article>
-                );
-              })}
-              {trailItems.filter((item) => item.trail_id === selectedTrail.id).length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Esta trilha está criada, mas sua curadoria ainda está em validação.</p>}
+          </div>
+
+          <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-black text-[#123D2C]">{selectedCopies.length} exemplar(es)</p>
+              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-[#2F6B43]">{selectedTitle.availableCopies ?? 0} disponível(is)</span>
             </div>
-          </section>
-        </div>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+              {currentSelectedCopies.map((copy) => (
+                <div key={copy.id} className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-[#123D2C]/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black text-[#123D2C]">{copy.asset_code || copy.legacy_code || "Exemplar"}</p>
+                    <p className="text-[10px] font-semibold text-slate-500">{copyStatusLabel(copy.status)}{copy.shelf ? ` • ${copy.shelf}` : ""}</p>
+                  </div>
+                  {copy.status === "disponivel" && payload.settings?.member_loans_enabled !== false && !hasSelectedTitleLoan && (
+                    <button disabled={saving} type="button" onClick={() => void run({ action: "borrow", copyId: copy.id }, "Empréstimo registrado. Confira a data de devolução em Meus livros.")} className="shrink-0 rounded-lg bg-[#123D2C] px-2.5 py-1.5 text-[9px] font-black text-white disabled:opacity-50">EMPRESTAR</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <Pager page={copyPage} total={selectedCopies.length} pageSize={PAGE_SIZE} onChange={setCopyPage} />
+            {hasSelectedTitleLoan && <p className="mt-2 rounded-xl bg-emerald-50 p-2 text-xs font-bold text-emerald-800">Você já possui este título em empréstimo.</p>}
+            {(selectedTitle.availableCopies ?? 0) === 0 && payload.settings?.member_reservations_enabled !== false && !hasSelectedTitleReservation && !hasSelectedTitleLoan && (
+              <button disabled={saving} type="button" onClick={() => void run({ action: "reserve", titleId: selectedTitle.id }, "Reserva registrada. Acompanhe em Meus livros.")} className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50">Entrar na fila de reserva</button>
+            )}
+          </div>
+
+          <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">
+            Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). O sistema também verifica atrasos, pendências e fila de reserva conforme a configuração da Biblioteca.
+          </p>
+        </Modal>
       )}
     </main>
   );

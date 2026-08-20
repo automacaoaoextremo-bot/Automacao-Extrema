@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -68,6 +69,25 @@ export async function getTucxaManagementAccess(
   }
 
   const tokens = memberFunctionTokens(auth.context.membership);
+  const roleId = text(auth.context.membership?.role_id);
+  if (roleId) {
+    const { data: role, error: roleError } = await supabaseAdmin
+      .from("oh_roles")
+      .select("slug,name")
+      .eq("id", roleId)
+      .maybeSingle();
+    if (roleError) {
+      return {
+        ok: false as const,
+        response: NextResponse.json(
+          { error: "Não foi possível validar sua função atual no Tucxa." },
+          { status: 500 },
+        ),
+      };
+    }
+    if (role) tokens.push(normalize(role.slug), normalize(role.name));
+  }
+
   const allowed = allowedMemberFunctions
     .map(normalize)
     .filter(Boolean)

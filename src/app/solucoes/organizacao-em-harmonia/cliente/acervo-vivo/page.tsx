@@ -81,6 +81,16 @@ type CoverCandidate = {
 };
 
 type Payload = {
+  permissions?: {
+    library?: boolean;
+    libraryRules?: boolean;
+    folhaVerde?: boolean;
+    grupoEstudos?: boolean;
+    clubeLivro?: boolean;
+    systemAdmin?: boolean;
+  };
+  organizationId?: string;
+  catalogWarning?: string | null;
   settings?: {
     loan_days?: number;
     daily_late_fee?: number;
@@ -88,8 +98,11 @@ type Payload = {
     renewal_limit?: number;
     reservation_hold_days?: number;
     public_catalog_enabled?: boolean;
+    member_loans_enabled?: boolean;
     member_reservations_enabled?: boolean;
     member_renewals_enabled?: boolean;
+    block_new_loans_with_overdue?: boolean;
+    block_new_loans_with_pending_fee?: boolean;
   } | null;
   titles?: TitleRow[];
   copies?: CopyRow[];
@@ -146,8 +159,11 @@ export default function AcervoVivoGestaoPage() {
   const [maxLoans, setMaxLoans] = useState(3);
   const [renewalLimit, setRenewalLimit] = useState(1);
   const [holdDays, setHoldDays] = useState(3);
+  const [memberLoans, setMemberLoans] = useState(true);
   const [memberReservations, setMemberReservations] = useState(true);
   const [memberRenewals, setMemberRenewals] = useState(true);
+  const [blockOverdue, setBlockOverdue] = useState(true);
+  const [blockPendingFee, setBlockPendingFee] = useState(true);
 
   const [titleName, setTitleName] = useState("");
   const [titleAuthors, setTitleAuthors] = useState("");
@@ -210,8 +226,11 @@ export default function AcervoVivoGestaoPage() {
     setMaxLoans(next.settings?.max_active_loans ?? 3);
     setRenewalLimit(next.settings?.renewal_limit ?? 1);
     setHoldDays(next.settings?.reservation_hold_days ?? 3);
+    setMemberLoans(next.settings?.member_loans_enabled !== false);
     setMemberReservations(next.settings?.member_reservations_enabled !== false);
     setMemberRenewals(next.settings?.member_renewals_enabled !== false);
+    setBlockOverdue(next.settings?.block_new_loans_with_overdue !== false);
+    setBlockPendingFee(next.settings?.block_new_loans_with_pending_fee !== false);
   }, []);
 
   useEffect(() => {
@@ -254,6 +273,13 @@ export default function AcervoVivoGestaoPage() {
   const inventoryScans = useMemo(() => payload.inventoryScans ?? [], [payload.inventoryScans]);
   const openInventories = useMemo(() => inventorySessions.filter((item) => item.status === "aberto"), [inventorySessions]);
 
+  const permissions = payload.permissions ?? {};
+  const canManageLibrary = permissions.library === true;
+  const canManageRules = permissions.libraryRules === true;
+  const canManageFolhaVerde = permissions.folhaVerde === true || canManageLibrary;
+  const canManageGrupoEstudos = permissions.grupoEstudos === true || canManageLibrary;
+  const canManageClubeLivro = permissions.clubeLivro === true || canManageLibrary;
+
   const visibleTitles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     if (!needle) return titles;
@@ -289,7 +315,20 @@ export default function AcervoVivoGestaoPage() {
 
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
-    await run({ action: "save-settings", loanDays, dailyLateFee, maxActiveLoans: maxLoans, renewalLimit, reservationHoldDays: holdDays, publicCatalogEnabled: true, memberReservationsEnabled: memberReservations, memberRenewalsEnabled: memberRenewals }, "Regras do Acervo Vivo atualizadas.");
+    await run({
+      action: "save-settings",
+      loanDays,
+      dailyLateFee,
+      maxActiveLoans: maxLoans,
+      renewalLimit,
+      reservationHoldDays: holdDays,
+      publicCatalogEnabled: true,
+      memberLoansEnabled: memberLoans,
+      memberReservationsEnabled: memberReservations,
+      memberRenewalsEnabled: memberRenewals,
+      blockNewLoansWithOverdue: blockOverdue,
+      blockNewLoansWithPendingFee: blockPendingFee,
+    }, "Regras do Acervo Vivo atualizadas.");
   }
 
   async function createTitle(event: FormEvent) {
@@ -429,6 +468,7 @@ export default function AcervoVivoGestaoPage() {
     >
       {(error || success) && <div className={`rounded-2xl p-4 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
       {payload.integrationsWarning && <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">{payload.integrationsWarning}</div>}
+      {payload.catalogWarning && <div className="rounded-2xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-800 ring-1 ring-red-200">{payload.catalogWarning}</div>}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {[
@@ -441,6 +481,10 @@ export default function AcervoVivoGestaoPage() {
           ["Capas pendentes", payload.metrics?.pendingCovers ?? 0],
         ].map(([label, value]) => <article key={String(label)} className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p><p className="mt-2 text-3xl font-black text-[#00334E]">{value}</p></article>)}
       </section>
+
+      {!loading && !canManageLibrary && (canManageFolhaVerde || canManageGrupoEstudos || canManageClubeLivro) && (
+        <div className="rounded-2xl bg-sky-50 p-4 text-sm font-bold leading-6 text-sky-900 ring-1 ring-sky-200">Seu acesso é especializado: você pode atualizar apenas as áreas ligadas à sua função. As regras de circulação e a Biblioteca física ficam sob responsabilidade do Gestor Acervo Vivo - Biblioteca.</div>
+      )}
 
       <nav className="grid grid-cols-2 gap-2 rounded-3xl bg-white p-2 shadow ring-1 ring-slate-100 sm:grid-cols-6">
         {([
@@ -459,19 +503,40 @@ export default function AcervoVivoGestaoPage() {
             </div>
           </section>
 
-          <form onSubmit={saveSettings} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Regras vigentes</p>
-            <h2 className="mt-2 text-2xl font-black text-[#00334E]">Circulação configurável</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-xs font-black text-[#00334E]">Prazo (dias)<input type="number" min={1} value={loanDays} onChange={(e) => setLoanDays(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
-              <label className="grid gap-1 text-xs font-black text-[#00334E]">Taxa/dia (R$)<input type="number" min={0} step="0.01" value={dailyLateFee} onChange={(e) => setDailyLateFee(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
-              <label className="grid gap-1 text-xs font-black text-[#00334E]">Máx. empréstimos<input type="number" min={1} value={maxLoans} onChange={(e) => setMaxLoans(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
-              <label className="grid gap-1 text-xs font-black text-[#00334E]">Máx. renovações<input type="number" min={0} value={renewalLimit} onChange={(e) => setRenewalLimit(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
-              <label className="grid gap-1 text-xs font-black text-[#00334E]">Reserva disponível por (dias)<input type="number" min={1} value={holdDays} onChange={(e) => setHoldDays(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
-              <div className="grid gap-2 text-xs font-black text-[#00334E]"><label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberReservations} onChange={(e) => setMemberReservations(e.target.checked)} />Permitir reservas</label><label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberRenewals} onChange={(e) => setMemberRenewals(e.target.checked)} />Permitir renovações</label></div>
-            </div>
-            <button disabled={saving} className="mt-4 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">Salvar regras</button>
-          </form>
+          {canManageRules ? (
+            <form onSubmit={saveSettings} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Regras vigentes</p>
+              <h2 className="mt-2 text-2xl font-black text-[#00334E]">Circulação configurável</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Somente quem possui a função <strong>Gestor Acervo Vivo - Biblioteca</strong> (ou administração do cliente) pode alterar estas regras.</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Prazo (dias)<input type="number" min={1} value={loanDays} onChange={(e) => setLoanDays(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Taxa/dia (R$)<input type="number" min={0} step="0.01" value={dailyLateFee} onChange={(e) => setDailyLateFee(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Máx. empréstimos<input type="number" min={1} value={maxLoans} onChange={(e) => setMaxLoans(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Máx. renovações<input type="number" min={0} value={renewalLimit} onChange={(e) => setRenewalLimit(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Reserva disponível por (dias)<input type="number" min={1} value={holdDays} onChange={(e) => setHoldDays(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
+                <div className="grid gap-2 text-xs font-black text-[#00334E]">
+                  <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberLoans} onChange={(e) => setMemberLoans(e.target.checked)} />Permitir empréstimos pelo leitor</label>
+                  <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberReservations} onChange={(e) => setMemberReservations(e.target.checked)} />Permitir reservas</label>
+                  <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberRenewals} onChange={(e) => setMemberRenewals(e.target.checked)} />Permitir renovações</label>
+                  <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2"><input type="checkbox" checked={blockOverdue} onChange={(e) => setBlockOverdue(e.target.checked)} />Bloquear novo empréstimo com atraso</label>
+                  <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2"><input type="checkbox" checked={blockPendingFee} onChange={(e) => setBlockPendingFee(e.target.checked)} />Bloquear novo empréstimo com taxa pendente</label>
+                </div>
+              </div>
+              <button disabled={saving} className="mt-4 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">Salvar regras</button>
+            </form>
+          ) : (
+            <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Regras vigentes</p>
+              <h2 className="mt-2 text-2xl font-black text-[#00334E]">Circulação definida pela Biblioteca</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Você pode consultar as regras atuais. Apenas a função <strong>Gestor Acervo Vivo - Biblioteca</strong> pode alterá-las.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-bold text-[#00334E]">
+                <span className="rounded-xl bg-[#F4FBF7] p-3">Prazo: {loanDays} dias</span>
+                <span className="rounded-xl bg-[#F4FBF7] p-3">Limite: {maxLoans} empréstimo(s)</span>
+                <span className="rounded-xl bg-[#F4FBF7] p-3">Renovações: {renewalLimit}</span>
+                <span className="rounded-xl bg-[#F4FBF7] p-3">Taxa/dia: R$ {dailyLateFee.toFixed(2).replace(".", ",")}</span>
+              </div>
+            </section>
+          )}
         </div>
       ) : tab === "acervo" ? (
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.4fr]">
