@@ -151,6 +151,21 @@ export default async function TucxaSitePage() {
     },
   ];
 
+  const financialDetails: TucxaInfoPopupItem[] = [
+    {
+      id: "prestacao-contas-detalhes",
+      eyebrow: "Prestação de Contas",
+      title: "O que aparece",
+      summary: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
+      description: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
+      details: [
+        { title: "Por que existe", text: "Para mostrar onde os recursos são utilizados e o que ainda precisa ser sustentado para a Casa continuar preparada." },
+        { title: "O que isso fortalece", text: "Compreensão, responsabilidade compartilhada e confiança no cuidado com o Tucxa e com todos que são acolhidos." },
+        { title: "Em movimento", text: "Quando as informações são apresentadas com clareza, a contribuição deixa de parecer apenas um valor e passa a representar estrutura, continuidade e cuidado em movimento." },
+      ],
+    },
+  ];
+
   return (
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
@@ -354,55 +369,19 @@ export default async function TucxaSitePage() {
 
       <section
         id="prestacao-contas"
-        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 pb-12 sm:px-6 lg:px-8"
+        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-4 pb-10 sm:px-6 lg:px-8"
       >
         <article className="overflow-hidden rounded-[1.75rem] bg-white shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10">
-          <div className="bg-gradient-to-br from-[#123D2C] to-[#2F6B43] p-5 text-white sm:p-7">
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7] sm:text-sm">
-              Prestação de Contas
-            </p>
-            <h2 className="mt-2 max-w-4xl text-2xl font-black leading-tight sm:text-3xl">
-              Clareza para transformar números em confiança e continuidade.
-            </h2>
-            <p className="mt-3 max-w-4xl text-base leading-7 text-[#EEF7EA] sm:text-lg sm:leading-8">
-              Cada atendimento e cada atividade dependem de uma estrutura que precisa continuar funcionando: água, energia, limpeza, segurança, manutenção, materiais e organização.
-            </p>
-            <Link
-              href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
-              className="mt-5 inline-flex w-full justify-center rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] shadow-lg shadow-green-950/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] sm:w-auto sm:text-base"
-            >
-              Acompanhar prestação de contas
-            </Link>
-            <p className="mt-1.5 text-center text-[10px] font-black uppercase tracking-[0.18em] text-[#CFE2C7] sm:w-fit sm:px-4 sm:text-xs">
-              TOQUE PARA ABRIR
-            </p>
-          </div>
-
-          <div className="grid gap-4 p-5 sm:p-7 md:grid-cols-3">
-            <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="font-black text-[#123D2C]">O que aparece</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.
-              </p>
+          <div className="bg-gradient-to-br from-[#123D2C] to-[#2F6B43] p-4 text-white sm:p-7">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-sm">Prestação de Contas</p>
+            <h2 className="mt-1.5 max-w-4xl text-xl font-black leading-tight sm:text-3xl">Clareza para transformar números em confiança e continuidade.</h2>
+            <p className="mt-2 max-w-4xl text-sm leading-5 text-[#EEF7EA] sm:mt-3 sm:text-lg sm:leading-8">Cada atendimento e cada atividade dependem de uma estrutura que precisa continuar funcionando: água, energia, limpeza, segurança, manutenção, materiais e organização.</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/transparencia" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-3 py-2 text-center text-[11px] font-black leading-tight text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:px-5 sm:py-3 sm:text-base">Acompanhar prestação de contas</Link>
+              <div className="min-w-0">
+                <TucxaInfoPopupGrid items={financialDetails} ariaLabel="Detalhes da Prestação de Contas" columns={2} />
+              </div>
             </div>
-            <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="font-black text-[#123D2C]">Por que existe</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                Para mostrar onde os recursos são utilizados e o que ainda precisa ser sustentado para a Casa continuar preparada.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="font-black text-[#123D2C]">O que isso fortalece</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                Compreensão, responsabilidade compartilhada e confiança no cuidado com o Tucxa e com todos que são acolhidos.
-              </p>
-            </div>
-          </div>
-
-          <div className="px-5 pb-5 sm:px-7 sm:pb-7">
-            <p className="max-w-4xl text-base leading-7 text-slate-700">
-              Quando as informações são apresentadas com clareza, a contribuição deixa de parecer apenas um valor e passa a representar estrutura, continuidade e cuidado em movimento.
-            </p>
           </div>
         </article>
       </section>

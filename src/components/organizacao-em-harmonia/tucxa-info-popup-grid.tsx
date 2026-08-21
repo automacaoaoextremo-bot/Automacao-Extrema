@@ -22,6 +22,7 @@ export type TucxaInfoPopupItem = {
     href: string;
     variant?: "primary" | "secondary";
   }>;
+  subItems?: TucxaInfoPopupItem[];
 };
 
 type Props = {
@@ -44,7 +45,20 @@ export function TucxaInfoPopupGrid({
   autoOpenParam = "abrir",
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = items.find((item) => item.id === selectedId) ?? null;
+  const [parentId, setParentId] = useState<string | null>(null);
+
+  function findItemById(id: string | null) {
+    if (!id) return null;
+    for (const item of items) {
+      if (item.id === id) return item;
+      const child = item.subItems?.find((candidate) => candidate.id === id);
+      if (child) return child;
+    }
+    return null;
+  }
+
+  const selected = findItemById(selectedId);
+  const parent = findItemById(parentId);
 
   useEffect(() => {
     const requested = new URL(window.location.href).searchParams.get(autoOpenParam);
@@ -82,7 +96,7 @@ export function TucxaInfoPopupGrid({
           <button
             key={item.id}
             type="button"
-            onClick={() => setSelectedId(item.id)}
+            onClick={() => { setParentId(null); setSelectedId(item.id); }}
             className="flex min-h-24 flex-col justify-between rounded-[1.35rem] bg-white p-3.5 text-left shadow-md shadow-green-900/5 ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#123D2C]/15 sm:min-h-28 sm:rounded-[1.5rem] sm:p-4"
             aria-haspopup="dialog"
           >
@@ -129,7 +143,7 @@ export function TucxaInfoPopupGrid({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(null)}
+                  onClick={() => { setSelectedId(null); setParentId(null); }}
                   className="shrink-0 rounded-xl bg-[#123D2C] px-3.5 py-2 text-xs font-black text-white sm:text-sm"
                 >
                   Fechar
@@ -138,9 +152,38 @@ export function TucxaInfoPopupGrid({
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+              {parent && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedId(parent.id); setParentId(null); }}
+                  className="mb-3 rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                >
+                  ← Voltar para {parent.title}
+                </button>
+              )}
+
               <p className="rounded-2xl bg-[#F7FAF2] p-3.5 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10 sm:p-4 sm:text-base sm:leading-7">
                 {selected.description ?? selected.summary}
               </p>
+
+              {selected.subItems?.length ? (
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  {selected.subItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => { setParentId(selected.id); setSelectedId(item.id); }}
+                      className="flex min-h-28 flex-col justify-between rounded-2xl bg-[#E9F2E7] p-3 text-left ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#DCEAD8]"
+                    >
+                      <span>
+                        {item.eyebrow && <span className="block text-[9px] font-black uppercase tracking-[0.13em] text-[#2F6B43]">{item.eyebrow}</span>}
+                        <span className="mt-1 block text-sm font-black leading-tight text-[#123D2C]">{item.title}</span>
+                      </span>
+                      <span className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">TOQUE PARA CONHECER</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               {selected.availability && (
                 <p className="mt-3 rounded-2xl bg-[#FFF8E7] p-3 text-xs font-black leading-5 text-amber-950 ring-1 ring-amber-200 sm:text-sm">

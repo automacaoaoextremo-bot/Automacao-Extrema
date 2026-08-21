@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { sendAcervoMovementNotifications } from "@/lib/organizacao-em-harmonia/acervo-vivo-notifications";
 
 export type AcervoReaderContext = {
   organizationId: string;
@@ -19,6 +20,7 @@ type AcervoSettings = {
   member_renewals_enabled?: boolean | null;
   block_new_loans_with_overdue?: boolean | null;
   block_new_loans_with_pending_fee?: boolean | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 const ACERVO_STORAGE_BUCKET = "tucxa-acervo-vivo";
@@ -53,6 +55,11 @@ export function asTextList(value: unknown) {
     .split(/[;,|\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function realEmail(value: unknown) {
+  const email = text(value).toLowerCase();
+  return email.includes("@") && !email.endsWith("@organizacao-em-harmonia.local");
 }
 
 function bearerToken(request: Request) {
@@ -245,7 +252,7 @@ export async function offerAcervoCopyToNextReservation(
 ) {
   const { data: waiting, error: waitingError } = await supabaseAdmin
     .from("oh_acervo_reservations")
-    .select("id")
+    .select("id,person_id")
     .eq("organization_id", organizationId)
     .eq("title_id", titleId)
     .eq("status", "aguardando")
@@ -287,6 +294,17 @@ export async function offerAcervoCopyToNextReservation(
     .eq("organization_id", organizationId)
     .eq("id", copyId);
   if (copyError) throw copyError;
+
+  if (waiting.person_id) {
+    await sendAcervoMovementNotifications({
+      organizationId,
+      personId: waiting.person_id,
+      titleId,
+      copyId,
+      kind: "reserva_disponivel",
+      holdUntil: holdUntil.toISOString(),
+    }).catch(() => undefined);
+  }
 
   return waiting.id;
 }
@@ -456,7 +474,7 @@ async function audit(context: AcervoReaderContext, action: string, entityType: s
 async function settingsForReader(organizationId: string): Promise<AcervoSettings> {
   const { data, error } = await supabaseAdmin
     .from("oh_acervo_settings")
-    .select("loan_days,daily_late_fee,max_active_loans,renewal_limit,reservation_hold_days,member_loans_enabled,member_reservations_enabled,member_renewals_enabled,block_new_loans_with_overdue,block_new_loans_with_pending_fee")
+    .select("loan_days,daily_late_fee,max_active_loans,renewal_limit,reservation_hold_days,member_loans_enabled,member_reservations_enabled,member_renewals_enabled,block_new_loans_with_overdue,block_new_loans_with_pending_fee,metadata")
     .eq("organization_id", organizationId)
     .maybeSingle();
   if (error) throw error;
@@ -484,6 +502,112 @@ export async function handleAcervoReaderPost(
   try {
     await reconcileExpiredAcervoReservations(context.organizationId);
     const settings = await settingsForReader(context.organizationId);
+
+    if (action === "borrow-now") {
+      if (settings.member_loans_enabled === false) {
+        return NextResponse.json({ error: "As retiradas pelo leitor estão temporariamente desabilitadas." }, { status: 409 });
+      }
+      const qrToken = text(body.qrToken);
+      if (!qrToken) return NextResponse.json({ error: "QR Code do exemplar não informado." }, { status: 400 });
+
+      const metadata = record(settings.metadata);
+      if (metadata.self_service_enabled === false) {
+        return NextResponse.json({ error: "O autoempréstimo está temporariamente desabilitado. Faça a reserva para retirada." }, { status: 409 });
+      }
+
+      const [personResult, copyResult, activeLoansResult, pendingFeesResult] = await Promise.all([
+        supabaseAdmin
+          .from("oh_people")
+          .select("id,full_name,email,whatsapp")
+          .eq("organization_id", context.organizationId)
+          .eq("id", context.personId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("id,title_id,asset_code,status,active")
+          .eq("organization_id", context.organizationId)
+          .eq("qr_token", qrToken)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("oh_acervo_loans")
+          .select("id,copy_id,due_at,status")
+          .eq("organization_id", context.organizationId)
+          .eq("person_id", context.personId)
+          .is("returned_at", null)
+          .in("status", ["ativo", "atrasado"]),
+        supabaseAdmin
+          .from("oh_acervo_loans")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", context.organizationId)
+          .eq("person_id", context.personId)
+          .eq("late_fee_status", "pendente"),
+      ]);
+      for (const result of [personResult, copyResult, activeLoansResult, pendingFeesResult]) {
+        if (result.error) throw result.error;
+      }
+      const person = personResult.data;
+      const copy = copyResult.data;
+      if (!person?.id || !text(person.full_name) || !text(person.whatsapp) || !realEmail(person.email)) {
+        return NextResponse.json({ error: "Para emprestar um livro, confirme no cadastro seu nome, WhatsApp e um e-mail válido." }, { status: 409 });
+      }
+      if (!copy?.id || copy.active === false || copy.status !== "disponivel") {
+        return NextResponse.json({ error: "Este exemplar não está disponível para autoempréstimo. Você pode entrar na fila de reserva." }, { status: 409 });
+      }
+      if ((activeLoansResult.data ?? []).length >= Number(settings.max_active_loans ?? 3)) {
+        return NextResponse.json({ error: "Você atingiu o limite de empréstimos ativos." }, { status: 409 });
+      }
+      if (settings.block_new_loans_with_overdue !== false && (activeLoansResult.data ?? []).some((loan) => loan.status === "atrasado" || new Date(loan.due_at).getTime() < Date.now())) {
+        return NextResponse.json({ error: "Existe empréstimo em atraso. Regularize a situação antes de retirar outro livro." }, { status: 409 });
+      }
+      if (settings.block_new_loans_with_pending_fee !== false && (pendingFeesResult.count ?? 0) > 0) {
+        return NextResponse.json({ error: "Existe uma pendência de empréstimo. Procure o responsável pela Biblioteca." }, { status: 409 });
+      }
+
+      const activeCopyIds = (activeLoansResult.data ?? []).map((loan) => loan.copy_id).filter(Boolean);
+      if (activeCopyIds.length) {
+        const activeCopies = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("title_id")
+          .eq("organization_id", context.organizationId)
+          .in("id", activeCopyIds);
+        if (activeCopies.error) throw activeCopies.error;
+        if ((activeCopies.data ?? []).some((item) => item.title_id === copy.title_id)) {
+          return NextResponse.json({ error: "Você já possui um exemplar deste título em empréstimo." }, { status: 409 });
+        }
+      }
+
+      const loanedAt = new Date();
+      const dueAt = new Date(loanedAt.getTime() + Number(settings.loan_days ?? 30) * DAY_MS);
+      const { data: claimedCopy, error: claimError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({ status: "emprestado", updated_at: loanedAt.toISOString() })
+        .eq("organization_id", context.organizationId)
+        .eq("id", copy.id)
+        .eq("status", "disponivel")
+        .select("id")
+        .maybeSingle();
+      if (claimError) throw claimError;
+      if (!claimedCopy?.id) return NextResponse.json({ error: "O exemplar acabou de ficar indisponível. Atualize e tente reservar." }, { status: 409 });
+
+      const { data: loan, error: loanError } = await supabaseAdmin.from("oh_acervo_loans").insert({
+        organization_id: context.organizationId,
+        copy_id: copy.id,
+        person_id: context.personId,
+        loaned_at: loanedAt.toISOString(),
+        due_at: dueAt.toISOString(),
+        status: "ativo",
+        created_by_person_id: context.personId,
+        metadata: { source: "acervo-vivo-qr-autoemprestimo", pickup_location: text(metadata.pickup_location) || "Tucxa 1" },
+      }).select("id").single();
+      if (loanError) {
+        await supabaseAdmin.from("oh_acervo_copies").update({ status: "disponivel", updated_at: new Date().toISOString() }).eq("id", copy.id);
+        throw loanError;
+      }
+
+      await audit(context, "autoemprestimo_qr", "loan", loan.id, { copyId: copy.id, titleId: copy.title_id, dueAt: dueAt.toISOString() });
+      await sendAcervoMovementNotifications({ organizationId: context.organizationId, personId: context.personId, titleId: copy.title_id, copyId: copy.id, kind: "emprestimo", dueAt: dueAt.toISOString() }).catch(() => undefined);
+      return NextResponse.json({ ok: true, loanId: loan.id, dueAt: dueAt.toISOString() });
+    }
 
     if (action === "borrow") {
       return NextResponse.json(
@@ -628,6 +752,14 @@ export async function handleAcervoReaderPost(
         readyForPickup,
         holdUntil,
       });
+      await sendAcervoMovementNotifications({
+        organizationId: context.organizationId,
+        personId: context.personId,
+        titleId,
+        copyId: availableCopy?.id || null,
+        kind: readyForPickup ? "reserva" : "fila",
+        holdUntil,
+      }).catch(() => undefined);
       return NextResponse.json({ ok: true, readyForPickup, holdUntil });
     }
 
