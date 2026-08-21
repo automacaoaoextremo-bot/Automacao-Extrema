@@ -4,6 +4,8 @@ import {
   asTextList,
   normalize,
   record,
+  reconcileExpiredAcervoReservations,
+  offerAcervoCopyToNextReservation,
   slugify,
   text,
 } from "@/lib/organizacao-em-harmonia/acervo-vivo";
@@ -73,6 +75,9 @@ const MANAGEMENT_FUNCTIONS = [
   "gestor-acervo-vivo-folha-verde",
   "gestor-acervo-vivo-grupo-de-estudos",
   "gestor-acervo-vivo-clube-do-livro",
+  "recepcao",
+  "apoia-recepcao",
+  "apoio-recepcao",
   "biblioteca",
   "bibliotecario",
   "presidente",
@@ -91,6 +96,7 @@ type ManagementPermissions = {
   folhaVerde: boolean;
   grupoEstudos: boolean;
   clubeLivro: boolean;
+  reception: boolean;
   systemAdmin: boolean;
 };
 
@@ -141,6 +147,7 @@ async function permissionsForContext(context: {
     folhaVerde: systemAdmin || has("gestor-acervo-vivo-folha-verde"),
     grupoEstudos: systemAdmin || has("gestor-acervo-vivo-grupo-de-estudos"),
     clubeLivro: systemAdmin || has("gestor-acervo-vivo-clube-do-livro"),
+    reception: systemAdmin || has("recepcao", "apoia-recepcao", "apoio-recepcao"),
     systemAdmin,
   } satisfies ManagementPermissions;
 }
@@ -189,6 +196,7 @@ async function audit(organizationId: string, personId: string | undefined, actio
 }
 
 async function loadPayload(organizationId: string, permissions: ManagementPermissions) {
+  await reconcileExpiredAcervoReservations(organizationId);
   const [
     settings,
     titles,
@@ -239,6 +247,12 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
   const loanRows = (loans.data ?? []) as LoanRow[];
   const reservationRows = (reservations.data ?? []) as ReservationRow[];
   const peopleRows = (people.data ?? []) as PersonRow[];
+  const receptionOnly =
+    permissions.reception &&
+    !permissions.library &&
+    !permissions.folhaVerde &&
+    !permissions.grupoEstudos &&
+    !permissions.clubeLivro;
   const personMap = new Map(peopleRows.map((person) => [person.id, person]));
   const titleMap = new Map(titleRows.map((title) => [title.id, title]));
   const copyMap = new Map(copyRows.map((copy) => [copy.id, copy]));
@@ -247,7 +261,9 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     const copy = copyMap.get(loan.copy_id);
     return {
       ...loan,
-      person: personMap.get(loan.person_id) ?? null,
+      person: receptionOnly
+        ? (() => { const person = personMap.get(loan.person_id); return person ? { id: person.id, full_name: person.full_name } : null; })()
+        : personMap.get(loan.person_id) ?? null,
       copy: copy ?? null,
       title: copy ? titleMap.get(copy.title_id) ?? null : null,
       isOverdue: !loan.returned_at && new Date(loan.due_at).getTime() < Date.now(),
@@ -256,8 +272,13 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
 
   const enrichedReservations = reservationRows.map((reservation) => ({
     ...reservation,
-    person: personMap.get(reservation.person_id) ?? null,
+    person: receptionOnly
+      ? (() => { const person = personMap.get(reservation.person_id); return person ? { id: person.id, full_name: person.full_name } : null; })()
+      : personMap.get(reservation.person_id) ?? null,
     title: titleMap.get(reservation.title_id) ?? null,
+    availableCopy: text(reservation.available_copy_id)
+      ? copyMap.get(text(reservation.available_copy_id)) ?? null
+      : null,
   }));
 
   const metrics = {
@@ -307,17 +328,17 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     copies: copyRows,
     loans: enrichedLoans,
     reservations: enrichedReservations,
-    resources: resources.data ?? [],
-    resourceVersions: versions.data ?? [],
-    trails: trails.data ?? [],
-    trailItems: trailItems.data ?? [],
-    curations: curations.data ?? [],
-    people: peopleRows,
-    courses: courses.error ? [] : courses.data ?? [],
-    lessons: lessons.error ? [] : lessons.data ?? [],
-    agendaEvents: events.error ? [] : events.data ?? [],
-    inventorySessions: inventorySessions.data ?? [],
-    inventoryScans: inventoryScans.data ?? [],
+    resources: receptionOnly ? [] : resources.data ?? [],
+    resourceVersions: receptionOnly ? [] : versions.data ?? [],
+    trails: receptionOnly ? [] : trails.data ?? [],
+    trailItems: receptionOnly ? [] : trailItems.data ?? [],
+    curations: receptionOnly ? [] : curations.data ?? [],
+    people: receptionOnly ? [] : peopleRows,
+    courses: receptionOnly ? [] : courses.error ? [] : courses.data ?? [],
+    lessons: receptionOnly ? [] : lessons.error ? [] : lessons.data ?? [],
+    agendaEvents: receptionOnly ? [] : events.error ? [] : events.data ?? [],
+    inventorySessions: receptionOnly ? [] : inventorySessions.data ?? [],
+    inventoryScans: receptionOnly ? [] : inventoryScans.data ?? [],
     integrationsWarning: [
       courses.error ? `Cursos: ${errorMessage(courses.error, "indisponível")}` : "",
       lessons.error ? `Aulas: ${errorMessage(lessons.error, "indisponível")}` : "",
@@ -333,6 +354,10 @@ export async function GET(request: Request) {
 
   try {
     const permissions = await permissionsForContext(access.context);
+    const url = new URL(request.url);
+    if (url.searchParams.get("accessOnly") === "1") {
+      return NextResponse.json({ permissions });
+    }
     return NextResponse.json(await loadPayload(access.context.organizationId, permissions));
   } catch (error) {
     const current = record(error);
@@ -348,45 +373,84 @@ export async function GET(request: Request) {
   }
 }
 
-async function searchGoogleBooks(title: string, authors: string[]) {
-  const query = [title ? `intitle:${title}` : "", authors[0] ? `inauthor:${authors[0]}` : ""].filter(Boolean).join(" ");
-  if (!query) return [];
+async function fetchGoogleBookCandidates(query: string) {
+  if (!query) return [] as CoverSearchCandidate[];
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=8&printType=books`, {
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    const response = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=10&printType=books`,
+      {
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    );
     if (!response.ok) throw new Error(`Google Books respondeu ${response.status}.`);
     const payload = record(await response.json());
     const items: unknown[] = Array.isArray(payload.items) ? payload.items : [];
-    return items.map((item: unknown): CoverSearchCandidate => {
-      const current = record(item);
-      const volume = record(current.volumeInfo);
-      const images = record(volume.imageLinks);
-      const identifiers: unknown[] = Array.isArray(volume.industryIdentifiers) ? volume.industryIdentifiers : [];
-      const normalizedIdentifiers = identifiers.map((identifier: unknown) => record(identifier));
-      const isbn13 = normalizedIdentifiers.find((id: Record<string, unknown>) => text(id.type) === "ISBN_13");
-      const isbn10 = normalizedIdentifiers.find((id: Record<string, unknown>) => text(id.type) === "ISBN_10");
-      const image = text(images.thumbnail || images.smallThumbnail).replace(/^http:/, "https:");
-      return {
-        externalId: text(current.id),
-        title: text(volume.title),
-        subtitle: text(volume.subtitle),
-        authors: asTextList(volume.authors),
-        publisher: text(volume.publisher),
-        publicationYear: Number.parseInt(text(volume.publishedDate).slice(0, 4), 10) || null,
-        isbn13: text(isbn13?.identifier),
-        isbn10: text(isbn10?.identifier),
-        coverUrl: image,
-        description: text(volume.description),
-      };
-    }).filter((item: CoverSearchCandidate) => item.coverUrl || item.title);
+    return items
+      .map((item: unknown): CoverSearchCandidate => {
+        const current = record(item);
+        const volume = record(current.volumeInfo);
+        const images = record(volume.imageLinks);
+        const identifiers: unknown[] = Array.isArray(volume.industryIdentifiers)
+          ? volume.industryIdentifiers
+          : [];
+        const normalizedIdentifiers = identifiers.map((identifier: unknown) => record(identifier));
+        const isbn13 = normalizedIdentifiers.find(
+          (id: Record<string, unknown>) => text(id.type) === "ISBN_13",
+        );
+        const isbn10 = normalizedIdentifiers.find(
+          (id: Record<string, unknown>) => text(id.type) === "ISBN_10",
+        );
+        const image = text(
+          images.extraLarge ||
+            images.large ||
+            images.medium ||
+            images.small ||
+            images.thumbnail ||
+            images.smallThumbnail,
+        ).replace(/^http:/, "https:");
+        return {
+          externalId: text(current.id),
+          title: text(volume.title),
+          subtitle: text(volume.subtitle),
+          authors: asTextList(volume.authors),
+          publisher: text(volume.publisher),
+          publicationYear: Number.parseInt(text(volume.publishedDate).slice(0, 4), 10) || null,
+          isbn13: text(isbn13?.identifier),
+          isbn10: text(isbn10?.identifier),
+          coverUrl: image,
+          description: text(volume.description),
+        };
+      })
+      .filter((item: CoverSearchCandidate) => item.coverUrl || item.title);
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function searchGoogleBooks(title: string, authors: string[]) {
+  const preciseQuery = [
+    title ? `intitle:${title}` : "",
+    authors[0] ? `inauthor:${authors[0]}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const precise = await fetchGoogleBookCandidates(preciseQuery);
+  if (precise.some((candidate) => candidate.coverUrl)) return precise;
+
+  const titleOnlyQuery = title ? `intitle:${title}` : "";
+  if (!titleOnlyQuery || titleOnlyQuery === preciseQuery) return precise;
+  const broader = await fetchGoogleBookCandidates(titleOnlyQuery);
+  const seen = new Set<string>();
+  return [...precise, ...broader].filter((candidate) => {
+    const key = candidate.externalId || `${normalize(candidate.title)}|${candidate.coverUrl}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function POST(request: Request) {
@@ -400,6 +464,7 @@ export async function POST(request: Request) {
 
   try {
     const permissions = await permissionsForContext(access.context);
+    await reconcileExpiredAcervoReservations(organizationId);
     if (action === "save-settings") {
       if (!permissions.libraryRules) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar as regras de empréstimo, renovação, reservas e pendências.");
@@ -470,7 +535,7 @@ export async function POST(request: Request) {
 
     if (action === "enrich-covers") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode enriquecer capas do catálogo.");
-      const limit = Math.max(1, Math.min(12, numberValue(body.limit, 6)));
+      const limit = Math.max(1, Math.min(20, numberValue(body.limit, 10)));
       const { data: pending, error: pendingError } = await supabaseAdmin
         .from("oh_acervo_titles")
         .select("id,title,authors,cover_url,cover_match_status")
@@ -602,6 +667,199 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === "confirm-reservation-loan") {
+      if (!(permissions.library || permissions.reception)) {
+        return forbiddenCapability(
+          "Somente o Gestor Acervo Vivo - Biblioteca, Recepção ou Apoio Recepção pode confirmar a retirada física do livro.",
+        );
+      }
+
+      const reservationId = text(body.reservationId);
+      if (!reservationId) {
+        return NextResponse.json({ error: "Reserva não informada." }, { status: 400 });
+      }
+
+      const { data: reservation, error: reservationError } = await supabaseAdmin
+        .from("oh_acervo_reservations")
+        .select("id,title_id,person_id,status,available_copy_id,hold_until")
+        .eq("organization_id", organizationId)
+        .eq("id", reservationId)
+        .maybeSingle();
+      if (reservationError) throw reservationError;
+      if (!reservation?.id || reservation.status !== "disponivel" || !reservation.available_copy_id) {
+        return NextResponse.json(
+          { error: "A reserva não está pronta para retirada ou já foi atendida." },
+          { status: 409 },
+        );
+      }
+      if (reservation.hold_until && new Date(reservation.hold_until).getTime() < Date.now()) {
+        await reconcileExpiredAcervoReservations(organizationId);
+        return NextResponse.json(
+          { error: "O prazo desta reserva expirou. O exemplar foi liberado para a próxima pessoa da fila." },
+          { status: 409 },
+        );
+      }
+
+      const [{ data: settings }, { data: copy, error: copyError }, activeLoans, membership, pendingFees] =
+        await Promise.all([
+          supabaseAdmin
+            .from("oh_acervo_settings")
+            .select("loan_days,max_active_loans,block_new_loans_with_overdue,block_new_loans_with_pending_fee")
+            .eq("organization_id", organizationId)
+            .maybeSingle(),
+          supabaseAdmin
+            .from("oh_acervo_copies")
+            .select("id,title_id,status,active,asset_code")
+            .eq("organization_id", organizationId)
+            .eq("id", reservation.available_copy_id)
+            .maybeSingle(),
+          supabaseAdmin
+            .from("oh_acervo_loans")
+            .select("id,copy_id,due_at,status")
+            .eq("organization_id", organizationId)
+            .eq("person_id", reservation.person_id)
+            .is("returned_at", null)
+            .in("status", ["ativo", "atrasado"]),
+          supabaseAdmin
+            .from("oh_memberships")
+            .select("id,active,status")
+            .eq("organization_id", organizationId)
+            .eq("person_id", reservation.person_id)
+            .eq("active", true)
+            .in("status", ["ativo", "gestor_cliente"])
+            .limit(1)
+            .maybeSingle(),
+          supabaseAdmin
+            .from("oh_acervo_loans")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId)
+            .eq("person_id", reservation.person_id)
+            .eq("late_fee_status", "pendente"),
+        ]);
+
+      if (copyError || activeLoans.error || membership.error || pendingFees.error) {
+        throw copyError || activeLoans.error || membership.error || pendingFees.error;
+      }
+      if (!membership.data?.id) {
+        return NextResponse.json(
+          { error: "A pessoa não possui vínculo ativo com o Tucxa para realizar empréstimos." },
+          { status: 409 },
+        );
+      }
+      if (
+        !copy?.id ||
+        copy.active === false ||
+        copy.status !== "reservado" ||
+        copy.title_id !== reservation.title_id
+      ) {
+        return NextResponse.json(
+          { error: "O exemplar reservado não está disponível para confirmação de retirada." },
+          { status: 409 },
+        );
+      }
+
+      const maxActive = Number(settings?.max_active_loans ?? 3);
+      if ((activeLoans.data ?? []).length >= maxActive) {
+        return NextResponse.json(
+          { error: `A pessoa atingiu o limite de ${maxActive} empréstimo(s) ativo(s).` },
+          { status: 409 },
+        );
+      }
+      if (
+        settings?.block_new_loans_with_overdue !== false &&
+        (activeLoans.data ?? []).some(
+          (loan) => loan.status === "atrasado" || new Date(loan.due_at).getTime() < Date.now(),
+        )
+      ) {
+        return NextResponse.json(
+          { error: "A pessoa possui empréstimo em atraso. Regularize antes de confirmar a retirada." },
+          { status: 409 },
+        );
+      }
+      if (
+        settings?.block_new_loans_with_pending_fee !== false &&
+        (pendingFees.count ?? 0) > 0
+      ) {
+        return NextResponse.json(
+          { error: "A pessoa possui pendência de atraso registrada. Regularize antes de confirmar a retirada." },
+          { status: 409 },
+        );
+      }
+
+      const activeCopyIds = (activeLoans.data ?? []).map((loan) => loan.copy_id).filter(Boolean);
+      if (activeCopyIds.length > 0) {
+        const { data: activeCopies, error: activeCopiesError } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("title_id")
+          .eq("organization_id", organizationId)
+          .in("id", activeCopyIds);
+        if (activeCopiesError) throw activeCopiesError;
+        if ((activeCopies ?? []).some((item) => item.title_id === reservation.title_id)) {
+          return NextResponse.json(
+            { error: "A pessoa já possui um exemplar deste título em empréstimo." },
+            { status: 409 },
+          );
+        }
+      }
+
+      const loanDays = Number(settings?.loan_days ?? 30);
+      const dueAt = new Date(Date.now() + loanDays * 86_400_000).toISOString();
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .insert({
+          organization_id: organizationId,
+          copy_id: copy.id,
+          person_id: reservation.person_id,
+          due_at: dueAt,
+          created_by_person_id: actorPersonId || null,
+          metadata: {
+            source: "retirada-tucxa2",
+            reservation_id: reservation.id,
+            confirmed_by_reception: permissions.reception,
+          },
+        })
+        .select("id")
+        .single();
+      if (loanError) throw loanError;
+
+      const confirmedAt = nowIso();
+      const [{ error: copyUpdateError }, { error: reservationUpdateError }] = await Promise.all([
+        supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ status: "emprestado", updated_at: confirmedAt })
+          .eq("organization_id", organizationId)
+          .eq("id", copy.id)
+          .eq("status", "reservado"),
+        supabaseAdmin
+          .from("oh_acervo_reservations")
+          .update({
+            status: "atendida",
+            fulfilled_at: confirmedAt,
+            updated_at: confirmedAt,
+          })
+          .eq("organization_id", organizationId)
+          .eq("id", reservation.id),
+      ]);
+      if (copyUpdateError || reservationUpdateError) {
+        throw copyUpdateError || reservationUpdateError;
+      }
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "retirada_confirmada_emprestimo",
+        "loan",
+        loan.id,
+        {
+          reservationId: reservation.id,
+          copyId: copy.id,
+          personId: reservation.person_id,
+          dueAt,
+        },
+      );
+      return NextResponse.json({ ok: true, loanId: loan.id, dueAt });
+    }
+
     if (action === "loan") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode registrar empréstimos pela gestão.");
       const copyId = text(body.copyId);
@@ -683,17 +941,17 @@ export async function POST(request: Request) {
 
       const { data: copy, error: copyError } = await supabaseAdmin.from("oh_acervo_copies").select("title_id").eq("id", loan.copy_id).single();
       if (copyError) throw copyError;
-      const { data: nextReservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id").eq("organization_id", organizationId).eq("title_id", copy.title_id).eq("status", "aguardando").order("requested_at").limit(1).maybeSingle();
-      if (reservationError) throw reservationError;
-
-      if (nextReservation?.id) {
-        const holdDays = settings?.reservation_hold_days ?? 3;
-        const holdUntil = new Date(Date.now() + holdDays * 86_400_000).toISOString();
-        await supabaseAdmin.from("oh_acervo_reservations").update({ status: "disponivel", available_copy_id: loan.copy_id, available_at: nowIso(), hold_until: holdUntil, updated_at: nowIso() }).eq("id", nextReservation.id);
-        await supabaseAdmin.from("oh_acervo_copies").update({ status: "reservado", updated_at: nowIso() }).eq("id", loan.copy_id);
-      } else {
-        await supabaseAdmin.from("oh_acervo_copies").update({ status: "disponivel", updated_at: nowIso() }).eq("id", loan.copy_id);
-      }
+      await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({ status: "reservado", updated_at: nowIso() })
+        .eq("organization_id", organizationId)
+        .eq("id", loan.copy_id);
+      await offerAcervoCopyToNextReservation(
+        organizationId,
+        copy.title_id,
+        loan.copy_id,
+        Number(settings?.reservation_hold_days ?? 3),
+      );
       await audit(organizationId, actorPersonId, "devolucao_registrada", "loan", loan.id, { lateDays, lateFee });
       return NextResponse.json({ ok: true, lateDays, lateFee });
     }
@@ -1009,13 +1267,23 @@ export async function POST(request: Request) {
     if (action === "cancel-reservation") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cancelar reservas pela gestão.");
       const reservationId = text(body.reservationId);
-      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
+      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,title_id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
       if (reservationError) throw reservationError;
       if (!reservation?.id) return NextResponse.json({ error: "Reserva não localizada." }, { status: 404 });
       const { error } = await supabaseAdmin.from("oh_acervo_reservations").update({ status: "cancelada", cancelled_at: nowIso(), updated_at: nowIso() }).eq("id", reservationId);
       if (error) throw error;
       if (reservation.available_copy_id) {
-        await supabaseAdmin.from("oh_acervo_copies").update({ status: "disponivel", updated_at: nowIso() }).eq("id", reservation.available_copy_id).eq("status", "reservado");
+        const { data: settings } = await supabaseAdmin
+          .from("oh_acervo_settings")
+          .select("reservation_hold_days")
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+        await offerAcervoCopyToNextReservation(
+          organizationId,
+          text(reservation.title_id),
+          text(reservation.available_copy_id),
+          Number(settings?.reservation_hold_days ?? 3),
+        );
       }
       await audit(organizationId, actorPersonId, "reserva_cancelada_gestao", "reservation", reservationId);
       return NextResponse.json({ ok: true });

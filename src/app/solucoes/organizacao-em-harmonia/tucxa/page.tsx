@@ -113,7 +113,7 @@ export default async function TucxaSitePage() {
       summary:
         "Orientações, agendamentos, Escuta em Harmonia, Cursos em Harmonia e Acervo Vivo conectados no mesmo fluxo.",
       description:
-        "O Atendimento em Harmonia reúne o que ajuda Filhos de Fora/Consulentes e Filhos da Corrente antes, durante e depois do atendimento. Além de orientações e agendamentos, o espaço já conecta consultas autorizadas da Recepção, Escuta em Harmonia, Cursos em Harmonia e o Acervo Vivo — Biblioteca do Tucxa.",
+        "O Atendimento em Harmonia reúne o que ajuda Filhos de Fora/Consulentes e Filhos da Corrente antes, durante e depois do atendimento.",
       href: "/solucoes/organizacao-em-harmonia/tucxa/atendimento-em-harmonia",
       ctaLabel: "Conhecer Atendimento em Harmonia",
       highlights: [
@@ -209,37 +209,37 @@ export default async function TucxaSitePage() {
 
       <section
         id="cadastro"
-        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8"
+        className="scroll-mt-48 mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-5 lg:px-8"
       >
-        <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
-          <div className="rounded-[1.5rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10 sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">
+        <div className="rounded-[1.75rem] bg-white p-3 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
+          <div className="rounded-[1.4rem] bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:p-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#2F6B43] sm:text-xs sm:tracking-[0.2em]">
               Por que se cadastrar?
             </p>
-            <h2 className="mt-2 text-xl font-black text-[#123D2C] sm:text-2xl">
+            <h2 className="mt-1.5 text-lg font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-2xl">
               Para receber a orientação certa, no canal certo, sem retrabalho.
             </h2>
-            <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+            <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-2.5">
               {benefits.map((benefit) => (
                 <div
                   key={benefit}
-                  className="rounded-2xl bg-white p-3 text-sm font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:p-4 sm:text-base"
+                  className="rounded-xl bg-white p-2.5 text-[0.68rem] font-bold leading-4 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:rounded-2xl sm:p-4 sm:text-base sm:leading-6"
                 >
                   {benefit}
                 </div>
               ))}
             </div>
           </div>
-          <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-2.5">
             <Link
               href="#corrente"
-              className="rounded-2xl bg-[#123D2C] px-5 py-4 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-[#123D2C] px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
             >
               Sou Filho da Corrente
             </Link>
             <Link
               href="#consulentes"
-              className="rounded-2xl bg-white px-5 py-4 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-1 hover:bg-[#E9F2E7] sm:text-base"
+              className="flex min-h-11 items-center justify-center rounded-xl bg-white px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
             >
               Sou Consulente / Filho de Fora
             </Link>

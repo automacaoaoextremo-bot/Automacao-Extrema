@@ -47,6 +47,7 @@ type ReservationRow = {
   requested_at: string;
   hold_until?: string | null;
   title?: TitleRow | null;
+  copy?: CopyRow | null;
 };
 
 type ResourceRow = {
@@ -55,6 +56,11 @@ type ResourceRow = {
   title: string;
   description?: string | null;
   governance_status?: string;
+  metadata?: {
+    year?: number | string;
+    month?: number | string;
+    [key: string]: unknown;
+  } | null;
 };
 
 type ResourceVersion = {
@@ -69,6 +75,7 @@ type ResourceVersion = {
 type Trail = {
   id: string;
   name: string;
+  slug?: string;
   objective?: string | null;
   description?: string | null;
   official?: boolean;
@@ -103,6 +110,7 @@ type Payload = {
     daily_late_fee?: number;
     max_active_loans?: number;
     renewal_limit?: number;
+    reservation_hold_days?: number;
     member_loans_enabled?: boolean;
     member_reservations_enabled?: boolean;
     member_renewals_enabled?: boolean;
@@ -178,6 +186,12 @@ function copyStatusLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function resourceChronology(resource?: ResourceRow | null) {
+  const year = Number(resource?.metadata?.year ?? 0);
+  const month = Number(resource?.metadata?.month ?? 0);
+  return (Number.isFinite(year) ? year : 0) * 100 + (Number.isFinite(month) ? month : 0);
+}
+
 function initialKey(title: string) {
   const first = normalize(title.trim()).charAt(0).toUpperCase();
   if (/[A-Z]/.test(first)) return first;
@@ -206,7 +220,7 @@ function Cover({ title, compact = false }: { title: TitleRow; compact?: boolean 
 
 function Modal({ title, eyebrow, onClose, children, z = 200 }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode; z?: number }) {
   return (
-    <div className="fixed inset-0 flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" style={{ zIndex: z }} role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <div className="fixed inset-0 flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-4" style={{ zIndex: z }} role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
       <section className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] bg-white p-4 shadow-2xl sm:p-5">
         <div className="flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
@@ -323,7 +337,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
   const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
-  const letters = useMemo(() => Array.from(new Set(titles.map((item) => initialKey(item.title)))).sort((a, b) => {
+  const letters = useMemo<string[]>(() => Array.from(new Set<string>(titles.map((item) => initialKey(item.title)))).sort((a: string, b: string) => {
     if (a === "0-9") return -1;
     if (b === "0-9") return 1;
     if (a === "#") return 1;
@@ -346,7 +360,16 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
   const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
   const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
   const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
-  const selectedTrailItems = selectedTrail ? trailItems.filter((item) => item.trail_id === selectedTrail.id) : [];
+  const selectedTrailItems = useMemo(() => {
+    if (!selectedTrail) return [];
+    const items = trailItems.filter((item) => item.trail_id === selectedTrail.id);
+    if (selectedTrail.slug !== "folha-verde-edicoes") return items;
+    return [...items].sort((left, right) => {
+      const leftResource = left.resource_id ? resourceMap.get(left.resource_id) : null;
+      const rightResource = right.resource_id ? resourceMap.get(right.resource_id) : null;
+      return resourceChronology(rightResource) - resourceChronology(leftResource);
+    });
+  }, [resourceMap, selectedTrail, trailItems]);
   const currentTrailItems = selectedTrailItems.slice((trailItemPage - 1) * PAGE_SIZE, trailItemPage * PAGE_SIZE);
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
@@ -523,7 +546,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
                   <p className="mt-1 truncate text-sm font-black text-[#123D2C]">{title?.title || resource?.title || "Item em configuração"}</p>
                   {item.note && <p className="mt-1 line-clamp-1 text-xs font-semibold text-slate-600">{item.note}</p>}
                   {title && <button type="button" onClick={() => { setSelectedTrailId(""); openTitle(title.id); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Ver livro</button>}
-                  {resource && currentVersion?.source_url && <a href={currentVersion.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Abrir conteúdo vigente</a>}
+                  {resource && currentVersion?.source_url && <a href={currentVersion.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">{resource.resource_type === "folha_verde" ? "Abrir PDF" : "Abrir conteúdo vigente"}</a>}
                 </article>
               );
             })}
@@ -557,7 +580,16 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
               return (
                 <article key={reservation.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                   <p className="truncate text-sm font-black text-[#123D2C]">{reservation.title?.title || "Livro reservado"}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-600">{reservation.status === "disponivel" ? `Disponível para retirada${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}.` : `Na fila desde ${formatDate(reservation.requested_at)}.`}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                    {reservation.status === "disponivel"
+                      ? `Separado para retirada no Tucxa 2${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}${reservation.copy?.asset_code ? ` • ${reservation.copy.asset_code}` : ""}.`
+                      : `Na fila desde ${formatDate(reservation.requested_at)}.`}
+                  </p>
+                  {reservation.status === "disponivel" && (
+                    <p className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-[10px] font-bold leading-4 text-[#123D2C]">
+                      Ao retirar o exemplar físico, peça à Recepção ou ao Apoio Recepção para confirmar o empréstimo. O prazo de devolução começa somente nessa confirmação.
+                    </p>
+                  )}
                   <button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar reserva</button>
                 </article>
               );
@@ -593,21 +625,44 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
                     <p className="truncate text-xs font-black text-[#123D2C]">{copy.asset_code || copy.legacy_code || "Exemplar"}</p>
                     <p className="text-[10px] font-semibold text-slate-500">{copyStatusLabel(copy.status)}{copy.shelf ? ` • ${copy.shelf}` : ""}</p>
                   </div>
-                  {copy.status === "disponivel" && payload.settings?.member_loans_enabled !== false && !hasSelectedTitleLoan && (
-                    <button disabled={saving} type="button" onClick={() => void run({ action: "borrow", copyId: copy.id }, "Empréstimo registrado. Confira a data de devolução em Meus livros.")} className="shrink-0 rounded-lg bg-[#123D2C] px-2.5 py-1.5 text-[9px] font-black text-white disabled:opacity-50">EMPRESTAR</button>
-                  )}
                 </div>
               ))}
             </div>
             <Pager page={copyPage} total={selectedCopies.length} pageSize={PAGE_SIZE} onChange={setCopyPage} />
             {hasSelectedTitleLoan && <p className="mt-2 rounded-xl bg-emerald-50 p-2 text-xs font-bold text-emerald-800">Você já possui este título em empréstimo.</p>}
-            {(selectedTitle.availableCopies ?? 0) === 0 && payload.settings?.member_reservations_enabled !== false && !hasSelectedTitleReservation && !hasSelectedTitleLoan && (
-              <button disabled={saving} type="button" onClick={() => void run({ action: "reserve", titleId: selectedTitle.id }, "Reserva registrada. Acompanhe em Meus livros.")} className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50">Entrar na fila de reserva</button>
+            {hasSelectedTitleReservation && !hasSelectedTitleLoan && (
+              <p className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-xs font-bold text-[#123D2C]">Você já possui uma reserva ativa para este título. Acompanhe em Meus livros.</p>
+            )}
+            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) > 0 && payload.settings?.member_loans_enabled !== false && (
+              <button
+                disabled={saving}
+                type="button"
+                onClick={() => void run(
+                  { action: "reserve", titleId: selectedTitle.id },
+                  `Solicitação registrada. Um exemplar disponível fica separado por até ${payload.settings?.reservation_hold_days ?? 3} dia(s). Retire no Tucxa 2 e peça a confirmação à Recepção.`,
+                )}
+                className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
+              >
+                Reservar para retirada no Tucxa 2
+              </button>
+            )}
+            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) === 0 && payload.settings?.member_reservations_enabled !== false && (
+              <button
+                disabled={saving}
+                type="button"
+                onClick={() => void run({ action: "reserve", titleId: selectedTitle.id }, "Reserva registrada. Você entrou na fila e poderá acompanhar em Meus livros.")}
+                className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
+              >
+                Entrar na fila de reserva
+              </button>
+            )}
+            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) > 0 && payload.settings?.member_loans_enabled === false && (
+              <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900 ring-1 ring-amber-200">As solicitações de retirada pelo leitor estão temporariamente desabilitadas. Procure a Biblioteca/Recepção.</p>
             )}
           </div>
 
           <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">
-            Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). O sistema também verifica atrasos, pendências e fila de reserva conforme a configuração da Biblioteca.
+            Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). A retirada física é confirmada pela Recepção; só então começa o prazo de devolução. O sistema também verifica atrasos, pendências e fila de reserva conforme a configuração da Biblioteca.
           </p>
         </Modal>
       )}

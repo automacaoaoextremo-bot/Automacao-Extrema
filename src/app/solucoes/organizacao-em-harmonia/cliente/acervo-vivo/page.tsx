@@ -59,6 +59,7 @@ type Reservation = {
   hold_until?: string | null;
   person?: Person | null;
   title?: TitleRow | null;
+  availableCopy?: CopyRow | null;
 };
 type Resource = { id: string; resource_type: string; title: string; governance_status: string; description?: string | null };
 type ResourceVersion = { id: string; resource_id: string; version_label: string; source_url?: string | null; is_current: boolean };
@@ -87,6 +88,7 @@ type Payload = {
     folhaVerde?: boolean;
     grupoEstudos?: boolean;
     clubeLivro?: boolean;
+    reception?: boolean;
     systemAdmin?: boolean;
   };
   organizationId?: string;
@@ -221,6 +223,9 @@ export default function AcervoVivoGestaoPage() {
     const next = (await response.json().catch(() => ({}))) as Payload & { error?: string };
     if (!response.ok) throw new Error(next.error || "Não foi possível carregar o Acervo Vivo.");
     setPayload(next);
+    if (next.permissions?.reception === true && next.permissions?.library !== true) {
+      setTab("circulacao");
+    }
     setLoanDays(next.settings?.loan_days ?? 30);
     setDailyLateFee(Number(next.settings?.daily_late_fee ?? 1));
     setMaxLoans(next.settings?.max_active_loans ?? 3);
@@ -279,6 +284,32 @@ export default function AcervoVivoGestaoPage() {
   const canManageFolhaVerde = permissions.folhaVerde === true || canManageLibrary;
   const canManageGrupoEstudos = permissions.grupoEstudos === true || canManageLibrary;
   const canManageClubeLivro = permissions.clubeLivro === true || canManageLibrary;
+  const canConfirmPickup = permissions.reception === true || canManageLibrary;
+  const receptionOnly =
+    permissions.reception === true &&
+    !canManageLibrary &&
+    permissions.folhaVerde !== true &&
+    permissions.grupoEstudos !== true &&
+    permissions.clubeLivro !== true;
+
+  const visibleTabs = useMemo<Array<[Tab, string]>>(() => {
+    const items: Array<[Tab, string, boolean]> = [
+      ["visao", "Visão geral", !receptionOnly],
+      ["acervo", "Acervo", canManageLibrary],
+      ["circulacao", "Circulação", canConfirmPickup],
+      ["inventario", "Inventário", canManageLibrary],
+      ["conteudos", "Conteúdos", canManageLibrary || canManageFolhaVerde],
+      ["trilhas", "Trilhas + Integrações", canManageLibrary || canManageFolhaVerde || canManageGrupoEstudos || canManageClubeLivro],
+    ];
+    return items.filter((item) => item[2]).map(([value, label]) => [value, label]);
+  }, [
+    canConfirmPickup,
+    canManageClubeLivro,
+    canManageFolhaVerde,
+    canManageGrupoEstudos,
+    canManageLibrary,
+    receptionOnly,
+  ]);
 
   const visibleTitles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("pt-BR");
@@ -353,7 +384,7 @@ export default function AcervoVivoGestaoPage() {
     if (!token || saving) return;
     setSaving(true); setError(""); setSuccess("");
     try {
-      const result = await post({ action: "enrich-covers", limit: 6 });
+      const result = await post({ action: "enrich-covers", limit: 10 });
       setSuccess(`Capas pesquisadas: ${result.checked ?? 0}. Correspondências fortes: ${result.enriched ?? 0}. Sugestões para revisar: ${result.suggested ?? 0}.`);
       await load(token);
     } catch (currentError) {
@@ -377,6 +408,13 @@ export default function AcervoVivoGestaoPage() {
     event.preventDefault();
     await run({ action: "loan", copyId: loanCopyId, personId: loanPersonId }, "Empréstimo registrado. A data de devolução foi calculada pelas regras vigentes.");
     setLoanCopyId(""); setLoanPersonId("");
+  }
+
+  async function confirmReservationLoan(reservationId: string) {
+    await run(
+      { action: "confirm-reservation-loan", reservationId },
+      "Retirada confirmada. O empréstimo foi iniciado e a data de devolução calculada pelas regras vigentes.",
+    );
   }
 
   async function showQr(copyId: string) {
@@ -486,10 +524,14 @@ export default function AcervoVivoGestaoPage() {
         <div className="rounded-2xl bg-sky-50 p-4 text-sm font-bold leading-6 text-sky-900 ring-1 ring-sky-200">Seu acesso é especializado: você pode atualizar apenas as áreas ligadas à sua função. As regras de circulação e a Biblioteca física ficam sob responsabilidade do Gestor Acervo Vivo - Biblioteca.</div>
       )}
 
-      <nav className="grid grid-cols-2 gap-2 rounded-3xl bg-white p-2 shadow ring-1 ring-slate-100 sm:grid-cols-6">
-        {([
-          ["visao", "Visão geral"], ["acervo", "Acervo"], ["circulacao", "Circulação"], ["inventario", "Inventário"], ["conteudos", "Conteúdos"], ["trilhas", "Trilhas + Integrações"],
-        ] as Array<[Tab, string]>).map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-2xl px-3 py-3 text-xs font-black sm:text-sm ${tab === value ? "bg-[#00334E] text-white" : "bg-[#F4FBF7] text-[#00334E]"}`}>{label}</button>)}
+      {!loading && receptionOnly && (
+        <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-900 ring-1 ring-emerald-200">
+          A Recepção e o Apoio Recepção confirmam a retirada física dos livros no Tucxa 2. A reserva separa o exemplar; o prazo de devolução começa somente quando a retirada é confirmada aqui.
+        </div>
+      )}
+
+      <nav className={`grid grid-cols-2 gap-2 rounded-3xl bg-white p-2 shadow ring-1 ring-slate-100 ${visibleTabs.length >= 5 ? "sm:grid-cols-6" : "sm:grid-cols-3"}`}>
+        {visibleTabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-2xl px-3 py-3 text-xs font-black sm:text-sm ${tab === value ? "bg-[#00334E] text-white" : "bg-[#F4FBF7] text-[#00334E]"}`}>{label}</button>)}
       </nav>
 
       {loading ? <p className="rounded-3xl bg-white p-5 font-bold text-[#00334E] shadow ring-1 ring-slate-100">Carregando gestão do Acervo Vivo...</p> : tab === "visao" ? (
@@ -515,7 +557,7 @@ export default function AcervoVivoGestaoPage() {
                 <label className="grid gap-1 text-xs font-black text-[#00334E]">Máx. renovações<input type="number" min={0} value={renewalLimit} onChange={(e) => setRenewalLimit(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
                 <label className="grid gap-1 text-xs font-black text-[#00334E]">Reserva disponível por (dias)<input type="number" min={1} value={holdDays} onChange={(e) => setHoldDays(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /></label>
                 <div className="grid gap-2 text-xs font-black text-[#00334E]">
-                  <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberLoans} onChange={(e) => setMemberLoans(e.target.checked)} />Permitir empréstimos pelo leitor</label>
+                  <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberLoans} onChange={(e) => setMemberLoans(e.target.checked)} />Permitir solicitação de retirada pelo leitor</label>
                   <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberReservations} onChange={(e) => setMemberReservations(e.target.checked)} />Permitir reservas</label>
                   <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberRenewals} onChange={(e) => setMemberRenewals(e.target.checked)} />Permitir renovações</label>
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2"><input type="checkbox" checked={blockOverdue} onChange={(e) => setBlockOverdue(e.target.checked)} />Bloquear novo empréstimo com atraso</label>
@@ -565,7 +607,7 @@ export default function AcervoVivoGestaoPage() {
           </div>
 
           <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100 sm:p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Catálogo</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Títulos e capas</h2></div><div className="flex flex-col gap-2 sm:flex-row"><input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buscar título, autor ou tema" /><button type="button" disabled={saving} onClick={() => void enrichPendingCovers()} className="rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">Buscar próximas 6 capas</button></div></div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Catálogo</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Títulos e capas</h2></div><div className="flex flex-col gap-2 sm:flex-row"><input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buscar título, autor ou tema" /><button type="button" disabled={saving} onClick={() => void enrichPendingCovers()} className="rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">Buscar próximas 10 capas</button></div></div>
             <div className="mt-4 grid gap-2">
               {visibleTitles.map((item) => {
                 const itemCopies = copies.filter((copy) => copy.title_id === item.id && copy.active !== false);
@@ -575,12 +617,112 @@ export default function AcervoVivoGestaoPage() {
           </section>
         </div>
       ) : tab === "circulacao" ? (
-        <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-          <div className="grid gap-4">
-            <form onSubmit={createLoan} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Balcão da biblioteca</p><h2 className="mt-1 text-xl font-black text-[#00334E]">Registrar empréstimo</h2><select required value={loanPersonId} onChange={(e) => setLoanPersonId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-3"><option value="">Pessoa da Base Única</option>{people.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email || "Pessoa"}</option>)}</select><select required value={loanCopyId} onChange={(e) => setLoanCopyId(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3"><option value="">Exemplar disponível</option>{availableCopies.map((copy) => <option key={copy.id} value={copy.id}>{copy.asset_code} — {titleMap.get(copy.title_id)?.title || "Livro"}</option>)}</select><button disabled={saving} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">Emprestar</button></form>
-            <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Fila de reservas</p><div className="mt-3 grid gap-2">{activeReservations.map((reservation) => <article key={reservation.id} className="rounded-2xl bg-[#F9FBF7] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#00334E]">{reservation.title?.title || "Livro"}</p><p className="mt-1 text-xs font-semibold text-slate-500">{reservation.person?.full_name || "Pessoa"} • {reservation.status === "disponivel" ? `Disponível até ${formatDate(reservation.hold_until)}` : `Aguardando desde ${formatDate(reservation.requested_at)}`}</p><button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50">Cancelar</button></article>)}{activeReservations.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Nenhuma reserva ativa.</p>}</div></section>
-          </div>
-          <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Empréstimos ativos</p><div className="mt-3 grid gap-2">{activeLoans.map((loan) => { const overdue = loan.isOverdue === true; return <article key={loan.id} className="rounded-2xl bg-[#F9FBF7] p-4 ring-1 ring-[#123D2C]/10"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-black text-[#00334E]">{loan.title?.title || "Livro"}</p><p className="mt-1 text-xs font-semibold text-slate-500">{loan.person?.full_name || "Pessoa"} • {loan.copy?.asset_code || "Exemplar"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${overdue ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>{overdue ? "Atrasado" : `Até ${formatDate(loan.due_at)}`}</span></div><button disabled={saving} type="button" onClick={() => void run({ action: "return", loanId: loan.id }, "Devolução registrada e próxima reserva, se houver, disponibilizada automaticamente.")} className="mt-3 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white disabled:opacity-50">Registrar devolução</button></article>; })}{activeLoans.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Nenhum empréstimo ativo.</p>}</div></section>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {canManageLibrary && (
+            <form onSubmit={createLoan} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Balcão da Biblioteca</p>
+              <h2 className="mt-1 text-xl font-black text-[#00334E]">Empréstimo excepcional direto</h2>
+              <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+                Use somente quando não existir reserva prévia. No fluxo normal, a pessoa reserva no celular e a Recepção confirma a retirada física.
+              </p>
+              <select required value={loanPersonId} onChange={(e) => setLoanPersonId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-3">
+                <option value="">Pessoa da Base Única</option>
+                {people.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email || "Pessoa"}</option>)}
+              </select>
+              <select required value={loanCopyId} onChange={(e) => setLoanCopyId(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3">
+                <option value="">Exemplar disponível</option>
+                {availableCopies.map((copy) => <option key={copy.id} value={copy.id}>{copy.asset_code} — {titleMap.get(copy.title_id)?.title || "Livro"}</option>)}
+              </select>
+              <button disabled={saving} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">Registrar empréstimo direto</button>
+            </form>
+          )}
+
+          <section className={`rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100 ${!canManageLibrary ? "lg:col-span-2" : ""}`}>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Reservas e retiradas</p>
+            <h2 className="mt-1 text-xl font-black text-[#00334E]">Confirmar livro físico no Tucxa 2</h2>
+            <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+              Quando o status estiver <strong>Disponível para retirada</strong>, confira o exemplar físico/código patrimonial e confirme. Só nesse momento o sistema cria o empréstimo e inicia o prazo de devolução.
+            </p>
+            <div className="mt-3 grid gap-2">
+              {activeReservations.map((reservation) => (
+                <article key={reservation.id} className="rounded-2xl bg-[#F9FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-black text-[#00334E]">{reservation.title?.title || "Livro"}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {reservation.person?.full_name || "Pessoa"} • {reservation.status === "disponivel"
+                          ? `Retirar até ${formatDate(reservation.hold_until)}`
+                          : `Na fila desde ${formatDate(reservation.requested_at)}`}
+                      </p>
+                      {reservation.availableCopy?.asset_code && (
+                        <p className="mt-1 text-xs font-black text-[#2F6B43]">
+                          Exemplar separado: {reservation.availableCopy.asset_code}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black ${reservation.status === "disponivel" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+                      {reservation.status === "disponivel" ? "Disponível para retirada" : "Aguardando"}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {reservation.status === "disponivel" && canConfirmPickup && (
+                      <button
+                        disabled={saving || !reservation.availableCopy?.id}
+                        type="button"
+                        onClick={() => void confirmReservationLoan(reservation.id)}
+                        className="rounded-lg bg-[#00334E] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        Confirmar retirada e empréstimo
+                      </button>
+                    )}
+                    {canManageLibrary && (
+                      <button
+                        disabled={saving}
+                        type="button"
+                        onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada e exemplar liberado para a próxima pessoa da fila.")}
+                        className="rounded-lg bg-white px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))}
+              {activeReservations.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Nenhuma reserva ativa.</p>}
+            </div>
+          </section>
+
+          <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100 lg:col-span-2">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Empréstimos ativos</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {activeLoans.map((loan) => {
+                const overdue = loan.isOverdue === true;
+                return (
+                  <article key={loan.id} className="rounded-2xl bg-[#F9FBF7] p-4 ring-1 ring-[#123D2C]/10">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-black text-[#00334E]">{loan.title?.title || "Livro"}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{loan.person?.full_name || "Pessoa"} • {loan.copy?.asset_code || "Exemplar"}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-black ${overdue ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>{overdue ? "Atrasado" : `Até ${formatDate(loan.due_at)}`}</span>
+                    </div>
+                    {canManageLibrary && (
+                      <button
+                        disabled={saving}
+                        type="button"
+                        onClick={() => void run({ action: "return", loanId: loan.id }, "Devolução registrada e próxima reserva, se houver, disponibilizada automaticamente.")}
+                        className="mt-3 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        Registrar devolução
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+              {activeLoans.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500 sm:col-span-2">Nenhum empréstimo ativo.</p>}
+            </div>
+          </section>
         </div>
       ) : tab === "inventario" ? (
         <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">

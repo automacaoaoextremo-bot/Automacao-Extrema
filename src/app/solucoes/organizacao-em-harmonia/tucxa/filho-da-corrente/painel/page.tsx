@@ -20,6 +20,7 @@ type UserInfo = {
   profileUpdateStatus: string;
   functionSlugs: string[];
   functionLabels: string[];
+  canManageAcervo: boolean;
 };
 
 type PanelPreferences = {
@@ -96,10 +97,12 @@ function ShortcutModal({
   shortcut,
   onClose,
   canAccessDespensa,
+  canManageAcervo,
 }: {
   shortcut: Exclude<Shortcut, null>;
   onClose: () => void;
   canAccessDespensa: boolean;
+  canManageAcervo: boolean;
 }) {
   const title =
     shortcut === "modules"
@@ -117,6 +120,16 @@ function ShortcutModal({
             description:
               "Estoque por lote e validade, composição das cestas, entregas e histórico do Sementinha.",
             href: "/solucoes/organizacao-em-harmonia/tucxa/sementinha/despensa-viva",
+          },
+        ]
+      : []),
+    ...(canManageAcervo
+      ? [
+          {
+            title: "Gestão de retiradas — Acervo Vivo",
+            description:
+              "Recepção e responsáveis pela Biblioteca confirmam a retirada física dos livros reservados no Tucxa 2.",
+            href: "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo",
           },
         ]
       : []),
@@ -297,11 +310,16 @@ export default function PainelFilhoDaCorrentePage() {
             : "";
         let functionSlugs: string[] = [];
         let functionLabels: string[] = [];
+        let canManageAcervo = false;
 
         if (session.access_token) {
-          const [profileResponse] = await Promise.all([
+          const [profileResponse, acervoResponse] = await Promise.all([
             fetch("/api/organizacao-em-harmonia/filhos-corrente/perfil", {
               headers: { Authorization: `Bearer ${session.access_token}` },
+            }),
+            fetch("/api/organizacao-em-harmonia/cliente/acervo-vivo?accessOnly=1", {
+              headers: { Authorization: `Bearer ${session.access_token}` },
+              cache: "no-store",
             }),
             loadPanelData(session.access_token),
           ]);
@@ -325,6 +343,25 @@ export default function PainelFilhoDaCorrentePage() {
                   .filter(Boolean)
               : [];
           }
+
+          if (acervoResponse.ok) {
+            const acervoPayload = (await acervoResponse.json().catch(() => ({}))) as {
+              permissions?: {
+                reception?: boolean;
+                library?: boolean;
+                folhaVerde?: boolean;
+                grupoEstudos?: boolean;
+                clubeLivro?: boolean;
+              };
+            };
+            const permissions = acervoPayload.permissions ?? {};
+            canManageAcervo =
+              permissions.reception === true ||
+              permissions.library === true ||
+              permissions.folhaVerde === true ||
+              permissions.grupoEstudos === true ||
+              permissions.clubeLivro === true;
+          }
         }
 
         if (!active) return;
@@ -337,6 +374,7 @@ export default function PainelFilhoDaCorrentePage() {
           profileUpdateStatus,
           functionSlugs,
           functionLabels,
+          canManageAcervo,
         });
         setLoading(false);
       });
@@ -357,6 +395,8 @@ export default function PainelFilhoDaCorrentePage() {
     () => hasDespensaVivaManagement(userInfo?.functionSlugs ?? []),
     [userInfo?.functionSlugs],
   );
+
+  const canManageAcervo = userInfo?.canManageAcervo === true;
 
   const functionSummary = useMemo(() => {
     if (!userInfo) return "Somente Filho da Corrente";
@@ -442,6 +482,7 @@ export default function PainelFilhoDaCorrentePage() {
           shortcut={shortcut}
           onClose={() => setShortcut(null)}
           canAccessDespensa={canAccessDespensa}
+          canManageAcervo={canManageAcervo}
         />
       )}
 

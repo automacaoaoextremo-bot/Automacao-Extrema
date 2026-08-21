@@ -48,6 +48,7 @@ const MEMBER_PANEL =
 const FINANCE_BASE = "/solucoes/organizacao-em-harmonia/cliente/corrente-em-dia";
 const LISTENING_BASE = "/solucoes/organizacao-em-harmonia/cliente/escuta-em-harmonia";
 const COURSES_BASE = "/solucoes/organizacao-em-harmonia/cliente/cursos";
+const ACERVO_BASE = "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo";
 
 function normalizeAccessToken(value: unknown) {
   return typeof value === "string"
@@ -134,6 +135,22 @@ const coursesMemberSidebarGroups: NavGroup[] = [
     items: [
       { label: "Gestão dos cursos", href: COURSES_BASE, description: "Planejar curso, aulas, professores e convites." },
       { label: "Minhas aulas", href: `${MEMBER_PANEL}/cursos`, description: "Código de presença e chamada do Professor." },
+      { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },
+    ],
+  },
+];
+
+const acervoMemberTopNav: NavItem[] = [
+  { label: "Painel", href: MEMBER_PANEL },
+  { label: "Acervo Vivo", href: ACERVO_BASE },
+];
+
+const acervoMemberSidebarGroups: NavGroup[] = [
+  {
+    label: "Recepção · Acervo Vivo",
+    description: "Reservas, retiradas físicas e empréstimos confirmados no Tucxa 2.",
+    items: [
+      { label: "Retiradas e circulação", href: ACERVO_BASE, description: "Confirmar retirada de reservas e acompanhar empréstimos." },
       { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },
     ],
   },
@@ -328,6 +345,38 @@ export function OrganizacaoClientShell({
             setAccessGate("financialMember");
             return;
           }
+        } else if (pathname.startsWith(ACERVO_BASE)) {
+          const response = await fetch(
+            "/api/organizacao-em-harmonia/cliente/acervo-vivo?accessOnly=1",
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              cache: "no-store",
+            },
+          );
+          const payload = (await response.json().catch(() => ({}))) as {
+            permissions?: {
+              reception?: boolean;
+              library?: boolean;
+              folhaVerde?: boolean;
+              grupoEstudos?: boolean;
+              clubeLivro?: boolean;
+            };
+          };
+          if (!active) return;
+
+          const permissions = payload.permissions ?? {};
+          const canUseAcervo =
+            response.ok &&
+            (permissions.reception === true ||
+              permissions.library === true ||
+              permissions.folhaVerde === true ||
+              permissions.grupoEstudos === true ||
+              permissions.clubeLivro === true);
+
+          if (canUseAcervo) {
+            setAccessGate("moduleMember");
+            return;
+          }
         } else if (pathname.startsWith(LISTENING_BASE) || pathname.startsWith(COURSES_BASE)) {
           const response = await fetch(
             "/api/organizacao-em-harmonia/filhos-corrente/perfil",
@@ -400,10 +449,14 @@ export function OrganizacaoClientShell({
   const isMemberAccess = isFinancialMember || isModuleMember;
   const moduleMemberTopNav = pathname.startsWith(LISTENING_BASE)
     ? listeningMemberTopNav
-    : coursesMemberTopNav;
+    : pathname.startsWith(ACERVO_BASE)
+      ? acervoMemberTopNav
+      : coursesMemberTopNav;
   const moduleMemberSidebarGroups = pathname.startsWith(LISTENING_BASE)
     ? listeningMemberSidebarGroups
-    : coursesMemberSidebarGroups;
+    : pathname.startsWith(ACERVO_BASE)
+      ? acervoMemberSidebarGroups
+      : coursesMemberSidebarGroups;
   const effectiveTopNav = isFinancialMember
     ? financialMemberTopNav
     : isModuleMember
