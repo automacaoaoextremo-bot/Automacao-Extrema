@@ -71,13 +71,13 @@ type AnalysisSnapshot = {
 };
 
 const actions = [
-  { label: "Início", href: "#inicio", variant: "secondary" as const },
+  { label: "Início", href: "#inicio", variant: "primary" as const },
   {
     label: "Voltar",
-    href: "/solucoes/organizacao-em-harmonia/tucxa",
+    href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#prestacao-contas",
     variant: "secondary" as const,
   },
-  { label: "Contribuir", href: "#contribuir", variant: "primary" as const },
+  { label: "Contribuir", href: "#contribuir", variant: "secondary" as const },
   {
     label: "Ajuda",
     href: "#ajuda",
@@ -567,6 +567,7 @@ export default function TucxaTransparenciaPage() {
   const [loading, setLoading] = useState(true);
   const [openPopup, setOpenPopup] = useState<PopupKey>(null);
   const [summaryPopupOpen, setSummaryPopupOpen] = useState(false);
+  const [houseCareOpen, setHouseCareOpen] = useState(false);
   const [analysisQuestion, setAnalysisQuestion] =
     useState<AnalysisQuestionKey>(null);
   const [mode, setMode] = useState<FilterMode>("all");
@@ -908,6 +909,16 @@ export default function TucxaTransparenciaPage() {
           </p>
           <SummaryNavigationButtons onOpen={setOpenPopup} />
           <ContributionChoiceButtons className="mt-3" inverse />
+          <button
+            type="button"
+            onClick={() => setHouseCareOpen(true)}
+            className="mt-3 flex min-h-16 w-full flex-col items-center justify-center rounded-2xl bg-[#CFE2C7] px-4 py-3 text-center text-[#123D2C] shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:bg-white"
+          >
+            <span className="text-base font-black">O que mantém a casa</span>
+            <span className="mt-1 text-[9px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">
+              CLIQUE PARA CONHECER
+            </span>
+          </button>
         </header>
 
         {loading && (
@@ -953,6 +964,35 @@ export default function TucxaTransparenciaPage() {
           </section>
         )}
       </section>
+
+      {houseCareOpen && (
+        <Popup
+          title="O que mantém a Casa"
+          subtitle="Um cuidado que continua depois do clique."
+          onClose={() => setHouseCareOpen(false)}
+        >
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">
+              Um cuidado que continua depois do clique
+            </p>
+            <h3 className="mt-2 text-2xl font-black leading-tight text-[#123D2C]">
+              O que mantém a Casa preparada nem sempre aparece, mas faz diferença em cada trabalho.
+            </h3>
+            <p className="mt-3 leading-7 text-slate-700">
+              Água, energia, limpeza, segurança, conservação e materiais transformam estrutura em acolhimento.
+              Sua contribuição não é apenas um valor: é uma forma prática de ajudar o Tucxa a seguir disponível,
+              organizado e pronto para cuidar.
+            </p>
+            <Link
+              href="/solucoes/organizacao-em-harmonia/tucxa/contribuir"
+              className="mt-4 inline-flex min-h-12 w-full flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 text-center font-black text-white"
+            >
+              <span>Acessar formas de contribuição</span>
+              <span className="mt-1 text-[9px] font-black uppercase tracking-[0.16em] text-white/75">TOQUE PARA ABRIR</span>
+            </Link>
+          </div>
+        </Popup>
+      )}
 
       {openPopup === "finalizado" && data && (
         <Popup

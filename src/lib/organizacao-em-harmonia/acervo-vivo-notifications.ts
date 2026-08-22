@@ -6,7 +6,8 @@ export type AcervoNotificationKind =
   | "fila"
   | "emprestimo"
   | "devolucao"
-  | "reserva_disponivel";
+  | "reserva_disponivel"
+  | "lembrete_devolucao";
 
 type NotificationInput = {
   organizationId: string;
@@ -80,6 +81,7 @@ function labels(kind: AcervoNotificationKind) {
   if (kind === "emprestimo") return { subject: "Empréstimo registrado", action: "foi emprestado" };
   if (kind === "devolucao") return { subject: "Devolução registrada", action: "foi devolvido" };
   if (kind === "reserva_disponivel") return { subject: "Livro disponível para retirada", action: "está separado para retirada" };
+  if (kind === "lembrete_devolucao") return { subject: "Lembrete de devolução", action: "continua em seu empréstimo" };
   if (kind === "fila") return { subject: "Entrada na fila de reserva", action: "foi incluído na fila de reserva" };
   return { subject: "Reserva registrada", action: "foi reservado" };
 }
@@ -139,14 +141,23 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
   const pickupLocation = text(metadata.pickup_location) || "Tucxa";
   const dueLine = input.dueAt ? `\nDevolução prevista: ${formatDate(input.dueAt)}.` : "";
   const holdLine = input.holdUntil ? `\nRetirar até: ${formatDate(input.holdUntil)} em ${pickupLocation}.` : "";
+  const returnLine = ["emprestimo", "lembrete_devolucao"].includes(input.kind)
+    ? `Devolver no mesmo local da retirada: ${pickupLocation}.`
+    : "";
+  const reminderIntro = input.kind === "lembrete_devolucao"
+    ? "Este é um lembrete respeitoso de que a data prevista de devolução está se aproximando."
+    : "";
+
   const textBody = [
     `Olá, ${text(person.full_name) || "leitor(a)"}.`,
     "",
+    reminderIntro,
     `O livro \"${text(title.title)}\" ${label.action} no Acervo Vivo do Tucxa.`,
     authors ? `Autor(es): ${authors}.` : "",
     copyCode ? `Exemplar: ${copyCode}.` : "",
     dueLine.trim(),
     holdLine.trim(),
+    returnLine,
     "",
     "Esta mensagem também pode ser encaminhada aos responsáveis pelo Acervo Vivo configurados pela gestão.",
     "Tucxa em Harmonia — Acervo Vivo",

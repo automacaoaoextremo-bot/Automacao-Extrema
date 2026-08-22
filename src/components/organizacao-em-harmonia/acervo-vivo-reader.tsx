@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
+type ReviewComment = {
+  id: string;
+  rating?: number | null;
+  comment?: string | null;
+  created_at: string;
+};
+
 type TitleRow = {
   id: string;
   title: string;
@@ -15,6 +22,9 @@ type TitleRow = {
   cover_url?: string | null;
   totalCopies?: number;
   availableCopies?: number;
+  averageRating?: number;
+  reviewCount?: number;
+  comments?: ReviewComment[];
 };
 
 type CopyRow = {
@@ -115,7 +125,10 @@ type Payload = {
     member_renewals_enabled?: boolean;
     block_new_loans_with_overdue?: boolean;
     block_new_loans_with_pending_fee?: boolean;
-    metadata?: { pickup_location?: string } | null;
+    metadata?: {
+      pickup_location?: string;
+      loan_reminder_days_before_due?: number;
+    } | null;
   };
   titles?: TitleRow[];
   copies?: CopyRow[];
@@ -156,18 +169,6 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
-
-function copyStatusLabel(value: string) {
-  const labels: Record<string, string> = {
-    disponivel: "Disponível",
-    emprestado: "Emprestado",
-    reservado: "Reservado",
-    manutencao: "Em manutenção",
-    perdido: "Não localizado",
-    baixado: "Baixado",
-  };
-  return labels[value] ?? value;
-}
 
 function resourceChronology(resource?: ResourceRow | null) {
   const year = Number(resource?.metadata?.year ?? 0);
@@ -244,6 +245,22 @@ function AccessButton({ title, detail, onClick }: { title: string; detail: strin
   );
 }
 
+function RatingLine({ title }: { title: TitleRow }) {
+  const count = Number(title.reviewCount ?? 0);
+  const average = Number(title.averageRating ?? 0);
+  const rounded = count > 0 ? Math.round(average) : 0;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-lg tracking-[0.1em] text-amber-500" aria-label={`${count} avaliações`}>
+        {[1, 2, 3, 4, 5].map((star) => <span key={star}>{star <= rounded ? "★" : "☆"}</span>)}
+      </span>
+      <span className="text-xs font-bold text-slate-500">
+        {count > 0 ? `${average.toFixed(1)} • ${count} avaliação(ões)` : "Sem avaliações ainda"}
+      </span>
+    </div>
+  );
+}
+
 export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [payload, setPayload] = useState<Payload>({});
   const [token, setToken] = useState("");
@@ -259,11 +276,17 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [letterPage, setLetterPage] = useState(1);
   const [trailPage, setTrailPage] = useState(1);
   const [selectedTitleId, setSelectedTitleId] = useState("");
-  const [copyPage, setCopyPage] = useState(1);
   const [selectedTrailId, setSelectedTrailId] = useState("");
   const [trailItemPage, setTrailItemPage] = useState(1);
   const [selectedFolhaYear, setSelectedFolhaYear] = useState<number | null>(null);
   const [myPage, setMyPage] = useState(1);
+  const [confirmAction, setConfirmAction] = useState<"borrow-now" | "reserve" | null>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [notifyIfNotPickedUp, setNotifyIfNotPickedUp] = useState(true);
+  const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
+  const [returnLoanId, setReturnLoanId] = useState("");
+  const [returnRating, setReturnRating] = useState(0);
+  const [returnComment, setReturnComment] = useState("");
 
   const load = useCallback(async (accessToken: string) => {
     const response = await fetch(api, {
@@ -362,10 +385,11 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const currentTrailItems = selectedTrailItems.slice((trailItemPage - 1) * PAGE_SIZE, trailItemPage * PAGE_SIZE);
   const folhaYears = useMemo(() => {
     if (selectedTrail?.slug !== "folha-verde-edicoes") return [] as number[];
-    return Array.from(new Set(selectedTrailItems.map((item) => {
+    const years = selectedTrailItems.map((item) => {
       const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
       return Number(resource?.metadata?.year ?? 0);
-    }).filter((year) => year >= 1900 && year <= 2200))).sort((a, b) => b - a);
+    }).filter((year): year is number => Number.isFinite(year) && year >= 1900 && year <= 2200);
+    return Array.from(new Set<number>(years)).sort((a, b) => b - a);
   }, [resourceMap, selectedTrail?.slug, selectedTrailItems]);
   const selectedFolhaYearItems = useMemo(() => {
     if (!selectedFolhaYear) return [] as TrailItem[];
@@ -379,15 +403,16 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     });
   }, [resourceMap, selectedFolhaYear, selectedTrailItems]);
   const pickupLocation = payload.settings?.metadata?.pickup_location || "Tucxa 1";
+  const reminderDays = payload.settings?.metadata?.loan_reminder_days_before_due ?? 3;
+  const selectedCategory = selectedTitle?.subjects?.[0] || "Não informada";
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
-  const currentSelectedCopies = selectedCopies.slice((copyPage - 1) * PAGE_SIZE, copyPage * PAGE_SIZE);
   const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
   const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
 
-  async function run(body: Record<string, unknown>, message: string) {
-    if (!token || saving) return;
+  async function run(body: Record<string, unknown>, message: string): Promise<boolean> {
+    if (!token || saving) return false;
     setSaving(true);
     setError("");
     setSuccess("");
@@ -401,15 +426,56 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
       setSuccess(message);
       await load(token);
+      return true;
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao concluir a operação.");
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
+  async function confirmSelectedAction() {
+    if (!confirmAction || !selectedTitle) return;
+    const message = confirmAction === "borrow-now"
+      ? `Empréstimo confirmado. Devolva no mesmo local da retirada: ${pickupLocation}.`
+      : (selectedTitle.availableCopies ?? 0) > 0
+        ? `Reserva confirmada. Retire em ${pickupLocation} no prazo configurado.`
+        : "Você entrou na fila de reserva e será avisado quando houver disponibilidade.";
+
+    const ok = await run(
+      confirmAction === "borrow-now"
+        ? { action: "borrow-now", titleId: selectedTitle.id }
+        : {
+            action: "reserve",
+            titleId: selectedTitle.id,
+            notifyIfNotPickedUp,
+            reserveAfterReturn,
+          },
+      message,
+    );
+    if (ok) setConfirmAction(null);
+  }
+
+  async function confirmReturn() {
+    if (!returnLoanId) return;
+    const ok = await run(
+      {
+        action: "return-book",
+        loanId: returnLoanId,
+        rating: returnRating || undefined,
+        comment: returnComment.trim() || undefined,
+      },
+      `Devolução registrada em ${pickupLocation}. Obrigado por ajudar o Acervo Vivo a circular.`,
+    );
+    if (ok) {
+      setReturnLoanId("");
+      setReturnRating(0);
+      setReturnComment("");
+    }
+  }
+
   function openTitle(titleId: string) {
-    setCopyPage(1);
     setSelectedTitleId(titleId);
   }
 
@@ -612,9 +678,12 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <article key={loan.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                   <p className="truncate text-sm font-black text-[#123D2C]">{loan.title?.title || "Livro em empréstimo"}</p>
                   <p className="mt-1 text-xs font-semibold text-slate-600">{loan.copy?.asset_code ? `${loan.copy.asset_code} • ` : ""}Devolver até {formatDate(loan.due_at)}</p>
-                  {payload.settings?.member_renewals_enabled !== false && (
-                    <button disabled={saving} type="button" onClick={() => void run({ action: "renew", loanId: loan.id }, "Empréstimo renovado.")} className="mt-2 rounded-lg bg-[#123D2C] px-3 py-1.5 text-[10px] font-black text-white disabled:opacity-50">Solicitar renovação</button>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {payload.settings?.member_renewals_enabled !== false && (
+                      <button disabled={saving} type="button" onClick={() => void run({ action: "renew", loanId: loan.id }, "Empréstimo renovado.")} className="rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">Solicitar renovação</button>
+                    )}
+                    <button disabled={saving} type="button" onClick={() => { setReturnLoanId(loan.id); setReturnRating(0); setReturnComment(""); }} className="rounded-lg bg-[#123D2C] px-3 py-1.5 text-[10px] font-black text-white disabled:opacity-50">Registrar devolução</button>
+                  </div>
                 </article>
               );
             }) : currentMyRows.map((row) => {
@@ -643,69 +712,137 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       )}
 
       {selectedTitle && (
-        <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" onClose={() => setSelectedTitleId("")} z={240}>
+        <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" onClose={() => { setSelectedTitleId(""); setCommentsOpen(false); setConfirmAction(null); }} z={240}>
           <div className="flex gap-3">
             <Cover title={selectedTitle} />
             <div className="min-w-0 flex-1">
-              {(selectedTitle.authors ?? []).length > 0 && <p className="text-xs font-bold text-slate-500">{selectedTitle.authors?.join(", ")}</p>}
-              {selectedTitle.description && <p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-slate-600">{selectedTitle.description}</p>}
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {(selectedTitle.subjects ?? []).slice(0, 3).map((subject) => <span key={subject} className="rounded-full bg-[#E7F0E2] px-2 py-1 text-[9px] font-black text-[#2F6B43]">{subject}</span>)}
-              </div>
+              <p className="text-xs font-bold leading-5 text-slate-600">
+                <strong>Autor:</strong> {selectedTitle.authors?.join(", ") || "Não informado"}
+                <span className="mx-1">•</span>
+                <strong>Categoria:</strong> {selectedCategory}
+              </p>
+              <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+                {selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}
+              </p>
             </div>
           </div>
 
           <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-black text-[#123D2C]">{selectedCopies.length} exemplar(es)</p>
-              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-[#2F6B43]">{selectedTitle.availableCopies ?? 0} disponível(is)</span>
-            </div>
-            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-              {currentSelectedCopies.map((copy) => (
-                <div key={copy.id} className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-[#123D2C]/10">
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-black text-[#123D2C]">{copy.asset_code || copy.legacy_code || "Exemplar"}</p>
-                    <p className="text-[10px] font-semibold text-slate-500">{copyStatusLabel(copy.status)}{copy.shelf ? ` • ${copy.shelf}` : ""}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <Pager page={copyPage} total={selectedCopies.length} pageSize={PAGE_SIZE} onChange={setCopyPage} />
-            {hasSelectedTitleLoan && <p className="mt-2 rounded-xl bg-emerald-50 p-2 text-xs font-bold text-emerald-800">Você já possui este título em empréstimo.</p>}
-            {hasSelectedTitleReservation && !hasSelectedTitleLoan && (
-              <p className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-xs font-bold text-[#123D2C]">Você já possui uma reserva ativa para este título. Acompanhe em Meus livros.</p>
-            )}
-            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) > 0 && payload.settings?.member_loans_enabled !== false && (
-              <button
-                disabled={saving}
-                type="button"
-                onClick={() => void run(
-                  { action: "reserve", titleId: selectedTitle.id },
-                  `Solicitação registrada. Um exemplar disponível fica separado por até ${payload.settings?.reservation_hold_days ?? 3} dia(s). Retire em ${pickupLocation} e peça a confirmação à Recepção.`,
-                )}
-                className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
-              >
-                {`Reservar para retirada em ${pickupLocation}`}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Avaliações</p>
+                <RatingLine title={selectedTitle} />
+              </div>
+              <button type="button" onClick={() => setCommentsOpen(true)} className="flex min-h-12 flex-col items-center justify-center rounded-xl bg-white px-4 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+                <span>Comentários</span>
+                <span className="mt-1 text-[8px] uppercase tracking-[0.12em] text-[#2F6B43]">CLIQUE PARA VER</span>
               </button>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">EMPRESTAR</p>
+            {hasSelectedTitleLoan && <p className="mt-2 rounded-xl bg-emerald-50 p-2 text-xs font-bold text-emerald-800">Você já possui este título em empréstimo. A devolução pode ser registrada em Meus livros.</p>}
+            {hasSelectedTitleReservation && !hasSelectedTitleLoan && <p className="mt-2 rounded-xl bg-white p-2 text-xs font-bold text-[#123D2C]">Você já possui uma reserva ativa para este título. Acompanhe em Meus livros.</p>}
+            {!hasSelectedTitleLoan && !hasSelectedTitleReservation && (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <button
+                  disabled={saving || (selectedTitle.availableCopies ?? 0) <= 0 || payload.settings?.member_loans_enabled === false}
+                  type="button"
+                  onClick={() => setConfirmAction("borrow-now")}
+                  className="flex min-h-20 flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-3 py-3 text-center font-black text-white disabled:opacity-45"
+                >
+                  <span>Está com o livro em mãos</span>
+                  <span className="mt-1 text-[8px] uppercase tracking-[0.12em] text-white/75">CLIQUE PARA CONTINUAR</span>
+                </button>
+                <button
+                  disabled={saving || payload.settings?.member_reservations_enabled === false}
+                  type="button"
+                  onClick={() => setConfirmAction("reserve")}
+                  className="flex min-h-20 flex-col items-center justify-center rounded-2xl bg-white px-3 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-45"
+                >
+                  <span>Não estou com o livro em mãos</span>
+                  <span className="mt-1 text-[8px] uppercase tracking-[0.12em] text-[#2F6B43]">CLIQUE PARA CONTINUAR</span>
+                </button>
+              </div>
             )}
-            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) === 0 && payload.settings?.member_reservations_enabled !== false && (
-              <button
-                disabled={saving}
-                type="button"
-                onClick={() => void run({ action: "reserve", titleId: selectedTitle.id }, "Reserva registrada. Você entrou na fila e poderá acompanhar em Meus livros.")}
-                className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
-              >
-                Entrar na fila de reserva
-              </button>
-            )}
-            {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) > 0 && payload.settings?.member_loans_enabled === false && (
-              <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900 ring-1 ring-amber-200">As solicitações de retirada pelo leitor estão temporariamente desabilitadas. Procure a Biblioteca/Recepção.</p>
+            {(selectedTitle.availableCopies ?? 0) <= 0 && !hasSelectedTitleLoan && !hasSelectedTitleReservation && (
+              <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">Não há exemplar livre neste momento. Use a segunda opção para entrar na fila e receber aviso sobre a próxima disponibilidade.</p>
             )}
           </div>
 
           <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">
-            Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). A retirada física é confirmada pela Recepção; só então começa o prazo de devolução. O sistema também verifica atrasos, pendências e fila de reserva conforme a configuração da Biblioteca.
+            Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). A devolução deve ocorrer no mesmo local da retirada: {pickupLocation}.
           </p>
+        </Modal>
+      )}
+
+      {commentsOpen && selectedTitle && (
+        <Modal title="Comentários" eyebrow={`Avaliações • ${selectedTitle.title}`} z={260} onClose={() => setCommentsOpen(false)}>
+          {(selectedTitle.comments ?? []).length > 0 ? (
+            <div className="grid gap-2">
+              {(selectedTitle.comments ?? []).map((comment) => (
+                <article key={comment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="text-sm text-amber-500">{"★".repeat(Number(comment.rating ?? 0))}{"☆".repeat(Math.max(0, 5 - Number(comment.rating ?? 0)))}</p>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">{comment.comment}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold text-slate-600">Ainda não há comentários para este livro.</p>
+          )}
+        </Modal>
+      )}
+
+      {confirmAction && selectedTitle && (
+        <Modal title={confirmAction === "borrow-now" ? "Confirmar empréstimo" : "Confirmar reserva"} eyebrow="Acervo Vivo • confirmação" z={270} onClose={() => setConfirmAction(null)}>
+          <div className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">
+            <p><strong>Livro:</strong> {selectedTitle.title}</p>
+            {confirmAction === "borrow-now" ? (
+              <>
+                <p className="mt-2">Ao confirmar, o empréstimo começa agora e terá prazo de <strong>{payload.settings?.loan_days ?? 30} dias</strong>.</p>
+                <p className="mt-2">A devolução deve ser feita no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
+                <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data prevista de devolução.</p>
+                {selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && (
+                  <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para maior precisão, prefira iniciar o empréstimo pelo QR Code colado no exemplar que está em suas mãos.</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+                <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
+                {(selectedTitle.availableCopies ?? 0) <= 0 && (
+                  <div className="mt-3 grid gap-2">
+                    <label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={notifyIfNotPickedUp} onChange={(event) => setNotifyIfNotPickedUp(event.target.checked)} />Avisar se uma reserva anterior não for retirada no prazo.</label>
+                    <label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={reserveAfterReturn} onChange={(event) => setReserveAfterReturn(event.target.checked)} />Manter meu interesse para reservar quando o livro for devolvido.</label>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <button disabled={saving} type="button" onClick={() => void confirmSelectedAction()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+        </Modal>
+      )}
+
+      {returnLoanId && (
+        <Modal title="Registrar devolução" eyebrow="Acervo Vivo • devolução" z={280} onClose={() => { setReturnLoanId(""); setReturnRating(0); setReturnComment(""); }}>
+          <div className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10">
+            <p>A devolução deve ser feita no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
+            <p className="mt-2">A avaliação é opcional e ajuda outras pessoas a escolherem suas próximas leituras.</p>
+          </div>
+          <div className="mt-3">
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Sua avaliação (opcional)</p>
+            <div className="mt-2 flex gap-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button key={star} type="button" onClick={() => setReturnRating(star === returnRating ? 0 : star)} className="text-3xl leading-none text-amber-500" aria-label={`${star} estrela(s)`}>{star <= returnRating ? "★" : "☆"}</button>
+              ))}
+            </div>
+            <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
+              Comentário (opcional)
+              <textarea value={returnComment} onChange={(event) => setReturnComment(event.target.value)} rows={4} maxLength={1000} className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Conte, se quiser, o que achou da leitura." />
+            </label>
+          </div>
+          <button disabled={saving} type="button" onClick={() => void confirmReturn()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar devolução</button>
         </Modal>
       )}
     </main>

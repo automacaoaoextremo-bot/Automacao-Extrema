@@ -367,6 +367,49 @@ async function signedResourceVersions(
   );
 }
 
+export async function enrichTitlesWithAcervoReviews(
+  organizationId: string,
+  titles: Array<Record<string, unknown> & { id: string }>,
+) {
+  if (!titles.length) return titles;
+
+  const { data: reviews, error } = await supabaseAdmin
+    .from("oh_acervo_reviews")
+    .select("id,title_id,rating,comment,created_at")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const grouped = new Map<string, Array<{ id: string; rating: number | null; comment: string | null; created_at: string }>>();
+  for (const row of reviews ?? []) {
+    const list = grouped.get(row.title_id) ?? [];
+    list.push({
+      id: row.id,
+      rating: row.rating == null ? null : Number(row.rating),
+      comment: text(row.comment) || null,
+      created_at: row.created_at,
+    });
+    grouped.set(row.title_id, list);
+  }
+
+  return titles.map((title) => {
+    const rows = grouped.get(title.id) ?? [];
+    const rated = rows.filter((row) => Number.isFinite(row.rating) && Number(row.rating) >= 1);
+    const averageRating = rated.length
+      ? Number((rated.reduce((sum, row) => sum + Number(row.rating), 0) / rated.length).toFixed(1))
+      : 0;
+    return {
+      ...title,
+      reviewCount: rated.length,
+      averageRating,
+      comments: rows
+        .filter((row) => Boolean(row.comment))
+        .slice(0, 20),
+    };
+  });
+}
+
 export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
   const { organizationId, personId } = context;
   await reconcileExpiredAcervoReservations(organizationId);
@@ -421,9 +464,10 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
     condition?: string | null;
   }>;
   const titleRows = (titlesResult.data ?? []) as Array<Record<string, unknown> & { id: string }>;
-  const titleMap = new Map(titleRows.map((title) => [title.id, title]));
-  const copyMap = new Map(copies.map((copy) => [copy.id, copy]));
-  const titles = titleRows.map((title) => ({
+  const reviewedTitles = await enrichTitlesWithAcervoReviews(organizationId, titleRows);
+  const titleMap = new Map(reviewedTitles.map((title) => [title.id, title] as const));
+  const copyMap = new Map(copies.map((copy) => [copy.id, copy] as const));
+  const titles = reviewedTitles.map((title) => ({
     ...title,
     ...titleAvailability(title.id, copies),
   }));
@@ -508,7 +552,10 @@ export async function handleAcervoReaderPost(
         return NextResponse.json({ error: "As retiradas pelo leitor estão temporariamente desabilitadas." }, { status: 409 });
       }
       const qrToken = text(body.qrToken);
-      if (!qrToken) return NextResponse.json({ error: "QR Code do exemplar não informado." }, { status: 400 });
+      const requestedTitleId = text(body.titleId);
+      if (!qrToken && !requestedTitleId) {
+        return NextResponse.json({ error: "Informe o exemplar pelo QR Code ou o livro que está em suas mãos." }, { status: 400 });
+      }
 
       const metadata = record(settings.metadata);
       if (metadata.self_service_enabled === false) {
@@ -522,12 +569,15 @@ export async function handleAcervoReaderPost(
           .eq("organization_id", context.organizationId)
           .eq("id", context.personId)
           .maybeSingle(),
-        supabaseAdmin
-          .from("oh_acervo_copies")
-          .select("id,title_id,asset_code,status,active")
-          .eq("organization_id", context.organizationId)
-          .eq("qr_token", qrToken)
-          .maybeSingle(),
+        (() => {
+          let query = supabaseAdmin
+            .from("oh_acervo_copies")
+            .select("id,title_id,asset_code,status,active")
+            .eq("organization_id", context.organizationId)
+            .eq("active", true);
+          query = qrToken ? query.eq("qr_token", qrToken) : query.eq("title_id", requestedTitleId).eq("status", "disponivel");
+          return query.order("asset_code").limit(1).maybeSingle();
+        })(),
         supabaseAdmin
           .from("oh_acervo_loans")
           .select("id,copy_id,due_at,status")
@@ -708,7 +758,11 @@ export async function handleAcervoReaderPost(
           title_id: titleId,
           person_id: context.personId,
           status: "aguardando",
-          metadata: { source: "acervo-vivo-leitor" },
+          metadata: {
+            source: "acervo-vivo-leitor",
+            notify_if_not_picked_up: body.notifyIfNotPickedUp !== false,
+            reserve_after_return: body.reserveAfterReturn !== false,
+          },
         })
         .select("id")
         .single();
@@ -761,6 +815,108 @@ export async function handleAcervoReaderPost(
         holdUntil,
       }).catch(() => undefined);
       return NextResponse.json({ ok: true, readyForPickup, holdUntil });
+    }
+
+    if (action === "return-book") {
+      const loanId = text(body.loanId);
+      if (!loanId) return NextResponse.json({ error: "Empréstimo não informado." }, { status: 400 });
+
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .select("id,copy_id,person_id,due_at,returned_at,status,metadata")
+        .eq("organization_id", context.organizationId)
+        .eq("id", loanId)
+        .eq("person_id", context.personId)
+        .maybeSingle();
+      if (loanError) throw loanError;
+      if (!loan?.id || loan.returned_at || !["ativo", "atrasado"].includes(loan.status)) {
+        return NextResponse.json({ error: "Empréstimo ativo não localizado." }, { status: 404 });
+      }
+
+      const { data: copy, error: copyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id")
+        .eq("organization_id", context.organizationId)
+        .eq("id", loan.copy_id)
+        .single();
+      if (copyError) throw copyError;
+
+      const returnedAt = new Date();
+      const dueAt = new Date(loan.due_at);
+      const lateDays = Math.max(0, Math.ceil((returnedAt.getTime() - dueAt.getTime()) / DAY_MS));
+      const lateFee = Number((lateDays * Number(settings.daily_late_fee ?? 1)).toFixed(2));
+
+      const { error: updateLoanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .update({
+          returned_at: returnedAt.toISOString(),
+          status: "devolvido",
+          late_fee_calculated: lateFee,
+          late_fee_status: lateFee > 0 ? "pendente" : "nao_aplicavel",
+          returned_by_person_id: context.personId,
+          metadata: {
+            ...record(loan.metadata),
+            source: "acervo-vivo-auto-devolucao",
+            return_location_confirmed: true,
+          },
+          updated_at: returnedAt.toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", loan.id);
+      if (updateLoanError) throw updateLoanError;
+
+      await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({ status: "reservado", updated_at: returnedAt.toISOString() })
+        .eq("organization_id", context.organizationId)
+        .eq("id", loan.copy_id);
+
+      await offerAcervoCopyToNextReservation(
+        context.organizationId,
+        copy.title_id,
+        loan.copy_id,
+        Number(settings.reservation_hold_days ?? 3),
+      );
+
+      const rating = Math.max(0, Math.min(5, Number(body.rating) || 0));
+      const comment = text(body.comment);
+      if (rating > 0 || comment) {
+        const { data: existingReview, error: existingReviewError } = await supabaseAdmin
+          .from("oh_acervo_reviews")
+          .select("id")
+          .eq("organization_id", context.organizationId)
+          .eq("loan_id", loan.id)
+          .eq("active", true)
+          .limit(1)
+          .maybeSingle();
+        if (existingReviewError) throw existingReviewError;
+
+        const reviewPayload = {
+          organization_id: context.organizationId,
+          title_id: copy.title_id,
+          person_id: context.personId,
+          loan_id: loan.id,
+          rating: rating > 0 ? rating : null,
+          comment: comment || null,
+          active: true,
+          updated_at: returnedAt.toISOString(),
+        };
+        const reviewResult = existingReview?.id
+          ? await supabaseAdmin.from("oh_acervo_reviews").update(reviewPayload).eq("id", existingReview.id)
+          : await supabaseAdmin.from("oh_acervo_reviews").insert(reviewPayload);
+        if (reviewResult.error) throw reviewResult.error;
+      }
+
+      await audit(context, "devolucao_registrada_pelo_leitor", "loan", loan.id, { lateDays, lateFee, rating });
+      await sendAcervoMovementNotifications({
+        organizationId: context.organizationId,
+        personId: context.personId,
+        titleId: copy.title_id,
+        copyId: loan.copy_id,
+        kind: "devolucao",
+      }).catch(() => undefined);
+
+      return NextResponse.json({ ok: true, lateDays, lateFee });
     }
 
     if (action === "cancel-reservation") {

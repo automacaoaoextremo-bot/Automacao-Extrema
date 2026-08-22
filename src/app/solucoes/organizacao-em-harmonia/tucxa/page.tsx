@@ -87,7 +87,13 @@ function AudienceTouchHint({ inverse = false }: { inverse?: boolean }) {
   );
 }
 
-export default async function TucxaSitePage() {
+export default async function TucxaSitePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ semPopup?: string }>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const suppressFinancialPopup = ["1", "true", "sim"].includes((params.semPopup ?? "").toLowerCase());
   const content = await getTucxaPublicContent();
   const accesses: TucxaInfoPopupItem[] = [
     {
@@ -157,6 +163,7 @@ export default async function TucxaSitePage() {
       title: "O que aparece",
       summary: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
       description: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
+      touchHint: "TOQUE PARA CONHECER",
       details: [
         { title: "Por que existe", text: "Para mostrar onde os recursos são utilizados e o que ainda precisa ser sustentado para a Casa continuar preparada." },
         { title: "O que isso fortalece", text: "Compreensão, responsabilidade compartilhada e confiança no cuidado com o Tucxa e com todos que são acolhidos." },
@@ -173,7 +180,7 @@ export default async function TucxaSitePage() {
         mobileActionColumns={4}
         compactMobileActions
       />
-      <FinancialTransparencyPopup />
+      {!suppressFinancialPopup && <FinancialTransparencyPopup />}
       <TucxaSystemGuideModal />
 
       <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">

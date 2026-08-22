@@ -79,6 +79,7 @@ type CoverCandidate = {
   isbn10?: string | null;
   isbn13?: string | null;
   coverUrl?: string;
+  description?: string | null;
   source?: "google-books" | "open-library";
 };
 
@@ -119,6 +120,7 @@ type Payload = {
       pickup_location?: string;
       self_service_enabled?: boolean;
       notification_emails?: string[];
+      loan_reminder_days_before_due?: number;
     } | null;
   } | null;
   titles?: TitleRow[];
@@ -185,7 +187,9 @@ export default function AcervoVivoGestaoPage() {
   const [pickupLocation, setPickupLocation] = useState("Tucxa 1");
   const [selfServiceEnabled, setSelfServiceEnabled] = useState(true);
   const [notificationEmails, setNotificationEmails] = useState("");
+  const [loanReminderDays, setLoanReminderDays] = useState(3);
 
+  const [editingTitleId, setEditingTitleId] = useState("");
   const [titleName, setTitleName] = useState("");
   const [titleAuthors, setTitleAuthors] = useState("");
   const [titlePublisher, setTitlePublisher] = useState("");
@@ -264,6 +268,7 @@ export default function AcervoVivoGestaoPage() {
     setPickupLocation(next.settings?.metadata?.pickup_location || "Tucxa 1");
     setSelfServiceEnabled(next.settings?.metadata?.self_service_enabled !== false);
     setNotificationEmails((next.settings?.metadata?.notification_emails ?? []).join("; "));
+    setLoanReminderDays(Number(next.settings?.metadata?.loan_reminder_days_before_due ?? 3));
   }, []);
 
   useEffect(() => {
@@ -390,13 +395,49 @@ export default function AcervoVivoGestaoPage() {
       pickupLocation,
       selfServiceEnabled,
       notificationEmails,
+      loanReminderDaysBeforeDue: loanReminderDays,
     }, "Regras do Acervo Vivo atualizadas.");
+  }
+
+  function clearTitleForm() {
+    setEditingTitleId("");
+    setTitleName("");
+    setTitleAuthors("");
+    setTitlePublisher("");
+    setTitleYear("");
+    setTitleIsbn("");
+    setTitleSubjects("");
+    setTitleDescription("");
+  }
+
+  function startEditTitle(item: TitleRow) {
+    setEditingTitleId(item.id);
+    setTitleName(item.title);
+    setTitleAuthors((item.authors ?? []).join("; "));
+    setTitlePublisher(item.publisher ?? "");
+    setTitleYear(item.publication_year ? String(item.publication_year) : "");
+    setTitleIsbn(item.isbn13 ?? "");
+    setTitleSubjects((item.subjects ?? []).join("; "));
+    setTitleDescription(item.description ?? "");
+    setTab("acervo");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function createTitle(event: FormEvent) {
     event.preventDefault();
-    await run({ action: "create-title", title: titleName, authors: titleAuthors, publisher: titlePublisher, publicationYear: titleYear, isbn13: titleIsbn, subjects: titleSubjects, description: titleDescription }, "Título cadastrado no Acervo Vivo.");
-    setTitleName(""); setTitleAuthors(""); setTitlePublisher(""); setTitleYear(""); setTitleIsbn(""); setTitleSubjects(""); setTitleDescription("");
+    const editing = Boolean(editingTitleId);
+    await run({
+      action: editing ? "update-title" : "create-title",
+      titleId: editingTitleId || undefined,
+      title: titleName,
+      authors: titleAuthors,
+      publisher: titlePublisher,
+      publicationYear: titleYear,
+      isbn13: titleIsbn,
+      subjects: titleSubjects,
+      description: titleDescription,
+    }, editing ? "Informações do título atualizadas." : "Título cadastrado no Acervo Vivo.");
+    clearTitleForm();
   }
 
   async function searchCover(titleId: string) {
@@ -425,7 +466,7 @@ export default function AcervoVivoGestaoPage() {
 
   async function applyCover(candidate: CoverCandidate) {
     if (!selectedTitleId) return;
-    await run({ action: "apply-cover", titleId: selectedTitleId, coverUrl: candidate.coverUrl, externalId: candidate.externalId, isbn10: candidate.isbn10, isbn13: candidate.isbn13, publisher: candidate.publisher, coverSource: candidate.source || "google-books" }, "Capa confirmada e vinculada ao título.");
+    await run({ action: "apply-cover", titleId: selectedTitleId, coverUrl: candidate.coverUrl, externalId: candidate.externalId, isbn10: candidate.isbn10, isbn13: candidate.isbn13, publisher: candidate.publisher, coverSource: candidate.source || "google-books", description: candidate.description }, "Capa confirmada e vinculada ao título.");
     setCoverCandidates([]);
   }
 
@@ -662,6 +703,7 @@ export default function AcervoVivoGestaoPage() {
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2"><input type="checkbox" checked={blockOverdue} onChange={(e) => setBlockOverdue(e.target.checked)} />Bloquear novo empréstimo com atraso</label>
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2"><input type="checkbox" checked={blockPendingFee} onChange={(e) => setBlockPendingFee(e.target.checked)} />Bloquear novo empréstimo com taxa pendente</label>
                 </div>
+                <label className="grid gap-1 text-xs font-black text-[#00334E]">Lembrete antes da devolução (dias)<input type="number" min={0} max={30} value={loanReminderDays} onChange={(e) => setLoanReminderDays(Math.max(0, Math.min(30, Number(e.target.value) || 0)))} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" /><span className="text-[10px] font-semibold text-slate-500">Ex.: 3 = enviar lembrete três dias antes do vencimento. Use 0 para não antecipar.</span></label>
                 <label className="grid gap-1 text-xs font-black text-[#00334E]">Local de retirada<input value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" placeholder="Tucxa 1" /></label>
                 <label className="grid gap-1 text-xs font-black text-[#00334E]">E-mails dos responsáveis<input value={notificationEmails} onChange={(e) => setNotificationEmails(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-3 text-sm" placeholder="email1@...; email2@..." /></label>
               </div>
@@ -677,6 +719,7 @@ export default function AcervoVivoGestaoPage() {
                 <span className="rounded-xl bg-[#F4FBF7] p-3">Limite: {maxLoans} empréstimo(s)</span>
                 <span className="rounded-xl bg-[#F4FBF7] p-3">Renovações: {renewalLimit}</span>
                 <span className="rounded-xl bg-[#F4FBF7] p-3">Taxa/dia: R$ {dailyLateFee.toFixed(2).replace(".", ",")}</span>
+                <span className="rounded-xl bg-[#F4FBF7] p-3">Lembrete: {loanReminderDays} dia(s) antes</span>
               </div>
             </section>
           )}
@@ -686,7 +729,7 @@ export default function AcervoVivoGestaoPage() {
           <div className="grid gap-4">
             <form onSubmit={createTitle} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Obra / Título</p>
-              <h2 className="mt-1 text-xl font-black text-[#00334E]">Cadastrar título</h2>
+              <h2 className="mt-1 text-xl font-black text-[#00334E]">{editingTitleId ? "Editar informações do título" : "Cadastrar título"}</h2>
               <div className="mt-3 grid gap-2">
                 <input required value={titleName} onChange={(e) => setTitleName(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-3" placeholder="Título" />
                 <input value={titleAuthors} onChange={(e) => setTitleAuthors(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-3" placeholder="Autores (separe por ; )" />
@@ -695,7 +738,10 @@ export default function AcervoVivoGestaoPage() {
                 <input value={titleSubjects} onChange={(e) => setTitleSubjects(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-3" placeholder="Temas (separe por ; )" />
                 <textarea value={titleDescription} onChange={(e) => setTitleDescription(e.target.value)} rows={3} className="rounded-xl border border-slate-200 px-3 py-3" placeholder="Resumo / por que este livro pode ajudar" />
               </div>
-              <button disabled={saving} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">Cadastrar título</button>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button disabled={saving} className="rounded-xl bg-[#00334E] px-4 py-3 font-black text-white disabled:opacity-50">{editingTitleId ? "Salvar alterações" : "Cadastrar título"}</button>
+                {editingTitleId && <button type="button" disabled={saving} onClick={clearTitleForm} className="rounded-xl bg-white px-4 py-3 font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar edição</button>}
+              </div>
             </form>
 
             <form onSubmit={createCopy} className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
@@ -712,7 +758,20 @@ export default function AcervoVivoGestaoPage() {
             <div className="mt-4 grid gap-2">
               {visibleTitles.map((item) => {
                 const itemCopies = copies.filter((copy) => copy.title_id === item.id && copy.active !== false);
-                return <article key={item.id} className="flex gap-3 rounded-2xl bg-[#F9FBF7] p-3 ring-1 ring-[#123D2C]/10"><Cover url={item.cover_url} title={item.title} /><div className="min-w-0 flex-1"><p className="font-black text-[#00334E]">{item.title}</p>{(item.authors ?? []).length > 0 && <p className="text-xs font-bold text-slate-500">{item.authors?.join(", ")}</p>}<p className="mt-2 text-xs font-semibold text-slate-600">{itemCopies.length} exemplar(es) • {itemCopies.filter((copy) => copy.status === "disponivel").length} disponível(is)</p><div className="mt-2 flex flex-wrap gap-1">{itemCopies.slice(0, 6).map((copy) => <button key={copy.id} type="button" disabled={saving} onClick={() => void showQr(copy.id)} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/15">QR {copy.asset_code}</button>)}</div><button disabled={saving} type="button" onClick={() => void searchCover(item.id)} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">{item.cover_url ? "Revisar capa" : "Buscar capa"}</button></div></article>;
+                return <article key={item.id} className="flex gap-3 rounded-2xl bg-[#F9FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                  <Cover url={item.cover_url} title={item.title} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-[#00334E]">{item.title}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-500"><strong>Autor:</strong> {(item.authors ?? []).join(", ") || "Não informado"} <span className="mx-1">•</span> <strong>Categoria:</strong> {item.subjects?.[0] || "Não informada"}</p>
+                    <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{item.description || "Descrição pendente. Edite o título ou use a busca automática para tentar enriquecer os metadados."}</p>
+                    <p className="mt-2 text-xs font-semibold text-slate-600">{itemCopies.length} exemplar(es) • {itemCopies.filter((copy) => copy.status === "disponivel").length} disponível(is)</p>
+                    <div className="mt-2 flex flex-wrap gap-1">{itemCopies.slice(0, 6).map((copy) => <button key={copy.id} type="button" disabled={saving} onClick={() => void showQr(copy.id)} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/15">QR {copy.asset_code}</button>)}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button disabled={saving} type="button" onClick={() => startEditTitle(item)} className="rounded-lg bg-[#00334E] px-3 py-2 text-xs font-black text-white disabled:opacity-50">Editar informações</button>
+                      <button disabled={saving} type="button" onClick={() => void searchCover(item.id)} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">{item.cover_url ? "Revisar capa" : "Buscar capa"}</button>
+                    </div>
+                  </div>
+                </article>;
               })}
             </div>
           </section>

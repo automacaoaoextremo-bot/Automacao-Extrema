@@ -566,6 +566,10 @@ export async function POST(request: Request) {
           ...currentMetadata,
           pickup_location: text(body.pickupLocation) || text(currentMetadata.pickup_location) || "Tucxa 1",
           self_service_enabled: boolValue(body.selfServiceEnabled, currentMetadata.self_service_enabled !== false),
+          loan_reminder_days_before_due: Math.max(0, Math.min(30, numberValue(
+            body.loanReminderDaysBeforeDue,
+            numberValue(currentMetadata.loan_reminder_days_before_due, 3),
+          ))),
           notification_emails: Object.prototype.hasOwnProperty.call(body, "notificationEmails") ? notificationEmails : asTextList(currentMetadata.notification_emails),
         },
         updated_at: nowIso(),
@@ -624,7 +628,7 @@ export async function POST(request: Request) {
       const limit = Math.max(1, Math.min(20, numberValue(body.limit, 10)));
       const { data: pending, error: pendingError } = await supabaseAdmin
         .from("oh_acervo_titles")
-        .select("id,title,authors,isbn10,isbn13,cover_url,cover_match_status")
+        .select("id,title,authors,isbn10,isbn13,description,cover_url,cover_match_status")
         .eq("organization_id", organizationId)
         .eq("active", true)
         .or("cover_url.is.null,cover_match_status.eq.pendente")
@@ -654,6 +658,7 @@ export async function POST(request: Request) {
             isbn10: selected.isbn10 || null,
             isbn13: selected.isbn13 || null,
             publisher: selected.publisher || null,
+            description: text(current.description) || text(selected.description) || null,
             updated_at: nowIso(),
           }).eq("organization_id", organizationId).eq("id", current.id);
           if (error) throw error;
@@ -687,6 +692,14 @@ export async function POST(request: Request) {
       const titleId = text(body.titleId);
       const coverUrl = text(body.coverUrl);
       if (!coverUrl) return NextResponse.json({ error: "Capa não informada." }, { status: 400 });
+      const { data: currentTitle, error: currentTitleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("description")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+      if (currentTitleError) throw currentTitleError;
+
       const { error } = await supabaseAdmin.from("oh_acervo_titles").update({
         cover_url: coverUrl,
         cover_source: text(body.coverSource) || "google-books",
@@ -695,6 +708,7 @@ export async function POST(request: Request) {
         isbn10: text(body.isbn10) || null,
         isbn13: text(body.isbn13) || null,
         publisher: text(body.publisher) || null,
+        description: text(currentTitle?.description) || text(body.description) || null,
         updated_at: nowIso(),
       }).eq("organization_id", organizationId).eq("id", titleId);
       if (error) throw error;

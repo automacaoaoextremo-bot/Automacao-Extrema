@@ -23,6 +23,7 @@ export type TucxaInfoPopupItem = {
     variant?: "primary" | "secondary";
   }>;
   subItems?: TucxaInfoPopupItem[];
+  touchHint?: string;
 };
 
 type Props = {
@@ -107,7 +108,7 @@ export function TucxaInfoPopupGrid({
             key={item.id}
             type="button"
             onClick={() => { setParentId(null); setSelectedId(item.id); }}
-            className="flex min-h-24 flex-col justify-between rounded-[1.35rem] bg-white p-3.5 text-left shadow-md shadow-green-900/5 ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#123D2C]/15 sm:min-h-28 sm:rounded-[1.5rem] sm:p-4"
+            className={`flex min-h-24 flex-col ${item.touchHint ? "justify-start" : "justify-between"} rounded-[1.35rem] bg-white p-3.5 text-left shadow-md shadow-green-900/5 ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#F7FAF2] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#123D2C]/15 sm:min-h-28 sm:rounded-[1.5rem] sm:p-4`}
             aria-haspopup="dialog"
           >
             <span>
@@ -120,8 +121,8 @@ export function TucxaInfoPopupGrid({
                 {item.title}
               </span>
             </span>
-            <span className="mt-2 block text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[9px]">
-              TOQUE PARA ABRIR
+            <span className={`${item.touchHint ? "mt-1" : "mt-2"} block text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[9px]`}>
+              {item.touchHint ?? "TOQUE PARA ABRIR"}
             </span>
           </button>
         ))}

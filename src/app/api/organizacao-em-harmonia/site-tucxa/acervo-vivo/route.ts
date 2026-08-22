@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  enrichTitlesWithAcervoReviews,
   getAcervoReaderContext,
   handleAcervoReaderPost,
   normalize,
@@ -86,7 +87,11 @@ async function publicPayload(organizationId: string, qrToken?: string | null) {
   }
 
   const copyRows = copies.data ?? [];
-  const titleRows = (titles.data ?? []).map((title) => {
+  const reviewedTitles = await enrichTitlesWithAcervoReviews(
+    organizationId,
+    (titles.data ?? []) as Array<Record<string, unknown> & { id: string }>,
+  );
+  const titleRows = reviewedTitles.map((title) => {
     const related = copyRows.filter((copy) => copy.title_id === title.id && copy.active !== false);
     return {
       ...title,
@@ -119,6 +124,7 @@ async function publicPayload(organizationId: string, qrToken?: string | null) {
       member_reservations_enabled: settingsData.member_reservations_enabled !== false,
       pickup_location: text(metadata.pickup_location) || "Tucxa 1",
       self_service_enabled: metadata.self_service_enabled !== false,
+      loan_reminder_days_before_due: Number(metadata.loan_reminder_days_before_due ?? 3),
     },
     titles: titleRows,
     copies: copyRows,
