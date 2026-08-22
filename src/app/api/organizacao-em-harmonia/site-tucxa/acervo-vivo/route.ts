@@ -8,6 +8,7 @@ import {
   text,
 } from "@/lib/organizacao-em-harmonia/acervo-vivo";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getAcervoPickupDetails } from "@/lib/organizacao-em-harmonia/acervo-vivo-location";
 
 export const dynamic = "force-dynamic";
 
@@ -116,13 +117,20 @@ async function publicPayload(organizationId: string, qrToken?: string | null) {
     : null;
 
   const metadata = record(settingsData.metadata);
+  const pickup = await getAcervoPickupDetails(
+    organizationId,
+    text(metadata.pickup_location) || "Tucxa 1",
+  );
+
   return {
     disabled: false,
     settings: {
       loan_days: settingsData.loan_days ?? 30,
       reservation_hold_days: settingsData.reservation_hold_days ?? 3,
       member_reservations_enabled: settingsData.member_reservations_enabled !== false,
-      pickup_location: text(metadata.pickup_location) || "Tucxa 1",
+      pickup_location: pickup.label,
+      pickup_address: pickup.address,
+      pickup_maps_url: pickup.mapsUrl,
       self_service_enabled: metadata.self_service_enabled !== false,
       loan_reminder_days_before_due: Number(metadata.loan_reminder_days_before_due ?? 3),
     },

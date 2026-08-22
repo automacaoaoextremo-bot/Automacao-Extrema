@@ -7,7 +7,7 @@ const headerActions = [
   { label: "Início", href: `${BASE}#inicio`, variant: "primary" as const },
   {
     label: "Voltar",
-    href: "/solucoes/organizacao-em-harmonia/tucxa",
+    href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1",
     variant: "secondary" as const,
   },
   { label: "Visão", href: `${BASE}#visao`, variant: "secondary" as const },

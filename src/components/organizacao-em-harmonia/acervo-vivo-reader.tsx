@@ -127,6 +127,8 @@ type Payload = {
     block_new_loans_with_pending_fee?: boolean;
     metadata?: {
       pickup_location?: string;
+      pickup_address?: string;
+      pickup_maps_url?: string;
       loan_reminder_days_before_due?: number;
     } | null;
   };
@@ -150,6 +152,11 @@ type Props = {
 type View = "descobrir" | "trilhas" | "meus";
 type MyView = "emprestimos" | "reservas";
 
+type LoanThankYou = {
+  title: string;
+  dueAt?: string | null;
+};
+
 const PAGE_SIZE = 4;
 
 function normalize(value: string) {
@@ -167,6 +174,12 @@ function formatDate(value?: string | null) {
     dateStyle: "short",
     timeZone: "America/Sao_Paulo",
   }).format(date);
+}
+
+function duePreview(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + Math.max(1, days));
+  return date.toISOString();
 }
 
 
@@ -206,18 +219,32 @@ function Cover({ title, compact = false }: { title: TitleRow; compact?: boolean 
   );
 }
 
-function Modal({ title, eyebrow, onClose, children, z = 200 }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode; z?: number }) {
+function Modal({
+  title,
+  eyebrow,
+  onClose,
+  children,
+  z = 200,
+  viewportFit = false,
+}: {
+  title: string;
+  eyebrow: string;
+  onClose: () => void;
+  children: ReactNode;
+  z?: number;
+  viewportFit?: boolean;
+}) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-4" style={{ zIndex: z }} role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-      <section className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] bg-white p-4 shadow-2xl sm:p-5">
+    <div className="fixed inset-0 flex items-center justify-center bg-[#10251C]/75 p-1.5 backdrop-blur-sm sm:p-4" style={{ zIndex: z }} role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <section className={`flex w-full max-w-3xl flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl ${viewportFit ? "max-h-[calc(100dvh-0.75rem)] p-3" : "max-h-[92dvh] p-4 sm:p-5"}`}>
         <div className="flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">{eyebrow}</p>
-            <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">{title}</h2>
+            <p className={`${viewportFit ? "text-[9px]" : "text-[10px]"} font-black uppercase tracking-[0.16em] text-[#2F6B43]`}>{eyebrow}</p>
+            <h2 className={`${viewportFit ? "mt-0.5 text-lg" : "mt-1 text-xl"} font-black leading-tight text-[#123D2C] sm:text-2xl`}>{title}</h2>
           </div>
           <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
         </div>
-        <div className="mt-3 min-h-0 flex-1">{children}</div>
+        <div className={`${viewportFit ? "mt-2 overflow-hidden" : "mt-3 overflow-y-auto"} min-h-0 flex-1`}>{children}</div>
       </section>
     </div>
   );
@@ -281,6 +308,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [selectedFolhaYear, setSelectedFolhaYear] = useState<number | null>(null);
   const [myPage, setMyPage] = useState(1);
   const [confirmAction, setConfirmAction] = useState<"borrow-now" | "reserve" | null>(null);
+  const [confirmDueAt, setConfirmDueAt] = useState("");
+  const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [notifyIfNotPickedUp, setNotifyIfNotPickedUp] = useState(true);
   const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
@@ -403,6 +432,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     });
   }, [resourceMap, selectedFolhaYear, selectedTrailItems]);
   const pickupLocation = payload.settings?.metadata?.pickup_location || "Tucxa 1";
+  const pickupAddress = payload.settings?.metadata?.pickup_address || "Rua Talvino Egídio de Souza Aranha Júnior, 179 - Jardim Miranda - Campinas/SP - CEP 13034-611";
+  const pickupMapsUrl = payload.settings?.metadata?.pickup_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pickupAddress)}`;
   const reminderDays = payload.settings?.metadata?.loan_reminder_days_before_due ?? 3;
   const selectedCategory = selectedTitle?.subjects?.[0] || "Não informada";
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
@@ -411,8 +442,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
   const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
 
-  async function run(body: Record<string, unknown>, message: string): Promise<boolean> {
-    if (!token || saving) return false;
+  async function run(body: Record<string, unknown>, message: string): Promise<Record<string, unknown> | null> {
+    if (!token || saving) return null;
     setSaving(true);
     setError("");
     setSuccess("");
@@ -422,14 +453,14 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as Record<string, unknown> & { error?: string };
       if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
       setSuccess(message);
       await load(token);
-      return true;
+      return result;
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao concluir a operação.");
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -437,24 +468,33 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
   async function confirmSelectedAction() {
     if (!confirmAction || !selectedTitle) return;
-    const message = confirmAction === "borrow-now"
+    const action = confirmAction;
+    const message = action === "borrow-now"
       ? `Empréstimo confirmado. Devolva no mesmo local da retirada: ${pickupLocation}.`
       : (selectedTitle.availableCopies ?? 0) > 0
         ? `Reserva confirmada. Retire em ${pickupLocation} no prazo configurado.`
         : "Você entrou na fila de reserva e será avisado quando houver disponibilidade.";
 
-    const ok = await run(
-      confirmAction === "borrow-now"
-        ? { action: "borrow-now", titleId: selectedTitle.id }
+    const result = await run(
+      action === "borrow-now"
+        ? { action, titleId: selectedTitle.id }
         : {
-            action: "reserve",
+            action,
             titleId: selectedTitle.id,
             notifyIfNotPickedUp,
             reserveAfterReturn,
           },
       message,
     );
-    if (ok) setConfirmAction(null);
+    if (!result) return;
+
+    setConfirmAction(null);
+    if (action === "borrow-now") {
+      setLoanThankYou({
+        title: selectedTitle.title,
+        dueAt: typeof result.dueAt === "string" ? result.dueAt : confirmDueAt,
+      });
+    }
   }
 
   async function confirmReturn() {
@@ -582,16 +622,16 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       )}
 
       {view === "trilhas" && (
-        <Modal title="Trilhas de estudos" eyebrow="Conhecimento em movimento" onClose={() => setView(null)}>
-          <div className="grid gap-2 sm:grid-cols-2">
+        <Modal title="Trilhas de estudos" eyebrow="Conhecimento em movimento" onClose={() => setView(null)} viewportFit>
+          <div className="grid gap-1.5 sm:grid-cols-2">
             {currentTrails.map((trail) => {
               const count = trailItems.filter((item) => item.trail_id === trail.id).length;
               return (
-                <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setTrailItemPage(1); setSelectedFolhaYear(null); }} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
-                  <h3 className="mt-1 text-base font-black leading-tight text-[#123D2C]">{trail.name}</h3>
-                  <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
-                  <p className="mt-2 text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{count} item(ns) • TOQUE PARA ABRIR</p>
+                <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setTrailItemPage(1); setSelectedFolhaYear(null); }} className="rounded-xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
+                  <p className="text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
+                  <h3 className="mt-0.5 text-sm font-black leading-tight text-[#123D2C]">{trail.name}</h3>
+                  <p className="mt-0.5 line-clamp-1 text-[10px] font-semibold leading-4 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
+                  <p className="mt-1 text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{count} item(ns) • TOQUE PARA ABRIR</p>
                 </button>
               );
             })}
@@ -698,7 +738,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                   </p>
                   {reservation.status === "disponivel" && (
                     <p className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-[10px] font-bold leading-4 text-[#123D2C]">
-                      Ao retirar o exemplar físico, peça à Recepção ou ao Apoio Recepção para confirmar o empréstimo. O prazo de devolução começa somente nessa confirmação.
+                      Ao retirar o exemplar físico, leia o QR Code colado no livro para confirmar o empréstimo. O prazo de devolução começa somente nessa confirmação.
                     </p>
                   )}
                   <button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar reserva</button>
@@ -749,7 +789,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <button
                   disabled={saving || (selectedTitle.availableCopies ?? 0) <= 0 || payload.settings?.member_loans_enabled === false}
                   type="button"
-                  onClick={() => setConfirmAction("borrow-now")}
+                  onClick={() => { setConfirmDueAt(duePreview(payload.settings?.loan_days ?? 30)); setConfirmAction("borrow-now"); }}
                   className="flex min-h-20 flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-3 py-3 text-center font-black text-white disabled:opacity-45"
                 >
                   <span>Está com o livro em mãos</span>
@@ -758,7 +798,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <button
                   disabled={saving || payload.settings?.member_reservations_enabled === false}
                   type="button"
-                  onClick={() => setConfirmAction("reserve")}
+                  onClick={() => { setConfirmDueAt(""); setConfirmAction("reserve"); }}
                   className="flex min-h-20 flex-col items-center justify-center rounded-2xl bg-white px-3 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-45"
                 >
                   <span>Não estou com o livro em mãos</span>
@@ -801,8 +841,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             {confirmAction === "borrow-now" ? (
               <>
                 <p className="mt-2">Ao confirmar, o empréstimo começa agora e terá prazo de <strong>{payload.settings?.loan_days ?? 30} dias</strong>.</p>
-                <p className="mt-2">A devolução deve ser feita no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
-                <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data prevista de devolução.</p>
+                <p className="mt-2">A devolução deve ser feita de preferência exatamente no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
+                <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
+                <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
                 {selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && (
                   <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para maior precisão, prefira iniciar o empréstimo pelo QR Code colado no exemplar que está em suas mãos.</p>
                 )}
@@ -810,6 +851,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             ) : (
               <>
                 <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+                <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
                 <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
                 {(selectedTitle.availableCopies ?? 0) <= 0 && (
                   <div className="mt-3 grid gap-2">
@@ -821,6 +863,19 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             )}
           </div>
           <button disabled={saving} type="button" onClick={() => void confirmSelectedAction()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+        </Modal>
+      )}
+
+      {loanThankYou && (
+        <Modal title="Obrigado!" eyebrow="Acervo Vivo • empréstimo confirmado" z={285} onClose={() => setLoanThankYou(null)}>
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p>Seu empréstimo do livro <strong>{loanThankYou.title}</strong> foi confirmado.</p>
+            <p className="mt-2">Data máxima para devolução: <strong>{formatDate(loanThankYou.dueAt)}</strong>.</p>
+            <p className="mt-2">Devolva de preferência exatamente no mesmo local de onde retirou o livro para ajudar a Biblioteca do Acervo Vivo do Tucxa a permanecer organizada e à disposição de todos.</p>
+            <p className="mt-2"><strong>{pickupLocation}</strong></p>
+            <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
+          </div>
+          <button type="button" onClick={() => setLoanThankYou(null)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
         </Modal>
       )}
 

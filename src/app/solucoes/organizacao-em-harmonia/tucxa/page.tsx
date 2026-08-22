@@ -82,7 +82,7 @@ function AudienceTouchHint({ inverse = false }: { inverse?: boolean }) {
         inverse ? "text-white/75" : "text-[#2F6B43]"
       }`}
     >
-      TOQUE PARA ABRIR
+      TOQUE PARA CONTINUAR
     </span>
   );
 }
@@ -181,7 +181,7 @@ export default async function TucxaSitePage({
         compactMobileActions
       />
       {!suppressFinancialPopup && <FinancialTransparencyPopup />}
-      <TucxaSystemGuideModal />
+      {!suppressFinancialPopup && <TucxaSystemGuideModal />}
 
       <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
@@ -199,13 +199,15 @@ export default async function TucxaSitePage({
               href="#corrente"
               className="rounded-2xl bg-[#123D2C] px-5 py-3 text-center text-sm font-black text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:text-base"
             >
-              Sou Filho da Corrente
+              <span className="block">Sou Filho da Corrente</span>
+              <AudienceTouchHint inverse />
             </Link>
             <Link
               href="#consulentes"
               className="rounded-2xl bg-[#E9F2E7] px-5 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 sm:text-base"
             >
-              Sou Consulente / Filho de Fora
+              <span className="block">Sou Consulente / Filho de Fora</span>
+              <AudienceTouchHint />
             </Link>
           </div>
         </div>
@@ -254,15 +256,17 @@ export default async function TucxaSitePage({
           <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-2.5">
             <Link
               href="#corrente"
-              className="flex min-h-11 items-center justify-center rounded-xl bg-[#123D2C] px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
+              className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-[#123D2C] px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-white shadow-lg shadow-green-900/10 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
             >
-              Sou Filho da Corrente
+              <span className="block">Sou Filho da Corrente</span>
+              <AudienceTouchHint inverse />
             </Link>
             <Link
               href="#consulentes"
-              className="flex min-h-11 items-center justify-center rounded-xl bg-white px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
+              className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-white px-2.5 py-2 text-center text-[0.7rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-4 sm:text-base"
             >
-              Sou Consulente / Filho de Fora
+              <span className="block">Sou Consulente / Filho de Fora</span>
+              <AudienceTouchHint />
             </Link>
           </div>
         </div>
@@ -391,7 +395,7 @@ export default async function TucxaSitePage({
                 className="flex min-h-24 flex-col items-center justify-center rounded-[1.35rem] bg-white p-3 text-center shadow-md shadow-green-900/5 ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:min-h-28 sm:rounded-[1.5rem] sm:p-4"
               >
                 <span className="text-sm font-black leading-tight text-[#123D2C] sm:text-base">Acompanhar</span>
-                <span className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[9px]">TOQUE PARA ABRIR</span>
+                <span className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[9px]">TOQUE PARA CONTINUAR</span>
               </Link>
             </div>
           </div>

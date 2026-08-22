@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendAcervoMovementNotifications } from "@/lib/organizacao-em-harmonia/acervo-vivo-notifications";
+import { getAcervoPickupDetails } from "@/lib/organizacao-em-harmonia/acervo-vivo-location";
 
 export type AcervoReaderContext = {
   organizationId: string;
@@ -486,12 +487,28 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
     (versionsResult.data ?? []) as Array<Record<string, unknown>>,
   );
 
+  const rawSettings = { ...defaultSettings(), ...(settingsResult.data ?? {}) };
+  const rawMetadata = record(rawSettings.metadata);
+  const pickup = await getAcervoPickupDetails(
+    organizationId,
+    text(rawMetadata.pickup_location) || "Tucxa 1",
+  );
+  const settings = {
+    ...rawSettings,
+    metadata: {
+      ...rawMetadata,
+      pickup_location: pickup.label,
+      pickup_address: pickup.address,
+      pickup_maps_url: pickup.mapsUrl,
+    },
+  };
+
   return {
     reader: context,
     catalogWarning: titles.length === 0 || copies.length === 0
       ? "O catálogo do Acervo Vivo está em atualização. Se este aviso persistir, o responsável pela Biblioteca deve aplicar o reparo do catálogo do Ajuste 15."
       : null,
-    settings: { ...defaultSettings(), ...(settingsResult.data ?? {}) },
+    settings,
     titles,
     copies,
     trails: trailsResult.data ?? [],

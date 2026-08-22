@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type ConsulenteResponse = {
   ok?: boolean;
@@ -53,7 +54,10 @@ export default function CadastroConsulenteTucxaPage() {
   const [returnTo, setReturnTo] = useState("");
 
   const stepOneValid = name.trim().length > 0 && onlyDigits(whatsapp).length >= 10;
-  const stepTwoValid = password.length >= 8 && (!email.trim() || email.includes("@"));
+  const acervoContinuation = returnTo.includes("/tucxa/acervo-vivo");
+  const stepTwoValid =
+    password.length >= 8 &&
+    (acervoContinuation ? email.includes("@") : (!email.trim() || email.includes("@")));
   const canSubmit = stepOneValid && stepTwoValid && privacyNoticeAccepted && !loading;
 
   const completedSteps = useMemo(
@@ -124,6 +128,10 @@ export default function CadastroConsulenteTucxaPage() {
     }
 
     if (step === 2) {
+      if (acervoContinuation && !email.includes("@")) {
+        setError("Para empréstimos no Acervo Vivo, informe um e-mail válido para receber a confirmação e os lembretes.");
+        return;
+      }
       if (email && !email.includes("@")) {
         setError("Confira o e-mail informado ou deixe o campo em branco.");
         return;
@@ -178,6 +186,21 @@ export default function CadastroConsulenteTucxaPage() {
       const result = (await response.json()) as ConsulenteResponse;
       if (!response.ok) throw new Error(result.error || "Não foi possível registrar suas informações.");
       if (returnTo) {
+        if (!email.includes("@")) {
+          throw new Error("Informe um e-mail válido para entrar automaticamente e continuar no Acervo Vivo.");
+        }
+
+        const { error: signInError } = await supabaseBrowser.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+        if (signInError) {
+          throw new Error(
+            "Cadastro concluído, mas não foi possível entrar automaticamente. Use o e-mail e a senha cadastrados para continuar.",
+          );
+        }
+
         window.location.href = returnTo;
         return;
       }

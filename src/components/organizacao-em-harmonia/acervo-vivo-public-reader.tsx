@@ -90,6 +90,8 @@ type Payload = {
     loan_days?: number;
     reservation_hold_days?: number;
     pickup_location?: string;
+    pickup_address?: string;
+    pickup_maps_url?: string;
     self_service_enabled?: boolean;
     loan_reminder_days_before_due?: number;
   };
@@ -105,6 +107,12 @@ type Payload = {
 type View = "descobrir" | "trilhas";
 type PendingAction = "reserve" | "borrow-now" | "my-books";
 type ConfirmAction = Exclude<PendingAction, "my-books">;
+
+type LoanThankYou = {
+  title: string;
+  dueAt: string;
+  profile?: string;
+};
 
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -137,6 +145,22 @@ function monthLabel(month: number) {
   return ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"][month] || "Edição";
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  }).format(date);
+}
+
+function duePreview(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + Math.max(1, days));
+  return date.toISOString();
+}
+
 function profileHref(profile?: string) {
   return profile === "consulente"
     ? "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/atendimento/acervo-vivo"
@@ -151,18 +175,46 @@ function Cover({ title, compact = false }: { title: TitleRow; compact?: boolean 
   return <div role="img" aria-label={`Capa de ${title.title}`} className={`${size} shrink-0 rounded-lg bg-cover bg-center shadow ring-1 ring-black/10`} style={{ backgroundImage: `url(${title.cover_url})` }} />;
 }
 
-function Modal({ title, eyebrow, onClose, children, z = 200 }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode; z?: number }) {
+function Modal({
+  title,
+  eyebrow,
+  onClose,
+  children,
+  z = 200,
+  viewportFit = false,
+}: {
+  title: string;
+  eyebrow: string;
+  onClose: () => void;
+  children: ReactNode;
+  z?: number;
+  viewportFit?: boolean;
+}) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-4" style={{ zIndex: z }} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-label={title} className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] bg-white p-4 shadow-2xl sm:p-5">
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:p-4"
+      style={{ zIndex: z }}
+      role="presentation"
+      onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`flex w-full max-w-3xl flex-col overflow-hidden bg-white shadow-2xl ${
+          viewportFit
+            ? "max-h-[calc(100dvh-0.75rem)] rounded-[1.35rem] p-3 sm:max-h-[92dvh] sm:rounded-[1.75rem] sm:p-5"
+            : "max-h-[92dvh] rounded-[1.75rem] p-4 sm:p-5"
+        }`}
+      >
         <div className="flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">{eyebrow}</p>
-            <h2 className="mt-1 text-xl font-black leading-tight text-[#123D2C] sm:text-2xl">{title}</h2>
+            <p className={`${viewportFit ? "text-[9px]" : "text-[10px]"} font-black uppercase tracking-[0.16em] text-[#2F6B43]`}>{eyebrow}</p>
+            <h2 className={`${viewportFit ? "mt-0.5 text-lg" : "mt-1 text-xl"} font-black leading-tight text-[#123D2C] sm:text-2xl`}>{title}</h2>
           </div>
           <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
         </div>
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className={`${viewportFit ? "mt-2 overflow-hidden" : "mt-3 overflow-y-auto"} min-h-0 flex-1`}>{children}</div>
       </section>
     </div>
   );
@@ -231,6 +283,9 @@ export function AcervoVivoPublicReader() {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [notifyIfNotPickedUp, setNotifyIfNotPickedUp] = useState(true);
   const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
+  const [confirmDueAt, setConfirmDueAt] = useState("");
+  const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
+  const [signedInProfile, setSignedInProfile] = useState("");
 
   const fetchPayload = useCallback(async (): Promise<Payload> => {
     const exemplar = typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("exemplar") || "";
@@ -253,8 +308,36 @@ export function AcervoVivoPublicReader() {
     void fetchPayload()
       .then((next) => {
         if (!active) return;
+
+        const url = new URL(window.location.href);
+        const continuation = url.searchParams.get("continuar");
+        const continuationTitleId = url.searchParams.get("titulo") || "";
+
         setPayload(next);
-        if (next.selectedCopy?.title_id) setSelectedTitleId(next.selectedCopy.title_id);
+
+        if (next.selectedCopy?.title_id) {
+          setSelectedTitleId(next.selectedCopy.title_id);
+        }
+
+        if (
+          next.reader?.authenticated &&
+          continuationTitleId &&
+          (continuation === "borrow-now" || continuation === "reserve")
+        ) {
+          setSelectedTitleId(continuationTitleId);
+          setPendingAction(continuation);
+          setSignedInProfile(next.reader.profile || "");
+          setConfirmDueAt(
+            continuation === "borrow-now"
+              ? duePreview(next.settings?.loan_days ?? 30)
+              : "",
+          );
+          setConfirmAction(continuation);
+
+          url.searchParams.delete("continuar");
+          url.searchParams.delete("titulo");
+          window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+        }
       })
       .catch((current) => {
         if (active) setError(current instanceof Error ? current.message : "Erro ao carregar o Acervo Vivo.");
@@ -331,11 +414,15 @@ export function AcervoVivoPublicReader() {
 
   async function prepareAction(action: ConfirmAction) {
     setPendingAction(action);
+    setConfirmDueAt(action === "borrow-now" ? duePreview(payload.settings?.loan_days ?? 30) : "");
+
     const { data } = await supabaseBrowser.auth.getSession();
     if (data.session?.access_token) {
+      setSignedInProfile(payload.reader?.profile || "");
       setConfirmAction(action);
       return;
     }
+
     setResolved(null);
     setIdentifierOpen(true);
   }
@@ -343,6 +430,7 @@ export function AcervoVivoPublicReader() {
   async function executeAction(action: ConfirmAction) {
     const { data } = await supabaseBrowser.auth.getSession();
     const accessToken = data.session?.access_token;
+
     if (!accessToken) {
       setPendingAction(action);
       setConfirmAction(null);
@@ -350,11 +438,13 @@ export function AcervoVivoPublicReader() {
       setIdentifierOpen(true);
       return;
     }
+
     if (!selectedTitle) return;
 
     setSaving(true);
     setError("");
     setSuccess("");
+
     try {
       const response = await fetch(API, {
         method: "POST",
@@ -368,14 +458,33 @@ export function AcervoVivoPublicReader() {
               reserveAfterReturn,
             }),
       });
-      const result = await response.json().catch(() => ({})) as { error?: string; readyForPickup?: boolean; dueAt?: string };
-      if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
+
+      const result = await response.json().catch(() => ({})) as {
+        error?: string;
+        readyForPickup?: boolean;
+        dueAt?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível concluir a operação.");
+      }
+
       setConfirmAction(null);
-      setSuccess(action === "borrow-now"
-        ? `Empréstimo confirmado. ${result.dueAt ? `Devolução prevista para ${new Date(result.dueAt).toLocaleDateString("pt-BR")}.` : ""}`
-        : result.readyForPickup
+
+      if (action === "borrow-now") {
+        setLoanThankYou({
+          title: selectedTitle.title,
+          dueAt: result.dueAt || confirmDueAt,
+          profile: signedInProfile || payload.reader?.profile,
+        });
+        return;
+      }
+
+      setSuccess(
+        result.readyForPickup
           ? `Reserva confirmada. O exemplar ficou separado para retirada em ${payload.settings?.pickup_location || "Tucxa 1"}.`
-          : "Você entrou na fila e será avisado quando houver disponibilidade.");
+          : "Você entrou na fila e será avisado quando houver disponibilidade.",
+      );
       await load();
     } catch (current) {
       setError(current instanceof Error ? current.message : "Erro ao concluir a operação.");
@@ -422,10 +531,18 @@ export function AcervoVivoPublicReader() {
       if (authError) throw new Error("Senha incorreta ou acesso indisponível. Confira os dados ou use a recuperação de senha.");
       setIdentifierOpen(false);
       setPassword("");
+      setSignedInProfile(resolved.profile || "");
+
       if (pendingAction === "my-books") {
         window.location.assign(profileHref(resolved.profile));
         return;
       }
+
+      setConfirmDueAt(
+        pendingAction === "borrow-now"
+          ? duePreview(payload.settings?.loan_days ?? 30)
+          : "",
+      );
       setConfirmAction(pendingAction);
     } catch (current) {
       setError(current instanceof Error ? current.message : "Não foi possível entrar.");
@@ -436,19 +553,44 @@ export function AcervoVivoPublicReader() {
 
   function registrationHref(kind: "consulente" | "filho") {
     const params = new URLSearchParams();
+
     if (identifier.includes("@")) params.set("email", identifier.trim());
     else params.set("whatsapp", identifier.trim());
-    const returnTo = typeof window === "undefined" ? PUBLIC_PATH : `${window.location.pathname}${window.location.search}`;
+
+    let returnTo = PUBLIC_PATH;
+
+    if (typeof window !== "undefined") {
+      const returnUrl = new URL(window.location.href);
+
+      if (pendingAction === "borrow-now" || pendingAction === "reserve") {
+        returnUrl.searchParams.set("continuar", pendingAction);
+        if (selectedTitle?.id) {
+          returnUrl.searchParams.set("titulo", selectedTitle.id);
+        }
+      }
+
+      returnTo = `${returnUrl.pathname}${returnUrl.search}`;
+    }
+
     params.set("returnTo", returnTo);
+
     return kind === "consulente"
       ? `/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro?${params.toString()}`
       : `/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso?${params.toString()}`;
+  }
+
+  function closeLoanThankYou() {
+    const profile = loanThankYou?.profile || signedInProfile || payload.reader?.profile;
+    setLoanThankYou(null);
+    window.location.assign(profileHref(profile));
   }
 
   if (loading) return <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6"><p className="rounded-2xl bg-white p-5 font-bold text-[#123D2C] shadow">Carregando o Acervo Vivo...</p></section>;
   if (payload.disabled) return <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6"><p className="rounded-2xl bg-white p-5 font-bold text-[#123D2C] shadow">O catálogo público está temporariamente indisponível.</p></section>;
 
   const pickupLocation = payload.settings?.pickup_location || "Tucxa 1";
+  const pickupAddress = payload.settings?.pickup_address || "Rua Talvino Egídio de Souza Aranha Júnior, 179 - Jardim Miranda - Campinas/SP - CEP 13034-611";
+  const pickupMapsUrl = payload.settings?.pickup_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pickupAddress)}`;
   const reminderDays = payload.settings?.loan_reminder_days_before_due ?? 3;
   const availableCount = Number(selectedTitle?.availableCopies ?? 0);
   const category = selectedTitle?.subjects?.[0] || "Não informada";
@@ -504,11 +646,23 @@ export function AcervoVivoPublicReader() {
         <Pager page={letterPage} total={letterTitles.length} onChange={setLetterPage} />
       </Modal>}
 
-      {view === "trilhas" && <Modal title="Trilhas de estudos" eyebrow="Conhecimento em movimento" onClose={() => setView(null)}>
-        <div className="grid gap-2 sm:grid-cols-2">
+      {view === "trilhas" && <Modal title="Trilhas de estudos" eyebrow="Conhecimento em movimento" onClose={() => setView(null)} viewportFit>
+        <div className="grid gap-1.5 sm:grid-cols-2">
           {currentTrails.map((trail) => {
             const count = trailItems.filter((item) => item.trail_id === trail.id).length;
-            return <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setSelectedFolhaYear(null); setTrailItemPage(1); }} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10"><p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p><h3 className="mt-1 text-base font-black leading-tight text-[#123D2C]">{trail.name}</h3><p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p><p className="mt-2 text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{count} item(ns) • TOQUE PARA ABRIR</p></button>;
+            return (
+              <button
+                key={trail.id}
+                type="button"
+                onClick={() => { setSelectedTrailId(trail.id); setSelectedFolhaYear(null); setTrailItemPage(1); }}
+                className="rounded-xl bg-[#F7FAF2] px-2.5 py-2 text-left ring-1 ring-[#123D2C]/10"
+              >
+                <p className="text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
+                <h3 className="mt-0.5 text-sm font-black leading-4 text-[#123D2C]">{trail.name}</h3>
+                <p className="mt-0.5 line-clamp-1 text-[10px] font-semibold leading-4 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
+                <p className="mt-1 text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{count} item(ns) • TOQUE PARA ABRIR</p>
+              </button>
+            );
           })}
         </div>
         <Pager page={trailPage} total={trails.length} onChange={setTrailPage} />
@@ -604,12 +758,17 @@ export function AcervoVivoPublicReader() {
             <>
               <p className="mt-2">Ao confirmar, o empréstimo começa agora e terá prazo de <strong>{payload.settings?.loan_days ?? 30} dias</strong>.</p>
               <p className="mt-2">A devolução deve ser feita no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
-              <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data prevista de devolução.</p>
+              <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                📍 {pickupAddress}
+                <span className="ml-1 underline underline-offset-2">Abrir no Google Maps</span>
+              </a>
+              <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
               {!selectedQrCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Sempre que possível, leia o QR Code colado no exemplar em suas mãos para identificar exatamente o livro retirado.</p>}
             </>
           ) : (
             <>
               <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+              <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
               <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
               {availableCount <= 0 && <div className="mt-3 grid gap-2"><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={notifyIfNotPickedUp} onChange={(event) => setNotifyIfNotPickedUp(event.target.checked)} />Avisar se uma reserva anterior não for retirada no prazo.</label><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={reserveAfterReturn} onChange={(event) => setReserveAfterReturn(event.target.checked)} />Manter meu interesse para reservar quando o livro for devolvido.</label></div>}
             </>
@@ -618,7 +777,18 @@ export function AcervoVivoPublicReader() {
         <button disabled={saving} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
       </Modal>}
 
-      {identifierOpen && <Modal title={`Finalize sua ${pendingAction === "borrow-now" ? "retirada" : pendingAction === "my-books" ? "identificação" : "reserva"}`} eyebrow="Só agora precisamos identificar você" z={300} onClose={() => setIdentifierOpen(false)}>
+      {loanThankYou && <Modal title="Obrigado!" eyebrow="Acervo Vivo • empréstimo confirmado" z={310} onClose={closeLoanThankYou}>
+        <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+          <p>O empréstimo do livro <strong>{loanThankYou.title}</strong> foi registrado com sucesso.</p>
+          <p className="mt-2">Data máxima para devolução: <strong>{formatDate(loanThankYou.dueAt)}</strong>.</p>
+          <p className="mt-2">De preferência, devolva exatamente no mesmo local onde retirou: <strong>{pickupLocation}</strong>.</p>
+          <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
+          <p className="mt-3 font-bold">Isso ajuda a Biblioteca do Acervo Vivo do Tucxa a permanecer organizada e à disposição de todos.</p>
+        </div>
+        <button type="button" onClick={closeLoanThankYou} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
+      </Modal>}
+
+      {identifierOpen && <Modal title={`Finalize sua ${pendingAction === "borrow-now" ? "retirada" : pendingAction === "my-books" ? "identificação" : "reserva"}`} eyebrow="Agora precisamos identificar você" z={300} onClose={() => setIdentifierOpen(false)}>
         {!resolved && <form onSubmit={resolveIdentifier} className="grid gap-3"><label className="grid gap-1 text-sm font-black text-[#123D2C]">WhatsApp ou e-mail<input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-[#2F6B43]" placeholder="(19) 99999-9999 ou seu@email.com" /></label><button disabled={saving} className="rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Continuar</button></form>}
         {resolved?.found && <form onSubmit={signInAndContinue} className="grid gap-3"><p className="rounded-2xl bg-[#E9F2E7] p-3 text-sm font-bold text-[#123D2C]">Cadastro localizado. Confirme sua senha para continuar. Para empréstimos, o cadastro precisa conter nome, WhatsApp e e-mail válido.</p><label className="grid gap-1 text-sm font-black text-[#123D2C]">Senha<input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-[#2F6B43]" /></label><button disabled={saving} className="rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Entrar e continuar</button></form>}
         {resolved && !resolved.found && <div><p className="rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-950 ring-1 ring-amber-200">Cadastro não localizado. O cadastro é necessário somente uma vez; depois você poderá usar o mesmo acesso no Acervo Vivo.</p><div className="mt-3 grid gap-2"><Link href={registrationHref("consulente")} className="rounded-2xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white">Sou Consulente / Filho de Fora</Link><Link href={registrationHref("filho")} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Sou Filho da Corrente</Link></div></div>}
