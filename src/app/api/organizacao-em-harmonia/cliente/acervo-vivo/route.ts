@@ -475,21 +475,54 @@ async function fetchOpenLibraryCandidates(title: string, authors: string[]) {
   }
 }
 
-async function searchGoogleBooks(title: string, authors: string[]) {
+async function searchGoogleBooks(title: string, authors: string[], isbn10?: string | null, isbn13?: string | null) {
+  const isbn = (text(isbn13) || text(isbn10)).replace(/[^0-9X]/gi, "");
+  const byIsbn = isbn
+    ? await fetchGoogleBookCandidates(`isbn:${isbn}`).catch(() => [] as CoverSearchCandidate[])
+    : [];
   const preciseQuery = [title ? `intitle:${title}` : "", authors[0] ? `inauthor:${authors[0]}` : ""].filter(Boolean).join(" ");
-  const precise = await fetchGoogleBookCandidates(preciseQuery).catch(() => [] as CoverSearchCandidate[]);
+  const precise = preciseQuery
+    ? await fetchGoogleBookCandidates(preciseQuery).catch(() => [] as CoverSearchCandidate[])
+    : [];
+  const broadQuery = [title, authors[0] || ""].filter(Boolean).join(" ");
+  const broad = broadQuery && broadQuery !== preciseQuery
+    ? await fetchGoogleBookCandidates(broadQuery).catch(() => [] as CoverSearchCandidate[])
+    : [];
   const titleOnlyQuery = title ? `intitle:${title}` : "";
-  const broader = titleOnlyQuery && titleOnlyQuery !== preciseQuery
+  const titleOnly = titleOnlyQuery && titleOnlyQuery !== preciseQuery
     ? await fetchGoogleBookCandidates(titleOnlyQuery).catch(() => [] as CoverSearchCandidate[])
     : [];
-  const openLibrary = await fetchOpenLibraryCandidates(title, authors).catch(() => [] as CoverSearchCandidate[]);
+  const openLibraryPrecise = await fetchOpenLibraryCandidates(title, authors).catch(() => [] as CoverSearchCandidate[]);
+  const openLibraryTitleOnly = authors.length
+    ? await fetchOpenLibraryCandidates(title, []).catch(() => [] as CoverSearchCandidate[])
+    : [];
   const seen = new Set<string>();
-  return [...precise, ...broader, ...openLibrary].filter((candidate) => {
+  return [...byIsbn, ...precise, ...broad, ...titleOnly, ...openLibraryPrecise, ...openLibraryTitleOnly].filter((candidate) => {
     const key = `${candidate.source}|${candidate.externalId || `${normalize(candidate.title)}|${candidate.coverUrl}`}`;
     if (seen.has(key)) return false;
     seen.add(key);
-    return true;
+    return Boolean(candidate.coverUrl);
   });
+}
+
+function coverCandidateScore(title: string, authors: string[], isbn10: string | null | undefined, isbn13: string | null | undefined, candidate: CoverSearchCandidate) {
+  const wantedIsbns = [text(isbn10), text(isbn13)].map((value) => value.replace(/[^0-9X]/gi, "")).filter(Boolean);
+  const candidateIsbns = [candidate.isbn10, candidate.isbn13].map((value) => value.replace(/[^0-9X]/gi, "")).filter(Boolean);
+  if (wantedIsbns.some((isbn) => candidateIsbns.includes(isbn))) return 100;
+
+  const wantedTitle = normalize(title);
+  const candidateTitle = normalize(candidate.title);
+  let score = 0;
+  if (wantedTitle && candidateTitle === wantedTitle) score += 75;
+  else if (wantedTitle && candidateTitle && (candidateTitle.includes(wantedTitle) || wantedTitle.includes(candidateTitle))) score += 50;
+
+  const wantedAuthors = authors.map(normalize).filter(Boolean);
+  const candidateAuthors = normalize(candidate.authors.join(" "));
+  if (!wantedAuthors.length) score += 10;
+  else if (wantedAuthors.some((author) => author.split(/\s+/).filter((token) => token.length >= 4).some((token) => candidateAuthors.includes(token)))) score += 20;
+
+  if (candidate.coverUrl) score += 5;
+  return score;
 }
 
 export async function POST(request: Request) {
@@ -591,7 +624,7 @@ export async function POST(request: Request) {
       const limit = Math.max(1, Math.min(20, numberValue(body.limit, 10)));
       const { data: pending, error: pendingError } = await supabaseAdmin
         .from("oh_acervo_titles")
-        .select("id,title,authors,cover_url,cover_match_status")
+        .select("id,title,authors,isbn10,isbn13,cover_url,cover_match_status")
         .eq("organization_id", organizationId)
         .eq("active", true)
         .or("cover_url.is.null,cover_match_status.eq.pendente")
@@ -603,35 +636,28 @@ export async function POST(request: Request) {
       let suggested = 0;
       for (const current of pending ?? []) {
         try {
-          const candidates = await searchGoogleBooks(current.title, current.authors ?? []);
+          const candidates = await searchGoogleBooks(current.title, current.authors ?? [], current.isbn10, current.isbn13);
           if (!candidates.length) continue;
-          const titleNeedle = normalize(current.title);
-          const authorNeedles = (current.authors ?? []).map((item: string) => normalize(item)).filter(Boolean);
-          const exact = candidates.find((candidate: CoverSearchCandidate) => {
-            if (normalize(candidate.title) !== titleNeedle) return false;
-            if (!authorNeedles.length || !candidate.authors.length) return true;
-            const candidateAuthors = normalize(candidate.authors.join(" "));
-            return authorNeedles.some((author: string) => {
-              const tokens = author.split(/\s+/).filter((token: string) => token.length >= 4);
-              return tokens.some((token: string) => candidateAuthors.includes(token));
-            });
-          });
-          const selected = exact ?? candidates[0];
-          if (!selected?.coverUrl) continue;
-          const status = exact ? "confirmada" : "sugerida";
+          const ranked = candidates
+            .map((candidate) => ({ candidate, score: coverCandidateScore(current.title, current.authors ?? [], current.isbn10, current.isbn13, candidate) }))
+            .sort((left, right) => right.score - left.score);
+          const best = ranked[0];
+          if (!best?.candidate.coverUrl) continue;
+          const selected = best.candidate;
+          const status = best.score >= 80 ? "confirmada" : "sugerida";
           const { error } = await supabaseAdmin.from("oh_acervo_titles").update({
             cover_url: selected.coverUrl,
             cover_source: selected.source,
             cover_external_id: selected.externalId || null,
             cover_match_status: status,
-            cover_match_confidence: exact ? 95 : 60,
+            cover_match_confidence: best.score,
             isbn10: selected.isbn10 || null,
             isbn13: selected.isbn13 || null,
             publisher: selected.publisher || null,
             updated_at: nowIso(),
           }).eq("organization_id", organizationId).eq("id", current.id);
           if (error) throw error;
-          if (exact) enriched += 1;
+          if (best.score >= 80) enriched += 1;
           else suggested += 1;
         } catch {
           // Um título sem correspondência não deve interromper o lote inteiro.
@@ -646,13 +672,13 @@ export async function POST(request: Request) {
       const titleId = text(body.titleId);
       const { data: title, error } = await supabaseAdmin
         .from("oh_acervo_titles")
-        .select("id,title,authors")
+        .select("id,title,authors,isbn10,isbn13")
         .eq("organization_id", organizationId)
         .eq("id", titleId)
         .maybeSingle();
       if (error) throw error;
       if (!title?.id) return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
-      const candidates = await searchGoogleBooks(title.title, title.authors ?? []);
+      const candidates = await searchGoogleBooks(title.title, title.authors ?? [], title.isbn10, title.isbn13);
       return NextResponse.json({ ok: true, candidates });
     }
 
@@ -1051,7 +1077,7 @@ export async function POST(request: Request) {
       if (!copy?.id) return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
       const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, "");
       const value = `${baseUrl}/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo?exemplar=${encodeURIComponent(copy.qr_token)}`;
-      const qrDataUrl = await QRCode.toDataURL(value, { width: 640, margin: 2, errorCorrectionLevel: "M" });
+      const qrDataUrl = await QRCode.toDataURL(value, { width: 1024, margin: 2, errorCorrectionLevel: "M" });
       return NextResponse.json({ ok: true, qrDataUrl, assetCode: copy.asset_code, qrValue: value });
     }
 

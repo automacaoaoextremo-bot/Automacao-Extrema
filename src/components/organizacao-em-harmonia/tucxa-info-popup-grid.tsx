@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type TucxaInfoPopupItem = {
   id: string;
@@ -60,6 +60,16 @@ export function TucxaInfoPopupGrid({
   const selected = findItemById(selectedId);
   const parent = findItemById(parentId);
 
+  const closeSelected = useCallback(() => {
+    if (parent) {
+      setSelectedId(parent.id);
+      setParentId(null);
+      return;
+    }
+    setSelectedId(null);
+    setParentId(null);
+  }, [parent]);
+
   useEffect(() => {
     const requested = new URL(window.location.href).searchParams.get(autoOpenParam);
     if (!requested || !items.some((item) => item.id === requested)) return;
@@ -75,7 +85,7 @@ export function TucxaInfoPopupGrid({
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedId(null);
+      if (event.key === "Escape") closeSelected();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -84,12 +94,12 @@ export function TucxaInfoPopupGrid({
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [selectedId]);
+  }, [closeSelected, selectedId]);
 
   return (
     <>
       <div
-        className={`grid grid-cols-2 gap-2.5 ${gridColumns(columns)} sm:gap-3`}
+        className={`grid gap-2.5 sm:gap-3 ${items.length === 1 ? "grid-cols-1" : `grid-cols-2 ${gridColumns(columns)}`}`}
         aria-label={ariaLabel}
       >
         {items.map((item) => (
@@ -122,7 +132,7 @@ export function TucxaInfoPopupGrid({
           className="fixed inset-0 z-[210] flex items-center justify-center bg-[#10251C]/78 p-3 backdrop-blur-sm sm:p-4"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.currentTarget === event.target) setSelectedId(null);
+            if (event.currentTarget === event.target) closeSelected();
           }}
         >
           <section
@@ -143,7 +153,7 @@ export function TucxaInfoPopupGrid({
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setSelectedId(null); setParentId(null); }}
+                  onClick={closeSelected}
                   className="shrink-0 rounded-xl bg-[#123D2C] px-3.5 py-2 text-xs font-black text-white sm:text-sm"
                 >
                   Fechar
@@ -152,16 +162,6 @@ export function TucxaInfoPopupGrid({
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-              {parent && (
-                <button
-                  type="button"
-                  onClick={() => { setSelectedId(parent.id); setParentId(null); }}
-                  className="mb-3 rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
-                >
-                  ← Voltar para {parent.title}
-                </button>
-              )}
-
               <p className="rounded-2xl bg-[#F7FAF2] p-3.5 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10 sm:p-4 sm:text-base sm:leading-7">
                 {selected.description ?? selected.summary}
               </p>

@@ -148,7 +148,7 @@ const acervoMemberTopNav: NavItem[] = [
 const acervoMemberSidebarGroups: NavGroup[] = [
   {
     label: "Recepção · Acervo Vivo",
-    description: "Reservas, retiradas físicas e empréstimos confirmados no Tucxa 2.",
+    description: "Reservas, retiradas físicas e empréstimos confirmados no local de retirada configurado.",
     items: [
       { label: "Retiradas e circulação", href: ACERVO_BASE, description: "Confirmar retirada de reservas e acompanhar empréstimos." },
       { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },

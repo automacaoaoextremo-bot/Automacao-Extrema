@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type TitleRow = {
@@ -116,6 +115,7 @@ type Payload = {
     member_renewals_enabled?: boolean;
     block_new_loans_with_overdue?: boolean;
     block_new_loans_with_pending_fee?: boolean;
+    metadata?: { pickup_location?: string } | null;
   };
   titles?: TitleRow[];
   copies?: CopyRow[];
@@ -130,8 +130,6 @@ type Payload = {
 
 type Props = {
   api: string;
-  backHref: string;
-  homeHref: string;
   header: ReactNode;
   audienceLabel: string;
 };
@@ -158,21 +156,6 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
-function typeLabel(value: string) {
-  const labels: Record<string, string> = {
-    regulamento: "Regulamento",
-    procedimento: "Procedimento",
-    manual: "Manual",
-    folha_verde: "Folha Verde",
-    apostila: "Apostila",
-    video: "Vídeo",
-    podcast: "Podcast",
-    audio: "Áudio",
-    memoria_da_casa: "Memória da Casa",
-    outro: "Conteúdo",
-  };
-  return labels[value] ?? value;
-}
 
 function copyStatusLabel(value: string) {
   const labels: Record<string, string> = {
@@ -190,6 +173,10 @@ function resourceChronology(resource?: ResourceRow | null) {
   const year = Number(resource?.metadata?.year ?? 0);
   const month = Number(resource?.metadata?.month ?? 0);
   return (Number.isFinite(year) ? year : 0) * 100 + (Number.isFinite(month) ? month : 0);
+}
+
+function monthLabel(month: number) {
+  return ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"][month] || "Edição";
 }
 
 function initialKey(title: string) {
@@ -257,7 +244,7 @@ function AccessButton({ title, detail, onClick }: { title: string; detail: strin
   );
 }
 
-export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabel }: Props) {
+export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [payload, setPayload] = useState<Payload>({});
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(true);
@@ -275,6 +262,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
   const [copyPage, setCopyPage] = useState(1);
   const [selectedTrailId, setSelectedTrailId] = useState("");
   const [trailItemPage, setTrailItemPage] = useState(1);
+  const [selectedFolhaYear, setSelectedFolhaYear] = useState<number | null>(null);
   const [myPage, setMyPage] = useState(1);
 
   const load = useCallback(async (accessToken: string) => {
@@ -331,6 +319,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
   const reservations = useMemo(() => payload.myReservations ?? [], [payload.myReservations]);
   const titleMap = useMemo(() => new Map(titles.map((item) => [item.id, item])), [titles]);
   const resourceMap = useMemo(() => new Map(resources.map((item) => [item.id, item])), [resources]);
+  const resourceVersionMap = useMemo(() => new Map(versions.filter((item) => item.is_current !== false).map((item) => [item.resource_id, item])), [versions]);
 
   const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
   const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
@@ -371,6 +360,25 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
     });
   }, [resourceMap, selectedTrail, trailItems]);
   const currentTrailItems = selectedTrailItems.slice((trailItemPage - 1) * PAGE_SIZE, trailItemPage * PAGE_SIZE);
+  const folhaYears = useMemo(() => {
+    if (selectedTrail?.slug !== "folha-verde-edicoes") return [] as number[];
+    return Array.from(new Set(selectedTrailItems.map((item) => {
+      const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
+      return Number(resource?.metadata?.year ?? 0);
+    }).filter((year) => year >= 1900 && year <= 2200))).sort((a, b) => b - a);
+  }, [resourceMap, selectedTrail?.slug, selectedTrailItems]);
+  const selectedFolhaYearItems = useMemo(() => {
+    if (!selectedFolhaYear) return [] as TrailItem[];
+    return selectedTrailItems.filter((item) => {
+      const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
+      return Number(resource?.metadata?.year ?? 0) === selectedFolhaYear;
+    }).sort((left, right) => {
+      const leftResource = left.resource_id ? resourceMap.get(left.resource_id) : null;
+      const rightResource = right.resource_id ? resourceMap.get(right.resource_id) : null;
+      return resourceChronology(rightResource) - resourceChronology(leftResource);
+    });
+  }, [resourceMap, selectedFolhaYear, selectedTrailItems]);
+  const pickupLocation = payload.settings?.metadata?.pickup_location || "Tucxa 1";
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
@@ -425,10 +433,6 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">
             Encontre livros, materiais da Casa e trilhas que ajudem a transformar uma dúvida em próximo passo de estudo.
           </p>
-          <div className="mt-3 flex gap-2">
-            <Link href={homeHref} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C]">Início</Link>
-            <Link href={backHref} className="rounded-xl bg-[#D9E8D6] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar</Link>
-          </div>
         </section>
 
         {(error || success) && (
@@ -517,7 +521,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
             {currentTrails.map((trail) => {
               const count = trailItems.filter((item) => item.trail_id === trail.id).length;
               return (
-                <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setTrailItemPage(1); }} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                <button key={trail.id} type="button" onClick={() => { setSelectedTrailId(trail.id); setTrailItemPage(1); setSelectedFolhaYear(null); }} className="rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
                   <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">{trail.official ? "Trilha oficial" : "Trilha em validação"}</p>
                   <h3 className="mt-1 text-base font-black leading-tight text-[#123D2C]">{trail.name}</h3>
                   <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{trail.objective || trail.description || "Sequência de conteúdos para apoiar seu estudo."}</p>
@@ -532,27 +536,65 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
       )}
 
       {selectedTrail && (
-        <Modal title={selectedTrail.name} eyebrow="Trilha de estudos" onClose={() => setSelectedTrailId("")} z={220}>
+        <Modal title={selectedTrail.name} eyebrow="Trilha de estudos" onClose={() => { setSelectedTrailId(""); setSelectedFolhaYear(null); }} z={220}>
           <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-600">{selectedTrail.objective || selectedTrail.description}</p>
+          {selectedTrail.slug === "folha-verde-edicoes" ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {folhaYears.map((year) => (
+                <button key={year} type="button" onClick={() => setSelectedFolhaYear(year)} className="min-h-20 rounded-2xl bg-[#E7F0E2] p-3 text-center text-xl font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  {year}
+                  <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+                </button>
+              ))}
+              {folhaYears.length === 0 && <p className="col-span-full rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhuma edição do Folha Verde foi vinculada a esta trilha.</p>}
+            </div>
+          ) : (
+            <>
+              <div className="mt-3 grid gap-2">
+                {currentTrailItems.map((item, index) => {
+                  const absoluteIndex = (trailItemPage - 1) * PAGE_SIZE + index;
+                  const title = item.title_id ? titleMap.get(item.title_id) : null;
+                  const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
+                  const version = resource ? resourceVersionMap.get(resource.id) : null;
+                  return (
+                    <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {item.item_type === "title" ? "Livro" : "Material"}</p>
+                      <p className="mt-1 text-sm font-black text-[#123D2C]">{title?.title || resource?.title || "Conteúdo"}</p>
+                      {item.note && <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{item.note}</p>}
+                      {title && <button type="button" onClick={() => openTitle(title.id)} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Ver livro</button>}
+                      {version?.source_url && <a href={version.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir PDF</a>}
+                    </article>
+                  );
+                })}
+                {selectedTrailItems.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Esta trilha está criada, mas sua curadoria ainda está em validação.</p>}
+              </div>
+              <Pager page={trailItemPage} total={selectedTrailItems.length} pageSize={PAGE_SIZE} onChange={setTrailItemPage} />
+            </>
+          )}
+        </Modal>
+      )}
+
+      {selectedFolhaYear && (
+        <Modal title={`${selectedFolhaYear}`} eyebrow="Folha Verde • edições" onClose={() => setSelectedFolhaYear(null)} z={240}>
+          <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-semibold leading-6 text-slate-600">Edições em ordem das mais recentes para as mais antigas.</p>
           <div className="mt-3 grid gap-2">
-            {currentTrailItems.map((item, index) => {
-              const absoluteIndex = (trailItemPage - 1) * PAGE_SIZE + index;
-              const title = item.title_id ? titleMap.get(item.title_id) : null;
+            {selectedFolhaYearItems.map((item) => {
               const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
-              const currentVersion = resource ? versions.find((version) => version.resource_id === resource.id) : null;
+              const version = resource ? resourceVersionMap.get(resource.id) : null;
+              const month = Number(resource?.metadata?.month ?? 0);
+              const monthEnd = Number(resource?.metadata?.month_end ?? month);
+              const label = monthEnd > month ? `${monthLabel(month)}-${monthLabel(monthEnd)}` : monthLabel(month);
               return (
-                <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {title ? "Livro" : resource ? typeLabel(resource.resource_type) : "Conteúdo"}{item.required ? " • recomendado" : ""}</p>
-                  <p className="mt-1 truncate text-sm font-black text-[#123D2C]">{title?.title || resource?.title || "Item em configuração"}</p>
-                  {item.note && <p className="mt-1 line-clamp-1 text-xs font-semibold text-slate-600">{item.note}</p>}
-                  {title && <button type="button" onClick={() => { setSelectedTrailId(""); openTitle(title.id); }} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Ver livro</button>}
-                  {resource && currentVersion?.source_url && <a href={currentVersion.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">{resource.resource_type === "folha_verde" ? "Abrir PDF" : "Abrir conteúdo vigente"}</a>}
+                <article key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div>
+                    <p className="font-black text-[#123D2C]">{label}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">{version?.version_label || "Versão vigente"}</p>
+                  </div>
+                  {version?.source_url ? <a href={version.source_url} target="_blank" rel="noreferrer" className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir PDF</a> : <span className="text-xs font-bold text-slate-400">PDF pendente</span>}
                 </article>
               );
             })}
-            {selectedTrailItems.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Esta trilha está criada, mas sua curadoria ainda está em validação.</p>}
           </div>
-          <Pager page={trailItemPage} total={selectedTrailItems.length} pageSize={PAGE_SIZE} onChange={setTrailItemPage} />
         </Modal>
       )}
 
@@ -582,7 +624,7 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
                   <p className="truncate text-sm font-black text-[#123D2C]">{reservation.title?.title || "Livro reservado"}</p>
                   <p className="mt-1 text-xs font-semibold text-slate-600">
                     {reservation.status === "disponivel"
-                      ? `Separado para retirada no Tucxa 2${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}${reservation.copy?.asset_code ? ` • ${reservation.copy.asset_code}` : ""}.`
+                      ? `Separado para retirada em ${pickupLocation}${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}${reservation.copy?.asset_code ? ` • ${reservation.copy.asset_code}` : ""}.`
                       : `Na fila desde ${formatDate(reservation.requested_at)}.`}
                   </p>
                   {reservation.status === "disponivel" && (
@@ -639,11 +681,11 @@ export function AcervoVivoReader({ api, backHref, homeHref, header, audienceLabe
                 type="button"
                 onClick={() => void run(
                   { action: "reserve", titleId: selectedTitle.id },
-                  `Solicitação registrada. Um exemplar disponível fica separado por até ${payload.settings?.reservation_hold_days ?? 3} dia(s). Retire no Tucxa 2 e peça a confirmação à Recepção.`,
+                  `Solicitação registrada. Um exemplar disponível fica separado por até ${payload.settings?.reservation_hold_days ?? 3} dia(s). Retire em ${pickupLocation} e peça a confirmação à Recepção.`,
                 )}
                 className="mt-2 w-full rounded-xl bg-[#123D2C] px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
               >
-                Reservar para retirada no Tucxa 2
+                {`Reservar para retirada em ${pickupLocation}`}
               </button>
             )}
             {!hasSelectedTitleReservation && !hasSelectedTitleLoan && (selectedTitle.availableCopies ?? 0) === 0 && payload.settings?.member_reservations_enabled !== false && (

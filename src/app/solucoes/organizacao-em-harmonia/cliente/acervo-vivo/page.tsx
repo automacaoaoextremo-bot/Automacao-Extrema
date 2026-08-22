@@ -460,6 +460,41 @@ export default function AcervoVivoGestaoPage() {
     } finally { setSaving(false); }
   }
 
+  function downloadQrPng() {
+    if (!qrDataUrl) return;
+    const anchor = document.createElement("a");
+    anchor.href = qrDataUrl;
+    anchor.download = `QR-Acervo-Vivo-${qrAssetCode || "exemplar"}-1024x1024.png`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  function exportPendingCoversCsv() {
+    const pending = titles.filter((item) => !item.cover_url || ["pendente", "sugerida"].includes(item.cover_match_status || ""));
+    const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [
+      ["id", "titulo", "autor", "isbn10", "isbn13", "arquivo_sugerido"],
+      ...pending.map((item) => [
+        item.id,
+        item.title,
+        (item.authors ?? []).join("; "),
+        item.isbn10 || "",
+        item.isbn13 || "",
+        `capa_${item.id}.jpg`,
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map((value) => escapeCsv(String(value))).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "acervo-vivo-capas-pendentes.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function createInventory(event: FormEvent) {
     event.preventDefault();
     if (!token || saving) return;
@@ -673,7 +708,7 @@ export default function AcervoVivoGestaoPage() {
           </div>
 
           <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100 sm:p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Catálogo</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Títulos e capas</h2></div><div className="flex flex-col gap-2 sm:flex-row"><input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buscar título, autor ou tema" /><button type="button" disabled={saving} onClick={() => void enrichPendingCovers()} className="rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">Buscar próximas 10 capas</button></div></div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Catálogo</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Títulos e capas</h2><p className="mt-1 max-w-2xl text-xs font-semibold leading-5 text-slate-500">A busca automática prioriza ISBN, depois título + autor, Google Books e Open Library. Use o CSV apenas para as exceções que continuarem sem capa.</p></div><div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"><input value={query} onChange={(e) => setQuery(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Buscar título, autor ou tema" /><button type="button" disabled={saving} onClick={() => void enrichPendingCovers()} className="rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20 disabled:opacity-50">Buscar próximas 10 capas</button><button type="button" onClick={exportPendingCoversCsv} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/20">Baixar CSV pendências</button></div></div>
             <div className="mt-4 grid gap-2">
               {visibleTitles.map((item) => {
                 const itemCopies = copies.filter((copy) => copy.title_id === item.id && copy.active !== false);
@@ -705,7 +740,7 @@ export default function AcervoVivoGestaoPage() {
 
           <section className={`rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100 ${!canManageLibrary ? "lg:col-span-2" : ""}`}>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Reservas e retiradas</p>
-            <h2 className="mt-1 text-xl font-black text-[#00334E]">Confirmar livro físico no Tucxa 2</h2>
+            <h2 className="mt-1 text-xl font-black text-[#00334E]">Confirmar livro físico em {pickupLocation}</h2>
             <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
               Quando o status estiver <strong>Disponível para retirada</strong>, confira o exemplar físico/código patrimonial e confirme. Só nesse momento o sistema cria o empréstimo e inicia o prazo de devolução.
             </p>
@@ -824,7 +859,7 @@ export default function AcervoVivoGestaoPage() {
         </div>
       )}
 
-      {qrDataUrl && <div className="fixed inset-0 z-[230] flex items-center justify-center bg-[#10251C]/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setQrDataUrl(""); }}><section className="w-full max-w-sm rounded-[2rem] bg-white p-5 text-center shadow-2xl"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Etiqueta do exemplar</p><h2 className="mt-1 text-xl font-black text-[#00334E]">{qrAssetCode}</h2><div role="img" aria-label={`QR Code do exemplar ${qrAssetCode}`} className="mx-auto mt-4 h-64 w-64 max-w-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${qrDataUrl})` }} /><p className="mt-2 text-xs font-semibold text-slate-500">Este QR abre diretamente a página pública deste exemplar no Acervo Vivo. No Tucxa, a pessoa pode consultar e registrar a retirada conforme as regras configuradas.</p><div className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => window.print()} className="rounded-xl bg-[#2F6B43] px-4 py-3 font-black text-white">Imprimir</button><button type="button" onClick={() => setQrDataUrl("")} className="rounded-xl bg-[#00334E] px-4 py-3 font-black text-white">Fechar</button></div></section></div>}
+      {qrDataUrl && <div className="fixed inset-0 z-[230] flex items-center justify-center bg-[#10251C]/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setQrDataUrl(""); }}><section className="w-full max-w-sm rounded-[2rem] bg-white p-5 text-center shadow-2xl"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Etiqueta do exemplar • 1024 × 1024</p><h2 className="mt-1 text-xl font-black text-[#00334E]">{qrAssetCode}</h2><div role="img" aria-label={`QR Code do exemplar ${qrAssetCode}`} className="mx-auto mt-4 h-64 w-64 max-w-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${qrDataUrl})` }} /><p className="mt-2 text-xs font-semibold text-slate-500">Este QR é gerado pelo Gestor Acervo Vivo - Biblioteca para impressão e colagem no exemplar. Ele abre diretamente a página pública do livro; não precisa ficar visível na tela dos livros.</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={downloadQrPng} className="rounded-xl bg-[#123D2C] px-3 py-3 text-xs font-black text-white">Baixar PNG</button><button type="button" onClick={() => window.print()} className="rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white">Imprimir</button><button type="button" onClick={() => setQrDataUrl("")} className="rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Fechar</button></div></section></div>}
 
       {selectedTitleId && coverCandidates.length > 0 && <div className="fixed inset-0 z-[220] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) { setCoverCandidates([]); setSelectedTitleId(""); } }}><section className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Enriquecimento de cadastro</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Confirme a edição antes de usar a capa</h2><p className="mt-1 text-sm font-semibold text-slate-600">A busca sugere candidatos. A escolha é humana porque edições diferentes podem ter capas diferentes.</p></div><button type="button" onClick={() => { setCoverCandidates([]); setSelectedTitleId(""); }} className="rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">Fechar</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{coverCandidates.map((candidate) => <button key={candidate.externalId} type="button" disabled={saving || !candidate.coverUrl} onClick={() => void applyCover(candidate)} className="flex gap-3 rounded-2xl bg-[#F9FBF7] p-3 text-left ring-1 ring-[#123D2C]/10 disabled:opacity-50"><Cover url={candidate.coverUrl} title={candidate.title} /><span className="min-w-0"><span className="block font-black text-[#00334E]">{candidate.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{candidate.authors?.join(", ") || "Autor não informado"}</span><span className="mt-2 block text-[10px] font-black text-[#2F6B43]">{candidate.publisher || "Editora não informada"}{candidate.publicationYear ? ` • ${candidate.publicationYear}` : ""}</span><span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">{candidate.source === "open-library" ? "Open Library" : "Google Books"}</span></span></button>)}</div></section></div>}
     </OrganizacaoClientShell>

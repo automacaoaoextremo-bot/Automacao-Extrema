@@ -13,8 +13,6 @@ export default function AcervoVivoConsulentePage() {
   return (
     <AcervoVivoReader
       api="/api/organizacao-em-harmonia/consulentes/acervo-vivo"
-      homeHref={panelBase}
-      backHref={atendimentoHref}
       audienceLabel="Filho de Fora / Consulente"
       header={
         <ConsulentePanelHeader

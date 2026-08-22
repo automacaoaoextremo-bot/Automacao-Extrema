@@ -154,7 +154,6 @@ export default async function TucxaSitePage() {
   const financialDetails: TucxaInfoPopupItem[] = [
     {
       id: "prestacao-contas-detalhes",
-      eyebrow: "Prestação de Contas",
       title: "O que aparece",
       summary: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
       description: "Receitas, despesas, resultado, saldo e evolução mensal em uma leitura simples para o celular.",
@@ -376,11 +375,17 @@ export default async function TucxaSitePage() {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-sm">Prestação de Contas</p>
             <h2 className="mt-1.5 max-w-4xl text-xl font-black leading-tight sm:text-3xl">Clareza para transformar números em confiança e continuidade.</h2>
             <p className="mt-2 max-w-4xl text-sm leading-5 text-[#EEF7EA] sm:mt-3 sm:text-lg sm:leading-8">Cada atendimento e cada atividade dependem de uma estrutura que precisa continuar funcionando: água, energia, limpeza, segurança, manutenção, materiais e organização.</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/transparencia" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-3 py-2 text-center text-[11px] font-black leading-tight text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:px-5 sm:py-3 sm:text-base">Acompanhar prestação de contas</Link>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-xl">
               <div className="min-w-0">
                 <TucxaInfoPopupGrid items={financialDetails} ariaLabel="Detalhes da Prestação de Contas" columns={2} />
               </div>
+              <Link
+                href="/solucoes/organizacao-em-harmonia/tucxa/transparencia"
+                className="flex min-h-24 flex-col items-center justify-center rounded-[1.35rem] bg-white p-3 text-center shadow-md shadow-green-900/5 ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 sm:min-h-28 sm:rounded-[1.5rem] sm:p-4"
+              >
+                <span className="text-sm font-black leading-tight text-[#123D2C] sm:text-base">Acompanhar</span>
+                <span className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[9px]">TOQUE PARA ABRIR</span>
+              </Link>
             </div>
           </div>
         </article>

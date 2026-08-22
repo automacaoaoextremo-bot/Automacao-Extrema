@@ -10,8 +10,6 @@ export default function AcervoVivoFilhoDaCorrentePage() {
   return (
     <AcervoVivoReader
       api="/api/organizacao-em-harmonia/filhos-corrente/acervo-vivo"
-      homeHref={panelBase}
-      backHref={atendimentoHref}
       audienceLabel="Filho da Corrente"
       header={
         <FilhoCorrentePanelHeader

@@ -86,7 +86,7 @@ const pageAccesses: TucxaInfoPopupItem[] = [
     eyebrow: "Escolha seu caminho",
     title: "Acessos",
     summary: "Toque em uma opção para conhecer o que ela reúne e como funciona.",
-    description: "Orientações, acolhimento, consultas autorizadas, escuta, cursos e o Acervo Vivo ficam reunidos aqui para reduzir a procura por mensagens antigas.",
+    description: "As informações a seguir ficam reunidos aqui para reduzir a procura por mensagens antigas.",
     subItems: accessDetails,
   },
 ];
