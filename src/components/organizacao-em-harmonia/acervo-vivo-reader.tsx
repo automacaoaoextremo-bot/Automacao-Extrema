@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -168,6 +170,7 @@ type LoanThankYou = {
 };
 
 const PAGE_SIZE = 4;
+const PUBLIC_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 
 function normalize(value: string) {
   return value
@@ -281,6 +284,43 @@ function AccessButton({ title, detail, onClick }: { title: string; detail: strin
     </button>
   );
 }
+
+function CommunityAccess({
+  title,
+  detail,
+  href,
+  imageSrc,
+}: {
+  title: string;
+  detail: string;
+  href: string;
+  imageSrc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+    >
+      <div className="relative aspect-[16/8] w-full bg-[#E7F0E2]">
+        <Image
+          src={imageSrc}
+          alt={`Logo ${title}`}
+          fill
+          sizes="(max-width: 640px) 50vw, 320px"
+          className="object-cover"
+        />
+      </div>
+      <div className="p-2.5 text-center">
+        <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
+        <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
+        <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+          TOQUE PARA ABRIR
+        </span>
+      </div>
+    </Link>
+  );
+}
+
 
 function RatingLine({ title }: { title: TitleRow }) {
   const count = Number(title.reviewCount ?? 0);
@@ -565,8 +605,13 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
           <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">
-            Encontre livros, materiais da Casa e trilhas que ajudem a transformar uma dúvida em próximo passo de estudo.
+            Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo.
           </p>
+          {payload.reader?.personName && (
+            <p className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1.5 text-xs font-black">
+              Acesso identificado: {payload.reader.personName}
+            </p>
+          )}
         </section>
 
         {(error || success) && (
@@ -597,11 +642,28 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
         {loading ? (
           <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
         ) : (
-          <section className="mt-3 grid grid-cols-3 gap-2">
-            <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
-            <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
-            <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
-          </section>
+          <>
+            <section className="mt-3 grid grid-cols-3 gap-2">
+              <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
+              <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
+              <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
+            </section>
+
+            <section className="mt-2 grid grid-cols-2 gap-2">
+              <CommunityAccess
+                title="Clube do Livro"
+                detail="leituras, encontros e livros já estudados"
+                href={`${PUBLIC_ACERVO_PATH}/clube-do-livro`}
+                imageSrc="/organizacao-em-harmonia/tucxa/acervo-vivo/clube-do-livro.jpeg"
+              />
+              <CommunityAccess
+                title="Grupo de Estudos"
+                detail="espiritualidade, reflexão e conhecimento"
+                href={`${PUBLIC_ACERVO_PATH}/grupo-de-estudos`}
+                imageSrc="/organizacao-em-harmonia/tucxa/acervo-vivo/grupo-de-estudos.jpg"
+              />
+            </section>
+          </>
         )}
       </section>
 

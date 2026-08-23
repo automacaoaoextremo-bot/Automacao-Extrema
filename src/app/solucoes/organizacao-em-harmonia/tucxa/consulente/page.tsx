@@ -184,25 +184,25 @@ export default async function ConsulenteTucxaPage() {
 
         <div
           id="preparacao"
-          className="scroll-mt-48 mt-5 rounded-[1.75rem] bg-white p-5 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-7"
+          className="scroll-mt-48 mt-3 rounded-[1.45rem] bg-white p-3 shadow-lg shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:mt-5 sm:rounded-[1.75rem] sm:p-7"
         >
-          <p className="text-xs font-black tracking-[0.22em] text-[#2F6B43] sm:text-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-sm sm:tracking-[0.22em]">
             Como se preparar
           </p>
-          <h2 className="mt-2 text-2xl font-black text-[#123D2C] sm:text-3xl">
+          <h2 className="mt-1 text-lg font-black leading-tight text-[#123D2C] sm:mt-2 sm:text-3xl">
             Orientações simples para uma experiência mais tranquila.
           </h2>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:mt-5 sm:gap-3">
             {guidance.map((item) => (
               <div
                 key={item}
-                className="rounded-2xl bg-[#F7FAF2] p-4 text-sm font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-base sm:leading-7"
+                className="rounded-xl bg-[#F7FAF2] p-2 text-[10px] font-bold leading-4 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:rounded-2xl sm:p-4 sm:text-base sm:leading-7"
               >
                 {item}
               </div>
             ))}
           </div>
-          <p className="mt-5 rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C]">
+          <p className="mt-2 rounded-xl bg-[#E9F2E7] p-2 text-[10px] font-semibold leading-4 text-[#123D2C] sm:mt-5 sm:rounded-2xl sm:p-4 sm:text-sm sm:leading-6">
             As informações detalhadas de horário, fichas, senhas e encaminhamentos podem ser ajustadas pela organização do Tucxa conforme calendário, orientação da Diretoria e necessidade da casa.
           </p>
         </div>
