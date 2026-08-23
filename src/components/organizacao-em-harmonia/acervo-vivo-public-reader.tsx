@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -256,6 +257,34 @@ function AccessButton({ title, detail, onClick }: { title: string; detail: strin
   );
 }
 
+function CommunityAccess({
+  title,
+  detail,
+  href,
+  imageSrc,
+}: {
+  title: string;
+  detail: string;
+  href: string;
+  imageSrc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
+    >
+      <div className="relative aspect-[16/8] w-full bg-[#E7F0E2]">
+        <Image src={imageSrc} alt={`Logo ${title}`} fill sizes="(max-width: 640px) 50vw, 320px" className="object-cover" />
+      </div>
+      <div className="p-2.5 text-center">
+        <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
+        <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
+        <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+      </div>
+    </Link>
+  );
+}
+
 function RatingLine({ title }: { title: TitleRow }) {
   const count = Number(title.reviewCount ?? 0);
   const average = Number(title.averageRating ?? 0);
@@ -339,6 +368,8 @@ export function AcervoVivoPublicReader() {
 
         if (next.selectedCopy?.title_id) {
           setSelectedTitleId(next.selectedCopy.title_id);
+        } else if (continuationTitleId) {
+          setSelectedTitleId(continuationTitleId);
         }
 
         if (
@@ -767,7 +798,7 @@ export function AcervoVivoPublicReader() {
         <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
           <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
-          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa e trilhas que ajudem a transformar uma dúvida em próximo passo de estudo. Você só precisa se identificar quando decidir reservar ou emprestar.</p>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
           {payload.reader?.authenticated && <p className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1.5 text-xs font-black">Acesso identificado: {payload.reader.personName || "leitor(a)"}</p>}
         </section>
 
@@ -795,6 +826,21 @@ export function AcervoVivoPublicReader() {
           <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); }} />
           <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => { setView("trilhas"); setTrailPage(1); }} />
           <AccessButton title="Meus livros" detail={myBooksDetail} onClick={() => void openMyBooks()} />
+        </section>
+
+        <section className="mt-2 grid grid-cols-2 gap-2">
+          <CommunityAccess
+            title="Clube do Livro"
+            detail="leituras, encontros e livros já estudados"
+            href={`${PUBLIC_PATH}/clube-do-livro`}
+            imageSrc="/organizacao-em-harmonia/tucxa/acervo-vivo/clube-do-livro.jpeg"
+          />
+          <CommunityAccess
+            title="Grupo de Estudos"
+            detail="espiritualidade, reflexão e conhecimento"
+            href={`${PUBLIC_PATH}/grupo-de-estudos`}
+            imageSrc="/organizacao-em-harmonia/tucxa/acervo-vivo/grupo-de-estudos.jpg"
+          />
         </section>
       </section>
 

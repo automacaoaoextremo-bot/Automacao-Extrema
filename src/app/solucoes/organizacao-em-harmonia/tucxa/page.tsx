@@ -181,7 +181,7 @@ export default async function TucxaSitePage({
         compactMobileActions
       />
       {!suppressFinancialPopup && <FinancialTransparencyPopup />}
-      {!suppressFinancialPopup && <TucxaSystemGuideModal />}
+      <TucxaSystemGuideModal />
 
       <section className="scroll-mt-48 mx-auto max-w-6xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
         <div className="rounded-[1.75rem] bg-white p-4 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:p-6">
@@ -193,6 +193,9 @@ export default async function TucxaSitePage({
           </h1>
           <p className="mt-2.5 max-w-4xl text-[0.95rem] leading-6 text-slate-700 sm:text-[1.05rem] sm:leading-8">
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
+          </p>
+          <p className="mt-2.5 max-w-4xl rounded-2xl bg-[#F7FAF2] px-3 py-2.5 text-xs font-bold leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-sm sm:leading-6">
+            Quer chegar mais rápido a uma informação específica? Use o botão <strong>Guia</strong> no menu e deixe o Tucxa em Harmonia indicar o caminho certo para você.
           </p>
           <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             <Link

@@ -54,6 +54,22 @@ function realEmail(value: unknown) {
   return email.includes("@") && !email.endsWith("@organizacao-em-harmonia.local");
 }
 
+function escapeHtml(value: unknown) {
+  return text(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function emailHtml(lines: Array<string | false | null | undefined>) {
+  return lines
+    .filter((line): line is string => Boolean(line))
+    .map((line) => `<p style="margin:0 0 10px;line-height:1.55">${line}</p>`)
+    .join("");
+}
+
 function mailConfig() {
   if (process.env.EMAIL_NOTIFICATIONS_ENABLED === "false") {
     return { ok: false as const, reason: "E-mails desabilitados." };
@@ -261,12 +277,25 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       dueText ? `Devolução máxima prevista para: ${dueText}.` : "",
       `Devolver no mesmo local da retirada: ${pickup.label}.`,
       `📍 ${pickup.address}`,
-      `Google Maps: ${pickup.mapsUrl}`,
+      `Clique aqui para abrir no Google Maps: ${pickup.mapsUrl}`,
       "",
       "IMPORTANTE: Deixando exatamente no mesmo local de onde foi retirado, ajuda a Biblioteca do Acervo Vivo do Tucxa a estar sempre organizada e à disposição de todos.",
       "",
       "Tucxa em Harmonia — Acervo Vivo",
     ].filter(Boolean).join("\n");
+
+    const personalHtml = emailHtml([
+      `Olá, ${escapeHtml(personName)}.`,
+      `Você emprestou o livro <strong>"${escapeHtml(titleName)}"</strong> da biblioteca do Acervo Vivo do Tucxa.`,
+      authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
+      copyCode ? `Exemplar: ${escapeHtml(copyCode)}.` : "",
+      dueText ? `Devolução máxima prevista para: ${escapeHtml(dueText)}.` : "",
+      `Devolver no mesmo local da retirada: ${escapeHtml(pickup.label)}.`,
+      `📍 ${escapeHtml(pickup.address)}`,
+      `<a href="${escapeHtml(pickup.mapsUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">Clique aqui para abrir no Google Maps</a>`,
+      "<strong>IMPORTANTE:</strong> Deixando exatamente no mesmo local de onde foi retirado, ajuda a Biblioteca do Acervo Vivo do Tucxa a estar sempre organizada e à disposição de todos.",
+      "Tucxa em Harmonia — Acervo Vivo",
+    ]);
 
     const managementBody = [
       `${personName} emprestou o livro "${titleName}" da biblioteca do Acervo Vivo do Tucxa.`,
@@ -289,6 +318,7 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
           to: personEmail,
           subject: `[Tucxa • Acervo Vivo] Empréstimo confirmado — ${titleName}`,
           text: personalBody,
+          html: personalHtml,
         }),
       );
     }
