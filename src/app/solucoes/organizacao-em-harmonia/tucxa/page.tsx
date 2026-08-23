@@ -78,7 +78,7 @@ const audienceButtonClass =
 function AudienceTouchHint({ inverse = false }: { inverse?: boolean }) {
   return (
     <span
-      className={`mt-1 block text-[8px] font-black uppercase tracking-[0.14em] sm:text-[10px] sm:tracking-[0.18em] ${
+      className={`mt-1 block text-[9px] font-black uppercase tracking-[0.13em] sm:text-[10px] sm:tracking-[0.18em] ${
         inverse ? "text-white/75" : "text-[#2F6B43]"
       }`}
     >
@@ -183,31 +183,31 @@ export default async function TucxaSitePage({
       {!suppressFinancialPopup && <FinancialTransparencyPopup />}
       <TucxaSystemGuideModal />
 
-      <section className="scroll-mt-48 mx-auto max-w-6xl px-3 py-1.5 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
-        <div className="rounded-[1.45rem] bg-white p-3 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:rounded-[1.75rem] sm:p-6">
-          <p className="inline-flex rounded-full bg-[#E9F2E7] px-2.5 py-1 text-[0.58rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.22em]">
+      <section className="scroll-mt-48 mx-auto max-w-6xl px-3 py-2 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
+        <div className="rounded-[1.45rem] bg-white p-3.5 shadow-xl shadow-green-900/10 ring-1 ring-[#123D2C]/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="inline-flex rounded-full bg-[#E9F2E7] px-2.5 py-1 text-[0.64rem] font-black uppercase tracking-[0.15em] text-[#2F6B43] ring-1 ring-[#123D2C]/10 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.22em]">
             Organização em Harmonia no Tucxa
           </p>
-          <h1 className="mt-1.5 max-w-4xl text-[1.34rem] font-black leading-[1.12] tracking-tight text-[#123D2C] sm:mt-2.5 sm:text-4xl sm:leading-tight lg:text-[2.8rem]">
+          <h1 className="mt-1.5 max-w-4xl text-[1.48rem] font-black leading-[1.12] tracking-tight text-[#123D2C] sm:mt-2.5 sm:text-4xl sm:leading-tight lg:text-[2.8rem]">
             Um ponto simples para orientar, organizar e cuidar melhor da nossa corrente.
           </h1>
-          <p className="mt-1.5 max-w-4xl text-[0.78rem] leading-[1.15rem] text-slate-700 sm:mt-2.5 sm:text-[1.05rem] sm:leading-8">
+          <p className="mt-1.5 max-w-4xl text-[0.86rem] leading-[1.28rem] text-slate-700 sm:mt-2.5 sm:text-[1.05rem] sm:leading-8">
             O Tucxa passa a ter um espaço próprio para que Filhos da Corrente e Filhos de Fora encontrem informações, atualizem seus dados e recebam orientações com mais clareza, sem depender de mensagens soltas ou cadastros duplicados.
           </p>
-          <p className="mt-1.5 max-w-4xl rounded-xl bg-[#F7FAF2] px-2.5 py-1.5 text-[0.64rem] font-bold leading-4 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:mt-2.5 sm:rounded-2xl sm:px-3 sm:py-2.5 sm:text-sm sm:leading-6">
+          <p className="mt-1.5 max-w-4xl rounded-xl bg-[#F7FAF2] px-2.5 py-1.5 text-[0.72rem] font-bold leading-[1.08rem] text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:mt-2.5 sm:rounded-2xl sm:px-3 sm:py-2.5 sm:text-sm sm:leading-6">
             Quer chegar mais rápido a uma informação específica? Use o botão <strong>Guia</strong> no menu e deixe o Tucxa em Harmonia indicar o caminho certo para você.
           </p>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:mt-3 sm:gap-2.5">
             <Link
               href="#corrente"
-              className="rounded-xl bg-[#123D2C] px-2 py-2 text-center text-[0.72rem] font-black leading-tight text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+              className="rounded-xl bg-[#123D2C] px-2 py-2 text-center text-[0.78rem] font-black leading-tight text-white shadow-xl shadow-green-900/10 transition hover:-translate-y-1 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
               <span className="block">Sou Filho da Corrente</span>
               <AudienceTouchHint inverse />
             </Link>
             <Link
               href="#consulentes"
-              className="rounded-xl bg-[#E9F2E7] px-2 py-2 text-center text-[0.72rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+              className="rounded-xl bg-[#E9F2E7] px-2 py-2 text-center text-[0.78rem] font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/10 transition hover:-translate-y-1 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
               <span className="block">Sou Consulente / Filho de Fora</span>
               <AudienceTouchHint />

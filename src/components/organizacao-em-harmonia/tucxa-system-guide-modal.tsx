@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   findTucxaGuideNode,
@@ -12,6 +11,12 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-system-guide-content";
 
 export const TUCXA_GUIDE_OPEN_EVENT = "tucxa:open-system-guide";
+
+const TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY = "tucxa:guide:auto-open-disabled:v1";
+const TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY = "tucxa:guide:skip-auto-open-once:v1";
+const TUCXA_HOME_PATH = "/solucoes/organizacao-em-harmonia/tucxa";
+
+type GuideView = "overview" | "children" | "why" | "outcome" | "screenshot";
 
 function NodeCard({ node, onOpen }: { node: TucxaGuideNode; onOpen: (node: TucxaGuideNode) => void }) {
   return (
@@ -27,9 +32,40 @@ function NodeCard({ node, onOpen }: { node: TucxaGuideNode; onOpen: (node: Tucxa
   );
 }
 
+function OverviewCard({
+  title,
+  detail,
+  onClick,
+  emphasis = false,
+}: {
+  title: string;
+  detail: string;
+  onClick: () => void;
+  emphasis?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-24 rounded-2xl p-3 text-left shadow-sm ring-1 transition hover:-translate-y-0.5 ${
+        emphasis
+          ? "bg-[#123D2C] text-white ring-[#123D2C] hover:bg-[#2F6B43]"
+          : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:bg-[#F2F8EE]"
+      }`}
+    >
+      <span className="block text-sm font-black leading-tight sm:text-base">{title}</span>
+      <span className={`mt-2 block text-[9px] font-black uppercase tracking-[0.14em] ${emphasis ? "text-white/75" : "text-[#2F6B43]"}`}>
+        {detail}
+      </span>
+    </button>
+  );
+}
+
 export function TucxaSystemGuideModal() {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<string[]>([tucxaSystemGuide.id]);
+  const [view, setView] = useState<GuideView>("overview");
+  const [autoOpenDisabled, setAutoOpenDisabled] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const current = findTucxaGuideNode(path[path.length - 1]) ?? tucxaSystemGuide;
@@ -40,12 +76,36 @@ export function TucxaSystemGuideModal() {
 
   useEffect(() => {
     const openGuide = () => {
+      const disabled = window.localStorage.getItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY) === "1";
+      setAutoOpenDisabled(disabled);
       setPath([tucxaSystemGuide.id]);
+      setView("overview");
       setOpen(true);
     };
 
     window.addEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
-    return () => window.removeEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
+
+    const timer = window.setTimeout(() => {
+      const disabled = window.localStorage.getItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY) === "1";
+      const skipOnce = window.sessionStorage.getItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY) === "1";
+      setAutoOpenDisabled(disabled);
+
+      if (skipOnce) {
+        window.sessionStorage.removeItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY);
+        return;
+      }
+
+      if (!disabled) {
+        setPath([tucxaSystemGuide.id]);
+        setView("overview");
+        setOpen(true);
+      }
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
+    };
   }, []);
 
   useEffect(() => {
@@ -69,17 +129,49 @@ export function TucxaSystemGuideModal() {
 
   function openChild(child: TucxaGuideNode) {
     setPath((currentPath) => [...currentPath, child.id]);
+    setView("overview");
   }
 
   function goBack() {
+    if (view !== "overview") {
+      setView("overview");
+      return;
+    }
+
     setPath((currentPath) => currentPath.length > 1 ? currentPath.slice(0, -1) : currentPath);
   }
 
   function goHome() {
     setPath([tucxaSystemGuide.id]);
+    setView("overview");
+  }
+
+  function changeAutoOpenPreference(disabled: boolean) {
+    setAutoOpenDisabled(disabled);
+    if (disabled) {
+      window.localStorage.setItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY, "1");
+    } else {
+      window.localStorage.removeItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY);
+    }
+  }
+
+  function openDestination() {
+    if (!current.href) return;
+
+    setOpen(false);
+
+    if (current.href === TUCXA_HOME_PATH) {
+      window.sessionStorage.setItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY, "1");
+    }
+
+    window.location.assign(current.href);
   }
 
   if (!open) return null;
+
+  const hasChildren = Boolean(current.children?.length);
+  const isRoot = path.length === 1;
+  const screenshotCount = screenshot?.fileNames?.length ?? 0;
 
   return (
     <div
@@ -116,11 +208,68 @@ export function TucxaSystemGuideModal() {
               <p className="mt-1.5 text-sm font-bold leading-5 text-[#F2F8EE] sm:text-base sm:leading-6">{current.summary}</p>
             </section>
 
-            {current.children?.length ? (
+            {hasChildren && view === "overview" ? (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {current.children.map((child) => <NodeCard key={child.id} node={child} onOpen={openChild} />)}
+                <OverviewCard
+                  title="Próximo passo"
+                  detail={`${current.children?.length ?? 0} caminhos`}
+                  onClick={() => setView("children")}
+                  emphasis
+                />
+                {current.why ? (
+                  <OverviewCard title="Por que existe?" detail="TOQUE PARA ABRIR" onClick={() => setView("why")} />
+                ) : null}
+                {current.outcome ? (
+                  <OverviewCard title="O que você consegue" detail="TOQUE PARA ABRIR" onClick={() => setView("outcome")} />
+                ) : null}
+                {screenshotCount > 0 ? (
+                  <OverviewCard title="Ver a tela" detail={`${screenshotCount} ${screenshotCount === 1 ? "print" : "prints"}`} onClick={() => setView("screenshot")} />
+                ) : null}
+                {current.href ? (
+                  <OverviewCard title={current.ctaLabel ?? "Abrir esta tela"} detail="ABRIR NO SISTEMA" onClick={openDestination} />
+                ) : null}
               </div>
-            ) : (
+            ) : null}
+
+            {hasChildren && view === "children" ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {current.children?.map((child) => <NodeCard key={child.id} node={child} onOpen={openChild} />)}
+              </div>
+            ) : null}
+
+            {hasChildren && view === "why" && current.why ? (
+              <p className="rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-slate-700 ring-1 ring-[#123D2C]/10 sm:text-base sm:leading-7">
+                {current.why}
+              </p>
+            ) : null}
+
+            {hasChildren && view === "outcome" && current.outcome ? (
+              <p className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-base sm:leading-7">
+                {current.outcome}
+              </p>
+            ) : null}
+
+            {hasChildren && view === "screenshot" && screenshot?.fileNames?.length ? (
+              <div className="grid gap-3">
+                {screenshot.fileNames.map((fileName, index) => (
+                  <div key={fileName} className="rounded-2xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                    <p className="mb-2 text-center text-xs font-black text-slate-500">
+                      {screenshot.label}{screenshot.fileNames.length > 1 ? ` • ${index + 1}/${screenshot.fileNames.length}` : ""}
+                    </p>
+                    <Image
+                      src={`${TUCXA_GUIDE_SCREENSHOT_BASE}/${fileName}`}
+                      alt={screenshot.label}
+                      width={900}
+                      height={1600}
+                      className="mx-auto max-h-[55dvh] w-auto rounded-xl object-contain"
+                      sizes="(max-width: 768px) 94vw, 700px"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {!hasChildren ? (
               <div className="grid gap-3">
                 {current.steps?.length ? (
                   <ol className="grid gap-2">
@@ -146,20 +295,26 @@ export function TucxaSystemGuideModal() {
                     <strong>O que acontece depois:</strong> {current.outcome}
                   </p>
                 ) : null}
-              </div>
-            )}
 
-            {screenshot?.fileNames?.[0] ? (
-              <div className="rounded-2xl bg-white p-2 ring-1 ring-[#123D2C]/10">
-                <p className="mb-2 text-center text-xs font-black text-slate-500">{screenshot.label}</p>
-                <Image
-                  src={`${TUCXA_GUIDE_SCREENSHOT_BASE}/${screenshot.fileNames[0]}`}
-                  alt={screenshot.label}
-                  width={900}
-                  height={1600}
-                  className="mx-auto max-h-[48dvh] w-auto rounded-xl object-contain"
-                  sizes="(max-width: 768px) 94vw, 700px"
-                />
+                {screenshot?.fileNames?.length ? (
+                  <div className="grid gap-3">
+                    {screenshot.fileNames.map((fileName, index) => (
+                      <div key={fileName} className="rounded-2xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                        <p className="mb-2 text-center text-xs font-black text-slate-500">
+                          {screenshot.label}{screenshot.fileNames.length > 1 ? ` • ${index + 1}/${screenshot.fileNames.length}` : ""}
+                        </p>
+                        <Image
+                          src={`${TUCXA_GUIDE_SCREENSHOT_BASE}/${fileName}`}
+                          alt={screenshot.label}
+                          width={900}
+                          height={1600}
+                          className="mx-auto max-h-[48dvh] w-auto rounded-xl object-contain"
+                          sizes="(max-width: 768px) 94vw, 700px"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -167,17 +322,38 @@ export function TucxaSystemGuideModal() {
               <p className="rounded-2xl bg-[#FFF8E7] p-3 text-xs font-black leading-5 text-amber-950 ring-1 ring-amber-200">{current.accessNote}</p>
             ) : null}
 
+            {!hasChildren && current.href ? (
+              <button
+                type="button"
+                onClick={openDestination}
+                className="rounded-2xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white"
+              >
+                {current.ctaLabel ?? "Abrir esta tela"}
+              </button>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {path.length > 1 ? (
+              {path.length > 1 || view !== "overview" ? (
                 <button type="button" onClick={goBack} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar</button>
               ) : <span />}
               <button type="button" onClick={goHome} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Início do guia</button>
-              {current.href ? (
-                <Link href={current.href} className="col-span-2 rounded-2xl bg-[#123D2C] px-4 py-3 text-center text-sm font-black text-white sm:col-span-1">
-                  {current.ctaLabel ?? "Abrir esta tela"}
-                </Link>
-              ) : null}
             </div>
+
+            {isRoot ? (
+              <label className="mx-auto flex w-fit cursor-pointer items-center gap-2 rounded-full bg-white px-3 py-2 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-xs">
+                <input
+                  type="checkbox"
+                  checked={autoOpenDisabled}
+                  onChange={(event) => changeAutoOpenPreference(event.target.checked)}
+                  className="h-4 w-4 accent-[#123D2C]"
+                />
+                Não mostrar automaticamente neste dispositivo
+              </label>
+            ) : null}
+
+            <p className="pb-1 text-center text-[10px] font-semibold leading-4 text-slate-500 sm:text-xs">
+              Escolha um botão. Cada assunto abre em uma janela curta, sem transformar o guia em uma página longa.
+            </p>
           </div>
         </div>
       </section>

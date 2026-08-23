@@ -171,6 +171,8 @@ type LoanThankYou = {
 
 const PAGE_SIZE = 4;
 const PUBLIC_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
+const MANAGEMENT_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo";
+const MANAGEMENT_ACCESS_API = "/api/organizacao-em-harmonia/cliente/acervo-vivo?accessOnly=1";
 
 function normalize(value: string) {
   return value
@@ -285,6 +287,22 @@ function AccessButton({ title, detail, onClick }: { title: string; detail: strin
   );
 }
 
+function ManagementAccess() {
+  return (
+    <Link
+      href={MANAGEMENT_ACERVO_PATH}
+      className="flex min-h-20 items-center justify-between gap-3 rounded-2xl bg-[#FFF8E7] px-4 py-3 text-left shadow ring-1 ring-amber-200 transition hover:-translate-y-0.5 hover:shadow-lg"
+    >
+      <span className="min-w-0">
+        <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-amber-800">Gestor Acervo Vivo - Biblioteca</span>
+        <span className="mt-1 block text-base font-black leading-tight text-[#123D2C]">Gestão da Biblioteca</span>
+        <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-600">Regras, relatórios, circulação e exclusões de empréstimos.</span>
+      </span>
+      <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-[9px] font-black uppercase tracking-[0.1em] text-white">GERENCIAR</span>
+    </Link>
+  );
+}
+
 function CommunityAccess({
   title,
   detail,
@@ -343,6 +361,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [canManageLibrary, setCanManageLibrary] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -390,6 +409,21 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       setToken(accessToken);
       try {
         await load(accessToken);
+
+        try {
+          const managementResponse = await fetch(MANAGEMENT_ACCESS_API, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            cache: "no-store",
+          });
+          const managementPayload = (await managementResponse.json().catch(() => ({}))) as {
+            permissions?: { library?: boolean };
+          };
+          if (active) {
+            setCanManageLibrary(managementResponse.ok && managementPayload.permissions?.library === true);
+          }
+        } catch {
+          if (active) setCanManageLibrary(false);
+        }
       } catch (currentError) {
         if (active) setError(currentError instanceof Error ? currentError.message : "Erro ao carregar o Acervo Vivo.");
       } finally {
@@ -607,11 +641,6 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">
             Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo.
           </p>
-          {payload.reader?.personName && (
-            <p className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1.5 text-xs font-black">
-              Acesso identificado: {payload.reader.personName}
-            </p>
-          )}
         </section>
 
         {(error || success) && (
@@ -648,6 +677,12 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
               <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
             </section>
+
+            {canManageLibrary ? (
+              <section className="mt-2">
+                <ManagementAccess />
+              </section>
+            ) : null}
 
             <section className="mt-2 grid grid-cols-2 gap-2">
               <CommunityAccess

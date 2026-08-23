@@ -142,15 +142,15 @@ const coursesMemberSidebarGroups: NavGroup[] = [
 
 const acervoMemberTopNav: NavItem[] = [
   { label: "Painel", href: MEMBER_PANEL },
-  { label: "Acervo Vivo", href: ACERVO_BASE },
+  { label: "Gestão do Acervo", href: ACERVO_BASE },
 ];
 
 const acervoMemberSidebarGroups: NavGroup[] = [
   {
-    label: "Recepção · Acervo Vivo",
-    description: "Reservas, retiradas físicas e empréstimos confirmados no local de retirada configurado.",
+    label: "Gestão · Acervo Vivo",
+    description: "Biblioteca, circulação, inventário e conteúdos do Acervo Vivo conforme as permissões da sua função.",
     items: [
-      { label: "Retiradas e circulação", href: ACERVO_BASE, description: "Confirmar retirada de reservas e acompanhar empréstimos." },
+      { label: "Gestão do Acervo Vivo", href: ACERVO_BASE, description: "Regras, catálogo, circulação, inventário, relatórios e conteúdos conforme sua função." },
       { label: "Meu painel", href: MEMBER_PANEL, description: "Voltar à área do Filho da Corrente." },
     ],
   },
