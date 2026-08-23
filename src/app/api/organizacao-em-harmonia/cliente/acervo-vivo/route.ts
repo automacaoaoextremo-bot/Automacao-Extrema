@@ -1067,6 +1067,94 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, lateDays, lateFee });
     }
 
+    if (action === "delete-loan") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode excluir empréstimos.");
+      }
+
+      const loanId = text(body.loanId);
+      if (!loanId) {
+        return NextResponse.json({ error: "Empréstimo não informado." }, { status: 400 });
+      }
+
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .select("id,copy_id,person_id,status,returned_at,due_at")
+        .eq("organization_id", organizationId)
+        .eq("id", loanId)
+        .maybeSingle();
+
+      if (loanError) throw loanError;
+      if (!loan?.id) {
+        return NextResponse.json({ error: "Empréstimo não localizado." }, { status: 404 });
+      }
+
+      const { data: copy, error: copyError } = loan.copy_id
+        ? await supabaseAdmin
+            .from("oh_acervo_copies")
+            .select("id,title_id,status")
+            .eq("organization_id", organizationId)
+            .eq("id", loan.copy_id)
+            .maybeSingle()
+        : { data: null, error: null };
+
+      if (copyError) throw copyError;
+
+      const wasActive =
+        !loan.returned_at &&
+        ["ativo", "atrasado"].includes(text(loan.status));
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("id", loan.id);
+
+      if (deleteError) throw deleteError;
+
+      if (wasActive && copy?.id && copy.title_id) {
+        const { data: settings, error: settingsError } = await supabaseAdmin
+          .from("oh_acervo_settings")
+          .select("reservation_hold_days")
+          .eq("organization_id", organizationId)
+          .maybeSingle();
+
+        if (settingsError) throw settingsError;
+
+        const { error: reserveCopyError } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ status: "reservado", updated_at: nowIso() })
+          .eq("organization_id", organizationId)
+          .eq("id", copy.id);
+
+        if (reserveCopyError) throw reserveCopyError;
+
+        await offerAcervoCopyToNextReservation(
+          organizationId,
+          copy.title_id,
+          copy.id,
+          Number(settings?.reservation_hold_days ?? 3),
+        );
+      }
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "emprestimo_excluido",
+        "loan",
+        loan.id,
+        {
+          copyId: loan.copy_id,
+          personId: loan.person_id,
+          status: loan.status,
+          dueAt: loan.due_at,
+          wasActive,
+        },
+      );
+
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === "update-late-fee") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar pendências e taxas.");
       const loanId = text(body.loanId);

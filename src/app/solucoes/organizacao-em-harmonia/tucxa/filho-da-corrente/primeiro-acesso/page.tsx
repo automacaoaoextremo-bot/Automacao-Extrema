@@ -677,7 +677,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
           { label: "Início", href: "#inicio", variant: "primary" },
           {
             label: "Voltar",
-            href: "/solucoes/organizacao-em-harmonia/tucxa#corrente",
+            href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#corrente",
             variant: "secondary",
           },
           {

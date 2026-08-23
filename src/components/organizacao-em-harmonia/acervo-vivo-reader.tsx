@@ -112,7 +112,17 @@ type Curation = {
 };
 
 type Payload = {
-  reader?: { personName?: string; profile?: string };
+  reader?: {
+    personName?: string;
+    personEmail?: string | null;
+    personWhatsapp?: string | null;
+    hasValidEmail?: boolean;
+    emailRequired?: boolean;
+    activeLoanCount?: number;
+    maxActiveLoans?: number;
+    loanLimitReached?: boolean;
+    profile?: string;
+  };
   catalogWarning?: string | null;
   settings?: {
     loan_days?: number;
@@ -436,6 +446,24 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const pickupMapsUrl = payload.settings?.metadata?.pickup_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pickupAddress)}`;
   const reminderDays = payload.settings?.metadata?.loan_reminder_days_before_due ?? 3;
   const selectedCategory = selectedTitle?.subjects?.[0] || "Não informada";
+  const borrowBlockedByEmail = payload.reader?.emailRequired === true || payload.reader?.hasValidEmail === false;
+  const borrowBlockedByLimit = payload.reader?.loanLimitReached === true;
+
+  const updateProfileHref = (() => {
+    const profile = payload.reader?.profile || "";
+    if (profile === "filho-da-corrente") {
+      return "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
+    }
+
+    const params = new URLSearchParams();
+    if (payload.reader?.personName) params.set("name", payload.reader.personName);
+    if (payload.reader?.personWhatsapp) params.set("whatsapp", payload.reader.personWhatsapp);
+    params.set(
+      "returnTo",
+      "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/atendimento/acervo-vivo",
+    );
+    return `/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro?${params.toString()}`;
+  })();
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
@@ -544,6 +572,21 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
         {(error || success) && (
           <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>
             {error || success}
+          </div>
+        )}
+
+        {borrowBlockedByEmail && (
+          <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-950 ring-1 ring-amber-200">
+            Para empréstimos de livros, é obrigatório ter um e-mail válido no cadastro. Atualize seus dados antes de retirar outro livro.
+            <a href={updateProfileHref} className="mt-2 block rounded-xl bg-amber-900 px-3 py-2 text-center text-xs font-black text-white">
+              Atualizar cadastro
+            </a>
+          </div>
+        )}
+
+        {borrowBlockedByLimit && (
+          <div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold leading-6 text-red-800 ring-1 ring-red-200">
+            Você atingiu o limite de {Number(payload.reader?.maxActiveLoans ?? payload.settings?.max_active_loans ?? 3)} empréstimo(s) ativo(s). Devolva um livro antes de registrar outro empréstimo.
           </div>
         )}
 
@@ -787,7 +830,13 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             {!hasSelectedTitleLoan && !hasSelectedTitleReservation && (
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <button
-                  disabled={saving || (selectedTitle.availableCopies ?? 0) <= 0 || payload.settings?.member_loans_enabled === false}
+                  disabled={
+                    saving ||
+                    (selectedTitle.availableCopies ?? 0) <= 0 ||
+                    payload.settings?.member_loans_enabled === false ||
+                    borrowBlockedByEmail ||
+                    borrowBlockedByLimit
+                  }
                   type="button"
                   onClick={() => { setConfirmDueAt(duePreview(payload.settings?.loan_days ?? 30)); setConfirmAction("borrow-now"); }}
                   className="flex min-h-20 flex-col items-center justify-center rounded-2xl bg-[#123D2C] px-3 py-3 text-center font-black text-white disabled:opacity-45"

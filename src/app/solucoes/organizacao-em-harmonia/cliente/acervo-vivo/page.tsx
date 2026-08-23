@@ -868,14 +868,32 @@ export default function AcervoVivoGestaoPage() {
                       <span className={`rounded-full px-2 py-1 text-[10px] font-black ${overdue ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>{overdue ? "Atrasado" : `Até ${formatDate(loan.due_at)}`}</span>
                     </div>
                     {canManageLibrary && (
-                      <button
-                        disabled={saving}
-                        type="button"
-                        onClick={() => void run({ action: "return", loanId: loan.id }, "Devolução registrada e próxima reserva, se houver, disponibilizada automaticamente.")}
-                        className="mt-3 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
-                      >
-                        Registrar devolução
-                      </button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          disabled={saving}
+                          type="button"
+                          onClick={() => void run({ action: "return", loanId: loan.id }, "Devolução registrada e próxima reserva, se houver, disponibilizada automaticamente.")}
+                          className="rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          Registrar devolução
+                        </button>
+                        <button
+                          disabled={saving}
+                          type="button"
+                          onClick={() => {
+                            const person = loan.person?.full_name || "esta pessoa";
+                            const book = loan.title?.title || "este livro";
+                            if (!window.confirm(`Excluir definitivamente o empréstimo de "${book}" para ${person}? Se estiver ativo, o exemplar será liberado para a próxima reserva ou voltará a ficar disponível.`)) return;
+                            void run(
+                              { action: "delete-loan", loanId: loan.id },
+                              "Empréstimo excluído. O exemplar e a fila de reservas foram reconciliados.",
+                            );
+                          }}
+                          className="rounded-xl bg-white px-4 py-2 text-xs font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50"
+                        >
+                          Excluir empréstimo
+                        </button>
+                      </div>
                     )}
                   </article>
                 );

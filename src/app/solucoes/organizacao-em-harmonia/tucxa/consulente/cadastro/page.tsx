@@ -20,7 +20,7 @@ const headerActions = [
   { label: "Início", href: "#inicio", variant: "primary" as const },
   {
     label: "Voltar",
-    href: "/solucoes/organizacao-em-harmonia/tucxa/consulente/novo",
+    href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#consulentes",
     variant: "secondary" as const,
   },
 ];

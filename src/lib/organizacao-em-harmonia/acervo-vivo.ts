@@ -7,6 +7,9 @@ export type AcervoReaderContext = {
   organizationId: string;
   personId: string;
   personName: string;
+  personEmail?: string | null;
+  personWhatsapp?: string | null;
+  hasValidEmail: boolean;
   profile: "filho-da-corrente" | "consulente" | "outro";
 };
 
@@ -71,7 +74,7 @@ function bearerToken(request: Request) {
 async function findPersonForUser(user: { id: string; email?: string | null }) {
   const byAuth = await supabaseAdmin
     .from("oh_people")
-    .select("id,organization_id,full_name,email,active")
+    .select("id,organization_id,full_name,email,whatsapp,active")
     .eq("auth_user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -82,7 +85,7 @@ async function findPersonForUser(user: { id: string; email?: string | null }) {
   if (!user.email) return null;
   const byEmail = await supabaseAdmin
     .from("oh_people")
-    .select("id,organization_id,full_name,email,active")
+    .select("id,organization_id,full_name,email,whatsapp,active")
     .ilike("email", user.email)
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -204,6 +207,9 @@ export async function getAcervoReaderContext(
         organizationId,
         personId: person.id,
         personName: text(person.full_name) || text(user.email) || "Pessoa",
+        personEmail: text(person.email) || null,
+        personWhatsapp: text(person.whatsapp) || null,
+        hasValidEmail: realEmail(person.email),
         profile: kind,
       },
     };
@@ -483,6 +489,9 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
     title: titleMap.get(reservation.title_id) ?? null,
     copy: reservation.available_copy_id ? copyMap.get(reservation.available_copy_id) ?? null : null,
   }));
+  const activeLoanCount = myLoans.filter(
+    (loan) => !loan.returned_at && ["ativo", "atrasado"].includes(text(loan.status)),
+  ).length;
   const resourceVersions = await signedResourceVersions(
     (versionsResult.data ?? []) as Array<Record<string, unknown>>,
   );
@@ -503,8 +512,16 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
     },
   };
 
+  const maxActiveLoans = Number(settings.max_active_loans ?? 3);
+
   return {
-    reader: context,
+    reader: {
+      ...context,
+      activeLoanCount,
+      maxActiveLoans,
+      loanLimitReached: activeLoanCount >= maxActiveLoans,
+      emailRequired: !context.hasValidEmail,
+    },
     catalogWarning: titles.length === 0 || copies.length === 0
       ? "O catálogo do Acervo Vivo está em atualização. Se este aviso persistir, o responsável pela Biblioteca deve aplicar o reparo do catálogo do Ajuste 15."
       : null,

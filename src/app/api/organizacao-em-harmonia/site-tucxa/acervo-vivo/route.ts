@@ -18,6 +18,11 @@ function onlyDigits(value: unknown) {
   return text(value).replace(/\D/g, "");
 }
 
+function realEmail(value: unknown) {
+  const email = text(value).toLowerCase();
+  return email.includes("@") && !email.endsWith("@organizacao-em-harmonia.local");
+}
+
 function phoneCandidates(raw: string) {
   const digits = onlyDigits(raw);
   if (!digits) return [];
@@ -149,11 +154,11 @@ async function resolveLogin(organizationId: string, identifier: string) {
   const value = identifier.trim();
   if (!value) return null;
 
-  let person: { id: string; email?: string | null; auth_user_id?: string | null } | null = null;
+  let person: { id: string; full_name?: string | null; email?: string | null; whatsapp?: string | null; auth_user_id?: string | null } | null = null;
   if (value.includes("@")) {
     const result = await supabaseAdmin
       .from("oh_people")
-      .select("id,email,auth_user_id")
+      .select("id,full_name,email,whatsapp,auth_user_id")
       .eq("organization_id", organizationId)
       .ilike("email", value.toLowerCase())
       .eq("active", true)
@@ -166,7 +171,7 @@ async function resolveLogin(organizationId: string, identifier: string) {
     if (candidates.length) {
       const result = await supabaseAdmin
         .from("oh_people")
-        .select("id,email,auth_user_id")
+        .select("id,full_name,email,whatsapp,auth_user_id")
         .eq("organization_id", organizationId)
         .in("whatsapp", candidates)
         .eq("active", true)
@@ -177,7 +182,7 @@ async function resolveLogin(organizationId: string, identifier: string) {
     }
   }
 
-  if (!person?.id || !person.email || !person.auth_user_id) return null;
+  if (!person?.id) return null;
   const membership = await supabaseAdmin
     .from("oh_memberships")
     .select("agenda_viva_profile,status")
@@ -191,7 +196,22 @@ async function resolveLogin(organizationId: string, identifier: string) {
   const profile = record(membership.data?.agenda_viva_profile);
   const source = normalize(profile.oh_profile || profile.accessType || profile.publico || membership.data?.status);
   const kind = source.includes("consulente") || source.includes("filho-de-fora") ? "consulente" : "filho-da-corrente";
-  return { authEmail: person.email, profile: kind };
+  const hasValidEmail = realEmail(person.email);
+
+  let authEmail = "";
+  if (person.auth_user_id) {
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(person.auth_user_id);
+    authEmail = text(authUser.user?.email);
+  }
+  if (!authEmail && hasValidEmail) authEmail = text(person.email);
+
+  return {
+    authEmail: authEmail || undefined,
+    profile: kind,
+    hasValidEmail,
+    personName: text(person.full_name),
+    whatsapp: text(person.whatsapp),
+  };
 }
 
 export async function GET(request: Request) {
@@ -201,7 +221,38 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const qrToken = text(url.searchParams.get("exemplar"));
     const access = await getAcervoReaderContext(request);
-    const reader = access.ok ? { authenticated: true, ...access.context } : { authenticated: false };
+    let reader: Record<string, unknown> = { authenticated: false };
+
+    if (access.ok) {
+      const [{ data: settings }, activeLoans] = await Promise.all([
+        supabaseAdmin
+          .from("oh_acervo_settings")
+          .select("max_active_loans")
+          .eq("organization_id", access.context.organizationId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("oh_acervo_loans")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", access.context.organizationId)
+          .eq("person_id", access.context.personId)
+          .is("returned_at", null)
+          .in("status", ["ativo", "atrasado"]),
+      ]);
+
+      if (activeLoans.error) throw activeLoans.error;
+
+      const maxActiveLoans = Number(settings?.max_active_loans ?? 3);
+      const activeLoanCount = Number(activeLoans.count ?? 0);
+      reader = {
+        authenticated: true,
+        ...access.context,
+        activeLoanCount,
+        maxActiveLoans,
+        loanLimitReached: activeLoanCount >= maxActiveLoans,
+        emailRequired: !access.context.hasValidEmail,
+      };
+    }
+
     return NextResponse.json({ ...(await publicPayload(organizationId, qrToken)), reader });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao carregar o Acervo Vivo.";
