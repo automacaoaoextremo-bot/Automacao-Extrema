@@ -1186,7 +1186,7 @@ export default function AgendaVivaPublicaPage() {
         navLabel="Agenda Viva"
         actions={[
           { label: "Início", href: "#inicio", variant: "primary" },
-          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#modulos", variant: "secondary" },
+          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1&abrir=agenda-viva#modulos", variant: "secondary" },
         ]}
       />
 

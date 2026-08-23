@@ -7,11 +7,11 @@ const headerActions = [
   { label: "Início", href: `${BASE}#inicio`, variant: "primary" as const },
   {
     label: "Voltar",
-    href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1",
+    href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#modulos",
     variant: "secondary" as const,
   },
   { label: "Visão", href: `${BASE}#visao`, variant: "secondary" as const },
-  { label: "Módulos", href: `${BASE}#modulos`, variant: "secondary" as const },
+  { label: "Acessos", href: `${BASE}#modulos`, variant: "secondary" as const },
   {
     label: "Prestação de Contas",
     href: `${BASE}/transparencia`,
@@ -139,7 +139,7 @@ export default function SementinhaEmHarmoniaPage() {
 
       <section id="modulos" className="scroll-mt-44 mx-auto max-w-6xl px-3 pb-6 sm:px-6 lg:px-8">
         <div className="rounded-[2rem] bg-[#EEF6E9] p-4 ring-1 ring-[#123D2C]/10 sm:p-6">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Módulos</p>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Acessos</p>
           <h2 className="mt-1 text-2xl font-black sm:text-3xl">Um ecossistema que pode crescer sem perder a simplicidade.</h2>
           <p className="mt-2 max-w-4xl text-sm font-semibold leading-6 text-slate-600 sm:text-base">
             Cada módulo existe para resolver uma parte concreta da rotina e, juntos, formar uma visão única do Sementinha.

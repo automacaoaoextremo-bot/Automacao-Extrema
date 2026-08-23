@@ -25,7 +25,7 @@ export default async function ConsulenteTucxaPage() {
     },
     {
       label: "Voltar",
-      href: "/solucoes/organizacao-em-harmonia/tucxa#consulentes",
+      href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#consulentes",
       variant: "secondary" as const,
     },
     {

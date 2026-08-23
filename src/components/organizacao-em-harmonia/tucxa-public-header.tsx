@@ -10,7 +10,7 @@ type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente" | "signOutConsulente" | "supportWhatsapp" | "openTucxaGuide";
+  action?: "signOutFilhoCorrente" | "signOutConsulente" | "signOutTucxa" | "supportWhatsapp" | "openTucxaGuide";
 };
 
 type TucxaPublicHeaderProps = {
@@ -145,6 +145,12 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
       return;
     }
 
+    if (link.action === "signOutTucxa") {
+      await supabaseBrowser.auth.signOut();
+      window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo");
+      return;
+    }
+
     if (link.action === "supportWhatsapp") {
       window.open(buildSupportWhatsappUrl(), "_blank", "noopener,noreferrer");
       return;
@@ -228,6 +234,7 @@ export function TucxaPublicHeader({
   );
   const [supportHref, setSupportHref] = useState("https://wa.me/5519989848246");
   const [sessionAuthenticatedName, setSessionAuthenticatedName] = useState("");
+  const [sessionAuthenticated, setSessionAuthenticated] = useState(false);
 
   useEffect(() => {
     const updateActiveHref = () => {
@@ -254,10 +261,14 @@ export function TucxaPublicHeader({
 
     let active = true;
     void supabaseBrowser.auth.getSession().then(({ data }) => {
-      if (active) setSessionAuthenticatedName(authenticatedNameFromUser(data.session?.user));
+      if (!active) return;
+      setSessionAuthenticatedName(authenticatedNameFromUser(data.session?.user));
+      setSessionAuthenticated(Boolean(data.session));
     });
     const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
-      if (active) setSessionAuthenticatedName(authenticatedNameFromUser(session?.user));
+      if (!active) return;
+      setSessionAuthenticatedName(authenticatedNameFromUser(session?.user));
+      setSessionAuthenticated(Boolean(session));
     });
     return () => {
       active = false;
@@ -340,7 +351,9 @@ export function TucxaPublicHeader({
                       : "flex flex-wrap items-center"
             }`}
           >
-            {actions.map((link) =>
+            {actions
+              .filter((link) => link.action !== "signOutTucxa" || sessionAuthenticated)
+              .map((link) =>
               link.action === "supportWhatsapp" ? (
                 <SupportLink
                   key={`${link.label}-${link.href}`}

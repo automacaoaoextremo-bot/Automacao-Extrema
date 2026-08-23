@@ -46,7 +46,7 @@ export default async function FilhoDaCorrentePublicPage() {
     },
     {
       label: "Voltar",
-      href: "/solucoes/organizacao-em-harmonia/tucxa#corrente",
+      href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#corrente",
       variant: "secondary" as const,
     },
     {
