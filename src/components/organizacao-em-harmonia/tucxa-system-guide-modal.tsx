@@ -12,10 +12,6 @@ import {
 
 export const TUCXA_GUIDE_OPEN_EVENT = "tucxa:open-system-guide";
 
-const TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY = "tucxa:guide:auto-open-disabled:v1";
-const TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY = "tucxa:guide:skip-auto-open-once:v1";
-const TUCXA_HOME_PATH = "/solucoes/organizacao-em-harmonia/tucxa";
-
 type GuideView = "overview" | "children" | "why" | "outcome" | "screenshot";
 
 function NodeCard({ node, onOpen }: { node: TucxaGuideNode; onOpen: (node: TucxaGuideNode) => void }) {
@@ -65,7 +61,6 @@ export function TucxaSystemGuideModal() {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<string[]>([tucxaSystemGuide.id]);
   const [view, setView] = useState<GuideView>("overview");
-  const [autoOpenDisabled, setAutoOpenDisabled] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const current = findTucxaGuideNode(path[path.length - 1]) ?? tucxaSystemGuide;
@@ -76,36 +71,13 @@ export function TucxaSystemGuideModal() {
 
   useEffect(() => {
     const openGuide = () => {
-      const disabled = window.localStorage.getItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY) === "1";
-      setAutoOpenDisabled(disabled);
       setPath([tucxaSystemGuide.id]);
       setView("overview");
       setOpen(true);
     };
 
     window.addEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
-
-    const timer = window.setTimeout(() => {
-      const disabled = window.localStorage.getItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY) === "1";
-      const skipOnce = window.sessionStorage.getItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY) === "1";
-      setAutoOpenDisabled(disabled);
-
-      if (skipOnce) {
-        window.sessionStorage.removeItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY);
-        return;
-      }
-
-      if (!disabled) {
-        setPath([tucxaSystemGuide.id]);
-        setView("overview");
-        setOpen(true);
-      }
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
-    };
+    return () => window.removeEventListener(TUCXA_GUIDE_OPEN_EVENT, openGuide);
   }, []);
 
   useEffect(() => {
@@ -146,24 +118,10 @@ export function TucxaSystemGuideModal() {
     setView("overview");
   }
 
-  function changeAutoOpenPreference(disabled: boolean) {
-    setAutoOpenDisabled(disabled);
-    if (disabled) {
-      window.localStorage.setItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY, "1");
-    } else {
-      window.localStorage.removeItem(TUCXA_GUIDE_AUTO_OPEN_DISABLED_KEY);
-    }
-  }
-
   function openDestination() {
     if (!current.href) return;
 
     setOpen(false);
-
-    if (current.href === TUCXA_HOME_PATH) {
-      window.sessionStorage.setItem(TUCXA_GUIDE_SKIP_AUTO_OPEN_ONCE_KEY, "1");
-    }
-
     window.location.assign(current.href);
   }
 
@@ -332,23 +290,11 @@ export function TucxaSystemGuideModal() {
               </button>
             ) : null}
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {path.length > 1 || view !== "overview" ? (
+            {!isRoot || view !== "overview" ? (
+              <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={goBack} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar</button>
-              ) : <span />}
-              <button type="button" onClick={goHome} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Início do guia</button>
-            </div>
-
-            {isRoot ? (
-              <label className="mx-auto flex w-fit cursor-pointer items-center gap-2 rounded-full bg-white px-3 py-2 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 sm:text-xs">
-                <input
-                  type="checkbox"
-                  checked={autoOpenDisabled}
-                  onChange={(event) => changeAutoOpenPreference(event.target.checked)}
-                  className="h-4 w-4 accent-[#123D2C]"
-                />
-                Não mostrar automaticamente neste dispositivo
-              </label>
+                <button type="button" onClick={goHome} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Início</button>
+              </div>
             ) : null}
 
             <p className="pb-1 text-center text-[10px] font-semibold leading-4 text-slate-500 sm:text-xs">

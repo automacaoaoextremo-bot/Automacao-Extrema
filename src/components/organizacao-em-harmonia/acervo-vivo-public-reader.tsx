@@ -311,6 +311,8 @@ export function AcervoVivoPublicReader() {
   const [query, setQuery] = useState("");
   const [searchPage, setSearchPage] = useState(1);
   const [selectedLetter, setSelectedLetter] = useState("");
+  const [selectedBrowseCategory, setSelectedBrowseCategory] = useState("");
+  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria">("alfabeto");
   const [letterPage, setLetterPage] = useState(1);
   const [trailPage, setTrailPage] = useState(1);
   const [trailItemPage, setTrailItemPage] = useState(1);
@@ -440,20 +442,46 @@ export function AcervoVivoPublicReader() {
   const selectedQrCopy = payload.selectedCopy?.title_id === selectedTitle?.id ? payload.selectedCopy : null;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
-  const letters = useMemo<string[]>(() => Array.from(new Set<string>(titles.map((item) => initialKey(item.title)))).sort((a, b) => {
+  const categories = useMemo(() => {
+    const byNormalized = new Map<string, string>();
+    for (const title of titles) {
+      for (const subject of title.subjects ?? []) {
+        const label = subject.trim();
+        if (!label) continue;
+        const key = normalize(label);
+        if (!byNormalized.has(key)) byNormalized.set(key, label);
+      }
+    }
+    return Array.from(byNormalized.values()).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [titles]);
+
+  const categoryTitles = useMemo(() => {
+    if (!selectedBrowseCategory) return [] as TitleRow[];
+    const categoryKey = normalize(selectedBrowseCategory);
+    return titles.filter((item) =>
+      (item.subjects ?? []).some((subject) => normalize(subject.trim()) === categoryKey),
+    );
+  }, [selectedBrowseCategory, titles]);
+
+  const indexedTitles = selectedBrowseCategory ? categoryTitles : titles;
+
+  const letters = useMemo<string[]>(() => Array.from(new Set<string>(indexedTitles.map((item) => initialKey(item.title)))).sort((a, b) => {
     if (a === "0-9") return -1;
     if (b === "0-9") return 1;
     if (a === "#") return 1;
     if (b === "#") return -1;
     return a.localeCompare(b, "pt-BR");
-  }), [titles]);
+  }), [indexedTitles]);
 
   const searchedTitles = useMemo(() => {
     const needle = normalize(query.trim());
     if (!needle) return [] as TitleRow[];
     return titles.filter((item) => normalize([item.title, ...(item.authors ?? []), ...(item.subjects ?? [])].join(" ")).includes(needle));
   }, [query, titles]);
-  const letterTitles = useMemo(() => selectedLetter ? titles.filter((item) => initialKey(item.title) === selectedLetter) : [], [selectedLetter, titles]);
+  const letterTitles = useMemo(
+    () => selectedLetter ? indexedTitles.filter((item) => initialKey(item.title) === selectedLetter) : [],
+    [indexedTitles, selectedLetter],
+  );
   const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
   const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
   const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
@@ -845,31 +873,61 @@ export function AcervoVivoPublicReader() {
       </section>
 
       {view === "descobrir" && <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
-        <label className="grid gap-1 text-xs font-black text-[#123D2C]">
-          Buscar por título, autor ou tema
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
-        </label>
-        {query.trim() ? (
-          <div className="mt-3">
-            <div className="grid gap-2">
-              {currentSearch.map((title) => <button key={title.id} type="button" onClick={() => setSelectedTitleId(title.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
-              {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
-            </div>
-            <Pager page={searchPage} total={searchedTitles.length} onChange={setSearchPage} />
-            <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
+          <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+            Busca / alfabeto
+            <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "alfabeto" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+          </button>
+          <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+            Por categoria
+            <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "categoria" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+          </button>
+        </div>
+
+        {discoverMode === "categoria" ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {categories.map((category) => {
+              const count = titles.filter((item) => (item.subjects ?? []).some((subject) => normalize(subject.trim()) === normalize(category))).length;
+              return <button key={category} type="button" onClick={() => { setSelectedBrowseCategory(category); setSelectedLetter(""); setLetterPage(1); }} className="min-h-20 rounded-2xl bg-[#E7F0E2] p-3 text-center font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/10"><span className="block text-sm">{category}</span><span className="mt-1 block text-[9px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{count} livro(s)</span><span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA ABRIR</span></button>;
+            })}
+            {categories.length === 0 && <p className="col-span-full rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">As categorias ainda estão sendo organizadas no cadastro.</p>}
           </div>
         ) : (
-          <div className="mt-3">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Ou toque na letra inicial</p>
-            <div className="mt-2 grid grid-cols-6 gap-2 sm:grid-cols-9">
-              {letters.map((letter) => <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>)}
-            </div>
-            <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">O índice mostra somente as iniciais existentes no cadastro. Cada letra abre os títulos e seus exemplares em páginas curtas, sem uma lista longa na tela.</p>
-          </div>
+          <>
+            <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
+              Buscar por título, autor ou tema
+              <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
+            </label>
+            {query.trim() ? (
+              <div className="mt-3">
+                <div className="grid gap-2">
+                  {currentSearch.map((title) => <button key={title.id} type="button" onClick={() => setSelectedTitleId(title.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
+                  {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
+                </div>
+                <Pager page={searchPage} total={searchedTitles.length} onChange={setSearchPage} />
+                <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Ou toque na letra inicial</p>
+                <div className="mt-2 grid grid-cols-6 gap-2 sm:grid-cols-9">
+                  {letters.map((letter) => <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>)}
+                </div>
+                <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">O índice mostra somente as iniciais existentes no cadastro. Cada letra abre os títulos e seus exemplares em páginas curtas, sem uma lista longa na tela.</p>
+              </div>
+            )}
+          </>
         )}
       </Modal>}
 
-      {selectedLetter && <Modal title={`Títulos com ${selectedLetter}`} eyebrow="Índice alfabético" onClose={() => setSelectedLetter("")} z={220}>
+      {selectedBrowseCategory && !selectedLetter && <Modal title={selectedBrowseCategory} eyebrow="Categoria • escolha a letra inicial" onClose={() => setSelectedBrowseCategory("")} z={215}>
+        <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">{categoryTitles.length} livro(s) nesta categoria. O alfabeto abaixo mostra somente as iniciais disponíveis dentro desta seleção.</p>
+        <div className="mt-3 grid grid-cols-6 gap-2 sm:grid-cols-9">
+          {letters.map((letter) => <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>)}
+        </div>
+      </Modal>}
+
+      {selectedLetter && <Modal title={selectedBrowseCategory ? `${selectedBrowseCategory} • ${selectedLetter}` : `Títulos com ${selectedLetter}`} eyebrow={selectedBrowseCategory ? "Categoria • índice alfabético" : "Índice alfabético"} onClose={() => setSelectedLetter("")} z={220}>
         <div className="grid gap-2">
           {currentLetter.map((title) => <button key={title.id} type="button" onClick={() => { setSelectedLetter(""); setSelectedTitleId(title.id); }} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.authors?.join(", ") || "Autor não informado"}</span><span className="mt-1 block text-[10px] font-black text-[#2F6B43]">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
         </div>

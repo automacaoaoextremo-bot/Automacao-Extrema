@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -164,6 +164,41 @@ function Cover({ url, title }: { url?: string | null; title: string }) {
   return <div role="img" aria-label={`Capa de ${title}`} className="h-28 w-20 shrink-0 rounded-lg bg-cover bg-center shadow ring-1 ring-black/10" style={{ backgroundImage: `url(${url})` }} />;
 }
 
+function ManagementModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[210] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section className="flex max-h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F6F8F3] shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">Gestão do Acervo Vivo</p>
+            <h2 className="truncate text-lg font-black text-[#00334E] sm:text-xl">{title}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white">
+            Fechar
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto p-3 sm:p-5">{children}</div>
+      </section>
+    </div>
+  );
+}
+
 export default function AcervoVivoGestaoPage() {
   const [payload, setPayload] = useState<Payload>({});
   const [token, setToken] = useState("");
@@ -172,6 +207,7 @@ export default function AcervoVivoGestaoPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [tab, setTab] = useState<Tab>("visao");
+  const [panelOpen, setPanelOpen] = useState(false);
   const [query, setQuery] = useState("");
 
   const [loanDays, setLoanDays] = useState(30);
@@ -420,7 +456,7 @@ export default function AcervoVivoGestaoPage() {
     setTitleSubjects((item.subjects ?? []).join("; "));
     setTitleDescription(item.description ?? "");
     setTab("acervo");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setPanelOpen(true);
   }
 
   async function createTitle(event: FormEvent) {
@@ -509,6 +545,27 @@ export default function AcervoVivoGestaoPage() {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+  }
+
+  function printQrPng() {
+    if (!qrDataUrl) return;
+    const popup = window.open("", "_blank", "width=1100,height=1100");
+    if (!popup) {
+      setError("O navegador bloqueou a janela de impressão. Permita pop-ups para imprimir o QR Code.");
+      return;
+    }
+    popup.opener = null;
+    popup.document.open();
+    popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>QR ${qrAssetCode || "Acervo Vivo"}</title><style>@page{margin:8mm}html,body{margin:0;padding:0}body{display:grid;place-items:center;min-height:100vh;background:#fff}img{display:block;width:1024px;height:1024px;max-width:100%;object-fit:contain}@media print{body{min-height:auto}}</style></head><body><img id="qr" alt="QR Code ${qrAssetCode || "Acervo Vivo"}" src="${qrDataUrl}"></body></html>`);
+    popup.document.close();
+    const image = popup.document.getElementById("qr") as HTMLImageElement | null;
+    const print = () => {
+      popup.focus();
+      popup.print();
+    };
+    if (image?.complete) window.setTimeout(print, 100);
+    else if (image) image.onload = print;
+    else window.setTimeout(print, 300);
   }
 
   function exportPendingCoversCsv() {
@@ -641,13 +698,17 @@ export default function AcervoVivoGestaoPage() {
   return (
     <OrganizacaoClientShell
       title="Acervo Vivo"
-      description="Mais do que controlar livros: organize o conhecimento da Casa, conecte Biblioteca, Clube do Livro, Grupo de Estudos e Curso Preparatório, e ajude cada pessoa a encontrar o próximo conteúdo que faz sentido para sua caminhada."
+      description="Gestão da Biblioteca em telas curtas: escolha o que deseja fazer e abra somente a área necessária."
+      simpleFinancialHeader
+      simpleHeaderHideSignOut
+      financialBackHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/acervo-vivo"
+      simpleHeaderHelpMessage="Olá, preciso de ajuda na Gestão do Acervo Vivo do Tucxa em Harmonia."
     >
       {(error || success) && <div className={`rounded-2xl p-4 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
       {payload.integrationsWarning && <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">{payload.integrationsWarning}</div>}
       {payload.catalogWarning && <div className="rounded-2xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-800 ring-1 ring-red-200">{payload.catalogWarning}</div>}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 sm:gap-2">
         {[
           ["Títulos", payload.metrics?.titles ?? 0],
           ["Exemplares", payload.metrics?.copies ?? 0],
@@ -656,7 +717,12 @@ export default function AcervoVivoGestaoPage() {
           ["Atrasados", payload.metrics?.overdue ?? 0],
           ["Reservas", payload.metrics?.reservations ?? 0],
           ["Capas pendentes", payload.metrics?.pendingCovers ?? 0],
-        ].map(([label, value]) => <article key={String(label)} className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p><p className="mt-2 text-3xl font-black text-[#00334E]">{value}</p></article>)}
+        ].map(([label, value]) => (
+          <article key={String(label)} className="min-w-0 rounded-2xl bg-white p-2.5 text-center shadow ring-1 ring-slate-100 sm:p-3">
+            <p className="truncate text-[8px] font-black uppercase tracking-[0.08em] text-[#2F6B43] sm:text-[9px]">{label}</p>
+            <p className="mt-1 text-lg font-black leading-none text-[#00334E] sm:text-xl">{value}</p>
+          </article>
+        ))}
       </section>
 
       {!loading && !canManageLibrary && (canManageFolhaVerde || canManageGrupoEstudos || canManageClubeLivro) && (
@@ -669,10 +735,32 @@ export default function AcervoVivoGestaoPage() {
         </div>
       )}
 
-      <nav className={`grid grid-cols-2 gap-2 rounded-3xl bg-white p-2 shadow ring-1 ring-slate-100 ${visibleTabs.length >= 5 ? "sm:grid-cols-6" : "sm:grid-cols-3"}`}>
-        {visibleTabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-2xl px-3 py-3 text-xs font-black sm:text-sm ${tab === value ? "bg-[#00334E] text-white" : "bg-[#F4FBF7] text-[#00334E]"}`}>{label}</button>)}
+      <nav className="grid grid-cols-2 gap-2 rounded-3xl bg-white p-2 shadow ring-1 ring-slate-100 sm:grid-cols-3">
+        {visibleTabs.map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              setTab(value);
+              setPanelOpen(true);
+            }}
+            className="rounded-2xl bg-[#F4FBF7] px-3 py-3 text-left text-[#00334E] ring-1 ring-[#123D2C]/10 disabled:opacity-50"
+          >
+            <span className="block text-xs font-black sm:text-sm">{label}</span>
+            <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+          </button>
+        ))}
       </nav>
 
+      {panelOpen && (
+        <ManagementModal
+          title={visibleTabs.find(([value]) => value === tab)?.[1] ?? "Gestão do Acervo"}
+          onClose={() => {
+            setPanelOpen(false);
+            clearTitleForm();
+          }}
+        >
       {loading ? <p className="rounded-3xl bg-white p-5 font-bold text-[#00334E] shadow ring-1 ring-slate-100">Carregando gestão do Acervo Vivo...</p> : tab === "visao" ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
@@ -936,7 +1024,10 @@ export default function AcervoVivoGestaoPage() {
         </div>
       )}
 
-      {qrDataUrl && <div className="fixed inset-0 z-[230] flex items-center justify-center bg-[#10251C]/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setQrDataUrl(""); }}><section className="w-full max-w-sm rounded-[2rem] bg-white p-5 text-center shadow-2xl"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Etiqueta do exemplar • 1024 × 1024</p><h2 className="mt-1 text-xl font-black text-[#00334E]">{qrAssetCode}</h2><div role="img" aria-label={`QR Code do exemplar ${qrAssetCode}`} className="mx-auto mt-4 h-64 w-64 max-w-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${qrDataUrl})` }} /><p className="mt-2 text-xs font-semibold text-slate-500">Este QR é gerado pelo Gestor Acervo Vivo - Biblioteca para impressão e colagem no exemplar. Ele abre diretamente a página pública do livro; não precisa ficar visível na tela dos livros.</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={downloadQrPng} className="rounded-xl bg-[#123D2C] px-3 py-3 text-xs font-black text-white">Baixar PNG</button><button type="button" onClick={() => window.print()} className="rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white">Imprimir</button><button type="button" onClick={() => setQrDataUrl("")} className="rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Fechar</button></div></section></div>}
+        </ManagementModal>
+      )}
+
+      {qrDataUrl && <div className="fixed inset-0 z-[230] flex items-center justify-center bg-[#10251C]/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setQrDataUrl(""); }}><section className="w-full max-w-sm rounded-[2rem] bg-white p-5 text-center shadow-2xl"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Etiqueta do exemplar • 1024 × 1024</p><h2 className="mt-1 text-xl font-black text-[#00334E]">{qrAssetCode}</h2><div role="img" aria-label={`QR Code do exemplar ${qrAssetCode}`} className="mx-auto mt-4 h-64 w-64 max-w-full bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${qrDataUrl})` }} /><p className="mt-2 text-xs font-semibold text-slate-500">Este QR é gerado pelo Gestor Acervo Vivo - Biblioteca para impressão e colagem no exemplar. Ele abre diretamente a página pública do livro; não precisa ficar visível na tela dos livros.</p><div className="mt-4 grid grid-cols-3 gap-2"><button type="button" onClick={downloadQrPng} className="rounded-xl bg-[#123D2C] px-3 py-3 text-xs font-black text-white">Baixar PNG</button><button type="button" onClick={printQrPng} className="rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white">Imprimir</button><button type="button" onClick={() => setQrDataUrl("")} className="rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Fechar</button></div></section></div>}
 
       {selectedTitleId && coverCandidates.length > 0 && <div className="fixed inset-0 z-[220] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) { setCoverCandidates([]); setSelectedTitleId(""); } }}><section className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Enriquecimento de cadastro</p><h2 className="mt-1 text-2xl font-black text-[#00334E]">Confirme a edição antes de usar a capa</h2><p className="mt-1 text-sm font-semibold text-slate-600">A busca sugere candidatos. A escolha é humana porque edições diferentes podem ter capas diferentes.</p></div><button type="button" onClick={() => { setCoverCandidates([]); setSelectedTitleId(""); }} className="rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">Fechar</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{coverCandidates.map((candidate) => <button key={candidate.externalId} type="button" disabled={saving || !candidate.coverUrl} onClick={() => void applyCover(candidate)} className="flex gap-3 rounded-2xl bg-[#F9FBF7] p-3 text-left ring-1 ring-[#123D2C]/10 disabled:opacity-50"><Cover url={candidate.coverUrl} title={candidate.title} /><span className="min-w-0"><span className="block font-black text-[#00334E]">{candidate.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{candidate.authors?.join(", ") || "Autor não informado"}</span><span className="mt-2 block text-[10px] font-black text-[#2F6B43]">{candidate.publisher || "Editora não informada"}{candidate.publicationYear ? ` • ${candidate.publicationYear}` : ""}</span><span className="mt-1 block text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">{candidate.source === "open-library" ? "Open Library" : "Google Books"}</span></span></button>)}</div></section></div>}
     </OrganizacaoClientShell>

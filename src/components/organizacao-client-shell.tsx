@@ -16,6 +16,7 @@ type ShellProps = {
   simpleFinancialActive?: "inicio" | "voltar" | null;
   simpleFinancialHeaderControl?: ReactNode;
   simpleHeaderHelpMessage?: string;
+  simpleHeaderHideSignOut?: boolean;
 };
 
 type NavItem = {
@@ -287,6 +288,7 @@ export function OrganizacaoClientShell({
   simpleFinancialActive = null,
   simpleFinancialHeaderControl,
   simpleHeaderHelpMessage = "Olá, preciso de ajuda na área financeira do Tucxa em Harmonia.",
+  simpleHeaderHideSignOut = false,
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -573,9 +575,11 @@ export function OrganizacaoClientShell({
               >
                 Voltar
               </Link>
-              <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
-                Sair
-              </button>
+              {!simpleHeaderHideSignOut && (
+                <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
+                  Sair
+                </button>
+              )}
               <a
                 href={`https://wa.me/5519989848246?text=${encodeURIComponent(simpleHeaderHelpMessage)}`}
                 target="_blank"

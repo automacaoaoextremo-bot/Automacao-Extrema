@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type ReviewComment = {
@@ -19,6 +19,8 @@ type TitleRow = {
   authors?: string[] | null;
   publisher?: string | null;
   publication_year?: number | null;
+  isbn10?: string | null;
+  isbn13?: string | null;
   description?: string | null;
   subjects?: string[] | null;
   cover_url?: string | null;
@@ -172,6 +174,7 @@ type LoanThankYou = {
 const PAGE_SIZE = 4;
 const PUBLIC_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const MANAGEMENT_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo";
+const MANAGEMENT_API = "/api/organizacao-em-harmonia/cliente/acervo-vivo";
 const MANAGEMENT_ACCESS_API = "/api/organizacao-em-harmonia/cliente/acervo-vivo?accessOnly=1";
 
 function normalize(value: string) {
@@ -298,7 +301,10 @@ function ManagementAccess() {
         <span className="mt-1 block text-base font-black leading-tight text-[#123D2C]">Gestão da Biblioteca</span>
         <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-600">Regras, relatórios, circulação e exclusões de empréstimos.</span>
       </span>
-      <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-[9px] font-black uppercase tracking-[0.1em] text-white">GERENCIAR</span>
+      <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-center text-[9px] font-black uppercase tracking-[0.1em] text-white">
+        <span className="block">GERENCIAR</span>
+        <span className="mt-1 block text-[7px] tracking-[0.08em] text-white/75">TOQUE PARA ABRIR</span>
+      </span>
     </Link>
   );
 }
@@ -369,6 +375,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [query, setQuery] = useState("");
   const [searchPage, setSearchPage] = useState(1);
   const [selectedLetter, setSelectedLetter] = useState("");
+  const [selectedBrowseCategory, setSelectedBrowseCategory] = useState("");
+  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria">("alfabeto");
   const [letterPage, setLetterPage] = useState(1);
   const [trailPage, setTrailPage] = useState(1);
   const [selectedTitleId, setSelectedTitleId] = useState("");
@@ -385,6 +393,17 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [returnLoanId, setReturnLoanId] = useState("");
   const [returnRating, setReturnRating] = useState(0);
   const [returnComment, setReturnComment] = useState("");
+  const [managerEditOpen, setManagerEditOpen] = useState(false);
+  const [managerEditTitle, setManagerEditTitle] = useState("");
+  const [managerEditAuthors, setManagerEditAuthors] = useState("");
+  const [managerEditPublisher, setManagerEditPublisher] = useState("");
+  const [managerEditYear, setManagerEditYear] = useState("");
+  const [managerEditIsbn, setManagerEditIsbn] = useState("");
+  const [managerEditSubjects, setManagerEditSubjects] = useState("");
+  const [managerEditDescription, setManagerEditDescription] = useState("");
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [inventoryTargetCopyId, setInventoryTargetCopyId] = useState("");
+  const [inventoryObservedShelf, setInventoryObservedShelf] = useState("");
 
   const load = useCallback(async (accessToken: string) => {
     const response = await fetch(api, {
@@ -438,12 +457,15 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       if (event.key !== "Escape") return;
       if (selectedTitleId) setSelectedTitleId("");
       else if (selectedTrailId) setSelectedTrailId("");
+      else if (inventoryOpen) setInventoryOpen(false);
+      else if (managerEditOpen) setManagerEditOpen(false);
       else if (selectedLetter) setSelectedLetter("");
+      else if (selectedBrowseCategory) setSelectedBrowseCategory("");
       else if (view) setView(null);
     }
     window.addEventListener("keydown", closeTop);
     return () => window.removeEventListener("keydown", closeTop);
-  }, [selectedLetter, selectedTitleId, selectedTrailId, view]);
+  }, [inventoryOpen, managerEditOpen, selectedBrowseCategory, selectedLetter, selectedTitleId, selectedTrailId, view]);
 
   const titles = useMemo(() => payload.titles ?? [], [payload.titles]);
   const copies = useMemo(() => payload.copies ?? [], [payload.copies]);
@@ -462,13 +484,36 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
-  const letters = useMemo<string[]>(() => Array.from(new Set<string>(titles.map((item) => initialKey(item.title)))).sort((a: string, b: string) => {
+  const categories = useMemo(() => {
+    const byNormalized = new Map<string, string>();
+    for (const title of titles) {
+      for (const subject of title.subjects ?? []) {
+        const label = subject.trim();
+        if (!label) continue;
+        const key = normalize(label);
+        if (!byNormalized.has(key)) byNormalized.set(key, label);
+      }
+    }
+    return Array.from(byNormalized.values()).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [titles]);
+
+  const categoryTitles = useMemo(() => {
+    if (!selectedBrowseCategory) return [] as TitleRow[];
+    const categoryKey = normalize(selectedBrowseCategory);
+    return titles.filter((item) =>
+      (item.subjects ?? []).some((subject) => normalize(subject.trim()) === categoryKey),
+    );
+  }, [selectedBrowseCategory, titles]);
+
+  const indexedTitles = selectedBrowseCategory ? categoryTitles : titles;
+
+  const letters = useMemo<string[]>(() => Array.from(new Set<string>(indexedTitles.map((item) => initialKey(item.title)))).sort((a: string, b: string) => {
     if (a === "0-9") return -1;
     if (b === "0-9") return 1;
     if (a === "#") return 1;
     if (b === "#") return -1;
     return a.localeCompare(b, "pt-BR");
-  }), [titles]);
+  }), [indexedTitles]);
 
   const searchedTitles = useMemo(() => {
     const needle = normalize(query.trim());
@@ -481,7 +526,10 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     ].join(" ")).includes(needle));
   }, [query, titles]);
 
-  const letterTitles = useMemo(() => selectedLetter ? titles.filter((item) => initialKey(item.title) === selectedLetter) : [], [selectedLetter, titles]);
+  const letterTitles = useMemo(
+    () => selectedLetter ? indexedTitles.filter((item) => initialKey(item.title) === selectedLetter) : [],
+    [indexedTitles, selectedLetter],
+  );
   const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
   const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
   const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
@@ -519,7 +567,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const pickupAddress = payload.settings?.metadata?.pickup_address || "Rua Talvino Egídio de Souza Aranha Júnior, 179 - Jardim Miranda - Campinas/SP - CEP 13034-611";
   const pickupMapsUrl = payload.settings?.metadata?.pickup_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pickupAddress)}`;
   const reminderDays = payload.settings?.metadata?.loan_reminder_days_before_due ?? 3;
-  const selectedCategory = selectedTitle?.subjects?.[0] || "Não informada";
+  const selectedCategoryLabel = selectedTitle?.subjects?.[0] || "Não informada";
   const borrowBlockedByEmail = payload.reader?.emailRequired === true || payload.reader?.hasValidEmail === false;
   const borrowBlockedByLimit = payload.reader?.loanLimitReached === true;
 
@@ -541,6 +589,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
+  const inventoryTargetCopy = inventoryTargetCopyId ? copies.find((copy) => copy.id === inventoryTargetCopyId) ?? null : null;
   const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
   const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
 
@@ -626,8 +675,92 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     setQuery("");
     setSearchPage(1);
     setSelectedLetter("");
+    setSelectedBrowseCategory("");
+    setDiscoverMode("alfabeto");
     setTrailPage(1);
     setMyPage(1);
+  }
+
+  function openManagerEdit() {
+    if (!selectedTitle) return;
+    setManagerEditTitle(selectedTitle.title);
+    setManagerEditAuthors((selectedTitle.authors ?? []).join("; "));
+    setManagerEditPublisher(selectedTitle.publisher ?? "");
+    setManagerEditYear(selectedTitle.publication_year ? String(selectedTitle.publication_year) : "");
+    setManagerEditIsbn(selectedTitle.isbn13 ?? "");
+    setManagerEditSubjects((selectedTitle.subjects ?? []).join("; "));
+    setManagerEditDescription(selectedTitle.description ?? "");
+    setManagerEditOpen(true);
+  }
+
+  async function saveManagerEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedTitle || !token || saving) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch(MANAGEMENT_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: "update-title",
+          titleId: selectedTitle.id,
+          title: managerEditTitle,
+          authors: managerEditAuthors,
+          publisher: managerEditPublisher,
+          publicationYear: managerEditYear,
+          isbn13: managerEditIsbn,
+          subjects: managerEditSubjects,
+          description: managerEditDescription,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível atualizar o livro.");
+      await load(token);
+      setManagerEditOpen(false);
+      setSuccess("Cadastro do livro atualizado.");
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao atualizar o livro.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openInventory() {
+    if (!selectedTitle) return;
+    const relatedCopies = copies.filter((copy) => copy.title_id === selectedTitle.id);
+    const first = relatedCopies.length === 1 ? relatedCopies[0] : null;
+    setInventoryTargetCopyId(first?.id ?? "");
+    setInventoryObservedShelf(first?.shelf ?? "");
+    setInventoryOpen(true);
+  }
+
+  async function confirmInventory() {
+    if (!token || !inventoryTargetCopyId || saving) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch(MANAGEMENT_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: "inventory-copy",
+          copyId: inventoryTargetCopyId,
+          observedShelf: inventoryObservedShelf,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível confirmar o inventário.");
+      setInventoryOpen(false);
+      setSuccess("Inventário do exemplar confirmado com a data de hoje.");
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao confirmar o inventário.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -704,47 +837,89 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
       {view === "descobrir" && (
         <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
-          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
-            Buscar por título, autor ou tema
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
-          </label>
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
+            <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+              Busca / alfabeto
+              <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "alfabeto" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+            </button>
+            <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+              Por categoria
+              <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "categoria" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+            </button>
+          </div>
 
-          {query.trim() ? (
-            <div className="mt-3">
-              <div className="grid gap-2">
-                {currentSearch.map((item) => (
-                  <button key={item.id} type="button" onClick={() => openTitle(item.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
-                    <Cover title={item} compact />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
-                      <span className="mt-1 block text-xs font-semibold text-slate-500">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
-                    </span>
-                    <span className="text-[10px] font-black text-[#2F6B43]">ABRIR</span>
+          {discoverMode === "categoria" ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {categories.map((category) => {
+                const count = titles.filter((item) => (item.subjects ?? []).some((subject) => normalize(subject.trim()) === normalize(category))).length;
+                return (
+                  <button key={category} type="button" onClick={() => { setSelectedBrowseCategory(category); setSelectedLetter(""); setLetterPage(1); }} className="min-h-20 rounded-2xl bg-[#E7F0E2] p-3 text-center font-black leading-tight text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                    <span className="block text-sm">{category}</span>
+                    <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{count} livro(s)</span>
+                    <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
                   </button>
-                ))}
-                {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
-              </div>
-              <Pager page={searchPage} total={searchedTitles.length} pageSize={PAGE_SIZE} onChange={setSearchPage} />
-              <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
+                );
+              })}
+              {categories.length === 0 && <p className="col-span-full rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">As categorias ainda estão sendo organizadas no cadastro.</p>}
             </div>
           ) : (
-            <div className="mt-3">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Ou toque na letra inicial</p>
-              <div className="mt-2 grid grid-cols-6 gap-2 sm:grid-cols-9">
-                {letters.map((letter) => (
-                  <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>
-                ))}
-              </div>
-              <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
-                O índice mostra somente as iniciais existentes no cadastro. Cada letra abre os títulos e seus exemplares em páginas curtas, sem uma lista longa na tela.
-              </p>
-            </div>
+            <>
+              <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
+                Buscar por título, autor ou tema
+                <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
+              </label>
+
+              {query.trim() ? (
+                <div className="mt-3">
+                  <div className="grid gap-2">
+                    {currentSearch.map((item) => (
+                      <button key={item.id} type="button" onClick={() => openTitle(item.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
+                        <Cover title={item} compact />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
+                          <span className="mt-1 block text-xs font-semibold text-slate-500">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
+                        </span>
+                        <span className="text-[10px] font-black text-[#2F6B43]">ABRIR</span>
+                      </button>
+                    ))}
+                    {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
+                  </div>
+                  <Pager page={searchPage} total={searchedTitles.length} pageSize={PAGE_SIZE} onChange={setSearchPage} />
+                  <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
+                </div>
+              ) : (
+                <div className="mt-3">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Ou toque na letra inicial</p>
+                  <div className="mt-2 grid grid-cols-6 gap-2 sm:grid-cols-9">
+                    {letters.map((letter) => (
+                      <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>
+                    ))}
+                  </div>
+                  <p className="mt-3 rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+                    O índice mostra somente as iniciais existentes no cadastro. Cada letra abre os títulos e seus exemplares em páginas curtas, sem uma lista longa na tela.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </Modal>
       )}
 
+      {selectedBrowseCategory && !selectedLetter && (
+        <Modal title={selectedBrowseCategory} eyebrow="Categoria • escolha a letra inicial" onClose={() => setSelectedBrowseCategory("")} z={215}>
+          <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+            {categoryTitles.length} livro(s) nesta categoria. O alfabeto abaixo mostra somente as iniciais disponíveis dentro desta seleção.
+          </p>
+          <div className="mt-3 grid grid-cols-6 gap-2 sm:grid-cols-9">
+            {letters.map((letter) => (
+              <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {selectedLetter && (
-        <Modal title={`Títulos com ${selectedLetter}`} eyebrow="Índice alfabético" onClose={() => setSelectedLetter("")} z={220}>
+        <Modal title={selectedBrowseCategory ? `${selectedBrowseCategory} • ${selectedLetter}` : `Títulos com ${selectedLetter}`} eyebrow={selectedBrowseCategory ? "Categoria • índice alfabético" : "Índice alfabético"} onClose={() => setSelectedLetter("")} z={220}>
           <div className="grid gap-2">
             {currentLetter.map((item) => (
               <button key={item.id} type="button" onClick={() => { setSelectedLetter(""); openTitle(item.id); }} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
@@ -899,13 +1074,30 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               <p className="text-xs font-bold leading-5 text-slate-600">
                 <strong>Autor:</strong> {selectedTitle.authors?.join(", ") || "Não informado"}
                 <span className="mx-1">•</span>
-                <strong>Categoria:</strong> {selectedCategory}
+                <strong>Categoria:</strong> {selectedCategoryLabel}
               </p>
               <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
                 {selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}
               </p>
             </div>
           </div>
+
+          {canManageLibrary ? (
+            <section className="mt-3 rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
+              <p className="text-[9px] font-black uppercase tracking-[0.14em] text-amber-800">Gestor Acervo Vivo - Biblioteca</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">Ações de gestão disponíveis para este livro.</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button type="button" onClick={openManagerEdit} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">
+                  Editar
+                  <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+                </button>
+                <button type="button" onClick={openInventory} disabled={selectedCopies.length === 0} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-45">
+                  Inventariar
+                  <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-white/75">TOQUE PARA ABRIR</span>
+                </button>
+              </div>
+            </section>
+          ) : null}
 
           <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -960,6 +1152,75 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">
             Regras atuais: até {payload.settings?.max_active_loans ?? 3} empréstimo(s), prazo de {payload.settings?.loan_days ?? 30} dias e até {payload.settings?.renewal_limit ?? 1} renovação(ões). A devolução deve ocorrer no mesmo local da retirada: {pickupLocation}.
           </p>
+        </Modal>
+      )}
+
+      {managerEditOpen && selectedTitle && canManageLibrary && (
+        <Modal title="Editar livro" eyebrow="Gestor Acervo Vivo • cadastro" z={265} onClose={() => setManagerEditOpen(false)}>
+          <form onSubmit={saveManagerEdit} className="grid gap-2">
+            <label className="grid gap-1 text-xs font-black text-[#123D2C]">Título<input required value={managerEditTitle} onChange={(event) => setManagerEditTitle(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" /></label>
+            <label className="grid gap-1 text-xs font-black text-[#123D2C]">Autores<input value={managerEditAuthors} onChange={(event) => setManagerEditAuthors(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" placeholder="Separe por ;" /></label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">Editora<input value={managerEditPublisher} onChange={(event) => setManagerEditPublisher(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" /></label>
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">Ano<input type="number" value={managerEditYear} onChange={(event) => setManagerEditYear(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" /></label>
+            </div>
+            <label className="grid gap-1 text-xs font-black text-[#123D2C]">ISBN-13<input value={managerEditIsbn} onChange={(event) => setManagerEditIsbn(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" /></label>
+            <label className="grid gap-1 text-xs font-black text-[#123D2C]">Categorias / temas<input value={managerEditSubjects} onChange={(event) => setManagerEditSubjects(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" placeholder="Separe por ;" /></label>
+            <label className="grid gap-1 text-xs font-black text-[#123D2C]">Resumo<textarea rows={4} value={managerEditDescription} onChange={(event) => setManagerEditDescription(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" /></label>
+            <button disabled={saving} className="mt-1 rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Salvar alterações</button>
+          </form>
+        </Modal>
+      )}
+
+      {inventoryOpen && selectedTitle && canManageLibrary && (
+        <Modal title="Inventariar exemplar" eyebrow="Gestor Acervo Vivo • inventário físico" z={268} onClose={() => setInventoryOpen(false)}>
+          <div className="rounded-2xl bg-[#E9F2E7] p-3 text-xs font-bold leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <strong>Data do inventário:</strong> {formatDate(new Date().toISOString())}
+          </div>
+          {selectedCopies.length > 1 ? (
+            <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
+              Exemplar
+              <select value={inventoryTargetCopyId} onChange={(event) => {
+                const copyId = event.target.value;
+                const copy = copies.find((item) => item.id === copyId);
+                setInventoryTargetCopyId(copyId);
+                setInventoryObservedShelf(copy?.shelf ?? "");
+              }} className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2.5 text-sm font-semibold">
+                <option value="">Selecione o exemplar</option>
+                {selectedCopies.map((copy) => <option key={copy.id} value={copy.id}>{copy.asset_code || copy.legacy_code || copy.id}</option>)}
+              </select>
+            </label>
+          ) : null}
+
+          {inventoryTargetCopy ? (
+            <div className="mt-3 grid gap-2">
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="text-sm font-black text-[#123D2C]">{selectedTitle.title}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-600">
+                  <p><strong>Código:</strong> {inventoryTargetCopy.asset_code || "—"}</p>
+                  <p><strong>Código antigo:</strong> {inventoryTargetCopy.legacy_code || "—"}</p>
+                  <p><strong>Estante:</strong> {inventoryTargetCopy.shelf || "—"}</p>
+                  <p><strong>Prateleira/posição:</strong> {inventoryTargetCopy.shelf_position || "—"}</p>
+                  <p><strong>Condição:</strong> {inventoryTargetCopy.condition || "—"}</p>
+                  <p><strong>Status:</strong> {inventoryTargetCopy.status || "—"}</p>
+                  <p className="col-span-2"><strong>Autores:</strong> {selectedTitle.authors?.join(", ") || "Não informado"}</p>
+                  <p><strong>Editora:</strong> {selectedTitle.publisher || "—"}</p>
+                  <p><strong>Ano:</strong> {selectedTitle.publication_year || "—"}</p>
+                  <p><strong>ISBN-10:</strong> {selectedTitle.isbn10 || "—"}</p>
+                  <p><strong>ISBN-13:</strong> {selectedTitle.isbn13 || "—"}</p>
+                  <p className="col-span-2"><strong>Categoria/tema:</strong> {(selectedTitle.subjects ?? []).join(", ") || "Não informada"}</p>
+                  <p className="col-span-2"><strong>Resumo:</strong> {selectedTitle.description || "Não informado"}</p>
+                </div>
+              </section>
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                Estante observada
+                <input value={inventoryObservedShelf} onChange={(event) => setInventoryObservedShelf(event.target.value)} className="rounded-xl border border-[#123D2C]/15 px-3 py-2.5 text-sm font-semibold" placeholder="Confirme ou informe a estante encontrada" />
+              </label>
+              <button type="button" disabled={saving} onClick={() => void confirmInventory()} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar inventário</button>
+            </div>
+          ) : (
+            <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Selecione o exemplar que está sendo conferido.</p>
+          )}
         </Modal>
       )}
 

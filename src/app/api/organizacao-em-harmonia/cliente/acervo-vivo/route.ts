@@ -1183,6 +1183,76 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, qrDataUrl, assetCode: copy.asset_code, qrValue: value });
     }
 
+    if (action === "inventory-copy") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode confirmar o inventário de exemplares.");
+      }
+
+      const copyId = text(body.copyId);
+      if (!copyId) {
+        return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      const { data: copy, error: copyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id,asset_code,legacy_code,shelf,shelf_position,condition,status,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .maybeSingle();
+
+      if (copyError) throw copyError;
+      if (!copy?.id) {
+        return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
+      }
+
+      const inventoryAt = nowIso();
+      const observedShelf = text(body.observedShelf) || text(copy.shelf);
+      const currentMetadata = record(copy.metadata);
+      const metadata = {
+        ...currentMetadata,
+        last_inventory_at: inventoryAt,
+        last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_observed_shelf: observedShelf || null,
+      };
+
+      const { error: updateError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({ metadata, updated_at: inventoryAt })
+        .eq("organization_id", organizationId)
+        .eq("id", copy.id);
+
+      if (updateError) throw updateError;
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "inventario_exemplar_confirmado",
+        "copy",
+        copy.id,
+        {
+          titleId: copy.title_id,
+          assetCode: copy.asset_code,
+          legacyCode: copy.legacy_code,
+          shelf: copy.shelf,
+          shelfPosition: copy.shelf_position,
+          condition: copy.condition,
+          status: copy.status,
+          observedShelf: observedShelf || null,
+          inventoryAt,
+        },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        copy: {
+          ...copy,
+          metadata,
+          inventory_at: inventoryAt,
+          observed_shelf: observedShelf || null,
+        },
+      });
+    }
+
     if (action === "create-inventory-session") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode iniciar inventários.");
       const name = text(body.name) || `Inventário ${new Date().toLocaleDateString("pt-BR")}`;
