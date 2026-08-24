@@ -21,19 +21,28 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function functionTokenVariants(value: unknown) {
+  const normalized = normalize(value);
+  if (!normalized) return [];
+  const withoutConnectors = normalized
+    .replace(/-(?:de|da|do|das|dos)-/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return Array.from(new Set([normalized, withoutConnectors].filter(Boolean)));
+}
+
 function memberFunctionTokens(membership: Record<string, unknown> | null) {
   const profile = record(membership?.agenda_viva_profile);
   const functionSlugs = Array.isArray(profile.functionSlugs)
-    ? profile.functionSlugs.map((item) => text(item)).filter(Boolean)
+    ? profile.functionSlugs.flatMap((item) => functionTokenVariants(item))
     : [];
   const selectedFunctions = Array.isArray(profile.selectedFunctions)
     ? profile.selectedFunctions.flatMap((item) => {
         const current = record(item);
-        return [text(current.slug), text(current.label), text(current.name)].filter(Boolean);
+        return [current.slug, current.label, current.name].flatMap((value) => functionTokenVariants(value));
       })
     : [];
 
-  return [...functionSlugs, ...selectedFunctions].map(normalize).filter(Boolean);
+  return Array.from(new Set([...functionSlugs, ...selectedFunctions]));
 }
 
 function isMemberProfile(
@@ -85,13 +94,11 @@ export async function getTucxaManagementAccess(
         ),
       };
     }
-    if (role) tokens.push(normalize(role.slug), normalize(role.name));
+    if (role) tokens.push(...functionTokenVariants(role.slug), ...functionTokenVariants(role.name));
   }
 
-  const allowed = allowedMemberFunctions
-    .map(normalize)
-    .filter(Boolean)
-    .some((needle) => tokens.includes(needle));
+  const allowedTokens = new Set(allowedMemberFunctions.flatMap((item) => functionTokenVariants(item)));
+  const allowed = tokens.some((token) => allowedTokens.has(token));
 
   if (!allowed) {
     return {

@@ -827,7 +827,6 @@ export function AcervoVivoPublicReader() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
           <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
-          {payload.reader?.authenticated && <p className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1.5 text-xs font-black">Acesso identificado: {payload.reader.personName || "leitor(a)"}</p>}
         </section>
 
         {(error || success) && <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
@@ -873,12 +872,13 @@ export function AcervoVivoPublicReader() {
       </section>
 
       {view === "descobrir" && <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
+        <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escolha como deseja encontrar os livros</p>
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
-          <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+          <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
             Busca / alfabeto
             <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "alfabeto" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
           </button>
-          <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+          <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
             Por categoria
             <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "categoria" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
           </button>

@@ -102,15 +102,22 @@ type ManagementPermissions = {
   systemAdmin: boolean;
 };
 
+function permissionToken(value: unknown) {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-(?:de|da|do|das|dos)-/g, "-");
+}
+
 function membershipTokens(membership: Record<string, unknown> | null) {
   const profile = record(membership?.agenda_viva_profile);
   const functionSlugs = Array.isArray(profile.functionSlugs)
-    ? profile.functionSlugs.map((item) => normalize(item)).filter(Boolean)
+    ? profile.functionSlugs.map((item) => permissionToken(item)).filter(Boolean)
     : [];
   const selectedFunctions = Array.isArray(profile.selectedFunctions)
     ? profile.selectedFunctions.flatMap((item) => {
         const current = record(item);
-        return [current.slug, current.label, current.name].map((value) => normalize(value)).filter(Boolean);
+        return [current.slug, current.label, current.name].map((value) => permissionToken(value)).filter(Boolean);
       })
     : [];
   return Array.from(new Set([...functionSlugs, ...selectedFunctions]));
@@ -130,7 +137,7 @@ async function permissionsForContext(context: {
       .eq("id", roleId)
       .maybeSingle();
     if (error) throw error;
-    if (role) tokens.push(normalize(role.slug), normalize(role.name));
+    if (role) tokens.push(permissionToken(role.slug), permissionToken(role.name));
   }
 
   const systemAdmin =
@@ -138,7 +145,7 @@ async function permissionsForContext(context: {
     normalize(membership?.status) === "gestor_cliente" ||
     tokens.some((token) => ["administrador-sistema", "gestor-cliente", "administrador"].includes(token));
 
-  const has = (...needles: string[]) => needles.some((needle) => tokens.includes(normalize(needle)));
+  const has = (...needles: string[]) => needles.some((needle) => tokens.includes(permissionToken(needle)));
 
   const dedicatedLibrary = has("biblioteca-acervo-vivo", "gestor-acervo-vivo-biblioteca", "biblioteca", "bibliotecario");
   const legacyBroadManagement = has("presidente", "vice-presidente", "diretoria", "diretor", "secretario", "secretaria", "coordenacao", "coordenador");
