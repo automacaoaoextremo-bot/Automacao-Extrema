@@ -1173,6 +1173,85 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === "generate-qr-category") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode gerar etiquetas em lote.");
+      }
+
+      const category = text(body.category);
+      if (!category) {
+        return NextResponse.json({ error: "Categoria não informada." }, { status: 400 });
+      }
+
+      const normalizedCategory = normalize(category);
+      const { data: categoryTitles, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,title,subjects,active")
+        .eq("organization_id", organizationId);
+
+      if (titleError) throw titleError;
+
+      const matchingTitles = (categoryTitles ?? []).filter((item) => {
+        if (item.active === false) return false;
+        return asTextList(item.subjects).some((subject) => normalize(subject) === normalizedCategory);
+      });
+
+      if (!matchingTitles.length) {
+        return NextResponse.json({ ok: true, labels: [] });
+      }
+
+      const titleById = new Map(matchingTitles.map((item) => [String(item.id), text(item.title) || "Livro"]));
+      const { data: categoryCopies, error: copyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id,asset_code,legacy_code,qr_token,active")
+        .eq("organization_id", organizationId)
+        .in("title_id", matchingTitles.map((item) => item.id));
+
+      if (copyError) throw copyError;
+
+      const activeCopies = (categoryCopies ?? [])
+        .filter((copy) => copy.active !== false)
+        .sort((left, right) =>
+          (text(left.legacy_code) || text(left.asset_code)).localeCompare(
+            text(right.legacy_code) || text(right.asset_code),
+            "pt-BR",
+            { numeric: true, sensitivity: "base" },
+          ),
+        );
+
+      const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, "");
+      const labels = await Promise.all(
+        activeCopies.map(async (copy) => {
+          const value = `${baseUrl}/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo?exemplar=${encodeURIComponent(text(copy.qr_token))}`;
+          const qrDataUrl = await QRCode.toDataURL(value, {
+            width: 1024,
+            margin: 2,
+            errorCorrectionLevel: "M",
+          });
+
+          return {
+            copyId: text(copy.id),
+            assetCode: text(copy.asset_code),
+            legacyCode: text(copy.legacy_code) || null,
+            title: titleById.get(text(copy.title_id)) || "Livro",
+            category,
+            qrDataUrl,
+          };
+        }),
+      );
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "qrcodes_categoria_gerados",
+        "acervo_category",
+        undefined,
+        { category, labels: labels.length },
+      );
+
+      return NextResponse.json({ ok: true, labels });
+    }
+
     if (action === "generate-qr") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode gerar etiquetas de exemplares.");
       const copyId = text(body.copyId);
@@ -1214,12 +1293,15 @@ export async function POST(request: Request) {
 
       const inventoryAt = nowIso();
       const observedShelf = text(body.observedShelf) || text(copy.shelf);
+      const qrConfirmed = boolValue(body.qrConfirmed, false);
       const currentMetadata = record(copy.metadata);
       const metadata = {
         ...currentMetadata,
         last_inventory_at: inventoryAt,
         last_inventory_by_person_id: actorPersonId || null,
         last_inventory_observed_shelf: observedShelf || null,
+        inventory_status: qrConfirmed ? "inventariado" : "conferido",
+        qr_label_confirmed_at: qrConfirmed ? inventoryAt : text(currentMetadata.qr_label_confirmed_at) || null,
       };
 
       const { error: updateError } = await supabaseAdmin
@@ -1246,6 +1328,8 @@ export async function POST(request: Request) {
           status: copy.status,
           observedShelf: observedShelf || null,
           inventoryAt,
+          qrConfirmed,
+          inventoryStatus: metadata.inventory_status,
         },
       );
 
