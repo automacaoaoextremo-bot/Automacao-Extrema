@@ -25,7 +25,7 @@ function safeReturnTo() {
 }
 
 const headerActions = [
-  { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa#consulentes", variant: "secondary" as const },
+  { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#consulentes", variant: "secondary" as const },
 ];
 
 export default function LoginConsulenteTucxaPage() {

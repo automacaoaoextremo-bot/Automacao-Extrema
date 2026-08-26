@@ -32,6 +32,12 @@ const modules = [
     href: "/solucoes/organizacao-em-harmonia/cliente/cursos",
     cta: "Gerenciar Cursos",
   },
+  {
+    name: "Acervo Vivo",
+    description: "Biblioteca e conhecimento da Casa conectados à Base Única, Clube do Livro, Grupo de Estudos, Curso Preparatório, Folha Verde e trilhas de estudo.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo",
+    cta: "Gerenciar Acervo Vivo",
+  },
 ];
 
 export default function OrganizacaoModulosPage() {

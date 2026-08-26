@@ -101,7 +101,7 @@ export default function LoginFilhoDaCorrentePage() {
         actions={[
           {
             label: "Voltar",
-            href: "/solucoes/organizacao-em-harmonia/tucxa#cadastro",
+            href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1#corrente",
             variant: "primary",
           },
           {
