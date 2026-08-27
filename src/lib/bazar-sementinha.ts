@@ -26,6 +26,7 @@ export type BazarEvent = {
   notes?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  require_corrente_identification?: boolean;
 };
 
 export type BazarItemInput = {
@@ -44,6 +45,7 @@ export type BazarOrderInput = {
   notes?: string | null;
   items: BazarItemInput[];
   eventId?: string | null;
+  isCorrente?: boolean | null;
 };
 
 export type PaymentInput = {

@@ -51,6 +51,8 @@ type BazarClientRow = {
   name: string;
   whatsapp?: string | null;
   public_token?: string | null;
+  is_corrente?: boolean | null;
+  corrente_identified_at?: string | null;
   [key: string]: unknown;
 };
 
@@ -172,18 +174,42 @@ export async function POST(request: Request) {
       return NextResponse.json({ order: existing, reused: true, reason: "identical_15s" });
     }
 
+    const { data: existingClient, error: existingClientError } = await supabaseAdmin
+      .from("bazar_clients")
+      .select("id,is_corrente,corrente_identified_at")
+      .eq("event_id", event.id)
+      .eq("normalized_name", normalizedName)
+      .maybeSingle();
+
+    if (existingClientError) throw existingClientError;
+
+    const requestedCorrente = typeof body.isCorrente === "boolean" ? body.isCorrente : null;
+    const alreadyIdentified = typeof existingClient?.is_corrente === "boolean";
+
+    if (event.require_corrente_identification === true && !alreadyIdentified && requestedCorrente === null) {
+      return NextResponse.json(
+        { error: "Informe se o cliente é Filho da Corrente do Tucxa antes de criar o primeiro pedido deste bazar.", code: "CORRENTE_IDENTIFICATION_REQUIRED" },
+        { status: 400 },
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const clientPayload: Record<string, unknown> = {
+      event_id: event.id,
+      name: clientName,
+      normalized_name: normalizedName,
+      whatsapp: body.whatsapp ? onlyDigits(body.whatsapp) : null,
+      updated_at: nowIso,
+    };
+
+    if (requestedCorrente !== null) {
+      clientPayload.is_corrente = requestedCorrente;
+      clientPayload.corrente_identified_at = nowIso;
+    }
+
     const { data: client, error: clientError } = await supabaseAdmin
       .from("bazar_clients")
-      .upsert(
-        {
-          event_id: event.id,
-          name: clientName,
-          normalized_name: normalizedName,
-          whatsapp: body.whatsapp ? onlyDigits(body.whatsapp) : null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "event_id,normalized_name" },
-      )
+      .upsert(clientPayload, { onConflict: "event_id,normalized_name" })
       .select("*")
       .single();
 
@@ -297,18 +323,28 @@ export async function PATCH(request: Request) {
       if (requestedClientName) {
         clientNameForSignature = requestedClientName;
         const normalizedName = normalizeClientName(requestedClientName);
+        const { data: currentClientForEdit, error: currentClientForEditError } = await supabaseAdmin
+          .from("bazar_clients")
+          .select("is_corrente,corrente_identified_at")
+          .eq("id", currentOrder.client_id)
+          .maybeSingle();
+        if (currentClientForEditError) throw currentClientForEditError;
+
+        const editedClientPayload: Record<string, unknown> = {
+          event_id: event.id,
+          name: requestedClientName,
+          normalized_name: normalizedName,
+          whatsapp: body.whatsapp ? onlyDigits(String(body.whatsapp)) : null,
+          updated_at: new Date().toISOString(),
+        };
+        if (typeof currentClientForEdit?.is_corrente === "boolean") {
+          editedClientPayload.is_corrente = currentClientForEdit.is_corrente;
+          editedClientPayload.corrente_identified_at = currentClientForEdit.corrente_identified_at || new Date().toISOString();
+        }
+
         const { data: client, error: clientError } = await supabaseAdmin
           .from("bazar_clients")
-          .upsert(
-            {
-              event_id: event.id,
-              name: requestedClientName,
-              normalized_name: normalizedName,
-              whatsapp: body.whatsapp ? onlyDigits(String(body.whatsapp)) : null,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "event_id,normalized_name" },
-          )
+          .upsert(editedClientPayload, { onConflict: "event_id,normalized_name" })
           .select("*")
           .single();
 

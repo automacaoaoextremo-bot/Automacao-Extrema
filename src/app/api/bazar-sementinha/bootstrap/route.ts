@@ -21,6 +21,8 @@ type ClientRow = {
   normalized_name?: string | null;
   whatsapp?: string | null;
   public_token?: string | null;
+  is_corrente?: boolean | null;
+  corrente_identified_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;

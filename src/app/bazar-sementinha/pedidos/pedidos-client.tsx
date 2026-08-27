@@ -18,6 +18,8 @@ type Client = {
   previous_event_name?: string | null;
   previous_event_date?: string | null;
   lookup_key?: string | null;
+  is_corrente?: boolean | null;
+  corrente_identified_at?: string | null;
 };
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
 type CreatedOrder = {
@@ -51,7 +53,7 @@ type EditableItem = {
 };
 
 type Bootstrap = {
-  event?: { id: string; name: string; event_date: string; slug: string };
+  event?: { id: string; name: string; event_date: string; slug: string; require_corrente_identification?: boolean };
   prices?: Price[];
   categories?: Category[];
   menuItems?: MenuItem[];
@@ -123,6 +125,7 @@ function formatDateTime(value?: string | null) {
 
 export function PedidosClient() {
   const [eventName, setEventName] = useState("Bazar do Sementinha");
+  const [requireCorrenteIdentification, setRequireCorrenteIdentification] = useState(false);
   const [operatorClientHistoryEnabled, setOperatorClientHistoryEnabled] = useState(false);
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -140,6 +143,8 @@ export function PedidosClient() {
   const [menuCategory, setMenuCategory] = useState("Todos");
   const [search, setSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clientIsCorrente, setClientIsCorrente] = useState<boolean | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [cartReviewOpen, setCartReviewOpen] = useState(false);
   const [cartCollapsed, setCartCollapsed] = useState(false);
@@ -157,6 +162,7 @@ export function PedidosClient() {
       .then((res) => res.json())
       .then((data: Bootstrap) => {
         setEventName(data.event?.name || "Bazar do Sementinha");
+        setRequireCorrenteIdentification(data.event?.require_corrente_identification === true);
         setOperatorClientHistoryEnabled(data.operatorClientHistoryEnabled === true);
         setPrices((data.prices || []).filter((item) => item.is_active));
         setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
@@ -218,13 +224,19 @@ export function PedidosClient() {
   }
 
   function selectClient(client: Client) {
+    setSelectedClient(client);
     setClientName(client.name);
     setWhatsapp(client.whatsapp || "");
+    setClientIsCorrente(client.is_current_event === false ? null : typeof client.is_corrente === "boolean" ? client.is_corrente : null);
     setMode("bazar");
     setCreatedOrder(null);
+    setClientSearch("");
     const previous = client.previous_event_date ? ` do bazar de ${formatEventDate(client.previous_event_date)}` : "";
-    setMessage(client.is_current_event === false ? `Cliente recorrente selecionado${previous}: ${client.name}. Nome e WhatsApp reaproveitados.` : `Cliente selecionado: ${client.name}`);
-    window.setTimeout(() => catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    setMessage(
+      client.is_current_event === false
+        ? `Cliente recorrente selecionado${previous}: ${client.name}. Nome e WhatsApp reaproveitados; a identificação deste novo bazar será feita uma única vez.`
+        : `Cliente selecionado: ${client.name}`,
+    );
   }
 
   function startAnotherOrder(client?: Client | null) {
@@ -232,17 +244,32 @@ export function PedidosClient() {
     setCart([]);
     setMessage("");
     if (client?.name) {
+      setSelectedClient(client);
       setClientName(client.name);
       setWhatsapp(client.whatsapp || "");
+      setClientIsCorrente(typeof client.is_corrente === "boolean" ? client.is_corrente : null);
     }
   }
 
   function startNewOrder() {
     setCreatedOrder(null);
+    setSelectedClient(null);
     setClientName("");
     setWhatsapp("");
+    setClientSearch("");
+    setClientIsCorrente(null);
     setCart([]);
     setMessage("");
+  }
+
+  function startNewClient() {
+    setSelectedClient(null);
+    setClientName("");
+    setWhatsapp("");
+    setClientSearch("");
+    setClientIsCorrente(null);
+    setCreatedOrder(null);
+    setMessage("Novo cliente: informe nome, WhatsApp e, no primeiro pedido, a identificação de Filho da Corrente.");
   }
 
   function addBazarItem(price: Price) {
@@ -457,6 +484,10 @@ export function PedidosClient() {
       showRequiredAlert("Informe o cliente antes de criar o pedido. O nome precisa ser único: se já existe Márcio, use Márcio Alex, por exemplo.");
       return;
     }
+    if (requireCorrenteIdentification && clientIsCorrente === null) {
+      showRequiredAlert("Informe se o cliente é Filho da Corrente do Tucxa. Esta identificação é obrigatória somente no primeiro pedido deste bazar.");
+      return;
+    }
     if (cart.length === 0) {
       showRequiredAlert("Inclua pelo menos um item antes de criar o pedido.");
       return;
@@ -468,7 +499,7 @@ export function PedidosClient() {
       const res = await fetch("/api/bazar-sementinha/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientName, whatsapp, attemptId, items: cart }),
+        body: JSON.stringify({ clientName, whatsapp, isCorrente: clientIsCorrente, attemptId, items: cart }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao criar pedido.");
@@ -478,8 +509,10 @@ export function PedidosClient() {
       setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
       setCartReviewOpen(false);
+      setSelectedClient(null);
       setClientName("");
       setWhatsapp("");
+      setClientIsCorrente(null);
       setCategoryPath("");
       setSearch("");
       if (order.client?.name) {
@@ -502,50 +535,140 @@ export function PedidosClient() {
       <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:pr-[430px]">
         <section className="min-w-0 space-y-4 sm:space-y-5">
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Registro rápido</p>
-            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Pedidos do Bazar e do Cardápio</h1>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">1. Identifique o cliente</p>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Quem está comprando?</h1>
             <p className="mt-2 text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">{eventName}</p>
-            <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido: itens do bazar ou alimentos e bebidas.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2 sm:mt-5">
-              <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
-                Bazar
-              </button>
-              <button onClick={() => switchMode("menu")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
-                Cardápio
-              </button>
-            </div>
+            <p className="mt-3 text-sm leading-6 text-[#496451]">
+              Use uma única busca para encontrar quem já comprou neste bazar ou em bazares anteriores. Se não encontrar, cadastre um novo cliente rapidamente.
+            </p>
+
             {operatorClientHistoryEnabled && (
-              <div className="mt-5 rounded-3xl bg-[#eafff1] p-3 ring-1 ring-[#ccebd6] sm:p-4">
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Cliente já comprou em outro bazar?</p>
-                <p className="mt-1 text-xs leading-5 text-[#496451]">Digite parte do nome ou do WhatsApp. Toque no resultado para reaproveitar os dados sem recadastrar.</p>
-                <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar nome ou WhatsApp" className="mt-3 w-full rounded-2xl border border-[#ccebd6] bg-white px-4 py-3 outline-none focus:border-[#2f7d45]" />
+              <div className="mt-4 rounded-3xl bg-[#eafff1] p-3 ring-1 ring-[#ccebd6] sm:p-4">
+                <label className="grid gap-1">
+                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Buscar cliente por nome ou WhatsApp</span>
+                  <input
+                    value={clientSearch}
+                    onChange={(event) => setClientSearch(event.target.value)}
+                    placeholder="Ex.: Maria ou 99123"
+                    className="mt-1 w-full rounded-2xl border border-[#ccebd6] bg-white px-4 py-3 outline-none focus:border-[#2f7d45]"
+                  />
+                </label>
+
                 {clientSearch.trim().length >= 2 && (
                   <div className="mt-2 grid gap-2">
-                    {filteredClients.slice(0, 6).map((client) => (
-                      <button key={`${client.id}-${clientKey(client)}`} type="button" onClick={() => { selectClient(client); setClientSearch(""); }} className="grid gap-1 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#dfe8df] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    {filteredClients.slice(0, 8).map((client) => (
+                      <button
+                        key={`${client.id}-${clientKey(client)}`}
+                        type="button"
+                        onClick={() => selectClient(client)}
+                        className="grid gap-1 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#dfe8df] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      >
                         <span className="min-w-0">
                           <strong className="block break-words text-sm">{client.name}</strong>
                           <span className="block text-xs text-[#7a8278]">{client.whatsapp || "WhatsApp não informado"}</span>
-                          {client.is_current_event === false && <span className="mt-1 block text-[11px] font-black text-[#7a5a00]">Cliente anterior{client.previous_event_date ? ` · ${formatEventDate(client.previous_event_date)}` : ""}</span>}
+                          <span className="mt-1 block text-[11px] font-black text-[#7a5a00]">
+                            {client.is_current_event === false
+                              ? `Cliente de bazar anterior${client.previous_event_date ? ` · ${formatEventDate(client.previous_event_date)}` : ""}`
+                              : "Cliente deste bazar"}
+                          </span>
                         </span>
                         <span className="text-xs font-black text-[#0f6b35]">USAR CADASTRO</span>
                       </button>
                     ))}
-                    {filteredClients.length === 0 && <p className="rounded-2xl bg-white p-3 text-xs text-[#496451]">Nenhum cliente encontrado. Cadastre apenas o nome e, se possível, o WhatsApp.</p>}
+                    {filteredClients.length === 0 && (
+                      <div className="rounded-2xl bg-white p-3">
+                        <p className="text-xs text-[#496451]">Nenhum cadastro encontrado com esta busca.</p>
+                        <button type="button" onClick={startNewClient} className="mt-2 rounded-full bg-[#0f6b35] px-4 py-2 text-xs font-black text-white">
+                          + NOVO CLIENTE
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!clientSearch.trim() && (
+                  <button type="button" onClick={startNewClient} className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-black text-[#0f6b35] ring-1 ring-[#ccebd6]">
+                    + NOVO CLIENTE
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="sm:col-span-2">
+                <span className="text-sm font-bold">{selectedClient ? "Cliente selecionado" : "Nome do cliente"}</span>
+                <input
+                  value={clientName}
+                  onChange={(event) => {
+                    if (selectedClient && event.target.value !== selectedClient.name) {
+                      setSelectedClient(null);
+                      setClientIsCorrente(null);
+                    }
+                    setClientName(event.target.value);
+                    setCreatedOrder(null);
+                  }}
+                  placeholder="Ex.: Márcio Alex"
+                  className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]"
+                />
+              </label>
+              <label>
+                <span className="text-sm font-bold">WhatsApp</span>
+                <input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} placeholder="opcional" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+              </label>
+            </div>
+
+            {clientName.trim() && (
+              <div className="mt-4 rounded-3xl bg-[#fff8dd] p-3 ring-1 ring-[#efe3af] sm:p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.12em] text-[#7a5a00]">Primeiro pedido deste cliente no evento</p>
+                    <h2 className="mt-1 text-base font-black">É Filho da Corrente do Tucxa?</h2>
+                    <p className="mt-1 text-xs leading-5 text-[#6f6240]">
+                      {typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false
+                        ? "Esta informação já foi identificada neste bazar e não será solicitada novamente."
+                        : requireCorrenteIdentification
+                          ? "Obrigatório neste evento. Toque em Sim ou Não; depois disso não será perguntado novamente."
+                          : "Opcional neste evento. Se identificar agora, a informação não será solicitada novamente."}
+                    </p>
+                  </div>
+                  {typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false && (
+                    <span className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#efe3af]">
+                      Já identificado: {selectedClient.is_corrente ? "SIM" : "NÃO"}
+                    </span>
+                  )}
+                </div>
+                {!(typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false) && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setClientIsCorrente(true)}
+                      className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === true ? "bg-[#0f6b35] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                    >
+                      SIM
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientIsCorrente(false)}
+                      className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === false ? "bg-[#7d1b1b] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                    >
+                      NÃO
+                    </button>
                   </div>
                 )}
               </div>
             )}
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <label className="sm:col-span-2">
-                <span className="text-sm font-bold">Cliente obrigatório e único</span>
-                <input value={clientName} onChange={(e) => { setClientName(e.target.value); setCreatedOrder(null); }} placeholder="Ex.: Márcio Alex" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-              </label>
-              <label>
-                <span className="text-sm font-bold">WhatsApp</span>
-                <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="opcional" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-              </label>
+            <div className="mt-5 border-t border-[#dfe8df] pt-4">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm">2. Escolha o pedido</p>
+              <p className="mt-2 text-sm leading-6 text-[#496451]">Depois de identificar o cliente, escolha itens do bazar ou alimentos e bebidas.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2">
+                <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                  Bazar
+                </button>
+                <button onClick={() => switchMode("menu")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                  Cardápio
+                </button>
+              </div>
             </div>
           </div>
 
@@ -692,36 +815,7 @@ export function PedidosClient() {
               </div>
             </div>
           )}
-          <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
-            <h2 className="text-xl font-black sm:text-2xl">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Clientes do evento atual e, para a equipe autenticada, clientes de bazares anteriores aparecem na mesma busca. O cadastro histórico é apenas uma sugestão: o primeiro pedido cria o vínculo com o evento atual sem alterar o evento antigo.</p>
-            {!operatorClientHistoryEnabled && <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />}
-            <p className="mt-2 text-xs font-bold text-[#7a8278]">{filteredClients.length} cliente(s) encontrado(s).</p>
-            <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
-              <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
-              <div className="space-y-3">
-                {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
-                {filteredClients.map((client) => (
-                  <div key={client.id} className="grid gap-3 rounded-2xl bg-white p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div className="min-w-0">
-                      <strong className="block break-words">{client.name}</strong>
-                      {client.whatsapp && <span className="block text-xs text-[#7a8278]">{client.whatsapp}</span>}
-                      {client.public_token && client.is_current_event !== false ? (
-                        <Link href={`/bazar-sementinha/cliente/${client.public_token}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-full bg-[#fff8dd] px-3 py-1.5 text-xs font-black text-[#7a5a00] ring-1 ring-[#efe3af]">
-                          Abrir acompanhamento / QRCode
-                        </Link>
-                      ) : client.is_current_event === false ? (
-                        <span className="mt-2 inline-flex rounded-full bg-[#e8fff0] px-3 py-1.5 text-xs font-black text-[#0f6b35]">Cadastro de bazar anterior</span>
-                      ) : (
-                        <span className="mt-2 inline-flex rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-bold text-[#7a8278]">QRCode liberado após novo SQL</span>
-                      )}
-                    </div>
-                    <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+
 
 
         </section>

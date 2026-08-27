@@ -16,6 +16,7 @@ type CreateEventBody = {
   sourceEventId?: string | null;
   copy?: CopyOptions;
   makePublic?: boolean;
+  requireCorrenteIdentification?: boolean;
 };
 
 type PatchEventBody = {
@@ -24,6 +25,7 @@ type PatchEventBody = {
   eventDate?: string;
   status?: string;
   makePublic?: boolean;
+  requireCorrenteIdentification?: boolean;
 };
 
 function eventSlug(eventDate: string) {
@@ -146,6 +148,7 @@ export async function POST(request: Request) {
         primary_color: sourceEvent?.primary_color || "#2f7d45",
         accent_color: sourceEvent?.accent_color || "#83a847",
         notes: sourceEventId ? `Criado a partir de ${sourceEvent?.name || "outro evento"}.` : null,
+        require_corrente_identification: body.requireCorrenteIdentification === true,
       })
       .select("*")
       .single();
@@ -186,6 +189,9 @@ export async function PATCH(request: Request) {
     if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim();
     if (typeof body.eventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.eventDate)) patch.event_date = body.eventDate;
     if (typeof body.status === "string" && body.status.trim()) patch.status = body.status.trim();
+    if (typeof body.requireCorrenteIdentification === "boolean") {
+      patch.require_corrente_identification = body.requireCorrenteIdentification;
+    }
 
     const { data, error } = await supabaseAdmin.from("bazar_events").update(patch).eq("id", id).select("*").single();
     if (error || !data) throw error || new Error("Não foi possível atualizar o evento.");

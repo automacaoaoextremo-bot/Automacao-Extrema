@@ -25,6 +25,7 @@ type BazarEvent = {
   status: string;
   is_public?: boolean;
   source_event_id?: string | null;
+  require_corrente_identification?: boolean;
 };
 type Section = "eventos" | "valores" | "categorias" | "cardapio" | "pedidos" | "despesas";
 
@@ -75,7 +76,16 @@ export function GestaoClient() {
   const [menu, setMenu] = useState({ category: "Salgados", name: "", unit_label: "unidade", price: "" });
   const [newExpense, setNewExpense] = useState({ category: "Geral", description: "", amount: "", status: "confirmada", notes: "" });
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
-  const [eventForm, setEventForm] = useState({ name: "", eventDate: "", sourceEventId: "", copyPrices: true, copyCategories: true, copyMenu: true, makePublic: false });
+  const [eventForm, setEventForm] = useState({
+    name: "",
+    eventDate: "",
+    sourceEventId: "",
+    copyPrices: true,
+    copyCategories: true,
+    copyMenu: true,
+    makePublic: false,
+    requireCorrenteIdentification: true,
+  });
 
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "excluido"), [orders]);
   const selectedEvent = useMemo(() => events.find((item) => item.id === selectedEventId) || null, [events, selectedEventId]);
@@ -229,6 +239,7 @@ export function GestaoClient() {
         sourceEventId: eventForm.sourceEventId || null,
         copy: { prices: eventForm.copyPrices, categories: eventForm.copyCategories, menu: eventForm.copyMenu },
         makePublic: eventForm.makePublic,
+        requireCorrenteIdentification: eventForm.requireCorrenteIdentification,
       }),
     });
     const data = await res.json();
@@ -246,6 +257,18 @@ export function GestaoClient() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao publicar evento.");
+    await loadEvents();
+  }
+
+  async function setCorrenteRequirement(id: string, required: boolean) {
+    const res = await fetch("/api/bazar-sementinha/events", {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ id, requireCorrenteIdentification: required }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao alterar a identificação de Filho da Corrente.");
     await loadEvents();
   }
 
@@ -314,11 +337,26 @@ export function GestaoClient() {
                         <p className="text-xs font-black uppercase tracking-[0.12em] text-[#83a847]">{eventDate(item.event_date)} · {item.status}</p>
                         <h3 className="mt-1 text-lg font-black">{item.name}</h3>
                       </div>
-                      {item.is_public && <span className="rounded-full bg-[#0f6b35] px-3 py-1 text-[10px] font-black text-white">PÚBLICO</span>}
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {item.is_public && <span className="rounded-full bg-[#0f6b35] px-3 py-1 text-[10px] font-black text-white">PÚBLICO</span>}
+                        <span className={`rounded-full px-3 py-1 text-[10px] font-black ${item.require_corrente_identification ? "bg-[#f4e7b3] text-[#7a5a00]" : "bg-white text-[#496451] ring-1 ring-[#dfe8df]"}`}>
+                          Filho da Corrente: {item.require_corrente_identification ? "OBRIGATÓRIO" : "OPCIONAL"}
+                        </span>
+                      </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button type="button" onClick={() => setSelectedEventId(item.id)} className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#dfe8df]">Abrir na Gestão</button>
                       {!item.is_public && <button type="button" onClick={() => handle(() => makeEventPublic(item.id), "Evento definido como público.")} className="rounded-full bg-[#2f7d45] px-3 py-2 text-xs font-black text-white">Tornar público</button>}
+                      <button
+                        type="button"
+                        onClick={() => handle(
+                          () => setCorrenteRequirement(item.id, !item.require_corrente_identification),
+                          `Identificação de Filho da Corrente definida como ${item.require_corrente_identification ? "opcional" : "obrigatória"}.`,
+                        )}
+                        className="rounded-full bg-[#eef7ff] px-3 py-2 text-xs font-black text-[#174a68]"
+                      >
+                        Tornar {item.require_corrente_identification ? "opcional" : "obrigatório"}
+                      </button>
                       <a href={`/bazar-sementinha/prestacao-contas?evento=${encodeURIComponent(item.id)}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#f4e7b3] px-3 py-2 text-xs font-black text-[#214527]">Prestação</a>
                     </div>
                   </article>
@@ -343,6 +381,7 @@ export function GestaoClient() {
                   <label className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#dfe8df]"><input type="checkbox" checked={eventForm.copyCategories} onChange={(e) => setEventForm({ ...eventForm, copyCategories: e.target.checked })} />Categorias</label>
                   <label className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#dfe8df]"><input type="checkbox" checked={eventForm.copyMenu} onChange={(e) => setEventForm({ ...eventForm, copyMenu: e.target.checked })} />Cardápio</label>
                   <label className="flex items-center gap-2 rounded-2xl bg-[#e8fff0] px-3 py-2 ring-1 ring-[#ccebd6]"><input type="checkbox" checked={eventForm.makePublic} onChange={(e) => setEventForm({ ...eventForm, makePublic: e.target.checked })} />Tornar público ao criar</label>
+                  <label className="flex items-center gap-2 rounded-2xl bg-[#fff8dd] px-3 py-2 ring-1 ring-[#efe3af] sm:col-span-2"><input type="checkbox" checked={eventForm.requireCorrenteIdentification} onChange={(e) => setEventForm({ ...eventForm, requireCorrenteIdentification: e.target.checked })} />No primeiro pedido, tornar obrigatória a identificação “Filho da Corrente: Sim/Não”</label>
                 </div>
                 <button type="button" onClick={() => handle(createEvent, "Evento criado com sucesso.")} className="mt-4 w-full rounded-2xl bg-[#073f20] px-4 py-3 font-black text-white">Criar evento</button>
               </div>

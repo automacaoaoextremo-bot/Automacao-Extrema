@@ -4,14 +4,22 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
+type AudienceFilter = "all" | "corrente" | "nao_corrente";
+
 type OrderRow = {
   id: string;
+  client_id?: string | null;
   code?: string | null;
   total_amount: number | string;
   payment_status: string;
   status: string;
   created_at: string;
-  client?: { name?: string | null; whatsapp?: string | null } | null;
+  client?: {
+    id?: string | null;
+    name?: string | null;
+    whatsapp?: string | null;
+    is_corrente?: boolean | null;
+  } | null;
   items?: Array<{
     kind: string;
     name: string;
@@ -56,27 +64,48 @@ type PendingPaymentRow = {
   total: number;
 };
 
+type EventOption = {
+  id: string;
+  name: string;
+  event_date: string;
+  slug: string;
+  status: string;
+  is_public?: boolean;
+};
+
 const EXCLUDED_ORDER_STATUS = "excluido";
 const CANCELED_ORDER_STATUS = "cancelado";
 
 export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const audience = parseAudience(url.searchParams.get("audience"));
     const event = await getBazarEventFromRequest(request);
-    const [ordersRes, paymentsRes, expensesRes] = await Promise.all([
+
+    const [eventsRes, ordersRes, paymentsRes, expensesRes] = await Promise.all([
+      supabaseAdmin
+        .from("bazar_events")
+        .select("id,name,event_date,slug,status,is_public")
+        .order("event_date", { ascending: false }),
       supabaseAdmin
         .from("bazar_orders")
-        .select("*, client:bazar_clients(name, whatsapp), items:bazar_order_items(*)")
+        .select("*, client:bazar_clients(id,name,whatsapp,is_corrente), items:bazar_order_items(*)")
         .eq("event_id", event.id)
         .order("created_at"),
       supabaseAdmin.from("bazar_payments").select("*").eq("event_id", event.id).order("created_at"),
       supabaseAdmin.from("bazar_expenses").select("*").eq("event_id", event.id).order("created_at"),
     ]);
 
+    if (eventsRes.error) throw eventsRes.error;
     if (ordersRes.error) throw ordersRes.error;
     if (paymentsRes.error) throw paymentsRes.error;
     if (expensesRes.error) throw expensesRes.error;
 
-    const orders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
+    const allOrders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
+    const allActiveOrders = allOrders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
+    const audienceCounts = buildAudienceCounts(allActiveOrders);
+
+    const orders = allOrders.filter((order) => matchesAudience(order, audience));
     const payments = (paymentsRes.data || []) as PaymentRow[];
     const expenses = (expensesRes.data || []) as ExpenseRow[];
 
@@ -153,12 +182,31 @@ export async function GET(request: Request) {
       }))
       .sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR") || a.createdAt.localeCompare(b.createdAt));
 
+    const uniqueClients = new Set(activeOrders.map((order) => order.client_id || order.client?.id).filter(Boolean));
+    const metrics = {
+      orders: activeOrders.length,
+      clients: uniqueClients.size,
+      itemQuantity: itemRows.reduce((sum, item) => sum + toNumber(item.quantity), 0),
+      averageTicket: activeOrders.length > 0 ? totals.sold / activeOrders.length : 0,
+      paidOrders: activePaidOrders.length,
+      pendingOrders: activePendingOrders.length,
+    };
+
     return NextResponse.json({
       event,
+      events: (eventsRes.data || []) as EventOption[],
+      audience,
+      audienceCounts,
+      expenseScope: audience === "all" ? "filtered-event" : "whole-event",
+      expenseScopeNote:
+        audience === "all"
+          ? null
+          : "As despesas são lançadas para o evento, não para um cliente. Por isso permanecem integrais neste filtro; receitas, pedidos, clientes, pagamentos e itens são filtrados pelo público selecionado.",
       orders,
       payments: activePayments,
       expenses,
       totals: { ...totals, result },
+      metrics,
       byPayment,
       byKind,
       byCategorySummary,
@@ -170,6 +218,43 @@ export async function GET(request: Request) {
     console.error("[bazar-sementinha/report][GET]", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao gerar relatório." }, { status: 500 });
   }
+}
+
+function parseAudience(value: string | null): AudienceFilter {
+  if (value === "corrente" || value === "nao_corrente") return value;
+  return "all";
+}
+
+function matchesAudience(order: OrderRow, audience: AudienceFilter) {
+  if (audience === "all") return true;
+  if (audience === "corrente") return order.client?.is_corrente === true;
+  return order.client?.is_corrente === false;
+}
+
+function buildAudienceCounts(orders: OrderRow[]) {
+  const byClient = new Map<string, boolean | null>();
+  for (const order of orders) {
+    const key = String(order.client_id || order.client?.id || `order:${order.id}`);
+    if (byClient.has(key)) continue;
+    byClient.set(key, typeof order.client?.is_corrente === "boolean" ? order.client.is_corrente : null);
+  }
+
+  let corrente = 0;
+  let naoCorrente = 0;
+  let unknown = 0;
+
+  for (const value of byClient.values()) {
+    if (value === true) corrente += 1;
+    else if (value === false) naoCorrente += 1;
+    else unknown += 1;
+  }
+
+  return {
+    total: byClient.size,
+    corrente,
+    naoCorrente,
+    unknown,
+  };
 }
 
 function toNumber(value: number | string | null | undefined) {
@@ -262,7 +347,5 @@ function summaryLabelForExpense(value: string) {
 
 function describeOrderItems(items: NonNullable<OrderRow["items"]>) {
   if (items.length === 0) return "Sem itens detalhados";
-  return items
-    .map((item) => `${toNumber(item.quantity)}x ${item.name}`)
-    .join(", ");
+  return items.map((item) => `${toNumber(item.quantity)}x ${item.name}`).join(", ");
 }
