@@ -4,6 +4,7 @@ import {
   BazarItemInput,
   BazarOrderInput,
   getBazarEvent,
+  getBazarEventFromRequest,
   makeOrderCode,
   normalizeClientName,
   onlyDigits,
@@ -76,7 +77,7 @@ type BazarPaymentRow = {
 export async function GET(request: Request) {
   try {
     await requireBazarSession(request);
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request);
 
     const { data, error } = await supabaseAdmin
       .from("bazar_orders")
@@ -240,7 +241,7 @@ export async function PATCH(request: Request) {
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
 
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request, body as Record<string, unknown>);
 
     try {
       await requireBazarSession(request);
@@ -391,10 +392,12 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID do pedido obrigatório." }, { status: 400 });
+    const event = await getBazarEventFromRequest(request);
 
     const { data, error } = await supabaseAdmin
       .from("bazar_orders")
       .update({ status: "excluido", updated_at: new Date().toISOString() })
+      .eq("event_id", event.id)
       .eq("id", id)
       .select("*")
       .single();

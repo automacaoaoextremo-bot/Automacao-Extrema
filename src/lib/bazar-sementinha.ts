@@ -3,11 +3,30 @@ import { createHmac, randomUUID } from "crypto";
 import QRCode from "qrcode";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-export const BAZAR_EVENT_SLUG = "bazar-sementinha-2026-07-04";
+export const LEGACY_BAZAR_EVENT_SLUG = "bazar-sementinha-2026-07-04";
 export const BAZAR_CLIENT_EMAIL = "bazardosementinha@gmail.com";
 export const BAZAR_PIX_KEY = "58392598000191";
 export const BAZAR_PIX_RECEIVER = "SEMENTINHA DO TUCXA";
 export const BAZAR_PIX_CITY = "CAMPINAS";
+
+export type BazarEvent = {
+  id: string;
+  client_name: string;
+  name: string;
+  slug: string;
+  event_date: string;
+  status: string;
+  is_public?: boolean;
+  source_event_id?: string | null;
+  pix_key?: string | null;
+  pix_receiver?: string | null;
+  pix_city?: string | null;
+  primary_color?: string | null;
+  accent_color?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
 
 export type BazarItemInput = {
   kind: "bazar" | "menu";
@@ -24,6 +43,7 @@ export type BazarOrderInput = {
   attemptId?: string | null;
   notes?: string | null;
   items: BazarItemInput[];
+  eventId?: string | null;
 };
 
 export type PaymentInput = {
@@ -32,6 +52,7 @@ export type PaymentInput = {
   method: "pix" | "credito" | "debito" | "dinheiro";
   amount: number;
   notes?: string | null;
+  eventId?: string | null;
 };
 
 export type ConfigKind = "price" | "category" | "menu";
@@ -51,6 +72,13 @@ export function onlyDigits(value: string) {
 
 export function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+export function formatBazarDate(value?: string | null) {
+  if (!value) return "";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
 }
 
 export function parseMoney(value: unknown) {
@@ -87,18 +115,69 @@ export function makeOrderCode() {
   return randomUUID().slice(0, 8).toUpperCase();
 }
 
-export async function getBazarEvent() {
-  const { data, error } = await supabaseAdmin
-    .from("bazar_events")
-    .select("*")
-    .eq("slug", BAZAR_EVENT_SLUG)
-    .single();
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
-  if (error || !data) {
-    throw new Error("Evento Bazar do Sementinha não encontrado. Rode o SQL de criação/seed no Supabase.");
+async function findEventBySelector(selector: string) {
+  const query = supabaseAdmin.from("bazar_events").select("*");
+  const result = looksLikeUuid(selector)
+    ? await query.eq("id", selector).maybeSingle()
+    : await query.eq("slug", selector).maybeSingle();
+
+  if (result.error) throw result.error;
+  return (result.data || null) as BazarEvent | null;
+}
+
+export async function getBazarEvent(selector?: string | null): Promise<BazarEvent> {
+  const requested = String(selector || "").trim();
+  if (requested) {
+    const selected = await findEventBySelector(requested);
+    if (!selected) throw new Error("Evento do Bazar Sementinha não encontrado.");
+    return selected;
   }
 
-  return data;
+  // A coluna is_public é criada pela evolução multi-eventos. O fallback mantém
+  // compatibilidade durante a janela entre o deploy do código e a aplicação da migration.
+  const publicResult = await supabaseAdmin
+    .from("bazar_events")
+    .select("*")
+    .eq("is_public", true)
+    .order("event_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!publicResult.error && publicResult.data) {
+    return publicResult.data as BazarEvent;
+  }
+
+  const activeResult = await supabaseAdmin
+    .from("bazar_events")
+    .select("*")
+    .eq("status", "ativo")
+    .order("event_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!activeResult.error && activeResult.data) {
+    return activeResult.data as BazarEvent;
+  }
+
+  const legacy = await findEventBySelector(LEGACY_BAZAR_EVENT_SLUG);
+  if (legacy) return legacy;
+
+  throw new Error("Evento Bazar do Sementinha não encontrado. Rode a migration/SQL do Bazar no Supabase.");
+}
+
+export function getBazarEventSelectorFromRequest(request: Request, body?: Record<string, unknown> | null) {
+  const url = new URL(request.url);
+  const querySelector = url.searchParams.get("evento") || url.searchParams.get("eventId") || url.searchParams.get("event");
+  const bodySelector = body ? String(body.eventId || body.evento || body.event || "").trim() : "";
+  return bodySelector || querySelector || null;
+}
+
+export async function getBazarEventFromRequest(request: Request, body?: Record<string, unknown> | null) {
+  return getBazarEvent(getBazarEventSelectorFromRequest(request, body));
 }
 
 export async function buildPixCopyPaste(amount: number, txid: string) {

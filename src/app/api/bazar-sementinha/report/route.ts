@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getBazarEvent } from "@/lib/bazar-sementinha";
+import { getBazarEventFromRequest } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -59,9 +59,9 @@ type PendingPaymentRow = {
 const EXCLUDED_ORDER_STATUS = "excluido";
 const CANCELED_ORDER_STATUS = "cancelado";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request);
     const [ordersRes, paymentsRes, expensesRes] = await Promise.all([
       supabaseAdmin
         .from("bazar_orders")

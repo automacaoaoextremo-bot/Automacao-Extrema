@@ -1,5 +1,8 @@
 import Image from "next/image";
 import { BazarHeader } from "@/components/bazar-sementinha/bazar-header";
+import { formatBazarDate, getBazarEvent } from "@/lib/bazar-sementinha";
+
+export const dynamic = "force-dynamic";
 
 const cards = [
   {
@@ -12,7 +15,7 @@ const cards = [
   },
   {
     title: "Prestação de contas clara",
-    text: "Vendas, formas de pagamento, itens, despesas e resultado ficam organizados por evento para comparar julho, setembro e próximos bazares.",
+    text: "Vendas, formas de pagamento, itens, despesas e resultado ficam organizados por evento para comparar julho, agosto e próximos bazares.",
   },
 ];
 
@@ -23,6 +26,8 @@ type BazarSementinhaPageProps = {
 export default async function BazarSementinhaPage({ searchParams }: BazarSementinhaPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const publicContextToken = typeof resolvedSearchParams.cliente === "string" ? resolvedSearchParams.cliente : "";
+  const event = await getBazarEvent();
+  const eventDate = formatBazarDate(event.event_date);
 
   return (
     <>
@@ -31,7 +36,7 @@ export default async function BazarSementinhaPage({ searchParams }: BazarSementi
         <section className="border-b border-[#dfe8df] px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 md:grid-cols-[minmax(0,1fr)_0.9fr] md:items-center">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Bazar do Sementinha · 04/07/2026</p>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Bazar do Sementinha · {eventDate}</p>
               <h1 className="mt-4 text-3xl font-black leading-tight sm:text-6xl">O bazar ajuda mais quando o controle não fica para depois.</h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-[#31543a] sm:mt-5 sm:text-lg sm:leading-8">
                 Registre pedidos com mínimo de fricção, cobre com segurança no caixa e entregue uma prestação de contas simples, confiável e comparável por evento.
@@ -41,13 +46,13 @@ export default async function BazarSementinhaPage({ searchParams }: BazarSementi
               <div className="flex items-center gap-4">
                 <Image src="/sementinha-logo.jpg" alt="Logo Bazar do Sementinha" width={96} height={96} className="h-24 w-24 rounded-full object-cover" />
                 <div>
-                  <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Cliente fundador</p>
+                  <p className="text-sm font-black uppercase tracking-[0.18em] text-[#83a847]">Evento atual</p>
                   <h2 className="text-xl font-black sm:text-2xl">Sementinha do Tucxa</h2>
-                  <p className="mt-1 text-sm text-[#496451]">Primeiro evento cadastrado: Bazar de 04/07/2026.</p>
+                  <p className="mt-1 text-sm text-[#496451]">{event.name}.</p>
                 </div>
               </div>
               <div className="mt-6 rounded-2xl bg-[#f9f7ef] p-4 text-sm leading-6 text-[#31543a]">
-                Não é “só um sistema”: é uma forma de evitar perda de dinheiro, retrabalho, dúvida no caixa e desgaste entre voluntários.
+                Cada bazar fica armazenado separadamente: cardápio, pedidos, caixa, despesas e prestação de contas permanecem no histórico mesmo quando um novo evento é publicado.
               </div>
             </aside>
           </div>

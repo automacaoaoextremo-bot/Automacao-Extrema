@@ -17,7 +17,16 @@ type Order = {
   items?: Array<{ id: string; name: string; quantity: number; total_price: number }>;
 };
 type Expense = { id: string; category: string; description: string; amount: number; status: string; notes?: string | null; created_at?: string | null };
-type Section = "valores" | "categorias" | "cardapio" | "pedidos" | "despesas";
+type BazarEvent = {
+  id: string;
+  name: string;
+  slug: string;
+  event_date: string;
+  status: string;
+  is_public?: boolean;
+  source_event_id?: string | null;
+};
+type Section = "eventos" | "valores" | "categorias" | "cardapio" | "pedidos" | "despesas";
 
 function brl(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -26,6 +35,12 @@ function brl(value: number) {
 function shortDate(value?: string) {
   if (!value) return "";
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
+function eventDate(value?: string | null) {
+  if (!value) return "—";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
 function bazarAuthHeaders(extra?: HeadersInit): HeadersInit {
@@ -46,73 +61,96 @@ function bazarAuthHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 export function GestaoClient() {
+  const [events, setEvents] = useState<BazarEvent[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState("");
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [section, setSection] = useState<Section>("valores");
+  const [section, setSection] = useState<Section>("eventos");
   const [message, setMessage] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [menu, setMenu] = useState({ category: "Salgados", name: "", unit_label: "unidade", price: "" });
   const [newExpense, setNewExpense] = useState({ category: "Geral", description: "", amount: "", status: "confirmada", notes: "" });
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [eventForm, setEventForm] = useState({ name: "", eventDate: "", sourceEventId: "", copyPrices: true, copyCategories: true, copyMenu: true, makePublic: false });
 
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "excluido"), [orders]);
+  const selectedEvent = useMemo(() => events.find((item) => item.id === selectedEventId) || null, [events, selectedEventId]);
+  const eventSuffix = selectedEventId ? `?evento=${encodeURIComponent(selectedEventId)}` : "";
 
   const loadConfig = useCallback(async () => {
-    const res = await fetch("/api/bazar-sementinha/config", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const res = await fetch(`/api/bazar-sementinha/config${eventSuffix}`, { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao carregar cadastros.");
     setPrices(data.prices || []);
     setCategories(data.categories || []);
     setMenuItems(data.menuItems || []);
-  }, []);
+  }, [eventSuffix]);
 
   const loadOrders = useCallback(async () => {
-    const res = await fetch("/api/bazar-sementinha/orders", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const res = await fetch(`/api/bazar-sementinha/orders${eventSuffix}`, { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao carregar pedidos.");
     setOrders(data.orders || []);
-  }, []);
+  }, [eventSuffix]);
 
   const loadExpenses = useCallback(async () => {
-    const res = await fetch("/api/bazar-sementinha/expenses", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const res = await fetch(`/api/bazar-sementinha/expenses${eventSuffix}`, { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao carregar despesas.");
     setExpenses(data.expenses || []);
+  }, [eventSuffix]);
+
+  const loadEvents = useCallback(async () => {
+    const res = await fetch("/api/bazar-sementinha/events", { cache: "no-store", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao carregar eventos.");
+    const nextEvents = (data.events || []) as BazarEvent[];
+    setEvents(nextEvents);
+    setSelectedEventId((current) => {
+      if (current && nextEvents.some((item) => item.id === current)) return current;
+      return nextEvents.find((item) => item.is_public)?.id || nextEvents[0]?.id || "";
+    });
   }, []);
 
   const loadAll = useCallback(async () => {
+    if (!selectedEventId) return;
     await Promise.all([loadConfig(), loadOrders(), loadExpenses()]);
-  }, [loadConfig, loadExpenses, loadOrders]);
+  }, [loadConfig, loadExpenses, loadOrders, selectedEventId]);
 
   useEffect(() => {
     let ignore = false;
     const timer = window.setTimeout(() => {
-      loadAll().catch((error) => {
-        if (!ignore) {
-          setMessage(error instanceof Error ? error.message : "Erro ao carregar.");
-        }
+      loadEvents().catch((error) => {
+        if (!ignore) setMessage(error instanceof Error ? error.message : "Erro ao carregar eventos.");
       });
     }, 0);
+    return () => { ignore = true; window.clearTimeout(timer); };
+  }, [loadEvents]);
 
-    return () => {
-      ignore = true;
-      window.clearTimeout(timer);
-    };
-  }, [loadAll]);
+  useEffect(() => {
+    if (!selectedEventId) return;
+    let ignore = false;
+    const timer = window.setTimeout(() => {
+      loadAll().catch((error) => {
+        if (!ignore) setMessage(error instanceof Error ? error.message : "Erro ao carregar.");
+      });
+    }, 0);
+    return () => { ignore = true; window.clearTimeout(timer); };
+  }, [loadAll, selectedEventId]);
 
   async function save(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/config", { method: "POST", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/config", { method: "POST", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ ...(body as Record<string, unknown>), eventId: selectedEventId }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao salvar.");
     await loadConfig();
   }
 
   async function patch(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/config", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/config", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ ...(body as Record<string, unknown>), eventId: selectedEventId }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao alterar.");
     await loadConfig();
@@ -120,14 +158,14 @@ export function GestaoClient() {
 
   async function remove(kind: string, id: string) {
     if (!confirm("Excluir definitivamente este cadastro?")) return;
-    const res = await fetch(`/api/bazar-sementinha/config?kind=${kind}&id=${id}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const res = await fetch(`/api/bazar-sementinha/config?kind=${kind}&id=${id}&evento=${encodeURIComponent(selectedEventId)}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao excluir.");
     await loadConfig();
   }
 
   async function updateOrder(body: unknown) {
-    const res = await fetch("/api/bazar-sementinha/orders", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+    const res = await fetch("/api/bazar-sementinha/orders", { method: "PATCH", credentials: "same-origin", headers: bazarAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ ...(body as Record<string, unknown>), eventId: selectedEventId }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao atualizar pedido.");
     await loadOrders();
@@ -156,7 +194,7 @@ export function GestaoClient() {
       method,
       credentials: "same-origin",
       headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, eventId: selectedEventId }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || (editingExpenseId ? "Erro ao editar despesa." : "Erro ao salvar despesa."));
@@ -166,7 +204,7 @@ export function GestaoClient() {
 
   async function deleteOrder(id: string) {
     if (!confirm("Excluir este pedido da visualização da gestão? Esta ação não remove fisicamente do banco, mas marca como excluído.")) return;
-    const res = await fetch(`/api/bazar-sementinha/orders?id=${id}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
+    const res = await fetch(`/api/bazar-sementinha/orders?id=${id}&evento=${encodeURIComponent(selectedEventId)}`, { method: "DELETE", credentials: "same-origin", headers: bazarAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Erro ao excluir pedido.");
     await loadOrders();
@@ -180,6 +218,37 @@ export function GestaoClient() {
     await updateOrder({ id: order.id, clientName, notes });
   }
 
+  async function createEvent() {
+    const res = await fetch("/api/bazar-sementinha/events", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        name: eventForm.name,
+        eventDate: eventForm.eventDate,
+        sourceEventId: eventForm.sourceEventId || null,
+        copy: { prices: eventForm.copyPrices, categories: eventForm.copyCategories, menu: eventForm.copyMenu },
+        makePublic: eventForm.makePublic,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao criar evento.");
+    await loadEvents();
+    if (data.event?.id) setSelectedEventId(data.event.id);
+  }
+
+  async function makeEventPublic(id: string) {
+    const res = await fetch("/api/bazar-sementinha/events", {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: bazarAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ id, makePublic: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao publicar evento.");
+    await loadEvents();
+  }
+
   async function handle<T>(fn: () => Promise<T>, ok: string) {
     setMessage("");
     try {
@@ -191,6 +260,7 @@ export function GestaoClient() {
   }
 
   const menuLinks: Array<{ id: Section; label: string }> = [
+    { id: "eventos", label: "Eventos" },
     { id: "valores", label: "Valores do Bazar" },
     { id: "categorias", label: "Categorias" },
     { id: "cardapio", label: "Cardápio" },
@@ -204,7 +274,7 @@ export function GestaoClient() {
         <aside className="h-fit rounded-3xl bg-[#073f20] p-3 text-white shadow-sm lg:sticky lg:top-48">
           <div className="rounded-2xl bg-[#0f552d] p-4">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#f4e7b3]">Sementinha</p>
-            <h2 className="mt-1 text-lg font-black leading-tight">Bazar 04/07/2026</h2>
+            <h2 className="mt-1 text-lg font-black leading-tight">{selectedEvent ? `Bazar ${eventDate(selectedEvent.event_date)}` : "Eventos do Bazar"}</h2>
           </div>
           <nav className="mt-3 space-y-1" aria-label="Menu lateral da gestão">
             {menuLinks.map((link) => (
@@ -213,7 +283,7 @@ export function GestaoClient() {
               </button>
             ))}
           </nav>
-          <button onClick={() => handle(loadAll, "Dados atualizados.")} className="mt-4 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white hover:bg-white/20">
+          <button onClick={() => handle(async () => { await loadEvents(); await loadAll(); }, "Dados atualizados.")} className="mt-4 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white hover:bg-white/20">
             Atualizar dados
           </button>
         </aside>
@@ -221,10 +291,63 @@ export function GestaoClient() {
         <div className="min-w-0 space-y-4 sm:space-y-5">
           <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Cadastros do evento</p>
-            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Bazar do Sementinha · 04/07/2026</h1>
-            <p className="mt-2 text-sm text-[#496451]">Ative, inative, copie, edite ou exclua valores, categorias e cardápio. Use o menu lateral para navegar.</p>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">{selectedEvent?.name || "Eventos do Bazar Sementinha"}</h1>
+            <p className="mt-2 text-sm text-[#496451]">Cada evento mantém pedidos, caixa, despesas e prestação separados. Selecione um evento no menu Eventos para consultar ou editar seu histórico.</p>
             {message && <p className="mt-4 rounded-2xl bg-[#f9f7ef] p-3 text-sm font-bold">{message}</p>}
           </section>
+
+          {section === "eventos" && (
+            <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-black sm:text-2xl">Eventos do Bazar</h2>
+                  <p className="mt-1 text-sm text-[#496451]">O evento público é o que aparece em /bazar-sementinha. Eventos antigos permanecem disponíveis para consulta.</p>
+                </div>
+                <span className="rounded-full bg-[#e8fff0] px-3 py-2 text-xs font-black text-[#0f6b35]">{events.length} evento(s)</span>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {events.map((item) => (
+                  <article key={item.id} className={`rounded-3xl p-4 ring-1 ${item.id === selectedEventId ? "bg-[#eafff1] ring-[#2f7d45]" : "bg-[#fffdf7] ring-[#dfe8df]"}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.12em] text-[#83a847]">{eventDate(item.event_date)} · {item.status}</p>
+                        <h3 className="mt-1 text-lg font-black">{item.name}</h3>
+                      </div>
+                      {item.is_public && <span className="rounded-full bg-[#0f6b35] px-3 py-1 text-[10px] font-black text-white">PÚBLICO</span>}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setSelectedEventId(item.id)} className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#dfe8df]">Abrir na Gestão</button>
+                      {!item.is_public && <button type="button" onClick={() => handle(() => makeEventPublic(item.id), "Evento definido como público.")} className="rounded-full bg-[#2f7d45] px-3 py-2 text-xs font-black text-white">Tornar público</button>}
+                      <a href={`/bazar-sementinha/prestacao-contas?evento=${encodeURIComponent(item.id)}`} target="_blank" rel="noreferrer" className="rounded-full bg-[#f4e7b3] px-3 py-2 text-xs font-black text-[#214527]">Prestação</a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="mt-5 rounded-3xl bg-[#f9f7ef] p-4 ring-1 ring-[#dfe8df]">
+                <h3 className="text-lg font-black">Criar novo evento</h3>
+                <p className="mt-1 text-sm text-[#496451]">Escolha o que deseja copiar. Pedidos, pagamentos, despesas e prestação nunca são copiados.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-bold">Data<input type="date" value={eventForm.eventDate} onChange={(e) => setEventForm({ ...eventForm, eventDate: e.target.value })} className="rounded-2xl border border-[#dfe8df] bg-white px-4 py-3" /></label>
+                  <label className="grid gap-1 text-sm font-bold">Nome<input value={eventForm.name} onChange={(e) => setEventForm({ ...eventForm, name: e.target.value })} className="rounded-2xl border border-[#dfe8df] bg-white px-4 py-3" /></label>
+                </div>
+                <label className="mt-3 grid gap-1 text-sm font-bold">Copiar de
+                  <select value={eventForm.sourceEventId} onChange={(e) => setEventForm({ ...eventForm, sourceEventId: e.target.value })} className="rounded-2xl border border-[#dfe8df] bg-white px-4 py-3">
+                    <option value="">Não copiar de outro evento</option>
+                    {events.map((item) => <option key={item.id} value={item.id}>{eventDate(item.event_date)} — {item.name}</option>)}
+                  </select>
+                </label>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#dfe8df]"><input type="checkbox" checked={eventForm.copyPrices} onChange={(e) => setEventForm({ ...eventForm, copyPrices: e.target.checked })} />Valores do bazar</label>
+                  <label className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#dfe8df]"><input type="checkbox" checked={eventForm.copyCategories} onChange={(e) => setEventForm({ ...eventForm, copyCategories: e.target.checked })} />Categorias</label>
+                  <label className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#dfe8df]"><input type="checkbox" checked={eventForm.copyMenu} onChange={(e) => setEventForm({ ...eventForm, copyMenu: e.target.checked })} />Cardápio</label>
+                  <label className="flex items-center gap-2 rounded-2xl bg-[#e8fff0] px-3 py-2 ring-1 ring-[#ccebd6]"><input type="checkbox" checked={eventForm.makePublic} onChange={(e) => setEventForm({ ...eventForm, makePublic: e.target.checked })} />Tornar público ao criar</label>
+                </div>
+                <button type="button" onClick={() => handle(createEvent, "Evento criado com sucesso.")} className="mt-4 w-full rounded-2xl bg-[#073f20] px-4 py-3 font-black text-white">Criar evento</button>
+              </div>
+            </section>
+          )}
 
           {section === "valores" && (
             <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">

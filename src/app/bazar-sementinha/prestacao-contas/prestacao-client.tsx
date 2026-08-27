@@ -34,13 +34,13 @@ function dateTime(value: string) {
   return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-export function PrestacaoClient() {
+export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     let ignore = false;
-    fetch("/api/bazar-sementinha/report", { cache: "no-store" })
+    fetch(`/api/bazar-sementinha/report${eventSelector ? `?evento=${encodeURIComponent(eventSelector)}` : ""}`, { cache: "no-store" })
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (ignore) return;
@@ -53,7 +53,7 @@ export function PrestacaoClient() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [eventSelector]);
 
   function exportCsv() {
     if (!report) return;

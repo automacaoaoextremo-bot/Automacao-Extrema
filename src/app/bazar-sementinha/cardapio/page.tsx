@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { BazarHeader } from "@/components/bazar-sementinha/bazar-header";
-import { getBazarEvent } from "@/lib/bazar-sementinha";
+import { formatBazarDate, getBazarEvent, LEGACY_BAZAR_EVENT_SLUG } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -89,7 +89,7 @@ function categoryIntro(category: string) {
   if (category === "Doces") return "Bolos, pudim, mousse e espeto de morango para fechar o pedido com sabor de comunidade.";
   if (category === "Salgados") return "Opções práticas para registrar no sistema, pagar no caixa e retirar com mais organização.";
   if (category === "Bauru de Forno") return "Massa fina com presunto, queijo e tomate, separado para facilitar a escolha.";
-  return "Tortas de palmito e frango no valor definido para o dia 04/07.";
+  return "Tortas de palmito e frango no valor definido para o evento atual.";
 }
 
 async function getMenuItems(): Promise<MenuItemView[]> {
@@ -131,6 +131,9 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
   const publicContextSuffix = publicContextToken ? `?cliente=${encodeURIComponent(publicContextToken)}` : "";
   const pedidoHref = `/bazar-sementinha/pedidos${publicContextSuffix}`;
 
+  const event = await getBazarEvent();
+  const eventDate = formatBazarDate(event.event_date);
+  const showLegacyMedia = event.slug === LEGACY_BAZAR_EVENT_SLUG;
   const menuItems = await getMenuItems();
   const categories = categoryOrder.filter((category) => menuItems.some((item) => item.category === category));
   const groupedItems = categories.map((category) => ({
@@ -147,7 +150,7 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
         <section className="border-b border-[#dfe8df] px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_0.86fr] lg:items-center">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Cardápio público · Bazar do Sementinha · 04/07</p>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.2em]">Cardápio público · Bazar do Sementinha · {eventDate}</p>
               <h1 className="mt-4 text-3xl font-black leading-tight sm:text-6xl">Cozinha do Bazar Sementinha</h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-[#31543a] sm:mt-5 sm:text-lg sm:leading-8">
                 Veja fotos, vídeo e valores antes de chamar a equipe. No dia do bazar, o pedido é registrado no sistema, o pagamento passa pelo caixa e você pode acompanhar todos os seus pedidos pelo QRCode do cliente.
@@ -161,8 +164,16 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
                 </a>
               </div>
             </div>
-            <aside className="min-w-0 rounded-[2rem] border border-[#dfe8df] bg-white p-3 shadow-sm sm:p-4">
-              <Image src={POSTER_SRC} alt="Cardápio Cozinha do Bazar Sementinha 04/07" width={900} height={1600} priority className="mx-auto max-h-[620px] max-w-full rounded-[1.5rem] object-contain sm:max-h-[680px]" />
+            <aside className="min-w-0 rounded-[2rem] border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+              {showLegacyMedia ? (
+                <Image src={POSTER_SRC} alt="Cardápio Cozinha do Bazar Sementinha 04/07" width={900} height={1600} priority className="mx-auto max-h-[620px] max-w-full rounded-[1.5rem] object-contain sm:max-h-[680px]" />
+              ) : (
+                <div className="rounded-[1.5rem] bg-[#f4e7b3] p-5 text-[#214527]">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-[#2f7d45]">Cardápio reaproveitado</p>
+                  <h2 className="mt-3 text-2xl font-black">{event.name}</h2>
+                  <p className="mt-3 text-sm leading-6">O cardápio inicial foi copiado do bazar anterior e pode ser ajustado pela Gestão sem alterar o histórico de 04/07/2026.</p>
+                </div>
+              )}
             </aside>
           </div>
         </section>
@@ -184,6 +195,7 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
           </div>
         </section>
 
+        {showLegacyMedia && (
         <section className="border-y border-[#dfe8df] bg-white px-3 py-8 sm:px-4 sm:py-10">
           <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-6 sm:gap-8 lg:grid-cols-[0.9fr_minmax(0,1.1fr)] lg:items-center">
             <div>
@@ -207,6 +219,7 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
             </video>
           </div>
         </section>
+        )}
 
         <section id="itens-cardapio" className="px-3 py-8 sm:px-4 sm:py-14">
           <div className="mx-auto w-full max-w-6xl min-w-0">

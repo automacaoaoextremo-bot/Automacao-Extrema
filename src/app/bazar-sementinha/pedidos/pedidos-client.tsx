@@ -8,7 +8,17 @@ import { AE_SITE_URL } from "@/lib/ae-public-links";
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
 type MenuItem = { id: string; category: string; name: string; description?: string | null; unit_label: string; price: number; is_active: boolean };
-type Client = { id: string; name: string; whatsapp?: string | null; public_token?: string | null; created_at?: string | null };
+type Client = {
+  id: string;
+  name: string;
+  whatsapp?: string | null;
+  public_token?: string | null;
+  created_at?: string | null;
+  is_current_event?: boolean;
+  previous_event_name?: string | null;
+  previous_event_date?: string | null;
+  lookup_key?: string | null;
+};
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
 type CreatedOrder = {
   id: string;
@@ -41,10 +51,12 @@ type EditableItem = {
 };
 
 type Bootstrap = {
+  event?: { id: string; name: string; event_date: string; slug: string };
   prices?: Price[];
   categories?: Category[];
   menuItems?: MenuItem[];
   clients?: Client[];
+  operatorClientHistoryEnabled?: boolean;
 };
 
 const menuCategoryOrder = ["Todos", "Tortas", "Salgados", "Bauru de Forno", "Doces", "Bebidas"];
@@ -92,12 +104,26 @@ function normalize(value: string) {
     .toLowerCase();
 }
 
+function clientKey(client: Pick<Client, "name" | "whatsapp" | "lookup_key">) {
+  if (client.lookup_key) return client.lookup_key;
+  const phone = (client.whatsapp || "").replace(/\D/g, "");
+  return phone.length >= 10 ? `phone:${phone}` : `name:${normalize(client.name.trim())}`;
+}
+
+function formatEventDate(value?: string | null) {
+  if (!value) return "";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "Pedido criado agora";
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
 export function PedidosClient() {
+  const [eventName, setEventName] = useState("Bazar do Sementinha");
+  const [operatorClientHistoryEnabled, setOperatorClientHistoryEnabled] = useState(false);
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -127,9 +153,11 @@ export function PedidosClient() {
   const catalogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
+    fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store", headers: getSessionHeaders() })
       .then((res) => res.json())
       .then((data: Bootstrap) => {
+        setEventName(data.event?.name || "Bazar do Sementinha");
+        setOperatorClientHistoryEnabled(data.operatorClientHistoryEnabled === true);
         setPrices((data.prices || []).filter((item) => item.is_active));
         setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
         setMenuItems((data.menuItems || []).filter((item) => item.is_active));
@@ -169,12 +197,18 @@ export function PedidosClient() {
 
   const pricesById = useMemo(() => new Map(prices.map((price) => [price.id, price])), [prices]);
   const menuItemsById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
-  const activeMenuCategories = useMemo(() => [...new Set(menuItems.map((item) => item.category))].sort((a, b) => a.localeCompare(b)), [menuItems]);
+  const activeMenuCategories = useMemo(() => Array.from(new Set<string>(menuItems.map((item) => item.category))).sort((a, b) => a.localeCompare(b)), [menuItems]);
 
   const filteredClients = useMemo(() => {
-    const term = normalize(clientSearch.trim());
+    const rawTerm = clientSearch.trim();
+    const term = normalize(rawTerm);
+    const phoneTerm = rawTerm.replace(/\D/g, "");
     return clients
-      .filter((client) => !term || normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term))
+      .filter((client) => {
+        if (!term) return true;
+        const clientPhone = (client.whatsapp || "").replace(/\D/g, "");
+        return normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term) || (phoneTerm.length >= 3 && clientPhone.includes(phoneTerm));
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [clientSearch, clients]);
 
@@ -188,7 +222,8 @@ export function PedidosClient() {
     setWhatsapp(client.whatsapp || "");
     setMode("bazar");
     setCreatedOrder(null);
-    setMessage(`Cliente selecionado: ${client.name}`);
+    const previous = client.previous_event_date ? ` do bazar de ${formatEventDate(client.previous_event_date)}` : "";
+    setMessage(client.is_current_event === false ? `Cliente recorrente selecionado${previous}: ${client.name}. Nome e WhatsApp reaproveitados.` : `Cliente selecionado: ${client.name}`);
     window.setTimeout(() => catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
@@ -449,9 +484,10 @@ export function PedidosClient() {
       setSearch("");
       if (order.client?.name) {
         setClients((current) => {
-          const exists = current.some((client) => client.id === order.client?.id);
-          const next = exists ? current.map((client) => (client.id === order.client?.id ? { ...client, ...order.client } as Client : client)) : [...current, order.client as Client];
-          return next.sort((a, b) => a.name.localeCompare(b.name));
+          const createdClient = { ...(order.client as Client), is_current_event: true };
+          const key = clientKey(createdClient);
+          const next = current.filter((client) => clientKey(client) !== key);
+          return [...next, createdClient].sort((a, b) => a.name.localeCompare(b.name));
         });
       }
     } catch (error) {
@@ -468,6 +504,7 @@ export function PedidosClient() {
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Registro rápido</p>
             <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Pedidos do Bazar e do Cardápio</h1>
+            <p className="mt-2 text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">{eventName}</p>
             <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido: itens do bazar ou alimentos e bebidas.</p>
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2 sm:mt-5">
               <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
@@ -477,6 +514,29 @@ export function PedidosClient() {
                 Cardápio
               </button>
             </div>
+            {operatorClientHistoryEnabled && (
+              <div className="mt-5 rounded-3xl bg-[#eafff1] p-3 ring-1 ring-[#ccebd6] sm:p-4">
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Cliente já comprou em outro bazar?</p>
+                <p className="mt-1 text-xs leading-5 text-[#496451]">Digite parte do nome ou do WhatsApp. Toque no resultado para reaproveitar os dados sem recadastrar.</p>
+                <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar nome ou WhatsApp" className="mt-3 w-full rounded-2xl border border-[#ccebd6] bg-white px-4 py-3 outline-none focus:border-[#2f7d45]" />
+                {clientSearch.trim().length >= 2 && (
+                  <div className="mt-2 grid gap-2">
+                    {filteredClients.slice(0, 6).map((client) => (
+                      <button key={`${client.id}-${clientKey(client)}`} type="button" onClick={() => { selectClient(client); setClientSearch(""); }} className="grid gap-1 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#dfe8df] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                        <span className="min-w-0">
+                          <strong className="block break-words text-sm">{client.name}</strong>
+                          <span className="block text-xs text-[#7a8278]">{client.whatsapp || "WhatsApp não informado"}</span>
+                          {client.is_current_event === false && <span className="mt-1 block text-[11px] font-black text-[#7a5a00]">Cliente anterior{client.previous_event_date ? ` · ${formatEventDate(client.previous_event_date)}` : ""}</span>}
+                        </span>
+                        <span className="text-xs font-black text-[#0f6b35]">USAR CADASTRO</span>
+                      </button>
+                    ))}
+                    {filteredClients.length === 0 && <p className="rounded-2xl bg-white p-3 text-xs text-[#496451]">Nenhum cliente encontrado. Cadastre apenas o nome e, se possível, o WhatsApp.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <label className="sm:col-span-2">
                 <span className="text-sm font-bold">Cliente obrigatório e único</span>
@@ -634,8 +694,8 @@ export function PedidosClient() {
           )}
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
             <h2 className="text-xl font-black sm:text-2xl">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente. A lista agora mostra todos os clientes carregados do evento.</p>
-            <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
+            <p className="mt-2 text-sm leading-6 text-[#496451]">Clientes do evento atual e, para a equipe autenticada, clientes de bazares anteriores aparecem na mesma busca. O cadastro histórico é apenas uma sugestão: o primeiro pedido cria o vínculo com o evento atual sem alterar o evento antigo.</p>
+            {!operatorClientHistoryEnabled && <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />}
             <p className="mt-2 text-xs font-bold text-[#7a8278]">{filteredClients.length} cliente(s) encontrado(s).</p>
             <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
               <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
@@ -646,10 +706,12 @@ export function PedidosClient() {
                     <div className="min-w-0">
                       <strong className="block break-words">{client.name}</strong>
                       {client.whatsapp && <span className="block text-xs text-[#7a8278]">{client.whatsapp}</span>}
-                      {client.public_token ? (
+                      {client.public_token && client.is_current_event !== false ? (
                         <Link href={`/bazar-sementinha/cliente/${client.public_token}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-full bg-[#fff8dd] px-3 py-1.5 text-xs font-black text-[#7a5a00] ring-1 ring-[#efe3af]">
                           Abrir acompanhamento / QRCode
                         </Link>
+                      ) : client.is_current_event === false ? (
+                        <span className="mt-2 inline-flex rounded-full bg-[#e8fff0] px-3 py-1.5 text-xs font-black text-[#0f6b35]">Cadastro de bazar anterior</span>
                       ) : (
                         <span className="mt-2 inline-flex rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-bold text-[#7a8278]">QRCode liberado após novo SQL</span>
                       )}
