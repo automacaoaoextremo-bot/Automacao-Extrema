@@ -103,9 +103,16 @@ export async function GET(request: Request) {
       previous_event_name?: string | null;
       previous_event_date?: string | null;
       lookup_key: string;
-    }> = [];
+    }> = currentRows.map((client) => ({
+      ...client,
+      is_current_event: true,
+      previous_event_name: null,
+      previous_event_date: null,
+      lookup_key: clientLookupKey(client),
+    }));
 
-    // Somente operadores autenticados recebem sugestões de clientes de bazares anteriores.
+    // Clientes do evento atual ficam disponíveis na busca da tela de Pedidos.
+    // Somente operadores autenticados recebem também sugestões de bazares anteriores.
     // Isso agiliza o balcão sem publicar histórico de nomes/WhatsApp na página aberta.
     if (authenticatedOperator) {
       const [allClientsResult, eventsResult] = await Promise.all([
