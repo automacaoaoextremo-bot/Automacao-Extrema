@@ -27,6 +27,8 @@ type CreatedOrder = {
   code: string;
   public_token?: string | null;
   total_amount: number | string;
+  payment_status?: string | null;
+  status?: string | null;
   created_at?: string | null;
   notes?: string | null;
   client?: Client | null;
@@ -58,6 +60,7 @@ type Bootstrap = {
   categories?: Category[];
   menuItems?: MenuItem[];
   clients?: Client[];
+  orders?: CreatedOrder[];
   operatorClientHistoryEnabled?: boolean;
 };
 
@@ -131,6 +134,8 @@ export function PedidosClient() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [orders, setOrders] = useState<CreatedOrder[]>([]);
+  const [clientOrderDetailsOpen, setClientOrderDetailsOpen] = useState(false);
   const [clientName, setClientName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [categoryPath, setCategoryPath] = useState("");
@@ -168,6 +173,7 @@ export function PedidosClient() {
         setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
         setMenuItems((data.menuItems || []).filter((item) => item.is_active));
         setClients([...(data.clients || [])].sort((a, b) => a.name.localeCompare(b.name)));
+        setOrders(data.orders || []);
       })
       .catch(() => setMessage("Não foi possível carregar o catálogo."));
   }, []);
@@ -218,6 +224,37 @@ export function PedidosClient() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [clientSearch, clients]);
 
+  const selectedClientOrders = useMemo(() => {
+    if (!selectedClient?.id || selectedClient.is_current_event === false) return [];
+    return orders
+      .filter(
+        (order) =>
+          order.client?.id === selectedClient.id &&
+          order.status !== "cancelado" &&
+          order.status !== "excluido",
+      )
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  }, [orders, selectedClient]);
+
+  const selectedClientOrderSummary = useMemo(() => {
+    const totalValue = selectedClientOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+    const paidOrders = selectedClientOrders.filter((order) => order.payment_status === "pago");
+    const pendingOrders = selectedClientOrders.filter((order) => order.payment_status !== "pago");
+    return {
+      totalValue,
+      paidCount: paidOrders.length,
+      paidValue: paidOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
+      pendingCount: pendingOrders.length,
+      pendingValue: pendingOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
+    };
+  }, [selectedClientOrders]);
+
+  const selectedClientAlreadyIdentified =
+    selectedClient?.is_current_event !== false && typeof selectedClient?.is_corrente === "boolean";
+
+  const showSelectedClientOrders =
+    selectedClientAlreadyIdentified && selectedClientOrders.length > 0;
+
   function showRequiredAlert(text: string) {
     setRequiredAlert(text);
     window.setTimeout(() => setRequiredAlert(""), 6500);
@@ -230,6 +267,7 @@ export function PedidosClient() {
     setClientIsCorrente(client.is_current_event === false ? null : typeof client.is_corrente === "boolean" ? client.is_corrente : null);
     setMode("bazar");
     setCreatedOrder(null);
+    setClientOrderDetailsOpen(false);
     setClientSearch("");
     const previous = client.previous_event_date ? ` do bazar de ${formatEventDate(client.previous_event_date)}` : "";
     setMessage(
@@ -241,6 +279,7 @@ export function PedidosClient() {
 
   function startAnotherOrder(client?: Client | null) {
     setCreatedOrder(null);
+    setClientOrderDetailsOpen(false);
     setCart([]);
     setMessage("");
     if (client?.name) {
@@ -253,6 +292,7 @@ export function PedidosClient() {
 
   function startNewOrder() {
     setCreatedOrder(null);
+    setClientOrderDetailsOpen(false);
     setSelectedClient(null);
     setClientName("");
     setWhatsapp("");
@@ -263,6 +303,7 @@ export function PedidosClient() {
   }
 
   function startNewClient() {
+    setClientOrderDetailsOpen(false);
     setSelectedClient(null);
     setClientName("");
     setWhatsapp("");
@@ -468,6 +509,7 @@ export function PedidosClient() {
       if (!res.ok) throw new Error(data.error || "Erro ao editar pedido.");
       const order = data.order as CreatedOrder;
       setCreatedOrder(order);
+      setOrders((current) => current.map((item) => (item.id === order.id ? order : item)));
       setEditingOrder(null);
       setMessage("Pedido atualizado.");
     } catch (error) {
@@ -509,20 +551,27 @@ export function PedidosClient() {
       setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
       setCartReviewOpen(false);
-      setSelectedClient(null);
-      setClientName("");
-      setWhatsapp("");
-      setClientIsCorrente(null);
+      setClientOrderDetailsOpen(false);
       setCategoryPath("");
       setSearch("");
+
       if (order.client?.name) {
+        const createdClient = { ...(order.client as Client), is_current_event: true };
+        setSelectedClient(createdClient);
+        setClientName(createdClient.name);
+        setWhatsapp(createdClient.whatsapp || "");
+        setClientIsCorrente(typeof createdClient.is_corrente === "boolean" ? createdClient.is_corrente : clientIsCorrente);
         setClients((current) => {
-          const createdClient = { ...(order.client as Client), is_current_event: true };
           const key = clientKey(createdClient);
           const next = current.filter((client) => clientKey(client) !== key);
           return [...next, createdClient].sort((a, b) => a.name.localeCompare(b.name));
         });
       }
+
+      setOrders((current) => {
+        const withoutCurrent = current.filter((item) => item.id !== order.id);
+        return [order, ...withoutCurrent];
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erro ao criar pedido.");
     } finally {
@@ -603,6 +652,7 @@ export function PedidosClient() {
                     if (selectedClient && event.target.value !== selectedClient.name) {
                       setSelectedClient(null);
                       setClientIsCorrente(null);
+                      setClientOrderDetailsOpen(false);
                     }
                     setClientName(event.target.value);
                     setCreatedOrder(null);
@@ -618,44 +668,94 @@ export function PedidosClient() {
             </div>
 
             {clientName.trim() && (
-              <div className="mt-4 rounded-3xl bg-[#fff8dd] p-3 ring-1 ring-[#efe3af] sm:p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.12em] text-[#7a5a00]">Primeiro pedido deste cliente no evento</p>
-                    <h2 className="mt-1 text-base font-black">É Filho da Corrente do Tucxa?</h2>
-                    <p className="mt-1 text-xs leading-5 text-[#6f6240]">
-                      {typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false
-                        ? "Esta informação já foi identificada neste bazar e não será solicitada novamente."
-                        : requireCorrenteIdentification
-                          ? "Obrigatório neste evento. Toque em Sim ou Não; depois disso não será perguntado novamente."
-                          : "Opcional neste evento. Se identificar agora, a informação não será solicitada novamente."}
-                    </p>
-                  </div>
-                  {typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false && (
-                    <span className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#efe3af]">
-                      Já identificado: {selectedClient.is_corrente ? "SIM" : "NÃO"}
+              showSelectedClientOrders ? (
+                <div className="mt-4 rounded-3xl bg-[#fffdf7] p-3 ring-1 ring-[#dfe8df] sm:p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Pedidos deste cliente no evento</p>
+                      <h2 className="mt-1 text-base font-black">{selectedClient?.name}</h2>
+                      <p className="mt-1 text-xs leading-5 text-[#496451]">
+                        {selectedClientOrders.length} pedido(s) · total {brl(selectedClientOrderSummary.totalValue)}
+                      </p>
+                      <p className="text-xs leading-5 text-[#496451]">
+                        pagos {selectedClientOrderSummary.paidCount} / {brl(selectedClientOrderSummary.paidValue)} · pendentes {selectedClientOrderSummary.pendingCount} / {brl(selectedClientOrderSummary.pendingValue)}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-3 py-2 text-xs font-black ${selectedClient?.is_corrente ? "bg-[#e8fff0] text-[#0f6b35]" : "bg-[#f4f4f1] text-[#496451]"}`}>
+                      Filho da Corrente: {selectedClient?.is_corrente ? "SIM" : "NÃO"}
                     </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderDetailsOpen((current) => !current)}
+                    className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-black text-[#0f6b35] shadow-sm ring-1 ring-[#dfe8df]"
+                  >
+                    {clientOrderDetailsOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                  </button>
+
+                  {clientOrderDetailsOpen && (
+                    <div className="mt-3 grid gap-2">
+                      {selectedClientOrders.map((order) => {
+                        const paid = order.payment_status === "pago";
+                        return (
+                          <div key={order.id} className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#e7ece5] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <strong className="text-sm">Pedido {order.code}</strong>
+                                <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${paid ? "bg-[#e8fff0] text-[#0f6b35]" : "bg-[#fff8dd] text-[#7a5a00]"}`}>
+                                  {paid ? "PAGO" : "PENDENTE"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-[#7a8278]">{formatDateTime(order.created_at)}</p>
+                            </div>
+                            <strong className="text-sm text-[#214527]">{brl(Number(order.total_amount || 0))}</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                {!(typeof selectedClient?.is_corrente === "boolean" && selectedClient.is_current_event !== false) && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setClientIsCorrente(true)}
-                      className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === true ? "bg-[#0f6b35] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
-                    >
-                      SIM
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setClientIsCorrente(false)}
-                      className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === false ? "bg-[#7d1b1b] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
-                    >
-                      NÃO
-                    </button>
+              ) : (
+                <div className="mt-4 rounded-3xl bg-[#fff8dd] p-3 ring-1 ring-[#efe3af] sm:p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#7a5a00]">Primeiro pedido deste cliente no evento</p>
+                      <h2 className="mt-1 text-base font-black">É Filho da Corrente do Tucxa?</h2>
+                      <p className="mt-1 text-xs leading-5 text-[#6f6240]">
+                        {selectedClientAlreadyIdentified
+                          ? "Esta informação já foi identificada neste bazar e não será solicitada novamente."
+                          : requireCorrenteIdentification
+                            ? "Obrigatório neste evento. Toque em Sim ou Não; depois disso não será perguntado novamente."
+                            : "Opcional neste evento. Se identificar agora, a informação não será solicitada novamente."}
+                      </p>
+                    </div>
+                    {selectedClientAlreadyIdentified && (
+                      <span className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#efe3af]">
+                        Já identificado: {selectedClient?.is_corrente ? "SIM" : "NÃO"}
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
+                  {!selectedClientAlreadyIdentified && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setClientIsCorrente(true)}
+                        className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === true ? "bg-[#0f6b35] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                      >
+                        SIM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClientIsCorrente(false)}
+                        className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === false ? "bg-[#7d1b1b] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                      >
+                        NÃO
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
             )}
 
             <div className="mt-5 border-t border-[#dfe8df] pt-4">
