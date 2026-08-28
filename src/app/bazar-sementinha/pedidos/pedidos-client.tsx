@@ -129,11 +129,14 @@ function formatDateTime(value?: string | null) {
 export function PedidosClient() {
   const [eventName, setEventName] = useState("Bazar do Sementinha");
   const [requireCorrenteIdentification, setRequireCorrenteIdentification] = useState(false);
-  const [operatorClientHistoryEnabled, setOperatorClientHistoryEnabled] = useState(false);
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [historicalSearchClients, setHistoricalSearchClients] = useState<Client[]>([]);
+  const [historicalSearchQuery, setHistoricalSearchQuery] = useState("");
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientSearchError, setClientSearchError] = useState("");
   const [orders, setOrders] = useState<CreatedOrder[]>([]);
   const [clientOrderDetailsOpen, setClientOrderDetailsOpen] = useState(false);
   const [clientName, setClientName] = useState("");
@@ -169,7 +172,6 @@ export function PedidosClient() {
       .then((data: Bootstrap) => {
         setEventName(data.event?.name || "Bazar do Sementinha");
         setRequireCorrenteIdentification(data.event?.require_corrente_identification === true);
-        setOperatorClientHistoryEnabled(data.operatorClientHistoryEnabled === true);
         setPrices((data.prices || []).filter((item) => item.is_active));
         setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
         setMenuItems((data.menuItems || []).filter((item) => item.is_active));
@@ -178,6 +180,48 @@ export function PedidosClient() {
       })
       .catch(() => setMessage("Não foi possível carregar o catálogo."));
   }, []);
+
+  const currentClientSearch = clientSearch.trim();
+  const currentClientSearchDigits = currentClientSearch.replace(/\D/g, "");
+  const canSearchHistoryNow = currentClientSearch.length >= 3 || currentClientSearchDigits.length >= 4;
+
+  useEffect(() => {
+    if (!canSearchHistoryNow) return;
+
+    const raw = currentClientSearch;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setClientSearchLoading(true);
+      setClientSearchError("");
+
+      try {
+        const response = await fetch(`/api/bazar-sementinha/customers?q=${encodeURIComponent(raw)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Não foi possível pesquisar clientes anteriores.");
+        }
+
+        setHistoricalSearchClients(Array.isArray(data.clients) ? data.clients : []);
+        setHistoricalSearchQuery(raw);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setHistoricalSearchClients([]);
+        setHistoricalSearchQuery(raw);
+        setClientSearchError(error instanceof Error ? error.message : "Não foi possível pesquisar clientes anteriores.");
+      } finally {
+        if (!controller.signal.aborted) setClientSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [canSearchHistoryNow, currentClientSearch]);
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
   const createdOrderClientPublicToken = createdOrder?.client?.public_token || "";
@@ -212,18 +256,37 @@ export function PedidosClient() {
   const menuItemsById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
   const activeMenuCategories = useMemo(() => Array.from(new Set<string>(menuItems.map((item) => item.category))).sort((a, b) => a.localeCompare(b)), [menuItems]);
 
+  const searchableClients = useMemo(() => {
+    const byKey = new Map<string, Client>();
+
+    if (canSearchHistoryNow && historicalSearchQuery === currentClientSearch) {
+      for (const client of historicalSearchClients) {
+        byKey.set(clientKey(client), client);
+      }
+    }
+
+    // O cadastro do evento atual sempre prevalece sobre uma ocorrência histórica
+    // da mesma pessoa, evitando selecionar o vínculo antigo quando ela já comprou
+    // no bazar em andamento.
+    for (const client of clients) {
+      byKey.set(clientKey(client), client);
+    }
+
+    return [...byKey.values()];
+  }, [canSearchHistoryNow, clients, currentClientSearch, historicalSearchClients, historicalSearchQuery]);
+
   const filteredClients = useMemo(() => {
     const rawTerm = clientSearch.trim();
     const term = normalize(rawTerm);
     const phoneTerm = rawTerm.replace(/\D/g, "");
-    return clients
+    return searchableClients
       .filter((client) => {
         if (!term) return true;
         const clientPhone = (client.whatsapp || "").replace(/\D/g, "");
         return normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term) || (phoneTerm.length >= 3 && clientPhone.includes(phoneTerm));
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [clientSearch, clients]);
+  }, [clientSearch, searchableClients]);
 
   const selectedClientOrders = useMemo(() => {
     if (!selectedClient?.id || selectedClient.is_current_event === false) return [];
@@ -612,13 +675,21 @@ export function PedidosClient() {
                 />
               </label>
               <p className="mt-2 text-[11px] leading-5 text-[#496451]">
-                {operatorClientHistoryEnabled
-                  ? "A busca inclui clientes deste bazar e de bazares anteriores."
-                  : "A busca inclui os clientes já cadastrados neste bazar."}
+                A busca inclui clientes deste bazar. Com 3 letras do nome ou 4 dígitos do WhatsApp, também pesquisa bazares anteriores.
               </p>
 
               {clientSearch.trim().length >= 2 && (
                 <div className="mt-2 grid gap-2">
+                  {canSearchHistoryNow && clientSearchLoading && (
+                    <div className="rounded-2xl bg-white p-3 text-xs text-[#496451] ring-1 ring-[#dfe8df]">
+                      Pesquisando também nos bazares anteriores...
+                    </div>
+                  )}
+                  {canSearchHistoryNow && clientSearchError && (
+                    <div className="rounded-2xl bg-[#fff8dd] p-3 text-xs text-[#7a5a00] ring-1 ring-[#efe3af]">
+                      {clientSearchError}
+                    </div>
+                  )}
                   {filteredClients.slice(0, 8).map((client) => (
                     <button
                       key={`${client.id}-${clientKey(client)}`}
@@ -638,7 +709,7 @@ export function PedidosClient() {
                       <span className="text-xs font-black text-[#0f6b35]">USAR CADASTRO</span>
                     </button>
                   ))}
-                  {filteredClients.length === 0 && (
+                  {filteredClients.length === 0 && !(canSearchHistoryNow && clientSearchLoading) && (
                     <div className="rounded-2xl bg-white p-3">
                       <p className="text-xs text-[#496451]">Nenhum cadastro encontrado com esta busca.</p>
                       <button type="button" onClick={startNewClient} className="mt-2 rounded-full bg-[#0f6b35] px-4 py-2 text-xs font-black text-white">
