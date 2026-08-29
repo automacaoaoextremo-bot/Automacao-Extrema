@@ -13,7 +13,7 @@ type Report = {
   events: EventOption[];
   audience: AudienceFilter;
   audienceCounts: { total: number; corrente: number; naoCorrente: number; unknown: number };
-  orderWindow: { firstOrderAt: string | null; lastOrderAt: string | null };
+  orderWindow: { firstOrderAt: string | null; lastOrderAt: string | null; durationMinutes: number | null };
   expenseScope?: "filtered-event" | "whole-event";
   expenseScopeNote?: string | null;
   totals: { sold: number; paid: number; pending: number; canceled: number; expenses: number; result: number };
@@ -109,18 +109,36 @@ function variationPercent(base: number, current: number) {
   return `${prefix}${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(variation)}%`;
 }
 
+const BAZAR_TIME_ZONE = "America/Sao_Paulo";
+
 function dateTime(value?: string | null) {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  return parsed.toLocaleString("pt-BR", {
+    timeZone: BAZAR_TIME_ZONE,
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }
 
 function timeOnly(value?: string | null) {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return parsed.toLocaleTimeString("pt-BR", {
+    timeZone: BAZAR_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function durationLabel(minutes?: number | null) {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return "—";
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const remaining = safeMinutes % 60;
+  return `${hours}h ${String(remaining).padStart(2, "0")}min`;
 }
 
 function eventDate(value?: string | null) {
@@ -224,6 +242,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
       ["Público", audienceLabel(audience)],
       ["Primeiro pedido", dateTime(report.orderWindow.firstOrderAt)],
       ["Último pedido", dateTime(report.orderWindow.lastOrderAt)],
+      ["Duração do bazar", durationLabel(report.orderWindow.durationMinutes)],
       [],
       ["Indicador", "Total"],
       ["Total vendido", report.totals.sold],
@@ -270,6 +289,25 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
     const comparison = comparisonOpen && comparisonReports.length === 2 ? comparisonReports : [];
     popup.document.open();
     popup.document.write(buildPrintHtml(report, audience, comparison));
+    popup.document.close();
+    popup.focus();
+    window.setTimeout(() => popup.print(), 350);
+  }
+
+  function generateComparisonPdf() {
+    if (typeof window === "undefined" || comparisonReports.length !== 2) {
+      setMessage("Gere primeiro a comparação entre exatamente dois bazares.");
+      return;
+    }
+
+    const popup = window.open("", "_blank", "width=1100,height=800");
+    if (!popup) {
+      setMessage("O navegador bloqueou a janela do PDF. Autorize pop-ups para este site e tente novamente.");
+      return;
+    }
+
+    popup.document.open();
+    popup.document.write(buildComparisonOnlyPrintHtml(comparisonReports, audience));
     popup.document.close();
     popup.focus();
     window.setTimeout(() => popup.print(), 350);
@@ -376,6 +414,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
           <MetricCard label="Ticket médio" value={brl(report.metrics.averageTicket)} />
           <MetricCard label="Primeiro pedido" value={timeOnly(report.orderWindow.firstOrderAt)} />
           <MetricCard label="Último pedido" value={timeOnly(report.orderWindow.lastOrderAt)} />
+          <MetricCard label="Duração do bazar" value={durationLabel(report.orderWindow.durationMinutes)} />
         </section>
 
         <section className="rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
@@ -407,7 +446,12 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
         </section>
 
         {comparisonOpen && comparisonReports.length === 2 && (
-          <ComparisonSection reports={comparisonReports} audience={audience} onClose={() => setComparisonOpen(false)} />
+          <ComparisonSection
+            reports={comparisonReports}
+            audience={audience}
+            onGeneratePdf={generateComparisonPdf}
+            onClose={() => setComparisonOpen(false)}
+          />
         )}
 
         <ReportTable title="1. Totais por forma de pagamento" rows={report.byPayment} />
@@ -461,7 +505,17 @@ function MetricCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ComparisonSection({ reports, audience, onClose }: { reports: Report[]; audience: AudienceFilter; onClose: () => void }) {
+function ComparisonSection({
+  reports,
+  audience,
+  onGeneratePdf,
+  onClose,
+}: {
+  reports: Report[];
+  audience: AudienceFilter;
+  onGeneratePdf: () => void;
+  onClose: () => void;
+}) {
   const [base, current] = reports;
   const maxSold = Math.max(...reports.map((item) => item.totals.sold), 1);
   const maxPaid = Math.max(...reports.map((item) => item.totals.paid), 1);
@@ -476,7 +530,14 @@ function ComparisonSection({ reports, audience, onClose }: { reports: Report[]; 
           <h2 className="mt-1 text-2xl font-black">Comparação entre bazares</h2>
           <p className="mt-1 text-sm text-[#496451]">Variação percentual: {eventDate(current.event.event_date)} em relação a {eventDate(base.event.event_date)}.</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-full bg-white px-3 py-2 text-xs font-black ring-1 ring-[#dfe8df]">Fechar</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onGeneratePdf} className="rounded-full bg-[#2f7d45] px-4 py-2 text-xs font-black text-white">
+            PDF da comparação
+          </button>
+          <button type="button" onClick={onClose} className="rounded-full bg-white px-3 py-2 text-xs font-black ring-1 ring-[#dfe8df]">
+            Fechar
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
@@ -492,6 +553,7 @@ function ComparisonSection({ reports, audience, onClose }: { reports: Report[]; 
             <strong className="block">{eventDate(item.event.event_date)}</strong>
             <p className="mt-2 text-sm">Primeiro pedido: <b>{timeOnly(item.orderWindow.firstOrderAt)}</b></p>
             <p className="mt-1 text-sm">Último pedido: <b>{timeOnly(item.orderWindow.lastOrderAt)}</b></p>
+            <p className="mt-1 text-sm">Duração: <b>{durationLabel(item.orderWindow.durationMinutes)}</b></p>
           </div>
         ))}
       </div>
@@ -595,6 +657,7 @@ function ComparisonMetricsTable({ reports }: { reports: Report[] }) {
         <tbody>
           <tr className="border-b"><td className="p-2 font-bold">Primeiro pedido</td><td className="p-2">{timeOnly(base.orderWindow.firstOrderAt)}</td><td className="p-2">{timeOnly(current.orderWindow.firstOrderAt)}</td><td className="p-2">—</td></tr>
           <tr className="border-b"><td className="p-2 font-bold">Último pedido</td><td className="p-2">{timeOnly(base.orderWindow.lastOrderAt)}</td><td className="p-2">{timeOnly(current.orderWindow.lastOrderAt)}</td><td className="p-2">—</td></tr>
+          <tr className="border-b"><td className="p-2 font-bold">Duração do bazar</td><td className="p-2">{durationLabel(base.orderWindow.durationMinutes)}</td><td className="p-2">{durationLabel(current.orderWindow.durationMinutes)}</td><td className="p-2">—</td></tr>
           {rows.map((row) => (
             <tr key={row.label} className="border-b">
               <td className="p-2 font-bold">{row.label}</td>
@@ -1076,12 +1139,12 @@ function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonRepo
     @page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#214527;margin:0;font-size:11px}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:16px 0 6px;color:#064b2c}.meta{margin:4px 0 14px;color:#496451}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.card{border:1px solid #dfe8df;border-radius:8px;padding:8px}.card b{display:block;font-size:15px;margin-top:3px}table{width:100%;border-collapse:collapse;margin-top:5px}th,td{border-bottom:1px solid #dfe8df;padding:5px;text-align:left;vertical-align:top}th{background:#f3f7f0}.page-break{break-before:page}section{break-inside:auto}.small{font-size:9px;color:#496451}
   </style></head><body>
     <h1>Prestação de contas - ${escapeHtml(report.event.name)}</h1>
-    <div class="meta">Data: ${escapeHtml(eventDate(report.event.event_date))} | Público: ${escapeHtml(audienceLabel(audience))} | Primeiro pedido: ${escapeHtml(dateTime(report.orderWindow.firstOrderAt))} | Último pedido: ${escapeHtml(dateTime(report.orderWindow.lastOrderAt))}</div>
+    <div class="meta">Data: ${escapeHtml(eventDate(report.event.event_date))} | Público: ${escapeHtml(audienceLabel(audience))} | Primeiro pedido: ${escapeHtml(dateTime(report.orderWindow.firstOrderAt))} | Último pedido: ${escapeHtml(dateTime(report.orderWindow.lastOrderAt))} | Duração: ${escapeHtml(durationLabel(report.orderWindow.durationMinutes))}</div>
     <div class="cards">
       ${[["Total vendido", brl(report.totals.sold)],["Total pago", brl(report.totals.paid)],["Pendente", brl(report.totals.pending)],["Despesas", brl(report.totals.expenses)],["Resultado", brl(report.totals.result)],["Ticket médio", brl(report.metrics.averageTicket)]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
     </div>
     <div class="cards" style="margin-top:6px">
-      ${[["Pedidos", report.metrics.orders],["Clientes", report.metrics.clients],["Itens vendidos", number(report.metrics.itemQuantity)],["Primeiro pedido", timeOnly(report.orderWindow.firstOrderAt)],["Último pedido", timeOnly(report.orderWindow.lastOrderAt)],["Pendências", report.pendingPayments.length]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
+      ${[["Pedidos", report.metrics.orders],["Clientes", report.metrics.clients],["Itens vendidos", number(report.metrics.itemQuantity)],["Primeiro pedido", timeOnly(report.orderWindow.firstOrderAt)],["Último pedido", timeOnly(report.orderWindow.lastOrderAt)],["Duração", durationLabel(report.orderWindow.durationMinutes)],["Pendências", report.pendingPayments.length]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
     </div>
     ${htmlGroupTable("1. Totais por forma de pagamento", report.byPayment)}
     <section><h2>2. Totais por categoria/resumo</h2><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Receita</th><th>Despesas</th><th>Resultado</th><th>%</th></tr></thead><tbody>${report.byCategorySummary.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(number(row.quantity))}</td><td>${escapeHtml(brl(row.revenue))}</td><td>${escapeHtml(brl(row.expenses))}</td><td>${escapeHtml(brl(row.result))}</td><td>${escapeHtml(percent(row.resultPercent))}</td></tr>`).join("")}</tbody></table></section>
@@ -1095,9 +1158,9 @@ function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonRepo
   </body></html>`;
 }
 
-function buildComparisonPrintHtml(reports: Report[]) {
+function comparisonRows(reports: Report[]) {
   const [base, current] = reports;
-  const rows = [
+  return [
     ["Total vendido", base.totals.sold, current.totals.sold, brl],
     ["Total pago", base.totals.paid, current.totals.paid, brl],
     ["Pendente", base.totals.pending, current.totals.pending, brl],
@@ -1108,5 +1171,42 @@ function buildComparisonPrintHtml(reports: Report[]) {
     ["Itens", base.metrics.itemQuantity, current.metrics.itemQuantity, number],
     ["Ticket médio", base.metrics.averageTicket, current.metrics.averageTicket, brl],
   ] as Array<[string, number, number, (value: number) => string]>;
-  return `<section class="page-break"><h1>Comparação entre bazares</h1><div class="meta">${escapeHtml(eventDate(base.event.event_date))} x ${escapeHtml(eventDate(current.event.event_date))}</div><table><thead><tr><th>Indicador</th><th>${escapeHtml(eventDate(base.event.event_date))}</th><th>${escapeHtml(eventDate(current.event.event_date))}</th><th>Variação</th></tr></thead><tbody><tr><td>Primeiro pedido</td><td>${escapeHtml(timeOnly(base.orderWindow.firstOrderAt))}</td><td>${escapeHtml(timeOnly(current.orderWindow.firstOrderAt))}</td><td>—</td></tr><tr><td>Último pedido</td><td>${escapeHtml(timeOnly(base.orderWindow.lastOrderAt))}</td><td>${escapeHtml(timeOnly(current.orderWindow.lastOrderAt))}</td><td>—</td></tr>${rows.map(([label,baseValue,currentValue,formatter]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(formatter(baseValue))}</td><td>${escapeHtml(formatter(currentValue))}</td><td><b>${escapeHtml(variationPercent(baseValue,currentValue))}</b></td></tr>`).join("")}</tbody></table></section>`;
+}
+
+function htmlComparisonGroupTable(title: string, reports: Report[], getRows: (report: Report) => Group[]) {
+  const [base, current] = reports;
+  const baseMap = new Map(getRows(base).map((row) => [row.label, row]));
+  const currentMap = new Map(getRows(current).map((row) => [row.label, row]));
+  const labels = [...new Set([...baseMap.keys(), ...currentMap.keys()])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  return `<section><h2>${escapeHtml(title)}</h2><table><thead><tr><th>Descrição</th><th>${escapeHtml(eventDate(base.event.event_date))}</th><th>${escapeHtml(eventDate(current.event.event_date))}</th><th>Var. qtd.</th><th>Var. valor</th></tr></thead><tbody>${labels.map((label) => {
+    const baseRow = baseMap.get(label) || { label, quantity: 0, total: 0 };
+    const currentRow = currentMap.get(label) || { label, quantity: 0, total: 0 };
+    return `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(`${number(baseRow.quantity)} / ${brl(baseRow.total)}`)}</td><td>${escapeHtml(`${number(currentRow.quantity)} / ${brl(currentRow.total)}`)}</td><td><b>${escapeHtml(variationPercent(baseRow.quantity, currentRow.quantity))}</b></td><td><b>${escapeHtml(variationPercent(baseRow.total, currentRow.total))}</b></td></tr>`;
+  }).join("") || '<tr><td colspan="5">Sem registros.</td></tr>'}</tbody></table></section>`;
+}
+
+function buildComparisonPrintHtml(reports: Report[], pageBreak = true) {
+  const [base, current] = reports;
+  const rows = comparisonRows(reports);
+  const pageBreakClass = pageBreak ? ' class="page-break"' : "";
+
+  return `<section${pageBreakClass}><h1>Comparação entre bazares</h1><div class="meta">${escapeHtml(eventDate(base.event.event_date))} x ${escapeHtml(eventDate(current.event.event_date))}</div><table><thead><tr><th>Indicador</th><th>${escapeHtml(eventDate(base.event.event_date))}</th><th>${escapeHtml(eventDate(current.event.event_date))}</th><th>Variação</th></tr></thead><tbody><tr><td>Primeiro pedido</td><td>${escapeHtml(timeOnly(base.orderWindow.firstOrderAt))}</td><td>${escapeHtml(timeOnly(current.orderWindow.firstOrderAt))}</td><td>—</td></tr><tr><td>Último pedido</td><td>${escapeHtml(timeOnly(base.orderWindow.lastOrderAt))}</td><td>${escapeHtml(timeOnly(current.orderWindow.lastOrderAt))}</td><td>—</td></tr><tr><td>Duração do bazar</td><td>${escapeHtml(durationLabel(base.orderWindow.durationMinutes))}</td><td>${escapeHtml(durationLabel(current.orderWindow.durationMinutes))}</td><td>—</td></tr>${rows.map(([label,baseValue,currentValue,formatter]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(formatter(baseValue))}</td><td>${escapeHtml(formatter(currentValue))}</td><td><b>${escapeHtml(variationPercent(baseValue,currentValue))}</b></td></tr>`).join("")}</tbody></table>
+  ${htmlComparisonGroupTable("Formas de pagamento", reports, (item) => item.byPayment)}
+  ${htmlComparisonGroupTable("Bazar x alimentos e bebidas", reports, (item) => item.byKind)}
+  ${htmlComparisonGroupTable("Itens de alimentação", reports, (item) => item.byItem)}
+  ${htmlComparisonGroupTable("Quantidade por valor unitário", reports, (item) => item.byUnitPrice)}
+  ${htmlComparisonGroupTable("Despesas por categoria", reports, (item) => item.byExpense)}
+  </section>`;
+}
+
+function buildComparisonOnlyPrintHtml(reports: Report[], audience: AudienceFilter) {
+  const [base, current] = reports;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comparação entre bazares - ${escapeHtml(eventDate(base.event.event_date))} x ${escapeHtml(eventDate(current.event.event_date))}</title><style>
+    @page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#214527;margin:0;font-size:11px}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:16px 0 6px;color:#064b2c}.meta{margin:4px 0 14px;color:#496451}table{width:100%;border-collapse:collapse;margin-top:5px}th,td{border-bottom:1px solid #dfe8df;padding:5px;text-align:left;vertical-align:top}th{background:#f3f7f0}section{break-inside:auto}
+  </style></head><body>
+    <div class="meta">Prestação de contas • Público: ${escapeHtml(audienceLabel(audience))}</div>
+    ${buildComparisonPrintHtml(reports, false)}
+    <script>window.addEventListener('afterprint',()=>window.close());</script>
+  </body></html>`;
 }

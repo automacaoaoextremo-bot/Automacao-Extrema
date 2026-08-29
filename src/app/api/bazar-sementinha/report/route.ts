@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     const allOrders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
     const allActiveOrders = allOrders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
     const audienceCounts = buildAudienceCounts(allActiveOrders);
-    const orderWindow = buildOrderWindow(allActiveOrders);
+    const orderWindow = buildOrderWindow(allActiveOrders, event.event_date);
 
     const orders = allOrders.filter((order) => matchesAudience(order, audience));
     const payments = (paymentsRes.data || []) as PaymentRow[];
@@ -264,19 +264,54 @@ function buildAudienceCounts(orders: OrderRow[]) {
   };
 }
 
-function buildOrderWindow(orders: OrderRow[]) {
-  if (orders.length === 0) {
-    return { firstOrderAt: null, lastOrderAt: null };
+const BAZAR_TIME_ZONE = "America/Sao_Paulo";
+
+function localDateKey(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BAZAR_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+
+  const year = parts.find((part) => part.type === "year")?.value || "";
+  const month = parts.find((part) => part.type === "month")?.value || "";
+  const day = parts.find((part) => part.type === "day")?.value || "";
+  return year && month && day ? `${year}-${month}-${day}` : "";
+}
+
+function buildOrderWindow(orders: OrderRow[], eventDate: string) {
+  const parsedOrders = orders
+    .map((order) => {
+      const parsed = new Date(order.created_at);
+      return {
+        raw: order.created_at,
+        timestamp: parsed.getTime(),
+        localDate: localDateKey(order.created_at),
+      };
+    })
+    .filter((item) => Number.isFinite(item.timestamp));
+
+  if (parsedOrders.length === 0) {
+    return { firstOrderAt: null, lastOrderAt: null, durationMinutes: null };
   }
 
-  const timestamps = orders
-    .map((order) => order.created_at)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
+  const eventDateKey = eventDate.slice(0, 10);
+  const eventDayOrders = parsedOrders.filter((item) => item.localDate === eventDateKey);
+  const candidates = (eventDayOrders.length > 0 ? eventDayOrders : parsedOrders)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const first = candidates[0];
+  const last = candidates[candidates.length - 1];
+  const durationMinutes = Math.max(0, Math.round((last.timestamp - first.timestamp) / 60000));
 
   return {
-    firstOrderAt: timestamps[0] || null,
-    lastOrderAt: timestamps[timestamps.length - 1] || null,
+    firstOrderAt: first.raw,
+    lastOrderAt: last.raw,
+    durationMinutes,
   };
 }
 
