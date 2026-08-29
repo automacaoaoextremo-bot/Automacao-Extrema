@@ -10,7 +10,7 @@ const CURRENT_POSTER_SRC = "/bazar-sementinha/cardapio-cantina-sementinha-2026-0
 const LEGACY_POSTER_SRC = "/bazar-sementinha/cardapio-cozinha-bazar-sementinha-2026-07-04.jpg";
 const LEGACY_VIDEO_SRC = "/bazar-sementinha/cardapio-bazar-sementinha-2026-07-04.mp4";
 
-const categoryOrder = ["Tortas", "Salgados", "Bauru de Forno", "Doces", "Bebidas"];
+const categoryOrder = ["Tortas", "Salgados", "Doces", "Bebidas"];
 
 type MenuItemRow = {
   id: string;
@@ -54,15 +54,6 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-}
-
-function categoryPhoto(category: string) {
-  const slug = slugify(category);
-  if (slug === "bauru-de-forno") return "/bazar-sementinha/foto-bauru-de-forno.jpg";
-  if (slug === "bebidas") return "/bazar-sementinha/foto-bebidas.jpg";
-  if (slug === "doces") return "/bazar-sementinha/foto-doces.jpg";
-  if (slug === "salgados") return "/bazar-sementinha/foto-salgados.jpg";
-  return "/bazar-sementinha/foto-tortas.jpg";
 }
 
 async function getMenuItems(eventId: string): Promise<MenuItemView[]> {
@@ -195,7 +186,7 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
               <p className="text-xs font-black uppercase tracking-[0.18em] text-[#7d963c] sm:text-sm">Itens cadastrados no sistema</p>
               <h2 className="mt-2 text-2xl font-black sm:text-4xl">Cardápio em texto</h2>
               <p className="mt-3 text-sm leading-6 text-[#60705a] sm:text-base">
-                Esta lista é carregada da Gestão do evento e é a referência operacional usada em Pedidos.
+                Esta lista é carregada da Gestão do evento e é a referência operacional usada em Pedidos. Somente itens ativos do evento atual são exibidos.
               </p>
             </div>
 
@@ -218,35 +209,25 @@ export default async function CardapioBazarSementinhaPage({ searchParams }: Card
                   id={slugify(group.category)}
                   className="scroll-mt-44 overflow-hidden rounded-[2rem] border border-[#d7dfca] bg-white shadow-sm"
                 >
-                  <div className="grid lg:grid-cols-[220px_minmax(0,1fr)]">
-                    <div className="relative min-h-44 bg-[#eef1df] lg:min-h-full">
-                      <Image
-                        src={categoryPhoto(group.category)}
-                        alt={`Foto ilustrativa de ${group.category}`}
-                        fill
-                        sizes="(max-width: 1024px) 100vw, 220px"
-                        className="object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#173d1d]/55 via-transparent to-transparent" />
-                      <h3 className="absolute bottom-4 left-4 right-4 text-2xl font-black text-white">{group.category}</h3>
-                    </div>
+                  <header className="border-b border-[#dfe6d4] bg-[#eef1df] px-4 py-4 sm:px-5">
+                    <h3 className="text-2xl font-black text-[#315725]">{group.category}</h3>
+                  </header>
 
-                    <div className="divide-y divide-[#edf0e6]">
-                      {group.items.map((item) => (
-                        <article key={item.id} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 sm:p-5">
-                          <div className="min-w-0">
-                            <h4 className="text-lg font-black leading-tight text-[#24451f] sm:text-xl">{item.name}</h4>
-                            {item.description && item.description !== `${item.name}.` ? (
-                              <p className="mt-1 text-sm leading-5 text-[#65735f]">{item.description}</p>
-                            ) : null}
-                            <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-[#8a936f]">{item.unit_label}</p>
-                          </div>
-                          <strong className="w-fit rounded-xl bg-[#678b2e] px-4 py-2 text-xl font-black text-white shadow-sm sm:text-2xl">
-                            {formatBRL(item.price)}
-                          </strong>
-                        </article>
-                      ))}
-                    </div>
+                  <div className="divide-y divide-[#edf0e6]">
+                    {group.items.map((item) => (
+                      <article key={item.id} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 sm:p-5">
+                        <div className="min-w-0">
+                          <h4 className="text-lg font-black leading-tight text-[#24451f] sm:text-xl">{item.name}</h4>
+                          {item.description && item.description !== `${item.name}.` ? (
+                            <p className="mt-1 text-sm leading-5 text-[#65735f]">{item.description}</p>
+                          ) : null}
+                          <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-[#8a936f]">{item.unit_label}</p>
+                        </div>
+                        <strong className="w-fit rounded-xl bg-[#678b2e] px-4 py-2 text-xl font-black text-white shadow-sm sm:text-2xl">
+                          {formatBRL(item.price)}
+                        </strong>
+                      </article>
+                    ))}
                   </div>
                 </section>
               ))}

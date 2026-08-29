@@ -54,9 +54,21 @@ export async function GET(request: Request) {
     const authenticatedOperator = await isBazarSessionValid(request);
 
     const [prices, categories, menu, currentClients, orders] = await Promise.all([
-      supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", eventId).order("amount"),
-      supabaseAdmin.from("bazar_category_nodes").select("*").eq("event_id", eventId).order("sort_order"),
-      supabaseAdmin.from("bazar_menu_items").select("*").eq("event_id", eventId).order("category").order("name"),
+      supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", eventId).eq("is_active", true).order("amount"),
+      supabaseAdmin
+        .from("bazar_category_nodes")
+        .select("*")
+        .eq("event_id", eventId)
+        .eq("is_active", true)
+        .eq("is_visible", true)
+        .order("sort_order"),
+      supabaseAdmin
+        .from("bazar_menu_items")
+        .select("*")
+        .eq("event_id", eventId)
+        .eq("is_active", true)
+        .order("category")
+        .order("name"),
       supabaseAdmin.from("bazar_clients").select("*").eq("event_id", eventId).order("name", { ascending: true }).limit(5000),
       supabaseAdmin
         .from("bazar_orders")
