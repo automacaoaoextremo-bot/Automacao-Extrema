@@ -6,6 +6,15 @@ export const dynamic = "force-dynamic";
 
 type AudienceFilter = "all" | "corrente" | "nao_corrente";
 
+type OrderItemRow = {
+  kind: string;
+  name: string;
+  category_path?: string | null;
+  quantity: number | string;
+  total_price: number | string;
+  unit_price: number | string;
+};
+
 type OrderRow = {
   id: string;
   client_id?: string | null;
@@ -20,14 +29,7 @@ type OrderRow = {
     whatsapp?: string | null;
     is_corrente?: boolean | null;
   } | null;
-  items?: Array<{
-    kind: string;
-    name: string;
-    category_path?: string | null;
-    quantity: number | string;
-    total_price: number | string;
-    unit_price: number | string;
-  }>;
+  items?: OrderItemRow[];
 };
 
 type PaymentRow = {
@@ -104,6 +106,7 @@ export async function GET(request: Request) {
     const allOrders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
     const allActiveOrders = allOrders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
     const audienceCounts = buildAudienceCounts(allActiveOrders);
+    const orderWindow = buildOrderWindow(allActiveOrders);
 
     const orders = allOrders.filter((order) => matchesAudience(order, audience));
     const payments = (paymentsRes.data || []) as PaymentRow[];
@@ -165,6 +168,8 @@ export async function GET(request: Request) {
       (item) => toNumber(item.quantity),
     );
 
+    const byUnitPrice = buildUnitPriceSummary(itemRows);
+
     const byExpense = groupSum(
       confirmedExpenses,
       (expense) => expense.category || "Geral",
@@ -197,6 +202,7 @@ export async function GET(request: Request) {
       events: (eventsRes.data || []) as EventOption[],
       audience,
       audienceCounts,
+      orderWindow,
       expenseScope: audience === "all" ? "filtered-event" : "whole-event",
       expenseScopeNote:
         audience === "all"
@@ -211,6 +217,7 @@ export async function GET(request: Request) {
       byKind,
       byCategorySummary,
       byItem,
+      byUnitPrice,
       byExpense,
       pendingPayments,
     });
@@ -257,6 +264,22 @@ function buildAudienceCounts(orders: OrderRow[]) {
   };
 }
 
+function buildOrderWindow(orders: OrderRow[]) {
+  if (orders.length === 0) {
+    return { firstOrderAt: null, lastOrderAt: null };
+  }
+
+  const timestamps = orders
+    .map((order) => order.created_at)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  return {
+    firstOrderAt: timestamps[0] || null,
+    lastOrderAt: timestamps[timestamps.length - 1] || null,
+  };
+}
+
 function toNumber(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -272,6 +295,32 @@ function groupSum<T>(rows: T[], labelFn: (row: T) => string, amountFn: (row: T) 
     map.set(label, previous);
   }
   return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function buildUnitPriceSummary(items: OrderItemRow[]) {
+  const map = new Map<number, { label: string; quantity: number; total: number }>();
+
+  for (const item of items) {
+    const unitPrice = toNumber(item.unit_price);
+    const quantity = toNumber(item.quantity);
+    const total = toNumber(item.total_price);
+    const previous = map.get(unitPrice) || {
+      label: formatPriceLabel(unitPrice),
+      quantity: 0,
+      total: 0,
+    };
+    previous.quantity += quantity;
+    previous.total += total;
+    map.set(unitPrice, previous);
+  }
+
+  return [...map.entries()]
+    .sort(([priceA], [priceB]) => priceA - priceB)
+    .map(([, row]) => row);
+}
+
+function formatPriceLabel(value: number) {
+  return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function buildCategorySummary(salesRows: Array<{ label: string; quantity: number; total: number }>, expenses: ExpenseRow[]): SummaryRow[] {
