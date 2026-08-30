@@ -147,6 +147,26 @@ function eventDate(value?: string | null) {
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
+function bazarAuthHeaders(extra?: HeadersInit): HeadersInit {
+  const headers = new Headers(extra);
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("bazar_sementinha_session");
+    if (token) headers.set("x-bazar-session", token);
+  }
+  return headers;
+}
+
+function currencyLabelValue(label: string) {
+  const normalized = label
+    .replace(/R\$/gi, "")
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .replace(/[^0-9.-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
 function reportUrl(eventSelector: string, audience: AudienceFilter) {
   const params = new URLSearchParams();
   if (eventSelector) params.set("evento", eventSelector);
@@ -568,7 +588,13 @@ function ComparisonSection({
       <GroupComparisonTable title="Formas de pagamento" reports={reports} getRows={(item) => item.byPayment} />
       <GroupComparisonTable title="Bazar x alimentos e bebidas" reports={reports} getRows={(item) => item.byKind} />
       <GroupComparisonTable title="Itens de alimentação" reports={reports} getRows={(item) => item.byItem} limit={12} />
-      <GroupComparisonTable title="Quantidade por valor unitário" reports={reports} getRows={(item) => item.byUnitPrice} />
+      <GroupComparisonTable
+        title="Quantidade por valor unitário"
+        reports={reports}
+        getRows={(item) => item.byUnitPrice}
+        sortMode="unit-price-asc"
+        limit={200}
+      />
       <GroupComparisonTable title="Despesas por categoria" reports={reports} getRows={(item) => item.byExpense} />
       <CategoryComparisonTable reports={reports} />
 
@@ -677,18 +703,27 @@ function GroupComparisonTable({
   reports,
   getRows,
   limit = 20,
+  sortMode = "total-desc",
 }: {
   title: string;
   reports: Report[];
   getRows: (report: Report) => Group[];
   limit?: number;
+  sortMode?: "total-desc" | "unit-price-asc";
 }) {
   const [base, current] = reports;
   const totals = new Map<string, number>();
   for (const report of reports) {
     for (const row of getRows(report)) totals.set(row.label, (totals.get(row.label) || 0) + row.total);
   }
-  const labels = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([label]) => label);
+
+  const orderedEntries = [...totals.entries()].sort((a, b) => {
+    if (sortMode === "unit-price-asc") {
+      return currencyLabelValue(a[0]) - currencyLabelValue(b[0]);
+    }
+    return b[1] - a[1];
+  });
+  const labels = orderedEntries.slice(0, limit).map(([label]) => label);
 
   return (
     <section className="overflow-x-auto rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df]">
@@ -859,17 +894,28 @@ function CustomerAnalysisSection({ selectedEvent, events }: { selectedEvent: str
   const [data, setData] = useState<CustomerAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [search, setSearch] = useState("");
 
   async function loadAnalysis(nextScope = scope) {
     setLoading(true);
     setError("");
+    setNeedsAuth(false);
     try {
       const params = new URLSearchParams();
       params.set("scope", nextScope);
       if (nextScope === "event") params.set("evento", selectedEvent);
-      const response = await fetch(`/api/bazar-sementinha/customer-analysis?${params.toString()}`, { cache: "no-store" });
+      const response = await fetch(`/api/bazar-sementinha/customer-analysis?${params.toString()}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: bazarAuthHeaders(),
+      });
       const payload = (await response.json()) as CustomerAnalysis & { error?: string };
+      if (response.status === 401) {
+        setNeedsAuth(true);
+        setData(null);
+        throw new Error("A análise detalhada por cliente é restrita à Gestão. Entre na Gestão e tente novamente.");
+      }
       if (!response.ok) throw new Error(payload.error || "Erro ao analisar clientes.");
       setData(payload);
     } catch (caught) {
@@ -1010,6 +1056,26 @@ function CustomerAnalysisSection({ selectedEvent, events }: { selectedEvent: str
 
       {scope === "event" && <p className="mt-2 text-xs text-[#6b725f]">Evento selecionado: {eventDate(events.find((event) => event.id === selectedEvent)?.event_date)}</p>}
       {error && <p className="mt-3 rounded-2xl bg-[#fff1ee] p-3 text-sm font-bold text-[#8a2f20]">{error}</p>}
+      {needsAuth && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-[#e6c8a8] bg-[#fff8ef] p-3">
+          <span className="text-sm text-[#6c4d2c]">Faça login na Gestão para liberar os dados detalhados dos clientes.</span>
+          <a
+            href="/bazar-sementinha/gestao"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-[#214527] px-4 py-2 text-xs font-black text-white"
+          >
+            Abrir Gestão
+          </a>
+          <button
+            type="button"
+            onClick={() => void loadAnalysis()}
+            className="rounded-full border border-[#214527]/20 bg-white px-4 py-2 text-xs font-black text-[#214527]"
+          >
+            Já entrei — tentar novamente
+          </button>
+        </div>
+      )}
 
       {data && (
         <>
@@ -1173,11 +1239,21 @@ function comparisonRows(reports: Report[]) {
   ] as Array<[string, number, number, (value: number) => string]>;
 }
 
-function htmlComparisonGroupTable(title: string, reports: Report[], getRows: (report: Report) => Group[]) {
+function htmlComparisonGroupTable(
+  title: string,
+  reports: Report[],
+  getRows: (report: Report) => Group[],
+  sortMode: "label" | "unit-price-asc" = "label",
+) {
   const [base, current] = reports;
   const baseMap = new Map(getRows(base).map((row) => [row.label, row]));
   const currentMap = new Map(getRows(current).map((row) => [row.label, row]));
-  const labels = [...new Set([...baseMap.keys(), ...currentMap.keys()])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const labels = [...new Set([...baseMap.keys(), ...currentMap.keys()])].sort((a, b) => {
+    if (sortMode === "unit-price-asc") {
+      return currencyLabelValue(a) - currencyLabelValue(b);
+    }
+    return a.localeCompare(b, "pt-BR");
+  });
 
   return `<section><h2>${escapeHtml(title)}</h2><table><thead><tr><th>Descrição</th><th>${escapeHtml(eventDate(base.event.event_date))}</th><th>${escapeHtml(eventDate(current.event.event_date))}</th><th>Var. qtd.</th><th>Var. valor</th></tr></thead><tbody>${labels.map((label) => {
     const baseRow = baseMap.get(label) || { label, quantity: 0, total: 0 };
@@ -1195,7 +1271,7 @@ function buildComparisonPrintHtml(reports: Report[], pageBreak = true) {
   ${htmlComparisonGroupTable("Formas de pagamento", reports, (item) => item.byPayment)}
   ${htmlComparisonGroupTable("Bazar x alimentos e bebidas", reports, (item) => item.byKind)}
   ${htmlComparisonGroupTable("Itens de alimentação", reports, (item) => item.byItem)}
-  ${htmlComparisonGroupTable("Quantidade por valor unitário", reports, (item) => item.byUnitPrice)}
+  ${htmlComparisonGroupTable("Quantidade por valor unitário", reports, (item) => item.byUnitPrice, "unit-price-asc")}
   ${htmlComparisonGroupTable("Despesas por categoria", reports, (item) => item.byExpense)}
   </section>`;
 }
