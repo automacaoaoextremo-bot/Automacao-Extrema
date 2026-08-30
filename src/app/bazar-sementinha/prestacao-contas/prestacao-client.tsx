@@ -7,6 +7,16 @@ type Group = { label: string; quantity: number; total: number };
 type CategorySummary = { label: string; quantity: number; revenue: number; expenses: number; result: number; resultPercent: number | null };
 type PendingPayment = { id: string; clientName: string; code: string; createdAt: string; items: string; total: number };
 type Expense = { id: string; category: string; description: string; amount: number; status: string; notes?: string | null };
+type ExtraRevenue = {
+  id: string;
+  revenue_type: "doacao" | "receita_extra";
+  description: string;
+  source?: string | null;
+  amount: number | string;
+  status: "confirmada" | "pendente" | "cancelada";
+  notes?: string | null;
+  created_at?: string | null;
+};
 type EventOption = { id: string; name: string; event_date: string; slug: string; status: string; is_public?: boolean };
 type Report = {
   event: EventOption;
@@ -16,7 +26,16 @@ type Report = {
   orderWindow: { firstOrderAt: string | null; lastOrderAt: string | null; durationMinutes: number | null };
   expenseScope?: "filtered-event" | "whole-event";
   expenseScopeNote?: string | null;
-  totals: { sold: number; paid: number; pending: number; canceled: number; expenses: number; result: number };
+  totals: {
+    sold: number;
+    paid: number;
+    pending: number;
+    canceled: number;
+    expenses: number;
+    extraRevenues: number;
+    revenue: number;
+    result: number;
+  };
   metrics: { orders: number; clients: number; itemQuantity: number; averageTicket: number; paidOrders: number; pendingOrders: number };
   byPayment: Group[];
   byKind: Group[];
@@ -24,8 +43,10 @@ type Report = {
   byItem: Group[];
   byUnitPrice: Group[];
   byExpense: Group[];
+  byExtraRevenue: Group[];
   pendingPayments: PendingPayment[];
   expenses: Expense[];
+  extraRevenues: ExtraRevenue[];
 };
 
 type CustomerRegistration = {
@@ -86,6 +107,18 @@ type CustomerAnalysis = {
   events: EventOption[];
   customers: CustomerAnalysisRow[];
   totals: { customers: number; orders: number; itemQuantity: number; total: number; paid: number; pending: number };
+};
+
+type ParetoRow = Group & {
+  sharePercent: number;
+  cumulativePercent: number;
+  bucket: "principal" | "complementar";
+};
+
+type ParetoSummary = {
+  principal: { quantity: number; total: number; sharePercent: number; values: ParetoRow[] };
+  complementar: { quantity: number; total: number; sharePercent: number; values: ParetoRow[] };
+  total: number;
 };
 
 function brl(value: number) {
@@ -167,6 +200,58 @@ function currencyLabelValue(label: string) {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+function buildParetoRows(rows: Group[]): ParetoRow[] {
+  const eligible = rows
+    .filter((row) => Number.isFinite(row.total) && row.total > 0)
+    .sort((a, b) => b.total - a.total || currencyLabelValue(a.label) - currencyLabelValue(b.label));
+
+  const total = eligible.reduce((sum, row) => sum + row.total, 0);
+  if (total <= 0) return [];
+
+  let accumulated = 0;
+  return eligible.map((row) => {
+    const sharePercent = (row.total / total) * 100;
+    const bucket: ParetoRow["bucket"] = accumulated / total < 0.8 ? "principal" : "complementar";
+    accumulated += row.total;
+    return {
+      ...row,
+      sharePercent,
+      cumulativePercent: (accumulated / total) * 100,
+      bucket,
+    };
+  });
+}
+
+function summarizePareto(rows: Group[]): ParetoSummary {
+  const paretoRows = buildParetoRows(rows);
+  const total = paretoRows.reduce((sum, row) => sum + row.total, 0);
+
+  const summarize = (bucket: ParetoRow["bucket"]) => {
+    const values = paretoRows.filter((row) => row.bucket === bucket);
+    const bucketTotal = values.reduce((sum, row) => sum + row.total, 0);
+    return {
+      quantity: values.reduce((sum, row) => sum + row.quantity, 0),
+      total: bucketTotal,
+      sharePercent: total > 0 ? (bucketTotal / total) * 100 : 0,
+      values,
+    };
+  };
+
+  return {
+    principal: summarize("principal"),
+    complementar: summarize("complementar"),
+    total,
+  };
+}
+
+function paretoValuesLabel(rows: ParetoRow[]) {
+  return rows
+    .slice()
+    .sort((a, b) => currencyLabelValue(a.label) - currencyLabelValue(b.label))
+    .map((row) => row.label)
+    .join(", ");
+}
+
 function reportUrl(eventSelector: string, audience: AudienceFilter) {
   const params = new URLSearchParams();
   if (eventSelector) params.set("evento", eventSelector);
@@ -190,6 +275,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [loadingCompare, setLoadingCompare] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -212,7 +298,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
     return () => {
       ignore = true;
     };
-  }, [audience, selectedEvent]);
+  }, [audience, refreshNonce, selectedEvent]);
 
   function selectEvent(next: string) {
     setSelectedEvent(next);
@@ -265,12 +351,14 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
       ["Duração do bazar", durationLabel(report.orderWindow.durationMinutes)],
       [],
       ["Indicador", "Total"],
-      ["Total vendido", report.totals.sold],
-      ["Total pago", report.totals.paid],
+      ["Vendas", report.totals.sold],
+      ["Doações / receitas extras", report.totals.extraRevenues],
+      ["Receita total", report.totals.revenue],
+      ["Total pago em vendas", report.totals.paid],
       ["Total pendente", report.totals.pending],
       ["Cancelado", report.totals.canceled],
       ["Despesas", report.totals.expenses],
-      ["Resultado", report.totals.result],
+      ["Resultado realizado", report.totals.result],
       ["Pedidos", report.metrics.orders],
       ["Clientes", report.metrics.clients],
       ["Itens", report.metrics.itemQuantity],
@@ -284,9 +372,28 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
       ["Item", "Quantidade", "Total"],
       ...report.byItem.map((item) => [item.label, item.quantity, item.total]),
       [],
-      ["Quantidade vendida por valor unitário"],
-      ["Valor unitário", "Quantidade", "Faturamento"],
-      ...report.byUnitPrice.map((item) => [item.label, item.quantity, item.total]),
+      ["Quantidade vendida por valor unitário — análise 80/20"],
+      ["Faixa", "Valor unitário", "Quantidade", "Faturamento", "Participação %", "Acumulado %"],
+      ...buildParetoRows(report.byUnitPrice).map((item) => [
+        item.bucket === "principal" ? "Principal ~80%" : "Complementar ~20%",
+        item.label,
+        item.quantity,
+        item.total,
+        item.sharePercent,
+        item.cumulativePercent,
+      ]),
+      [],
+      ["Doações e receitas extraordinárias"],
+      ["Data", "Tipo", "Descrição", "Origem", "Status", "Valor", "Observações"],
+      ...report.extraRevenues.map((item) => [
+        dateTime(item.created_at),
+        item.revenue_type,
+        item.description,
+        item.source || "",
+        item.status,
+        item.amount,
+        item.notes || "",
+      ]),
       [],
       ["Pagamentos pendentes"],
       ["Cliente", "Pedido", "Itens", "Data", "Valor pendente"],
@@ -344,12 +451,13 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
   }
 
   const cards = [
-    ["Total vendido", report.totals.sold],
-    ["Total pago", report.totals.paid],
+    ["Vendas", report.totals.sold],
+    ["Doações / receitas extras", report.totals.extraRevenues],
+    ["Receita total", report.totals.revenue],
+    ["Total pago em vendas", report.totals.paid],
     ["Total pendente", report.totals.pending],
-    ["Cancelado", report.totals.canceled],
     ["Despesas confirmadas", report.totals.expenses],
-    ["Resultado estimado", report.totals.result],
+    ["Resultado realizado", report.totals.result],
   ] as const;
 
   return (
@@ -383,7 +491,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
                 {([
                   ["all", "Todos"],
                   ["corrente", "Filhos da Corrente"],
-                  ["nao_corrente", "Não Filhos"],
+                  ["nao_corrente", "Filhos de Fora"],
                 ] as Array<[AudienceFilter, string]>).map(([value, label]) => (
                   <button
                     key={value}
@@ -401,13 +509,13 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <AudienceStat label="Clientes classificados" value={report.audienceCounts.corrente + report.audienceCounts.naoCorrente} />
             <AudienceStat label="Filhos da Corrente" value={report.audienceCounts.corrente} />
-            <AudienceStat label="Não Filhos" value={report.audienceCounts.naoCorrente} />
+            <AudienceStat label="Filhos de Fora" value={report.audienceCounts.naoCorrente} />
             <AudienceStat label="Não identificados" value={report.audienceCounts.unknown} />
           </div>
 
           {report.audienceCounts.unknown > 0 && (
             <p className="mt-3 rounded-2xl bg-[#fff8dd] p-3 text-xs font-bold leading-5 text-[#7a5a00]">
-              Este evento possui {report.audienceCounts.unknown} cliente(s) sem identificação de Filho da Corrente. Eles aparecem em “Todos”, mas não entram nos filtros “Filhos da Corrente” ou “Não Filhos”.
+              Este evento possui {report.audienceCounts.unknown} cliente(s) sem identificação de Filho da Corrente. Eles aparecem em “Todos”, mas não entram nos filtros “Filhos da Corrente” ou “Filhos de Fora”.
             </p>
           )}
 
@@ -477,7 +585,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
         <ReportTable title="1. Totais por forma de pagamento" rows={report.byPayment} />
         <CategorySummaryTable rows={report.byCategorySummary} />
         <ReportTable title="3. Itens vendidos do cardápio de alimentação" rows={report.byItem} emptyText="Nenhum item de alimentação registrado." />
-        <ReportTable title="4. Quantidade vendida por valor unitário" rows={report.byUnitPrice} emptyText="Nenhuma venda registrada." totalHeader="Faturamento" />
+        <ParetoUnitPriceTable rows={report.byUnitPrice} />
         <PendingPaymentsTable rows={report.pendingPayments} />
         <ReportTable title="6. Despesas por categoria" rows={report.byExpense} />
 
@@ -495,6 +603,12 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
           </div>
         </section>
 
+        <ExtraRevenueSection
+          event={report.event}
+          revenues={report.extraRevenues}
+          onSaved={() => setRefreshNonce((current) => current + 1)}
+        />
+
         <CustomerAnalysisSection selectedEvent={report.event.id} events={report.events} />
       </div>
     </main>
@@ -503,7 +617,7 @@ export function PrestacaoClient({ eventSelector = "" }: { eventSelector?: string
 
 function audienceLabel(value: AudienceFilter) {
   if (value === "corrente") return "Filhos da Corrente";
-  if (value === "nao_corrente") return "Não Filhos da Corrente";
+  if (value === "nao_corrente") return "Filhos de Fora";
   return "Todos";
 }
 
@@ -580,7 +694,7 @@ function ComparisonSection({
 
       {audience !== "all" && (
         <p className="rounded-2xl bg-[#eef7ff] p-3 text-xs font-bold leading-5 text-[#174a68]">
-          No comparativo por público, pedidos, clientes, receitas, pagamentos e itens são segmentados. Despesas permanecem integrais por evento porque hoje não possuem vínculo com um cliente específico.
+          No comparativo por público, vendas, pedidos, clientes, pagamentos e itens são segmentados. Despesas e doações/receitas extraordinárias permanecem integrais por evento porque não possuem vínculo com um cliente específico.
         </p>
       )}
 
@@ -588,19 +702,14 @@ function ComparisonSection({
       <GroupComparisonTable title="Formas de pagamento" reports={reports} getRows={(item) => item.byPayment} />
       <GroupComparisonTable title="Bazar x alimentos e bebidas" reports={reports} getRows={(item) => item.byKind} />
       <GroupComparisonTable title="Itens de alimentação" reports={reports} getRows={(item) => item.byItem} limit={12} />
-      <GroupComparisonTable
-        title="Quantidade por valor unitário"
-        reports={reports}
-        getRows={(item) => item.byUnitPrice}
-        sortMode="unit-price-asc"
-        limit={200}
-      />
+      <ParetoComparisonTable reports={reports} />
       <GroupComparisonTable title="Despesas por categoria" reports={reports} getRows={(item) => item.byExpense} />
+      <GroupComparisonTable title="Doações e receitas extraordinárias" reports={reports} getRows={(item) => item.byExtraRevenue} />
       <CategoryComparisonTable reports={reports} />
 
       {reports.some((item) => item.audienceCounts.unknown > 0) && (
         <p className="rounded-2xl bg-[#fff8dd] p-3 text-xs font-bold leading-5 text-[#7a5a00]">
-          Bazares anteriores podem ter clientes ainda não classificados como Filho/Não Filho. Eles permanecem em “Todos” e não são inferidos retroativamente.
+          Clientes históricos ainda sem correspondência segura permanecem em “Todos”. Quando a mesma pessoa de 04/07 é identificada em 29/08 por WhatsApp ou nome único, a classificação pode ser retroatualizada pela migration desta evolução.
         </p>
       )}
     </section>
@@ -655,8 +764,10 @@ function ComparisonMetricsTable({ reports }: { reports: Report[] }) {
     value: (report: Report) => number;
     format: (value: number) => string;
   }> = [
-    { label: "Total vendido", value: (item) => item.totals.sold, format: brl },
-    { label: "Total pago", value: (item) => item.totals.paid, format: brl },
+    { label: "Vendas", value: (item) => item.totals.sold, format: brl },
+    { label: "Doações / receitas extras", value: (item) => item.totals.extraRevenues, format: brl },
+    { label: "Receita total", value: (item) => item.totals.revenue, format: brl },
+    { label: "Total pago em vendas", value: (item) => item.totals.paid, format: brl },
     { label: "Pendente", value: (item) => item.totals.pending, format: brl },
     { label: "Cancelado", value: (item) => item.totals.canceled, format: brl },
     { label: "Despesas", value: (item) => item.totals.expenses, format: brl },
@@ -800,6 +911,284 @@ function CategoryComparisonTable({ reports }: { reports: Report[] }) {
   );
 }
 
+
+function ParetoUnitPriceTable({ rows }: { rows: Group[] }) {
+  const summary = summarizePareto(rows);
+  const paretoRows = buildParetoRows(rows);
+
+  return (
+    <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-xl font-black sm:text-2xl">4. Quantidade vendida por valor unitário — análise 80/20</h2>
+      <p className="mt-2 text-sm leading-6 text-[#496451]">
+        Os valores unitários são agrupados por contribuição ao faturamento: a faixa principal reúne os valores que levam o acumulado a aproximadamente 80%; os demais formam a faixa complementar.
+      </p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl bg-[#eef8ef] p-4 ring-1 ring-[#cfe1d1]">
+          <span className="text-xs font-black uppercase tracking-[0.08em] text-[#2f7d45]">Faixa principal • ~80%</span>
+          <strong className="mt-2 block text-2xl text-[#064b2c]">{brl(summary.principal.total)}</strong>
+          <p className="mt-1 text-sm text-[#496451]">{number(summary.principal.quantity)} item(ns) • {percent(summary.principal.sharePercent)}</p>
+          <p className="mt-2 text-xs leading-5 text-[#496451]">
+            Valores: {paretoValuesLabel(summary.principal.values) || "—"}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-[#fff8dd] p-4 ring-1 ring-[#eadba7]">
+          <span className="text-xs font-black uppercase tracking-[0.08em] text-[#8a6b00]">Faixa complementar • ~20%</span>
+          <strong className="mt-2 block text-2xl text-[#6f5700]">{brl(summary.complementar.total)}</strong>
+          <p className="mt-1 text-sm text-[#6b5d2f]">{number(summary.complementar.quantity)} item(ns) • {percent(summary.complementar.sharePercent)}</p>
+          <p className="mt-2 text-xs leading-5 text-[#6b5d2f]">
+            Valores: {paretoValuesLabel(summary.complementar.values) || "—"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="p-3">Faixa</th>
+              <th className="p-3">Valor unitário</th>
+              <th className="p-3">Quantidade</th>
+              <th className="p-3">Faturamento</th>
+              <th className="p-3">Participação</th>
+              <th className="p-3">Acumulado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paretoRows.length === 0 && (
+              <tr><td className="p-3 text-[#496451]" colSpan={6}>Nenhuma venda registrada.</td></tr>
+            )}
+            {paretoRows.map((row) => (
+              <tr key={row.label} className="border-b">
+                <td className="p-3 font-bold">{row.bucket === "principal" ? "Principal ~80%" : "Complementar ~20%"}</td>
+                <td className="p-3">{row.label}</td>
+                <td className="p-3">{number(row.quantity)}</td>
+                <td className="p-3 font-bold">{brl(row.total)}</td>
+                <td className="p-3">{percent(row.sharePercent)}</td>
+                <td className="p-3">{percent(row.cumulativePercent)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ParetoComparisonTable({ reports }: { reports: Report[] }) {
+  const [base, current] = reports;
+  const baseSummary = summarizePareto(base.byUnitPrice);
+  const currentSummary = summarizePareto(current.byUnitPrice);
+
+  const buckets = [
+    {
+      label: "Faixa principal (~80%)",
+      base: baseSummary.principal,
+      current: currentSummary.principal,
+    },
+    {
+      label: "Faixa complementar (~20%)",
+      base: baseSummary.complementar,
+      current: currentSummary.complementar,
+    },
+  ];
+
+  return (
+    <section className="rounded-3xl bg-white p-4 ring-1 ring-[#dfe8df]">
+      <h3 className="text-lg font-black">Quantidade por valor unitário — análise 80/20</h3>
+      <p className="mt-2 text-xs leading-5 text-[#496451]">
+        Cada bazar é classificado individualmente pelo princípio de Pareto. A faixa principal reúne os valores que levam o faturamento acumulado a aproximadamente 80%.
+      </p>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="p-2">Faixa</th>
+              <th className="p-2">{eventDate(base.event.event_date)}</th>
+              <th className="p-2">{eventDate(current.event.event_date)}</th>
+              <th className="p-2">Var. qtd.</th>
+              <th className="p-2">Var. valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {buckets.map((bucket) => (
+              <tr key={bucket.label} className="border-b">
+                <td className="p-2 font-bold">{bucket.label}</td>
+                <td className="p-2">
+                  {number(bucket.base.quantity)} • {brl(bucket.base.total)} • {percent(bucket.base.sharePercent)}
+                </td>
+                <td className="p-2">
+                  {number(bucket.current.quantity)} • {brl(bucket.current.total)} • {percent(bucket.current.sharePercent)}
+                </td>
+                <td className="p-2 font-black text-[#1d6b35]">{variationPercent(bucket.base.quantity, bucket.current.quantity)}</td>
+                <td className="p-2 font-black text-[#1d6b35]">{variationPercent(bucket.base.total, bucket.current.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {[base, current].map((report) => {
+          const summary = summarizePareto(report.byUnitPrice);
+          return (
+            <div key={report.event.id} className="rounded-2xl bg-[#f9f7ef] p-4 ring-1 ring-[#dfe8df]">
+              <strong>{eventDate(report.event.event_date)}</strong>
+              <p className="mt-2 text-xs leading-5 text-[#496451]">
+                <b>Principal:</b> {paretoValuesLabel(summary.principal.values) || "—"} ({percent(summary.principal.sharePercent)})
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#496451]">
+                <b>Complementar:</b> {paretoValuesLabel(summary.complementar.values) || "—"} ({percent(summary.complementar.sharePercent)})
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ExtraRevenueSection({
+  event,
+  revenues,
+  onSaved,
+}: {
+  event: EventOption;
+  revenues: ExtraRevenue[];
+  onSaved: () => void;
+}) {
+  const isTargetEvent = event.slug === "bazar-sementinha-2026-08-29";
+  const [amount, setAmount] = useState("200,00");
+  const [description, setDescription] = useState("Doação ao Bazar de 29/08/2026");
+  const [source, setSource] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+
+  async function registerDonation() {
+    setSaving(true);
+    setFeedback("");
+
+    try {
+      const response = await fetch("/api/bazar-sementinha/revenues", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: bazarAuthHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          eventId: event.id,
+          revenueType: "doacao",
+          description,
+          source,
+          amount,
+          status: "confirmada",
+          notes,
+        }),
+      });
+
+      const payload = (await response.json()) as { error?: string };
+      if (response.status === 401) {
+        throw new Error("Entre na Gestão antes de registrar a doação.");
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || "Erro ao registrar doação.");
+      }
+
+      setFeedback("Doação registrada com sucesso.");
+      setAmount("200,00");
+      setSource("");
+      setNotes("");
+      onSaved();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Erro ao registrar doação.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="min-w-0 rounded-3xl border-2 border-[#89a96a] bg-[#f7fff4] p-4 shadow-sm sm:p-5">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-[#527c28]">Receitas extraordinárias</p>
+        <h2 className="mt-1 text-2xl font-black">8. Doações e outras receitas</h2>
+        <p className="mt-2 text-sm leading-6 text-[#496451]">
+          Doações ficam separadas das vendas e entram no resultado do evento com rastreabilidade de valor, origem e data.
+        </p>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="p-3">Data</th>
+              <th className="p-3">Descrição</th>
+              <th className="p-3">Origem</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {revenues.length === 0 && (
+              <tr><td className="p-3 text-[#496451]" colSpan={5}>Nenhuma doação ou receita extraordinária registrada.</td></tr>
+            )}
+            {revenues.map((item) => (
+              <tr key={item.id} className="border-b">
+                <td className="p-3">{dateTime(item.created_at)}</td>
+                <td className="p-3">{item.description}</td>
+                <td className="p-3">{item.source || "Não informada"}</td>
+                <td className="p-3">{item.status}</td>
+                <td className="p-3 font-bold">{brl(Number(item.amount || 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {isTargetEvent ? (
+        <div className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-[#cfe1c1]">
+          <h3 className="font-black">Registrar doação para 29/08/2026</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm font-bold">
+              Valor
+              <input value={amount} onChange={(event) => setAmount(event.target.value)} className="rounded-xl border border-[#d7e4ce] px-3 py-2.5" />
+            </label>
+            <label className="grid gap-1 text-sm font-bold">
+              Origem / doador
+              <input value={source} onChange={(event) => setSource(event.target.value)} placeholder="Opcional" className="rounded-xl border border-[#d7e4ce] px-3 py-2.5" />
+            </label>
+            <label className="grid gap-1 text-sm font-bold sm:col-span-2">
+              Descrição
+              <input value={description} onChange={(event) => setDescription(event.target.value)} className="rounded-xl border border-[#d7e4ce] px-3 py-2.5" />
+            </label>
+            <label className="grid gap-1 text-sm font-bold sm:col-span-2">
+              Observações
+              <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Opcional" className="rounded-xl border border-[#d7e4ce] px-3 py-2.5" />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void registerDonation()}
+              disabled={saving}
+              className="rounded-full bg-[#527c28] px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
+            >
+              {saving ? "Registrando..." : "Registrar doação de R$ 200,00"}
+            </button>
+            <a href="/bazar-sementinha/gestao" target="_blank" rel="noreferrer" className="rounded-full border border-[#527c28]/25 bg-white px-4 py-2.5 text-xs font-black text-[#527c28]">
+              Abrir Gestão
+            </a>
+          </div>
+          {feedback && <p className="mt-3 rounded-xl bg-[#f9f7ef] p-3 text-sm font-bold text-[#496451]">{feedback}</p>}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-2xl bg-[#f9f7ef] p-3 text-sm text-[#496451]">
+          Para registrar a doação de R$ 200,00 solicitada, selecione o evento de 29/08/2026.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function ReportTable({ title, rows, emptyText = "Nenhum registro encontrado.", totalHeader = "Total" }: { title: string; rows: Group[]; emptyText?: string; totalHeader?: string }) {
   return (
     <section className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
@@ -936,7 +1325,7 @@ function CustomerAnalysisSection({ selectedEvent, events }: { selectedEvent: str
     const rows: Array<Array<string | number | null | undefined>> = [[
       "Cliente",
       "WhatsApp",
-      "Filho da Corrente",
+      "Classificação Tucxa",
       "Eventos com cadastro",
       "Cliente ID",
       "Evento",
@@ -1136,7 +1525,7 @@ function CustomerAnalysisSection({ selectedEvent, events }: { selectedEvent: str
                     <div key={registration.clientId} className="rounded-xl bg-[#faf7e8] p-3 text-xs leading-5">
                       <strong>{eventDate(registration.eventDate)} — {registration.eventName}</strong>
                       <div>Cliente ID: {registration.clientId}</div>
-                      <div>Filho da Corrente: {correnteLabel(registration.isCorrente)}</div>
+                      <div>Classificação: {correnteLabel(registration.isCorrente)}</div>
                       <div>Cadastro: {dateTime(registration.createdAt)}</div>
                       <div>Atualização: {dateTime(registration.updatedAt)}</div>
                       <div>Identificação Corrente: {dateTime(registration.correnteIdentifiedAt)}</div>
@@ -1157,8 +1546,8 @@ function InfoBox({ label, value }: { label: string; value: string }) {
 }
 
 function correnteLabel(value: boolean | null) {
-  if (value === true) return "Sim";
-  if (value === false) return "Não";
+  if (value === true) return "Filho da Corrente";
+  if (value === false) return "Filho de Fora";
   return "Não identificado";
 }
 
@@ -1199,6 +1588,38 @@ function htmlGroupTable(title: string, rows: Group[]) {
   return `<section><h2>${escapeHtml(title)}</h2><table><thead><tr><th>Descrição</th><th>Quantidade</th><th>Total</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(number(row.quantity))}</td><td>${escapeHtml(brl(row.total))}</td></tr>`).join("") || '<tr><td colspan="3">Sem registros.</td></tr>'}</tbody></table></section>`;
 }
 
+function htmlParetoTable(title: string, rows: Group[]) {
+  const summary = summarizePareto(rows);
+  const paretoRows = buildParetoRows(rows);
+
+  return `<section><h2>${escapeHtml(title)}</h2>
+    <p class="small">Faixa principal: valores que levam o faturamento acumulado a aproximadamente 80%. Faixa complementar: valores restantes.</p>
+    <table><thead><tr><th>Faixa</th><th>Valor unitário</th><th>Qtd.</th><th>Faturamento</th><th>Participação</th><th>Acumulado</th></tr></thead><tbody>
+      ${paretoRows.map((row) => `<tr><td>${escapeHtml(row.bucket === "principal" ? "Principal ~80%" : "Complementar ~20%")}</td><td>${escapeHtml(row.label)}</td><td>${escapeHtml(number(row.quantity))}</td><td>${escapeHtml(brl(row.total))}</td><td>${escapeHtml(percent(row.sharePercent))}</td><td>${escapeHtml(percent(row.cumulativePercent))}</td></tr>`).join("") || '<tr><td colspan="6">Sem registros.</td></tr>'}
+    </tbody></table>
+    <p class="small">Principal: ${escapeHtml(brl(summary.principal.total))} (${escapeHtml(percent(summary.principal.sharePercent))}) • Complementar: ${escapeHtml(brl(summary.complementar.total))} (${escapeHtml(percent(summary.complementar.sharePercent))})</p>
+  </section>`;
+}
+
+function htmlParetoComparison(reports: Report[]) {
+  const [base, current] = reports;
+  const baseSummary = summarizePareto(base.byUnitPrice);
+  const currentSummary = summarizePareto(current.byUnitPrice);
+
+  const buckets = [
+    ["Faixa principal (~80%)", baseSummary.principal, currentSummary.principal],
+    ["Faixa complementar (~20%)", baseSummary.complementar, currentSummary.complementar],
+  ] as const;
+
+  return `<section><h2>Quantidade por valor unitário — análise 80/20</h2>
+    <table><thead><tr><th>Faixa</th><th>${escapeHtml(eventDate(base.event.event_date))}</th><th>${escapeHtml(eventDate(current.event.event_date))}</th><th>Var. qtd.</th><th>Var. valor</th></tr></thead><tbody>
+      ${buckets.map(([label, baseBucket, currentBucket]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(`${number(baseBucket.quantity)} / ${brl(baseBucket.total)} / ${percent(baseBucket.sharePercent)}`)}</td><td>${escapeHtml(`${number(currentBucket.quantity)} / ${brl(currentBucket.total)} / ${percent(currentBucket.sharePercent)}`)}</td><td><b>${escapeHtml(variationPercent(baseBucket.quantity, currentBucket.quantity))}</b></td><td><b>${escapeHtml(variationPercent(baseBucket.total, currentBucket.total))}</b></td></tr>`).join("")}
+    </tbody></table>
+    <p class="small">${escapeHtml(eventDate(base.event.event_date))} principal: ${escapeHtml(paretoValuesLabel(baseSummary.principal.values) || "—")}</p>
+    <p class="small">${escapeHtml(eventDate(current.event.event_date))} principal: ${escapeHtml(paretoValuesLabel(currentSummary.principal.values) || "—")}</p>
+  </section>`;
+}
+
 function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonReports: Report[]) {
   const comparisonHtml = comparisonReports.length === 2 ? buildComparisonPrintHtml(comparisonReports) : "";
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prestação de contas - ${escapeHtml(report.event.name)}</title><style>
@@ -1207,7 +1628,7 @@ function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonRepo
     <h1>Prestação de contas - ${escapeHtml(report.event.name)}</h1>
     <div class="meta">Data: ${escapeHtml(eventDate(report.event.event_date))} | Público: ${escapeHtml(audienceLabel(audience))} | Primeiro pedido: ${escapeHtml(dateTime(report.orderWindow.firstOrderAt))} | Último pedido: ${escapeHtml(dateTime(report.orderWindow.lastOrderAt))} | Duração: ${escapeHtml(durationLabel(report.orderWindow.durationMinutes))}</div>
     <div class="cards">
-      ${[["Total vendido", brl(report.totals.sold)],["Total pago", brl(report.totals.paid)],["Pendente", brl(report.totals.pending)],["Despesas", brl(report.totals.expenses)],["Resultado", brl(report.totals.result)],["Ticket médio", brl(report.metrics.averageTicket)]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
+      ${[["Vendas", brl(report.totals.sold)],["Doações / receitas extras", brl(report.totals.extraRevenues)],["Receita total", brl(report.totals.revenue)],["Total pago em vendas", brl(report.totals.paid)],["Pendente", brl(report.totals.pending)],["Despesas", brl(report.totals.expenses)],["Resultado realizado", brl(report.totals.result)],["Ticket médio", brl(report.metrics.averageTicket)]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
     </div>
     <div class="cards" style="margin-top:6px">
       ${[["Pedidos", report.metrics.orders],["Clientes", report.metrics.clients],["Itens vendidos", number(report.metrics.itemQuantity)],["Primeiro pedido", timeOnly(report.orderWindow.firstOrderAt)],["Último pedido", timeOnly(report.orderWindow.lastOrderAt)],["Duração", durationLabel(report.orderWindow.durationMinutes)],["Pendências", report.pendingPayments.length]].map(([label,value]) => `<div class="card"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join("")}
@@ -1215,10 +1636,11 @@ function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonRepo
     ${htmlGroupTable("1. Totais por forma de pagamento", report.byPayment)}
     <section><h2>2. Totais por categoria/resumo</h2><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Receita</th><th>Despesas</th><th>Resultado</th><th>%</th></tr></thead><tbody>${report.byCategorySummary.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(number(row.quantity))}</td><td>${escapeHtml(brl(row.revenue))}</td><td>${escapeHtml(brl(row.expenses))}</td><td>${escapeHtml(brl(row.result))}</td><td>${escapeHtml(percent(row.resultPercent))}</td></tr>`).join("")}</tbody></table></section>
     ${htmlGroupTable("3. Itens vendidos do cardápio", report.byItem)}
-    ${htmlGroupTable("4. Quantidade vendida por valor unitário", report.byUnitPrice)}
+    ${htmlParetoTable("4. Quantidade vendida por valor unitário — análise 80/20", report.byUnitPrice)}
     <section><h2>5. Pagamentos pendentes</h2><table><thead><tr><th>Cliente</th><th>Pedido</th><th>Itens</th><th>Data</th><th>Valor</th></tr></thead><tbody>${report.pendingPayments.map((row) => `<tr><td>${escapeHtml(row.clientName)}</td><td>#${escapeHtml(row.code)}</td><td>${escapeHtml(row.items)}</td><td>${escapeHtml(dateTime(row.createdAt))}</td><td>${escapeHtml(brl(row.total))}</td></tr>`).join("") || '<tr><td colspan="5">Não há pagamentos pendentes.</td></tr>'}</tbody></table></section>
     ${htmlGroupTable("6. Despesas por categoria", report.byExpense)}
     <section><h2>7. Despesas registradas</h2><table><thead><tr><th>Categoria</th><th>Descrição</th><th>Status</th><th>Valor</th></tr></thead><tbody>${report.expenses.map((row) => `<tr><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(brl(Number(row.amount)))}</td></tr>`).join("") || '<tr><td colspan="4">Nenhuma despesa registrada.</td></tr>'}</tbody></table></section>
+    <section><h2>8. Doações e receitas extraordinárias</h2><table><thead><tr><th>Data</th><th>Descrição</th><th>Origem</th><th>Status</th><th>Valor</th></tr></thead><tbody>${report.extraRevenues.map((row) => `<tr><td>${escapeHtml(dateTime(row.created_at))}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.source || "Não informada")}</td><td>${escapeHtml(row.status)}</td><td>${escapeHtml(brl(Number(row.amount)))}</td></tr>`).join("") || '<tr><td colspan="5">Nenhuma doação ou receita extraordinária registrada.</td></tr>'}</tbody></table></section>
     ${comparisonHtml}
     <script>window.addEventListener('afterprint',()=>window.close());</script>
   </body></html>`;
@@ -1227,11 +1649,13 @@ function buildPrintHtml(report: Report, audience: AudienceFilter, comparisonRepo
 function comparisonRows(reports: Report[]) {
   const [base, current] = reports;
   return [
-    ["Total vendido", base.totals.sold, current.totals.sold, brl],
-    ["Total pago", base.totals.paid, current.totals.paid, brl],
+    ["Vendas", base.totals.sold, current.totals.sold, brl],
+    ["Doações / receitas extras", base.totals.extraRevenues, current.totals.extraRevenues, brl],
+    ["Receita total", base.totals.revenue, current.totals.revenue, brl],
+    ["Total pago em vendas", base.totals.paid, current.totals.paid, brl],
     ["Pendente", base.totals.pending, current.totals.pending, brl],
     ["Despesas", base.totals.expenses, current.totals.expenses, brl],
-    ["Resultado", base.totals.result, current.totals.result, brl],
+    ["Resultado realizado", base.totals.result, current.totals.result, brl],
     ["Pedidos", base.metrics.orders, current.metrics.orders, number],
     ["Clientes", base.metrics.clients, current.metrics.clients, number],
     ["Itens", base.metrics.itemQuantity, current.metrics.itemQuantity, number],
@@ -1271,8 +1695,9 @@ function buildComparisonPrintHtml(reports: Report[], pageBreak = true) {
   ${htmlComparisonGroupTable("Formas de pagamento", reports, (item) => item.byPayment)}
   ${htmlComparisonGroupTable("Bazar x alimentos e bebidas", reports, (item) => item.byKind)}
   ${htmlComparisonGroupTable("Itens de alimentação", reports, (item) => item.byItem)}
-  ${htmlComparisonGroupTable("Quantidade por valor unitário", reports, (item) => item.byUnitPrice, "unit-price-asc")}
+  ${htmlParetoComparison(reports)}
   ${htmlComparisonGroupTable("Despesas por categoria", reports, (item) => item.byExpense)}
+  ${htmlComparisonGroupTable("Doações e receitas extraordinárias", reports, (item) => item.byExtraRevenue)}
   </section>`;
 }
 

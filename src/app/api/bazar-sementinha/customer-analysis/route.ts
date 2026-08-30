@@ -27,6 +27,7 @@ type ClientRow = {
 
 type ItemRow = {
   id: string;
+  order_id: string;
   kind: string;
   name: string;
   category_path?: string | null;
@@ -46,7 +47,6 @@ type OrderRow = {
   total_amount: number | string;
   created_at: string;
   notes?: string | null;
-  items?: ItemRow[];
 };
 
 type PaymentRow = {
@@ -55,7 +55,6 @@ type PaymentRow = {
   method?: string | null;
   amount?: number | string | null;
   order_ids?: string[] | null;
-  status?: string | null;
   created_at?: string | null;
 };
 
@@ -103,6 +102,7 @@ const CANCELED_ORDER_STATUS = "cancelado";
 export async function GET(request: Request) {
   try {
     await requireBazarSession(request);
+
     const url = new URL(request.url);
     const scope = url.searchParams.get("scope") === "all" ? "all" : "event";
 
@@ -149,14 +149,16 @@ export async function GET(request: Request) {
         .limit(10000),
       supabaseAdmin
         .from("bazar_orders")
-        .select("id,event_id,client_id,code,status,payment_status,total_amount,created_at,notes,items:bazar_order_items(id,kind,name,category_path,quantity,unit_price,total_price,created_at)")
+        .select("id,event_id,client_id,code,status,payment_status,total_amount,created_at,notes")
         .in("event_id", eventIds)
         .neq("status", EXCLUDED_ORDER_STATUS)
         .order("created_at", { ascending: true })
         .limit(10000),
+      // bazar_payments não possui coluna "status" no modelo atual.
+      // Selecionamos apenas campos efetivamente usados para evitar HTTP 500 por schema drift.
       supabaseAdmin
         .from("bazar_payments")
-        .select("id,event_id,method,amount,order_ids,status,created_at")
+        .select("id,event_id,method,amount,order_ids,created_at")
         .in("event_id", eventIds)
         .order("created_at", { ascending: true })
         .limit(10000),
@@ -169,6 +171,29 @@ export async function GET(request: Request) {
     const clients = (clientsResult.data || []) as ClientRow[];
     const orders = (ordersResult.data || []) as OrderRow[];
     const payments = (paymentsResult.data || []) as PaymentRow[];
+
+    const orderIds = orders.map((order) => order.id);
+    let items: ItemRow[] = [];
+
+    if (orderIds.length > 0) {
+      const itemsResult = await supabaseAdmin
+        .from("bazar_order_items")
+        .select("id,order_id,kind,name,category_path,quantity,unit_price,total_price,created_at")
+        .in("order_id", orderIds)
+        .order("created_at", { ascending: true })
+        .limit(20000);
+
+      if (itemsResult.error) throw itemsResult.error;
+      items = (itemsResult.data || []) as ItemRow[];
+    }
+
+    const itemsByOrder = new Map<string, ItemRow[]>();
+    for (const item of items) {
+      const rows = itemsByOrder.get(item.order_id) || [];
+      rows.push(item);
+      itemsByOrder.set(item.order_id, rows);
+    }
+
     const eventsById = new Map(events.map((event) => [event.id, event]));
     const paymentsByOrder = buildPaymentsByOrder(payments);
 
@@ -187,8 +212,15 @@ export async function GET(request: Request) {
         orders: [],
       };
 
-      if ((!current.whatsapp || current.whatsapp.length < 8) && client.whatsapp) current.whatsapp = client.whatsapp;
-      if (client.updated_at && (!current.registrations[0]?.updatedAt || client.updated_at > current.registrations[0].updatedAt)) {
+      if ((!current.whatsapp || current.whatsapp.length < 8) && client.whatsapp) {
+        current.whatsapp = client.whatsapp;
+      }
+
+      const latestRegistration = [...current.registrations].sort((a, b) =>
+        String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")),
+      )[0];
+
+      if (client.updated_at && (!latestRegistration?.updatedAt || client.updated_at > latestRegistration.updatedAt)) {
         current.name = client.name;
       }
 
@@ -209,10 +241,18 @@ export async function GET(request: Request) {
       if (!order.client_id) continue;
       const key = groupKeyByClientId.get(order.client_id);
       if (!key) continue;
+
       const group = groups.get(key);
       if (!group) continue;
+
       const event = eventsById.get(order.event_id);
-      const methods = [...new Set((paymentsByOrder.get(order.id) || []).map((payment) => payment.method || "Não informado"))];
+      const methods = [
+        ...new Set(
+          (paymentsByOrder.get(order.id) || [])
+            .map((payment) => payment.method || "Não informado")
+            .filter(Boolean),
+        ),
+      ];
 
       group.orders.push({
         id: order.id,
@@ -226,7 +266,7 @@ export async function GET(request: Request) {
         createdAt: order.created_at,
         total: toNumber(order.total_amount),
         notes: order.notes || null,
-        items: (order.items || []).map((item) => ({
+        items: (itemsByOrder.get(order.id) || []).map((item) => ({
           id: item.id,
           kind: item.kind,
           name: item.name,
@@ -239,12 +279,15 @@ export async function GET(request: Request) {
     }
 
     const customers = [...groups.values()]
-      .map((customer) => ({
-        ...customer,
-        registrations: customer.registrations.sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
-        orders: customer.orders.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-        summary: buildCustomerSummary(customer.orders),
-      }))
+      .map((customer) => {
+        const sortedOrders = [...customer.orders].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        return {
+          ...customer,
+          registrations: [...customer.registrations].sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+          orders: sortedOrders,
+          summary: buildCustomerSummary(sortedOrders),
+        };
+      })
       .sort((a, b) => b.summary.total - a.summary.total || a.name.localeCompare(b.name, "pt-BR"));
 
     return NextResponse.json({
@@ -272,7 +315,6 @@ function customerKey(client: ClientRow) {
 function buildPaymentsByOrder(payments: PaymentRow[]) {
   const map = new Map<string, PaymentRow[]>();
   for (const payment of payments) {
-    if (payment.status === "cancelado" || payment.status === "cancelada") continue;
     for (const orderId of payment.order_ids || []) {
       const rows = map.get(orderId) || [];
       rows.push(payment);
@@ -283,7 +325,9 @@ function buildPaymentsByOrder(payments: PaymentRow[]) {
 }
 
 function buildCustomerSummary(orders: CustomerGroup["orders"]) {
-  const active = orders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
+  const active = orders
+    .filter((order) => order.status !== CANCELED_ORDER_STATUS)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const paid = active.filter((order) => order.paymentStatus === "pago");
   const pending = active.filter((order) => order.paymentStatus !== "pago");
   const itemQuantity = active.flatMap((order) => order.items).reduce((sum, item) => sum + item.quantity, 0);

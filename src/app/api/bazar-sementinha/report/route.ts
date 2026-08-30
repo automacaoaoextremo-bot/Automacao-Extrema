@@ -48,6 +48,18 @@ type ExpenseRow = {
   status?: string | null;
 };
 
+type ExtraRevenueRow = {
+  id: string;
+  event_id?: string | null;
+  revenue_type?: string | null;
+  description?: string | null;
+  source?: string | null;
+  amount?: number | string | null;
+  status?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+};
+
 type SummaryRow = {
   label: string;
   quantity: number;
@@ -84,7 +96,7 @@ export async function GET(request: Request) {
     const audience = parseAudience(url.searchParams.get("audience"));
     const event = await getBazarEventFromRequest(request);
 
-    const [eventsRes, ordersRes, paymentsRes, expensesRes] = await Promise.all([
+    const [eventsRes, ordersRes, paymentsRes, expensesRes, revenuesRes] = await Promise.all([
       supabaseAdmin
         .from("bazar_events")
         .select("id,name,event_date,slug,status,is_public")
@@ -96,12 +108,14 @@ export async function GET(request: Request) {
         .order("created_at"),
       supabaseAdmin.from("bazar_payments").select("*").eq("event_id", event.id).order("created_at"),
       supabaseAdmin.from("bazar_expenses").select("*").eq("event_id", event.id).order("created_at"),
+      supabaseAdmin.from("bazar_extra_revenues").select("*").eq("event_id", event.id).order("created_at"),
     ]);
 
     if (eventsRes.error) throw eventsRes.error;
     if (ordersRes.error) throw ordersRes.error;
     if (paymentsRes.error) throw paymentsRes.error;
     if (expensesRes.error) throw expensesRes.error;
+    if (revenuesRes.error) throw revenuesRes.error;
 
     const allOrders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
     const allActiveOrders = allOrders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
@@ -111,6 +125,7 @@ export async function GET(request: Request) {
     const orders = allOrders.filter((order) => matchesAudience(order, audience));
     const payments = (paymentsRes.data || []) as PaymentRow[];
     const expenses = (expensesRes.data || []) as ExpenseRow[];
+    const extraRevenues = (revenuesRes.data || []) as ExtraRevenueRow[];
 
     const activeOrders = orders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
     const canceledOrders = orders.filter((order) => order.status === CANCELED_ORDER_STATUS);
@@ -133,6 +148,7 @@ export async function GET(request: Request) {
       .filter((payment) => payment.activeOrderCount > 0 && payment.activeAmount > 0);
 
     const confirmedExpenses = expenses.filter((expense) => expense.status !== "cancelada");
+    const confirmedExtraRevenues = extraRevenues.filter((revenue) => revenue.status === "confirmada");
 
     const totals = {
       sold: activeOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
@@ -140,8 +156,10 @@ export async function GET(request: Request) {
       pending: activePendingOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
       canceled: canceledOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
       expenses: confirmedExpenses.reduce((sum, expense) => sum + toNumber(expense.amount), 0),
+      extraRevenues: confirmedExtraRevenues.reduce((sum, revenue) => sum + toNumber(revenue.amount), 0),
     };
-    const result = totals.paid - totals.expenses;
+    const revenue = totals.sold + totals.extraRevenues;
+    const result = totals.paid + totals.extraRevenues - totals.expenses;
 
     const byPayment = groupSum(
       activePayments,
@@ -176,6 +194,12 @@ export async function GET(request: Request) {
       (expense) => toNumber(expense.amount),
     );
 
+    const byExtraRevenue = groupSum(
+      confirmedExtraRevenues,
+      (revenue) => revenue.description || (revenue.revenue_type === "doacao" ? "Doação" : "Receita extraordinária"),
+      (revenue) => toNumber(revenue.amount),
+    );
+
     const pendingPayments: PendingPaymentRow[] = activePendingOrders
       .map((order) => ({
         id: order.id,
@@ -207,11 +231,12 @@ export async function GET(request: Request) {
       expenseScopeNote:
         audience === "all"
           ? null
-          : "As despesas são lançadas para o evento, não para um cliente. Por isso permanecem integrais neste filtro; receitas, pedidos, clientes, pagamentos e itens são filtrados pelo público selecionado.",
+          : "Despesas e doações/receitas extraordinárias são lançadas para o evento, não para um cliente. Por isso permanecem integrais neste filtro; vendas, pedidos, clientes, pagamentos e itens são filtrados pelo público selecionado.",
       orders,
       payments: activePayments,
       expenses,
-      totals: { ...totals, result },
+      extraRevenues,
+      totals: { ...totals, revenue, result },
       metrics,
       byPayment,
       byKind,
@@ -219,6 +244,7 @@ export async function GET(request: Request) {
       byItem,
       byUnitPrice,
       byExpense,
+      byExtraRevenue,
       pendingPayments,
     });
   } catch (error) {
