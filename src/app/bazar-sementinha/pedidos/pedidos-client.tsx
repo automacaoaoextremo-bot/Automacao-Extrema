@@ -8,13 +8,27 @@ import { AE_SITE_URL } from "@/lib/ae-public-links";
 type Price = { id: string; amount: number; label?: string | null; is_active: boolean };
 type Category = { id: string; path: string; is_active: boolean; is_visible: boolean };
 type MenuItem = { id: string; category: string; name: string; description?: string | null; unit_label: string; price: number; is_active: boolean };
-type Client = { id: string; name: string; whatsapp?: string | null; public_token?: string | null; created_at?: string | null };
+type Client = {
+  id: string;
+  name: string;
+  whatsapp?: string | null;
+  public_token?: string | null;
+  created_at?: string | null;
+  is_current_event?: boolean;
+  previous_event_name?: string | null;
+  previous_event_date?: string | null;
+  lookup_key?: string | null;
+  is_corrente?: boolean | null;
+  corrente_identified_at?: string | null;
+};
 type CartItem = { key: string; kind: "bazar" | "menu"; name: string; quantity: number; unitPrice: number; categoryPath?: string | null; sourceId?: string | null };
 type CreatedOrder = {
   id: string;
   code: string;
   public_token?: string | null;
   total_amount: number | string;
+  payment_status?: string | null;
+  status?: string | null;
   created_at?: string | null;
   notes?: string | null;
   client?: Client | null;
@@ -41,10 +55,13 @@ type EditableItem = {
 };
 
 type Bootstrap = {
+  event?: { id: string; name: string; event_date: string; slug: string; require_corrente_identification?: boolean };
   prices?: Price[];
   categories?: Category[];
   menuItems?: MenuItem[];
   clients?: Client[];
+  orders?: CreatedOrder[];
+  operatorClientHistoryEnabled?: boolean;
 };
 
 const menuCategoryOrder = ["Todos", "Tortas", "Salgados", "Bauru de Forno", "Doces", "Bebidas"];
@@ -92,16 +109,36 @@ function normalize(value: string) {
     .toLowerCase();
 }
 
+function clientKey(client: Pick<Client, "name" | "whatsapp" | "lookup_key">) {
+  if (client.lookup_key) return client.lookup_key;
+  const phone = (client.whatsapp || "").replace(/\D/g, "");
+  return phone.length >= 10 ? `phone:${phone}` : `name:${normalize(client.name.trim())}`;
+}
+
+function formatEventDate(value?: string | null) {
+  if (!value) return "";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "Pedido criado agora";
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
 export function PedidosClient() {
+  const [eventName, setEventName] = useState("Bazar do Sementinha");
+  const [requireCorrenteIdentification, setRequireCorrenteIdentification] = useState(false);
   const [prices, setPrices] = useState<Price[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [historicalSearchClients, setHistoricalSearchClients] = useState<Client[]>([]);
+  const [historicalSearchQuery, setHistoricalSearchQuery] = useState("");
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientSearchError, setClientSearchError] = useState("");
+  const [orders, setOrders] = useState<CreatedOrder[]>([]);
+  const [clientOrderDetailsOpen, setClientOrderDetailsOpen] = useState(false);
   const [clientName, setClientName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [categoryPath, setCategoryPath] = useState("");
@@ -114,6 +151,9 @@ export function PedidosClient() {
   const [menuCategory, setMenuCategory] = useState("Todos");
   const [search, setSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [newClientMode, setNewClientMode] = useState(false);
+  const [clientIsCorrente, setClientIsCorrente] = useState<boolean | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [cartReviewOpen, setCartReviewOpen] = useState(false);
   const [cartCollapsed, setCartCollapsed] = useState(false);
@@ -127,16 +167,61 @@ export function PedidosClient() {
   const catalogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store" })
+    fetch("/api/bazar-sementinha/bootstrap", { cache: "no-store", headers: getSessionHeaders() })
       .then((res) => res.json())
       .then((data: Bootstrap) => {
+        setEventName(data.event?.name || "Bazar do Sementinha");
+        setRequireCorrenteIdentification(data.event?.require_corrente_identification === true);
         setPrices((data.prices || []).filter((item) => item.is_active));
         setCategories((data.categories || []).filter((item) => item.is_active && item.is_visible));
         setMenuItems((data.menuItems || []).filter((item) => item.is_active));
         setClients([...(data.clients || [])].sort((a, b) => a.name.localeCompare(b.name)));
+        setOrders(data.orders || []);
       })
       .catch(() => setMessage("Não foi possível carregar o catálogo."));
   }, []);
+
+  const currentClientSearch = clientSearch.trim();
+  const currentClientSearchDigits = currentClientSearch.replace(/\D/g, "");
+  const canSearchHistoryNow = currentClientSearch.length >= 3 || currentClientSearchDigits.length >= 4;
+
+  useEffect(() => {
+    if (!canSearchHistoryNow) return;
+
+    const raw = currentClientSearch;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setClientSearchLoading(true);
+      setClientSearchError("");
+
+      try {
+        const response = await fetch(`/api/bazar-sementinha/customers?q=${encodeURIComponent(raw)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Não foi possível pesquisar clientes anteriores.");
+        }
+
+        setHistoricalSearchClients(Array.isArray(data.clients) ? data.clients : []);
+        setHistoricalSearchQuery(raw);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setHistoricalSearchClients([]);
+        setHistoricalSearchQuery(raw);
+        setClientSearchError(error instanceof Error ? error.message : "Não foi possível pesquisar clientes anteriores.");
+      } finally {
+        if (!controller.signal.aborted) setClientSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [canSearchHistoryNow, currentClientSearch]);
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [cart]);
   const createdOrderClientPublicToken = createdOrder?.client?.public_token || "";
@@ -169,14 +254,70 @@ export function PedidosClient() {
 
   const pricesById = useMemo(() => new Map(prices.map((price) => [price.id, price])), [prices]);
   const menuItemsById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
-  const activeMenuCategories = useMemo(() => [...new Set(menuItems.map((item) => item.category))].sort((a, b) => a.localeCompare(b)), [menuItems]);
+  const activeMenuCategories = useMemo(() => Array.from(new Set<string>(menuItems.map((item) => item.category))).sort((a, b) => a.localeCompare(b)), [menuItems]);
+
+  const searchableClients = useMemo(() => {
+    const byKey = new Map<string, Client>();
+
+    if (canSearchHistoryNow && historicalSearchQuery === currentClientSearch) {
+      for (const client of historicalSearchClients) {
+        byKey.set(clientKey(client), client);
+      }
+    }
+
+    // O cadastro do evento atual sempre prevalece sobre uma ocorrência histórica
+    // da mesma pessoa, evitando selecionar o vínculo antigo quando ela já comprou
+    // no bazar em andamento.
+    for (const client of clients) {
+      byKey.set(clientKey(client), client);
+    }
+
+    return [...byKey.values()];
+  }, [canSearchHistoryNow, clients, currentClientSearch, historicalSearchClients, historicalSearchQuery]);
 
   const filteredClients = useMemo(() => {
-    const term = normalize(clientSearch.trim());
-    return clients
-      .filter((client) => !term || normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term))
+    const rawTerm = clientSearch.trim();
+    const term = normalize(rawTerm);
+    const phoneTerm = rawTerm.replace(/\D/g, "");
+    return searchableClients
+      .filter((client) => {
+        if (!term) return true;
+        const clientPhone = (client.whatsapp || "").replace(/\D/g, "");
+        return normalize(client.name).includes(term) || normalize(client.whatsapp || "").includes(term) || (phoneTerm.length >= 3 && clientPhone.includes(phoneTerm));
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [clientSearch, clients]);
+  }, [clientSearch, searchableClients]);
+
+  const selectedClientOrders = useMemo(() => {
+    if (!selectedClient?.id || selectedClient.is_current_event === false) return [];
+    return orders
+      .filter(
+        (order) =>
+          order.client?.id === selectedClient.id &&
+          order.status !== "cancelado" &&
+          order.status !== "excluido",
+      )
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  }, [orders, selectedClient]);
+
+  const selectedClientOrderSummary = useMemo(() => {
+    const totalValue = selectedClientOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+    const paidOrders = selectedClientOrders.filter((order) => order.payment_status === "pago");
+    const pendingOrders = selectedClientOrders.filter((order) => order.payment_status !== "pago");
+    return {
+      totalValue,
+      paidCount: paidOrders.length,
+      paidValue: paidOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
+      pendingCount: pendingOrders.length,
+      pendingValue: pendingOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
+    };
+  }, [selectedClientOrders]);
+
+  const selectedClientAlreadyIdentified =
+    selectedClient?.is_current_event !== false && typeof selectedClient?.is_corrente === "boolean";
+
+  const showSelectedClientOrders =
+    selectedClientAlreadyIdentified && selectedClientOrders.length > 0;
 
   function showRequiredAlert(text: string) {
     setRequiredAlert(text);
@@ -184,30 +325,60 @@ export function PedidosClient() {
   }
 
   function selectClient(client: Client) {
+    setSelectedClient(client);
+    setNewClientMode(false);
     setClientName(client.name);
     setWhatsapp(client.whatsapp || "");
+    setClientIsCorrente(client.is_current_event === false ? null : typeof client.is_corrente === "boolean" ? client.is_corrente : null);
     setMode("bazar");
     setCreatedOrder(null);
-    setMessage(`Cliente selecionado: ${client.name}`);
-    window.setTimeout(() => catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    setClientOrderDetailsOpen(false);
+    setClientSearch("");
+    const previous = client.previous_event_date ? ` do bazar de ${formatEventDate(client.previous_event_date)}` : "";
+    setMessage(
+      client.is_current_event === false
+        ? `Cliente recorrente selecionado${previous}: ${client.name}. Nome e WhatsApp reaproveitados; a identificação deste novo bazar será feita uma única vez.`
+        : `Cliente selecionado: ${client.name}`,
+    );
   }
 
   function startAnotherOrder(client?: Client | null) {
     setCreatedOrder(null);
+    setClientOrderDetailsOpen(false);
     setCart([]);
     setMessage("");
     if (client?.name) {
+      setSelectedClient(client);
+      setNewClientMode(false);
       setClientName(client.name);
       setWhatsapp(client.whatsapp || "");
+      setClientIsCorrente(typeof client.is_corrente === "boolean" ? client.is_corrente : null);
     }
   }
 
   function startNewOrder() {
     setCreatedOrder(null);
+    setClientOrderDetailsOpen(false);
+    setSelectedClient(null);
+    setNewClientMode(false);
     setClientName("");
     setWhatsapp("");
+    setClientSearch("");
+    setClientIsCorrente(null);
     setCart([]);
     setMessage("");
+  }
+
+  function startNewClient() {
+    setClientOrderDetailsOpen(false);
+    setSelectedClient(null);
+    setNewClientMode(true);
+    setClientName("");
+    setWhatsapp("");
+    setClientSearch("");
+    setClientIsCorrente(null);
+    setCreatedOrder(null);
+    setMessage("Novo cliente: informe nome, WhatsApp e, no primeiro pedido, a identificação de Filho da Corrente.");
   }
 
   function addBazarItem(price: Price) {
@@ -406,6 +577,7 @@ export function PedidosClient() {
       if (!res.ok) throw new Error(data.error || "Erro ao editar pedido.");
       const order = data.order as CreatedOrder;
       setCreatedOrder(order);
+      setOrders((current) => current.map((item) => (item.id === order.id ? order : item)));
       setEditingOrder(null);
       setMessage("Pedido atualizado.");
     } catch (error) {
@@ -418,8 +590,16 @@ export function PedidosClient() {
   async function createOrder() {
     if (saving) return;
     setMessage("");
+    if (!selectedClient && !newClientMode) {
+      showRequiredAlert("Procure e selecione um cliente existente ou use + NOVO CLIENTE antes de criar o pedido.");
+      return;
+    }
     if (!clientName.trim()) {
-      showRequiredAlert("Informe o cliente antes de criar o pedido. O nome precisa ser único: se já existe Márcio, use Márcio Alex, por exemplo.");
+      showRequiredAlert("Informe o nome do novo cliente antes de criar o pedido.");
+      return;
+    }
+    if (requireCorrenteIdentification && clientIsCorrente === null) {
+      showRequiredAlert("Informe se o cliente é Filho da Corrente do Tucxa. Esta identificação é obrigatória somente no primeiro pedido deste bazar.");
       return;
     }
     if (cart.length === 0) {
@@ -433,7 +613,7 @@ export function PedidosClient() {
       const res = await fetch("/api/bazar-sementinha/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientName, whatsapp, attemptId, items: cart }),
+        body: JSON.stringify({ clientName, whatsapp, isCorrente: clientIsCorrente, attemptId, items: cart }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao criar pedido.");
@@ -443,17 +623,28 @@ export function PedidosClient() {
       setMessage(data.reused ? `Pedido já registrado e reaproveitado: ${order.code}` : `Pedido criado: ${order.code}`);
       setCart([]);
       setCartReviewOpen(false);
-      setClientName("");
-      setWhatsapp("");
+      setClientOrderDetailsOpen(false);
       setCategoryPath("");
       setSearch("");
+
       if (order.client?.name) {
+        const createdClient = { ...(order.client as Client), is_current_event: true };
+        setSelectedClient(createdClient);
+        setNewClientMode(false);
+        setClientName(createdClient.name);
+        setWhatsapp(createdClient.whatsapp || "");
+        setClientIsCorrente(typeof createdClient.is_corrente === "boolean" ? createdClient.is_corrente : clientIsCorrente);
         setClients((current) => {
-          const exists = current.some((client) => client.id === order.client?.id);
-          const next = exists ? current.map((client) => (client.id === order.client?.id ? { ...client, ...order.client } as Client : client)) : [...current, order.client as Client];
-          return next.sort((a, b) => a.name.localeCompare(b.name));
+          const key = clientKey(createdClient);
+          const next = current.filter((client) => clientKey(client) !== key);
+          return [...next, createdClient].sort((a, b) => a.name.localeCompare(b.name));
         });
       }
+
+      setOrders((current) => {
+        const withoutCurrent = current.filter((item) => item.id !== order.id);
+        return [order, ...withoutCurrent];
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erro ao criar pedido.");
     } finally {
@@ -466,26 +657,218 @@ export function PedidosClient() {
       <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-4 sm:gap-5 lg:pr-[430px]">
         <section className="min-w-0 space-y-4 sm:space-y-5">
           <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">Registro rápido</p>
-            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Pedidos do Bazar e do Cardápio</h1>
-            <p className="mt-3 text-sm leading-6 text-[#496451]">Escolha primeiro o tipo do pedido: itens do bazar ou alimentos e bebidas.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2 sm:mt-5">
-              <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
-                Bazar
-              </button>
-              <button onClick={() => switchMode("menu")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
-                Cardápio
-              </button>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm sm:tracking-[0.18em]">1. Identifique o cliente</p>
+            <h1 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">Quem está comprando?</h1>
+            <p className="mt-2 text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">{eventName}</p>
+            <p className="mt-3 text-sm leading-6 text-[#496451]">
+              Use uma única busca para encontrar quem já comprou neste bazar ou em bazares anteriores. Se não encontrar, cadastre um novo cliente rapidamente.
+            </p>
+
+            <div className="mt-4 rounded-3xl bg-[#eafff1] p-3 ring-1 ring-[#ccebd6] sm:p-4">
+              <label className="grid gap-1">
+                <span className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Buscar cliente por nome ou WhatsApp</span>
+                <input
+                  value={clientSearch}
+                  onChange={(event) => setClientSearch(event.target.value)}
+                  placeholder="Ex.: Ana ou 99123"
+                  className="mt-1 w-full rounded-2xl border border-[#ccebd6] bg-white px-4 py-3 outline-none focus:border-[#2f7d45]"
+                />
+              </label>
+              <p className="mt-2 text-[11px] leading-5 text-[#496451]">
+                A busca inclui clientes deste bazar. Com 3 letras do nome ou 4 dígitos do WhatsApp, também pesquisa bazares anteriores.
+              </p>
+
+              {clientSearch.trim().length >= 2 && (
+                <div className="mt-2 grid gap-2">
+                  {canSearchHistoryNow && clientSearchLoading && (
+                    <div className="rounded-2xl bg-white p-3 text-xs text-[#496451] ring-1 ring-[#dfe8df]">
+                      Pesquisando também nos bazares anteriores...
+                    </div>
+                  )}
+                  {canSearchHistoryNow && clientSearchError && (
+                    <div className="rounded-2xl bg-[#fff8dd] p-3 text-xs text-[#7a5a00] ring-1 ring-[#efe3af]">
+                      {clientSearchError}
+                    </div>
+                  )}
+                  {filteredClients.slice(0, 8).map((client) => (
+                    <button
+                      key={`${client.id}-${clientKey(client)}`}
+                      type="button"
+                      onClick={() => selectClient(client)}
+                      className="grid gap-1 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#dfe8df] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                    >
+                      <span className="min-w-0">
+                        <strong className="block break-words text-sm">{client.name}</strong>
+                        <span className="block text-xs text-[#7a8278]">{client.whatsapp || "WhatsApp não informado"}</span>
+                        <span className="mt-1 block text-[11px] font-black text-[#7a5a00]">
+                          {client.is_current_event === false
+                            ? `Cliente de bazar anterior${client.previous_event_date ? ` · ${formatEventDate(client.previous_event_date)}` : ""}`
+                            : "Cliente deste bazar"}
+                        </span>
+                      </span>
+                      <span className="text-xs font-black text-[#0f6b35]">USAR CADASTRO</span>
+                    </button>
+                  ))}
+                  {filteredClients.length === 0 && !(canSearchHistoryNow && clientSearchLoading) && (
+                    <div className="rounded-2xl bg-white p-3">
+                      <p className="text-xs text-[#496451]">Nenhum cadastro encontrado com esta busca.</p>
+                      <button type="button" onClick={startNewClient} className="mt-2 rounded-full bg-[#0f6b35] px-4 py-2 text-xs font-black text-white">
+                        + NOVO CLIENTE
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!clientSearch.trim() && (
+                <button type="button" onClick={startNewClient} className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-black text-[#0f6b35] ring-1 ring-[#ccebd6]">
+                  + NOVO CLIENTE
+                </button>
+              )}
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <label className="sm:col-span-2">
-                <span className="text-sm font-bold">Cliente obrigatório e único</span>
-                <input value={clientName} onChange={(e) => { setClientName(e.target.value); setCreatedOrder(null); }} placeholder="Ex.: Márcio Alex" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-              </label>
-              <label>
-                <span className="text-sm font-bold">WhatsApp</span>
-                <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="opcional" className="mt-1 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-              </label>
+
+            {(selectedClient || newClientMode) && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <label className="sm:col-span-2">
+                  <span className="text-sm font-bold">{selectedClient ? "Cliente selecionado" : "Nome do novo cliente"}</span>
+                  <input
+                    value={clientName}
+                    onChange={(event) => {
+                      if (!newClientMode) return;
+                      setClientName(event.target.value);
+                      setCreatedOrder(null);
+                    }}
+                    readOnly={!newClientMode}
+                    placeholder="Ex.: Márcio Alex"
+                    className={`mt-1 w-full rounded-2xl border px-4 py-3 outline-none ${
+                      newClientMode
+                        ? "border-[#dfe8df] bg-white focus:border-[#2f7d45]"
+                        : "border-[#dfe8df] bg-[#f7f8f4] text-[#214527]"
+                    }`}
+                  />
+                </label>
+                <label>
+                  <span className="text-sm font-bold">WhatsApp</span>
+                  <input
+                    value={whatsapp}
+                    onChange={(event) => {
+                      if (!newClientMode) return;
+                      setWhatsapp(event.target.value);
+                    }}
+                    readOnly={!newClientMode}
+                    placeholder="opcional"
+                    className={`mt-1 w-full rounded-2xl border px-4 py-3 outline-none ${
+                      newClientMode
+                        ? "border-[#dfe8df] bg-white focus:border-[#2f7d45]"
+                        : "border-[#dfe8df] bg-[#f7f8f4] text-[#214527]"
+                    }`}
+                  />
+                </label>
+              </div>
+            )}
+
+            {clientName.trim() && (
+              showSelectedClientOrders ? (
+                <div className="mt-4 rounded-3xl bg-[#fffdf7] p-3 ring-1 ring-[#dfe8df] sm:p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#0f6b35]">Pedidos deste cliente no evento</p>
+                      <h2 className="mt-1 text-base font-black">{selectedClient?.name}</h2>
+                      <p className="mt-1 text-xs leading-5 text-[#496451]">
+                        {selectedClientOrders.length} pedido(s) · total {brl(selectedClientOrderSummary.totalValue)}
+                      </p>
+                      <p className="text-xs leading-5 text-[#496451]">
+                        pagos {selectedClientOrderSummary.paidCount} / {brl(selectedClientOrderSummary.paidValue)} · pendentes {selectedClientOrderSummary.pendingCount} / {brl(selectedClientOrderSummary.pendingValue)}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-3 py-2 text-xs font-black ${selectedClient?.is_corrente ? "bg-[#e8fff0] text-[#0f6b35]" : "bg-[#f4f4f1] text-[#496451]"}`}>
+                      Filho da Corrente: {selectedClient?.is_corrente ? "SIM" : "NÃO"}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderDetailsOpen((current) => !current)}
+                    className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-black text-[#0f6b35] shadow-sm ring-1 ring-[#dfe8df]"
+                  >
+                    {clientOrderDetailsOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                  </button>
+
+                  {clientOrderDetailsOpen && (
+                    <div className="mt-3 grid gap-2">
+                      {selectedClientOrders.map((order) => {
+                        const paid = order.payment_status === "pago";
+                        return (
+                          <div key={order.id} className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#e7ece5] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <strong className="text-sm">Pedido {order.code}</strong>
+                                <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${paid ? "bg-[#e8fff0] text-[#0f6b35]" : "bg-[#fff8dd] text-[#7a5a00]"}`}>
+                                  {paid ? "PAGO" : "PENDENTE"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-[#7a8278]">{formatDateTime(order.created_at)}</p>
+                            </div>
+                            <strong className="text-sm text-[#214527]">{brl(Number(order.total_amount || 0))}</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-3xl bg-[#fff8dd] p-3 ring-1 ring-[#efe3af] sm:p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#7a5a00]">Primeiro pedido deste cliente no evento</p>
+                      <h2 className="mt-1 text-base font-black">É Filho da Corrente do Tucxa?</h2>
+                      <p className="mt-1 text-xs leading-5 text-[#6f6240]">
+                        {selectedClientAlreadyIdentified
+                          ? "Esta informação já foi identificada neste bazar e não será solicitada novamente."
+                          : requireCorrenteIdentification
+                            ? "Obrigatório neste evento. Toque em Sim ou Não; depois disso não será perguntado novamente."
+                            : "Opcional neste evento. Se identificar agora, a informação não será solicitada novamente."}
+                      </p>
+                    </div>
+                    {selectedClientAlreadyIdentified && (
+                      <span className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-black text-[#214527] ring-1 ring-[#efe3af]">
+                        Já identificado: {selectedClient?.is_corrente ? "SIM" : "NÃO"}
+                      </span>
+                    )}
+                  </div>
+                  {!selectedClientAlreadyIdentified && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setClientIsCorrente(true)}
+                        className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === true ? "bg-[#0f6b35] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                      >
+                        SIM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setClientIsCorrente(false)}
+                        className={`rounded-2xl px-4 py-3 text-sm font-black ${clientIsCorrente === false ? "bg-[#7d1b1b] text-white" : "bg-white text-[#214527] ring-1 ring-[#dfe8df]"}`}
+                      >
+                        NÃO
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            )}
+
+            <div className="mt-5 border-t border-[#dfe8df] pt-4">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#83a847] sm:text-sm">2. Escolha o pedido</p>
+              <p className="mt-2 text-sm leading-6 text-[#496451]">Depois de identificar o cliente, escolha itens do bazar ou alimentos e bebidas.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-[#f9f7ef] p-2">
+                <button onClick={() => switchMode("bazar")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "bazar" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                  Bazar
+                </button>
+                <button onClick={() => switchMode("menu")} className={`rounded-2xl px-3 py-2.5 text-xs font-black uppercase tracking-[0.1em] sm:px-4 sm:py-3 sm:text-sm sm:tracking-[0.12em] ${mode === "menu" ? "bg-[#2f7d45] text-white shadow" : "bg-white text-[#2f7d45]"}`}>
+                  Cardápio
+                </button>
+              </div>
             </div>
           </div>
 
@@ -632,34 +1015,7 @@ export function PedidosClient() {
               </div>
             </div>
           )}
-          <div className="min-w-0 rounded-3xl border border-[#dfe8df] bg-white p-4 shadow-sm sm:p-5">
-            <h2 className="text-xl font-black sm:text-2xl">Lista de clientes</h2>
-            <p className="mt-2 text-sm leading-6 text-[#496451]">Busque um cliente já cadastrado e toque em “Fazer pedido” para preencher o nome automaticamente. A lista agora mostra todos os clientes carregados do evento.</p>
-            <input value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} placeholder="Buscar cliente" className="mt-4 w-full rounded-2xl border border-[#dfe8df] px-4 py-3 outline-none focus:border-[#2f7d45]" />
-            <p className="mt-2 text-xs font-bold text-[#7a8278]">{filteredClients.length} cliente(s) encontrado(s).</p>
-            <div className="mt-4 rounded-3xl bg-[#eafff1] p-4">
-              <div className="mb-3 inline-flex rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f6b35]">A-Z</div>
-              <div className="space-y-3">
-                {filteredClients.length === 0 && <p className="text-sm text-[#496451]">Nenhum cliente encontrado ainda.</p>}
-                {filteredClients.map((client) => (
-                  <div key={client.id} className="grid gap-3 rounded-2xl bg-white p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div className="min-w-0">
-                      <strong className="block break-words">{client.name}</strong>
-                      {client.whatsapp && <span className="block text-xs text-[#7a8278]">{client.whatsapp}</span>}
-                      {client.public_token ? (
-                        <Link href={`/bazar-sementinha/cliente/${client.public_token}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-full bg-[#fff8dd] px-3 py-1.5 text-xs font-black text-[#7a5a00] ring-1 ring-[#efe3af]">
-                          Abrir acompanhamento / QRCode
-                        </Link>
-                      ) : (
-                        <span className="mt-2 inline-flex rounded-full bg-[#f9f7ef] px-3 py-1.5 text-xs font-bold text-[#7a8278]">QRCode liberado após novo SQL</span>
-                      )}
-                    </div>
-                    <button onClick={() => selectClient(client)} className="shrink-0 rounded-full bg-[#0f6b35] px-4 py-2 text-sm font-black text-white">Fazer pedido</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+
 
 
         </section>

@@ -1,25 +1,35 @@
 import { NextResponse } from "next/server";
-import { getBazarEvent } from "@/lib/bazar-sementinha";
+import { getBazarEventFromRequest } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
+type AudienceFilter = "all" | "corrente" | "nao_corrente";
+
+type OrderItemRow = {
+  kind: string;
+  name: string;
+  category_path?: string | null;
+  quantity: number | string;
+  total_price: number | string;
+  unit_price: number | string;
+};
+
 type OrderRow = {
   id: string;
+  client_id?: string | null;
   code?: string | null;
   total_amount: number | string;
   payment_status: string;
   status: string;
   created_at: string;
-  client?: { name?: string | null; whatsapp?: string | null } | null;
-  items?: Array<{
-    kind: string;
-    name: string;
-    category_path?: string | null;
-    quantity: number | string;
-    total_price: number | string;
-    unit_price: number | string;
-  }>;
+  client?: {
+    id?: string | null;
+    name?: string | null;
+    whatsapp?: string | null;
+    is_corrente?: boolean | null;
+  } | null;
+  items?: OrderItemRow[];
 };
 
 type PaymentRow = {
@@ -36,6 +46,18 @@ type ExpenseRow = {
   description?: string | null;
   amount?: number | string | null;
   status?: string | null;
+};
+
+type ExtraRevenueRow = {
+  id: string;
+  event_id?: string | null;
+  revenue_type?: string | null;
+  description?: string | null;
+  source?: string | null;
+  amount?: number | string | null;
+  status?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
 };
 
 type SummaryRow = {
@@ -56,29 +78,54 @@ type PendingPaymentRow = {
   total: number;
 };
 
+type EventOption = {
+  id: string;
+  name: string;
+  event_date: string;
+  slug: string;
+  status: string;
+  is_public?: boolean;
+};
+
 const EXCLUDED_ORDER_STATUS = "excluido";
 const CANCELED_ORDER_STATUS = "cancelado";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const event = await getBazarEvent();
-    const [ordersRes, paymentsRes, expensesRes] = await Promise.all([
+    const url = new URL(request.url);
+    const audience = parseAudience(url.searchParams.get("audience"));
+    const event = await getBazarEventFromRequest(request);
+
+    const [eventsRes, ordersRes, paymentsRes, expensesRes, revenuesRes] = await Promise.all([
+      supabaseAdmin
+        .from("bazar_events")
+        .select("id,name,event_date,slug,status,is_public")
+        .order("event_date", { ascending: false }),
       supabaseAdmin
         .from("bazar_orders")
-        .select("*, client:bazar_clients(name, whatsapp), items:bazar_order_items(*)")
+        .select("*, client:bazar_clients(id,name,whatsapp,is_corrente), items:bazar_order_items(*)")
         .eq("event_id", event.id)
         .order("created_at"),
       supabaseAdmin.from("bazar_payments").select("*").eq("event_id", event.id).order("created_at"),
       supabaseAdmin.from("bazar_expenses").select("*").eq("event_id", event.id).order("created_at"),
+      supabaseAdmin.from("bazar_extra_revenues").select("*").eq("event_id", event.id).order("created_at"),
     ]);
 
+    if (eventsRes.error) throw eventsRes.error;
     if (ordersRes.error) throw ordersRes.error;
     if (paymentsRes.error) throw paymentsRes.error;
     if (expensesRes.error) throw expensesRes.error;
+    if (revenuesRes.error) throw revenuesRes.error;
 
-    const orders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
+    const allOrders = ((ordersRes.data || []) as OrderRow[]).filter((order) => order.status !== EXCLUDED_ORDER_STATUS);
+    const allActiveOrders = allOrders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
+    const audienceCounts = buildAudienceCounts(allActiveOrders);
+    const orderWindow = buildOrderWindow(allActiveOrders, event.event_date);
+
+    const orders = allOrders.filter((order) => matchesAudience(order, audience));
     const payments = (paymentsRes.data || []) as PaymentRow[];
     const expenses = (expensesRes.data || []) as ExpenseRow[];
+    const extraRevenues = (revenuesRes.data || []) as ExtraRevenueRow[];
 
     const activeOrders = orders.filter((order) => order.status !== CANCELED_ORDER_STATUS);
     const canceledOrders = orders.filter((order) => order.status === CANCELED_ORDER_STATUS);
@@ -101,6 +148,7 @@ export async function GET() {
       .filter((payment) => payment.activeOrderCount > 0 && payment.activeAmount > 0);
 
     const confirmedExpenses = expenses.filter((expense) => expense.status !== "cancelada");
+    const confirmedExtraRevenues = extraRevenues.filter((revenue) => revenue.status === "confirmada");
 
     const totals = {
       sold: activeOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
@@ -108,8 +156,10 @@ export async function GET() {
       pending: activePendingOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
       canceled: canceledOrders.reduce((sum, order) => sum + toNumber(order.total_amount), 0),
       expenses: confirmedExpenses.reduce((sum, expense) => sum + toNumber(expense.amount), 0),
+      extraRevenues: confirmedExtraRevenues.reduce((sum, revenue) => sum + toNumber(revenue.amount), 0),
     };
-    const result = totals.paid - totals.expenses;
+    const revenue = totals.sold + totals.extraRevenues;
+    const result = totals.paid + totals.extraRevenues - totals.expenses;
 
     const byPayment = groupSum(
       activePayments,
@@ -136,10 +186,18 @@ export async function GET() {
       (item) => toNumber(item.quantity),
     );
 
+    const byUnitPrice = buildUnitPriceSummary(itemRows);
+
     const byExpense = groupSum(
       confirmedExpenses,
       (expense) => expense.category || "Geral",
       (expense) => toNumber(expense.amount),
+    );
+
+    const byExtraRevenue = groupSum(
+      confirmedExtraRevenues,
+      (revenue) => revenue.description || (revenue.revenue_type === "doacao" ? "Doação" : "Receita extraordinária"),
+      (revenue) => toNumber(revenue.amount),
     );
 
     const pendingPayments: PendingPaymentRow[] = activePendingOrders
@@ -153,23 +211,134 @@ export async function GET() {
       }))
       .sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR") || a.createdAt.localeCompare(b.createdAt));
 
+    const uniqueClients = new Set(activeOrders.map((order) => order.client_id || order.client?.id).filter(Boolean));
+    const metrics = {
+      orders: activeOrders.length,
+      clients: uniqueClients.size,
+      itemQuantity: itemRows.reduce((sum, item) => sum + toNumber(item.quantity), 0),
+      averageTicket: activeOrders.length > 0 ? totals.sold / activeOrders.length : 0,
+      paidOrders: activePaidOrders.length,
+      pendingOrders: activePendingOrders.length,
+    };
+
     return NextResponse.json({
       event,
+      events: (eventsRes.data || []) as EventOption[],
+      audience,
+      audienceCounts,
+      orderWindow,
+      expenseScope: audience === "all" ? "filtered-event" : "whole-event",
+      expenseScopeNote:
+        audience === "all"
+          ? null
+          : "Despesas e doações/receitas extraordinárias são lançadas para o evento, não para um cliente. Por isso permanecem integrais neste filtro; vendas, pedidos, clientes, pagamentos e itens são filtrados pelo público selecionado.",
       orders,
       payments: activePayments,
       expenses,
-      totals: { ...totals, result },
+      extraRevenues,
+      totals: { ...totals, revenue, result },
+      metrics,
       byPayment,
       byKind,
       byCategorySummary,
       byItem,
+      byUnitPrice,
       byExpense,
+      byExtraRevenue,
       pendingPayments,
     });
   } catch (error) {
     console.error("[bazar-sementinha/report][GET]", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao gerar relatório." }, { status: 500 });
   }
+}
+
+function parseAudience(value: string | null): AudienceFilter {
+  if (value === "corrente" || value === "nao_corrente") return value;
+  return "all";
+}
+
+function matchesAudience(order: OrderRow, audience: AudienceFilter) {
+  if (audience === "all") return true;
+  if (audience === "corrente") return order.client?.is_corrente === true;
+  return order.client?.is_corrente === false;
+}
+
+function buildAudienceCounts(orders: OrderRow[]) {
+  const byClient = new Map<string, boolean | null>();
+  for (const order of orders) {
+    const key = String(order.client_id || order.client?.id || `order:${order.id}`);
+    if (byClient.has(key)) continue;
+    byClient.set(key, typeof order.client?.is_corrente === "boolean" ? order.client.is_corrente : null);
+  }
+
+  let corrente = 0;
+  let naoCorrente = 0;
+  let unknown = 0;
+
+  for (const value of byClient.values()) {
+    if (value === true) corrente += 1;
+    else if (value === false) naoCorrente += 1;
+    else unknown += 1;
+  }
+
+  return {
+    total: byClient.size,
+    corrente,
+    naoCorrente,
+    unknown,
+  };
+}
+
+const BAZAR_TIME_ZONE = "America/Sao_Paulo";
+
+function localDateKey(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BAZAR_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+
+  const year = parts.find((part) => part.type === "year")?.value || "";
+  const month = parts.find((part) => part.type === "month")?.value || "";
+  const day = parts.find((part) => part.type === "day")?.value || "";
+  return year && month && day ? `${year}-${month}-${day}` : "";
+}
+
+function buildOrderWindow(orders: OrderRow[], eventDate: string) {
+  const parsedOrders = orders
+    .map((order) => {
+      const parsed = new Date(order.created_at);
+      return {
+        raw: order.created_at,
+        timestamp: parsed.getTime(),
+        localDate: localDateKey(order.created_at),
+      };
+    })
+    .filter((item) => Number.isFinite(item.timestamp));
+
+  if (parsedOrders.length === 0) {
+    return { firstOrderAt: null, lastOrderAt: null, durationMinutes: null };
+  }
+
+  const eventDateKey = eventDate.slice(0, 10);
+  const eventDayOrders = parsedOrders.filter((item) => item.localDate === eventDateKey);
+  const candidates = (eventDayOrders.length > 0 ? eventDayOrders : parsedOrders)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const first = candidates[0];
+  const last = candidates[candidates.length - 1];
+  const durationMinutes = Math.max(0, Math.round((last.timestamp - first.timestamp) / 60000));
+
+  return {
+    firstOrderAt: first.raw,
+    lastOrderAt: last.raw,
+    durationMinutes,
+  };
 }
 
 function toNumber(value: number | string | null | undefined) {
@@ -187,6 +356,32 @@ function groupSum<T>(rows: T[], labelFn: (row: T) => string, amountFn: (row: T) 
     map.set(label, previous);
   }
   return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+function buildUnitPriceSummary(items: OrderItemRow[]) {
+  const map = new Map<number, { label: string; quantity: number; total: number }>();
+
+  for (const item of items) {
+    const unitPrice = toNumber(item.unit_price);
+    const quantity = toNumber(item.quantity);
+    const total = toNumber(item.total_price);
+    const previous = map.get(unitPrice) || {
+      label: formatPriceLabel(unitPrice),
+      quantity: 0,
+      total: 0,
+    };
+    previous.quantity += quantity;
+    previous.total += total;
+    map.set(unitPrice, previous);
+  }
+
+  return [...map.entries()]
+    .sort(([priceA], [priceB]) => priceA - priceB)
+    .map(([, row]) => row);
+}
+
+function formatPriceLabel(value: number) {
+  return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function buildCategorySummary(salesRows: Array<{ label: string; quantity: number; total: number }>, expenses: ExpenseRow[]): SummaryRow[] {
@@ -262,7 +457,5 @@ function summaryLabelForExpense(value: string) {
 
 function describeOrderItems(items: NonNullable<OrderRow["items"]>) {
   if (items.length === 0) return "Sem itens detalhados";
-  return items
-    .map((item) => `${toNumber(item.quantity)}x ${item.name}`)
-    .join(", ");
+  return items.map((item) => `${toNumber(item.quantity)}x ${item.name}`).join(", ");
 }

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { ConfigKind, getBazarEvent, parseMoney, requireBazarSession, sessionErrorStatus } from "@/lib/bazar-sementinha";
+import { ConfigKind, getBazarEventFromRequest, parseMoney, requireBazarSession, sessionErrorStatus } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // GET fica liberado para a área de gestão carregar mesmo se o navegador não enviar o cookie na primeira chamada.
     // Alterações continuam protegidas em POST/PATCH/DELETE.
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request);
     const [prices, categories, menu] = await Promise.all([
       supabaseAdmin.from("bazar_price_points").select("*").eq("event_id", event.id).order("amount"),
       supabaseAdmin.from("bazar_category_nodes").select("*").eq("event_id", event.id).order("sort_order"),
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     await requireBazarSession(request);
     const body = await request.json();
     const kind = String(body.kind || "") as ConfigKind;
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request, body);
 
     if (kind === "price") {
       const { data, error } = await supabaseAdmin
@@ -86,6 +86,7 @@ export async function PATCH(request: Request) {
     await requireBazarSession(request);
     const body = await request.json();
     const kind = String(body.kind || "") as ConfigKind;
+    const event = await getBazarEventFromRequest(request, body);
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "ID obrigatório." }, { status: 400 });
 
@@ -99,7 +100,7 @@ export async function PATCH(request: Request) {
     if ("amount" in body) patch.amount = parseMoney(body.amount);
     if ("price" in body) patch.price = parseMoney(body.price);
 
-    const { data, error } = await supabaseAdmin.from(table).update(patch).eq("id", id).select("*").single();
+    const { data, error } = await supabaseAdmin.from(table).update(patch).eq("event_id", event.id).eq("id", id).select("*").single();
     if (error) throw error;
     return NextResponse.json({ item: data });
   } catch (error) {
@@ -113,9 +114,10 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const kind = searchParams.get("kind") as ConfigKind;
     const id = searchParams.get("id");
+    const event = await getBazarEventFromRequest(request);
     const table = kind === "price" ? "bazar_price_points" : kind === "category" ? "bazar_category_nodes" : kind === "menu" ? "bazar_menu_items" : null;
     if (!table || !id) return NextResponse.json({ error: "Parâmetros inválidos." }, { status: 400 });
-    const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
+    const { error } = await supabaseAdmin.from(table).delete().eq("event_id", event.id).eq("id", id);
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (error) {
