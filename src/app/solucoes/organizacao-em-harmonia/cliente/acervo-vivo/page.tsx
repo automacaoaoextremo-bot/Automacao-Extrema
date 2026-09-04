@@ -154,6 +154,7 @@ type Payload = {
     overdue?: number;
     reservations?: number;
     pendingCovers?: number;
+    pendingDescriptions?: number;
   };
 };
 
@@ -169,6 +170,7 @@ type PanelView =
   | "acervo-titulo"
   | "acervo-exemplar"
   | "acervo-capas"
+  | "acervo-descricoes"
   | "acervo-qrs"
   | "circulacao-reservas"
   | "circulacao-emprestimos"
@@ -329,6 +331,49 @@ function ManagementModal({
   );
 }
 
+function parseSemicolonCsv(textValue: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < textValue.length; index += 1) {
+    const char = textValue[index];
+    const next = textValue[index + 1];
+
+    if (char === '"') {
+      if (quoted && next === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+
+    if (!quoted && char === ";") {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if (!quoted && (char === "\n" || char === "\r")) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(field);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += char;
+  }
+
+  row.push(field);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
 export default function AcervoVivoGestaoPage() {
   const [payload, setPayload] = useState<Payload>({});
   const [token, setToken] = useState("");
@@ -375,6 +420,7 @@ export default function AcervoVivoGestaoPage() {
   const [titleDescription, setTitleDescription] = useState("");
   const [selectedTitleId, setSelectedTitleId] = useState("");
   const [coverCandidates, setCoverCandidates] = useState<CoverCandidate[]>([]);
+  const [descriptionOverwrite, setDescriptionOverwrite] = useState(false);
 
   const [copyTitleId, setCopyTitleId] = useState("");
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
@@ -590,6 +636,9 @@ export default function AcervoVivoGestaoPage() {
       summary?: { expected?: number; scanned?: number; missing?: number };
       copy?: CopyRow;
       labels?: BatchQrLabel[];
+      updated?: number;
+      skippedExisting?: number;
+      notFound?: number;
     };
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
@@ -933,6 +982,69 @@ export default function AcervoVivoGestaoPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportPendingDescriptionsCsv() {
+    const pending = titles.filter((item) => item.active !== false && !(item.description ?? "").trim());
+    const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [
+      ["id", "titulo", "autor", "description"],
+      ...pending.map((item) => [
+        item.id,
+        item.title,
+        (item.authors ?? []).join("; "),
+        "",
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map((value) => escapeCsv(String(value))).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "acervo-vivo-descricoes-pendentes.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importDescriptionsCsv(file: File) {
+    if (!token || saving) return;
+    setSaving(true); setError(""); setSuccess("");
+
+    try {
+      const rows = parseSemicolonCsv(await file.text());
+      if (rows.length < 2) throw new Error("O CSV não possui linhas de dados.");
+
+      const header = rows[0].map((value) => value.replace(/^\uFEFF/, "").trim().toLowerCase());
+      const idIndex = header.indexOf("id");
+      const descriptionIndex = Math.max(header.indexOf("description"), header.indexOf("descricao"), header.indexOf("descrição"));
+
+      if (idIndex < 0 || descriptionIndex < 0) {
+        throw new Error("O CSV precisa das colunas id e description (ou descricao).");
+      }
+
+      const descriptions = rows.slice(1)
+        .map((values) => ({
+          id: (values[idIndex] ?? "").trim(),
+          description: (values[descriptionIndex] ?? "").trim(),
+        }))
+        .filter((item) => item.id && item.description.length >= 20);
+
+      if (!descriptions.length) throw new Error("Nenhuma descrição válida foi encontrada no CSV.");
+
+      const result = await post({
+        action: "bulk-update-descriptions",
+        descriptions,
+        overwrite: descriptionOverwrite,
+      });
+
+      setSuccess(`Descrições atualizadas: ${result.updated ?? 0}. Existentes preservadas: ${result.skippedExisting ?? 0}. IDs não localizados: ${result.notFound ?? 0}.`);
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao importar descrições.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createInventory(event: FormEvent) {
     event.preventDefault();
     if (!token || saving) return;
@@ -1044,6 +1156,7 @@ export default function AcervoVivoGestaoPage() {
     "acervo-titulo": editingTitleId ? "Editar título" : "Cadastrar título",
     "acervo-exemplar": "Adicionar exemplar",
     "acervo-capas": "Capas pendentes",
+    "acervo-descricoes": "Descrições dos livros",
     "acervo-qrs": "QR Codes por categoria",
     "circulacao-reservas": "Reservas e retiradas",
     "circulacao-emprestimos": "Empréstimos ativos",
@@ -1135,7 +1248,7 @@ export default function AcervoVivoGestaoPage() {
         </div>
       )}
 
-      <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 sm:gap-2">
+      <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-8 sm:gap-2">
         {[
           ["Títulos", payload.metrics?.titles ?? 0],
           ["Exemplares", payload.metrics?.copies ?? 0],
@@ -1144,6 +1257,7 @@ export default function AcervoVivoGestaoPage() {
           ["Atrasados", payload.metrics?.overdue ?? 0],
           ["Reservas", payload.metrics?.reservations ?? 0],
           ["Capas pendentes", payload.metrics?.pendingCovers ?? 0],
+          ["Descrições pendentes", payload.metrics?.pendingDescriptions ?? 0],
         ].map(([label, value]) => (
           <article key={String(label)} className="min-w-0 rounded-2xl bg-white p-2.5 text-center shadow ring-1 ring-slate-100 sm:p-3">
             <p className="truncate text-[8px] font-black uppercase tracking-[0.08em] text-[#2F6B43] sm:text-[9px]">{label}</p>
@@ -1223,6 +1337,7 @@ export default function AcervoVivoGestaoPage() {
                   <ActionTile title="Cadastrar título" onClick={() => { clearTitleForm(); setPanelView("acervo-titulo"); }} />
                   <ActionTile title="Adicionar exemplar" onClick={() => setPanelView("acervo-exemplar")} />
                   <ActionTile title="Capas pendentes" note={`${payload.metrics?.pendingCovers ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-capas")} />
+                  <ActionTile title="Descrições dos livros" note={`${payload.metrics?.pendingDescriptions ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-descricoes")} />
                   <ActionTile title="QR Codes por categoria" note="Impressão para o inventário físico" onClick={() => { setQrCategory(""); setQrCategoryPage(0); setPanelView("acervo-qrs"); }} />
                 </>
               )}
@@ -1391,6 +1506,33 @@ export default function AcervoVivoGestaoPage() {
                 <button type="button" disabled={saving} onClick={() => void enrichPendingCovers()} className="rounded-xl bg-[#E7F0E2] px-3 py-3 text-xs font-black text-[#2F6B43] disabled:opacity-50">Buscar próximas 10 capas</button>
                 <button type="button" onClick={exportPendingCoversCsv} className="rounded-xl bg-white px-3 py-3 text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/20">Baixar CSV pendências</button>
               </div>
+            </section>
+          ) : panelView === "acervo-descricoes" ? (
+            <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+              <p className="text-sm font-black text-[#00334E]">{payload.metrics?.pendingDescriptions ?? 0} descrição(ões) ainda pendente(s)</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Baixe a planilha, preencha a coluna description e importe novamente. Por segurança, descrições já existentes são preservadas por padrão.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button type="button" onClick={exportPendingDescriptionsCsv} className="rounded-xl bg-white px-3 py-3 text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/20">Baixar CSV pendências</button>
+                <label className="flex cursor-pointer items-center justify-center rounded-xl bg-[#E7F0E2] px-3 py-3 text-center text-xs font-black text-[#2F6B43]">
+                  {saving ? "Importando..." : "Importar CSV preenchido"}
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    disabled={saving}
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void importDescriptionsCsv(file);
+                    }}
+                  />
+                </label>
+              </div>
+              <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-bold leading-4 text-amber-900">
+                <input type="checkbox" checked={descriptionOverwrite} onChange={(event) => setDescriptionOverwrite(event.target.checked)} className="mt-0.5" />
+                Sobrescrever descrições que já existem no catálogo. Use somente quando o CSV tiver sido revisado.
+              </label>
+              <p className="mt-3 rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">Formato aceito: CSV separado por ponto e vírgula, com as colunas <strong>id</strong> e <strong>description</strong>. Até 500 livros por importação.</p>
             </section>
           ) : panelView === "acervo-qrs" ? (
             <div>

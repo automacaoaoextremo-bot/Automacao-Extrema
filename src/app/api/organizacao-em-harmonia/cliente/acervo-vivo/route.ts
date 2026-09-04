@@ -298,6 +298,7 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     overdue: loanRows.filter((row) => !row.returned_at && new Date(row.due_at).getTime() < Date.now()).length,
     reservations: reservationRows.filter((row) => ["aguardando", "disponivel"].includes(row.status)).length,
     pendingCovers: titleRows.filter((row) => !row.cover_url || ["pendente", "sugerida"].includes(row.cover_match_status ?? "")).length,
+    pendingDescriptions: titleRows.filter((row) => row.active !== false && !text(row.description)).length,
   };
 
   let catalogWarning: string | null = null;
@@ -628,6 +629,66 @@ export async function POST(request: Request) {
       if (error) throw error;
       await audit(organizationId, actorPersonId, "titulo_atualizado", "title", titleId, { title });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "bulk-update-descriptions") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode importar descrições em lote.");
+      }
+
+      const requested = Array.isArray(body.descriptions) ? body.descriptions.slice(0, 500) : [];
+      const overwrite = boolValue(body.overwrite, false);
+      const normalized = requested
+        .map((item) => {
+          const current = record(item);
+          return {
+            id: text(current.id),
+            description: text(current.description).slice(0, 900),
+          };
+        })
+        .filter((item) => item.id && item.description.length >= 20);
+
+      if (!normalized.length) {
+        return NextResponse.json({ error: "Nenhuma descrição válida foi enviada. Use id e description com pelo menos 20 caracteres." }, { status: 400 });
+      }
+
+      const ids = Array.from(new Set(normalized.map((item) => item.id)));
+      const { data: currentRows, error: currentRowsError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,description")
+        .eq("organization_id", organizationId)
+        .in("id", ids);
+      if (currentRowsError) throw currentRowsError;
+
+      const currentMap = new Map((currentRows ?? []).map((item) => [text(item.id), text(item.description)]));
+      const updates = normalized.filter((item) => currentMap.has(item.id) && (overwrite || !currentMap.get(item.id)));
+      const skippedExisting = normalized.filter((item) => currentMap.has(item.id) && !overwrite && Boolean(currentMap.get(item.id))).length;
+      const notFound = normalized.filter((item) => !currentMap.has(item.id)).length;
+
+      let updated = 0;
+      for (let index = 0; index < updates.length; index += 25) {
+        const chunk = updates.slice(index, index + 25);
+        const results = await Promise.all(
+          chunk.map((item) => supabaseAdmin
+            .from("oh_acervo_titles")
+            .update({ description: item.description, updated_at: nowIso() })
+            .eq("organization_id", organizationId)
+            .eq("id", item.id)),
+        );
+        const firstError = results.find((result) => result.error)?.error;
+        if (firstError) throw firstError;
+        updated += chunk.length;
+      }
+
+      await audit(organizationId, actorPersonId, "descricoes_importadas_em_lote", "title", undefined, {
+        requested: normalized.length,
+        updated,
+        skippedExisting,
+        notFound,
+        overwrite,
+      });
+
+      return NextResponse.json({ ok: true, requested: normalized.length, updated, skippedExisting, notFound, overwrite });
     }
 
     if (action === "enrich-covers") {
