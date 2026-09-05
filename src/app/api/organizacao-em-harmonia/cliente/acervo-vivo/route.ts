@@ -187,6 +187,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const ACERVO_COVERS_BUCKET = "tucxa-acervo-vivo-capas";
+
+function coverImageFromDataUrl(value: unknown) {
+  const raw = text(value);
+  const match = raw.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > 2_500_000) return null;
+  const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+  return { mimeType, buffer, extension };
+}
+
 function errorMessage(value: unknown, fallback: string) {
   if (value instanceof Error && value.message) return value.message;
   const current = record(value);
@@ -629,6 +642,78 @@ export async function POST(request: Request) {
       if (error) throw error;
       await audit(organizationId, actorPersonId, "titulo_atualizado", "title", titleId, { title });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "save-catalog-details") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode completar o catálogo.");
+      }
+      const titleId = text(body.titleId);
+      const description = text(body.description).slice(0, 900);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      if (description && description.length < 20) {
+        return NextResponse.json({ error: "A descrição precisa ter pelo menos 20 caracteres." }, { status: 400 });
+      }
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .update({ description: description || null, updated_at: nowIso() })
+        .eq("organization_id", organizationId)
+        .eq("id", titleId);
+      if (error) throw error;
+      await audit(organizationId, actorPersonId, "catalogo_completado_descricao", "title", titleId, { hasDescription: Boolean(description) });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "upload-cover-image") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode enviar fotos de capa.");
+      }
+      const titleId = text(body.titleId);
+      const image = coverImageFromDataUrl(body.imageDataUrl);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      if (!image) {
+        return NextResponse.json({ error: "Imagem inválida ou maior que 2,5 MB após a preparação no celular." }, { status: 400 });
+      }
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,title,cover_url,cover_source,cover_external_id")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+      if (titleError) throw titleError;
+      if (!currentTitle?.id) return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
+
+      const storagePath = `titles/${organizationId}/${titleId}.${image.extension}`;
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(ACERVO_COVERS_BUCKET)
+        .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: true, cacheControl: "3600" });
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabaseAdmin.storage.from(ACERVO_COVERS_BUCKET).getPublicUrl(storagePath);
+      const coverUrl = text(publicData.publicUrl);
+      if (!coverUrl) throw new Error("Não foi possível gerar a URL pública da capa.");
+
+      const { error: updateError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .update({
+          cover_url: coverUrl,
+          cover_source: "supabase-storage",
+          cover_external_id: storagePath,
+          cover_match_status: "manual",
+          cover_match_confidence: 100,
+          updated_at: nowIso(),
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", titleId);
+      if (updateError) throw updateError;
+
+      await audit(organizationId, actorPersonId, "capa_fotografada_enviada", "title", titleId, {
+        storagePath,
+        previousCoverUrl: text(currentTitle.cover_url) || null,
+        previousCoverSource: text(currentTitle.cover_source) || null,
+      });
+      return NextResponse.json({ ok: true, coverUrl });
     }
 
     if (action === "bulk-update-descriptions") {
