@@ -434,7 +434,7 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
   ] = await Promise.all([
     supabaseAdmin.from("oh_acervo_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
     supabaseAdmin.from("oh_acervo_titles").select("*").eq("organization_id", organizationId).eq("active", true).order("title"),
-    supabaseAdmin.from("oh_acervo_copies").select("id,title_id,status,active,asset_code,legacy_code,shelf,shelf_position,condition").eq("organization_id", organizationId).eq("active", true).order("asset_code"),
+    supabaseAdmin.from("oh_acervo_copies").select("id,title_id,status,active,asset_code,legacy_code,qr_token,shelf,shelf_position,condition").eq("organization_id", organizationId).eq("active", true).order("asset_code"),
     supabaseAdmin.from("oh_acervo_trails").select("*").eq("organization_id", organizationId).eq("active", true).order("sort_order"),
     supabaseAdmin.from("oh_acervo_trail_items").select("*").eq("organization_id", organizationId).order("sort_order"),
     supabaseAdmin.from("oh_acervo_resources").select("*").eq("organization_id", organizationId).eq("active", true).order("title"),
@@ -466,6 +466,7 @@ export async function loadAcervoReaderPayload(context: AcervoReaderContext) {
     active?: boolean | null;
     asset_code?: string | null;
     legacy_code?: string | null;
+    qr_token?: string | null;
     shelf?: string | null;
     shelf_position?: string | null;
     condition?: string | null;

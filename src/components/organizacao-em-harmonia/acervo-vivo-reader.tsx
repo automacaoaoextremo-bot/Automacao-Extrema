@@ -37,6 +37,7 @@ type CopyRow = {
   status: string;
   asset_code?: string | null;
   legacy_code?: string | null;
+  qr_token?: string | null;
   shelf?: string | null;
   shelf_position?: string | null;
   condition?: string | null;
@@ -182,6 +183,49 @@ function normalize(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function normalizeCopyCode(value: string) {
+  return normalize(value).replace(/[^a-z0-9]/g, "").toUpperCase();
+}
+
+function displayCopyCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
+  return copy.legacy_code?.trim() || copy.asset_code?.trim() || "";
+}
+
+function looksLikeCopyCode(value: string) {
+  const normalized = normalizeCopyCode(value);
+  return /[A-Z]/.test(normalized) && /[0-9]/.test(normalized);
+}
+
+function copyCodePrefix(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
+  const source = copy.legacy_code?.trim() || copy.asset_code?.replace(/^ACV[\s-]*/i, "").trim() || "";
+  const match = source.match(/[A-Za-z]+/);
+  if (match) return match[0].toUpperCase();
+  return source ? "0-9" : "#";
+}
+
+function copyMatchesCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">, query: string) {
+  const needle = normalizeCopyCode(query);
+  if (!needle) return false;
+  return [copy.legacy_code, copy.asset_code]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => normalizeCopyCode(value).includes(needle));
+}
+
+function copyCodeEquals(copy: Pick<CopyRow, "asset_code" | "legacy_code">, query: string) {
+  const needle = normalizeCopyCode(query);
+  if (!needle) return false;
+  return [copy.legacy_code, copy.asset_code]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => normalizeCopyCode(value) === needle);
+}
+
+function compareCopyCodes(left: CopyRow, right: CopyRow) {
+  return displayCopyCode(left).localeCompare(displayCopyCode(right), "pt-BR", {
+    numeric: true,
+    sensitivity: "base",
+  });
 }
 
 function formatDate(value?: string | null) {
@@ -376,10 +420,13 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [searchPage, setSearchPage] = useState(1);
   const [selectedLetter, setSelectedLetter] = useState("");
   const [selectedBrowseCategory, setSelectedBrowseCategory] = useState("");
-  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria">("alfabeto");
+  const [selectedCodePrefix, setSelectedCodePrefix] = useState("");
+  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria" | "codigo">("alfabeto");
   const [letterPage, setLetterPage] = useState(1);
+  const [codePage, setCodePage] = useState(1);
   const [trailPage, setTrailPage] = useState(1);
   const [selectedTitleId, setSelectedTitleId] = useState("");
+  const [selectedManualCopyId, setSelectedManualCopyId] = useState("");
   const [selectedTrailId, setSelectedTrailId] = useState("");
   const [trailItemPage, setTrailItemPage] = useState(1);
   const [selectedFolhaYear, setSelectedFolhaYear] = useState<number | null>(null);
@@ -455,17 +502,20 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   useEffect(() => {
     function closeTop(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      if (selectedTitleId) setSelectedTitleId("");
-      else if (selectedTrailId) setSelectedTrailId("");
+      if (selectedTitleId) {
+        setSelectedTitleId("");
+        setSelectedManualCopyId("");
+      } else if (selectedTrailId) setSelectedTrailId("");
       else if (inventoryOpen) setInventoryOpen(false);
       else if (managerEditOpen) setManagerEditOpen(false);
       else if (selectedLetter) setSelectedLetter("");
+      else if (selectedCodePrefix) setSelectedCodePrefix("");
       else if (selectedBrowseCategory) setSelectedBrowseCategory("");
       else if (view) setView(null);
     }
     window.addEventListener("keydown", closeTop);
     return () => window.removeEventListener("keydown", closeTop);
-  }, [inventoryOpen, managerEditOpen, selectedBrowseCategory, selectedLetter, selectedTitleId, selectedTrailId, view]);
+  }, [inventoryOpen, managerEditOpen, selectedBrowseCategory, selectedCodePrefix, selectedLetter, selectedTitleId, selectedTrailId, view]);
 
   const titles = useMemo(() => payload.titles ?? [], [payload.titles]);
   const copies = useMemo(() => payload.copies ?? [], [payload.copies]);
@@ -482,6 +532,10 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
   const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
   const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
+  const selectedManualCopy = selectedManualCopyId
+    ? copies.find((copy) => copy.id === selectedManualCopyId) ?? null
+    : null;
+  const selectedIdentifiedCopy = selectedManualCopy?.title_id === selectedTitle?.id ? selectedManualCopy : null;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
   const categories = useMemo(() => {
@@ -515,16 +569,88 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     return a.localeCompare(b, "pt-BR");
   }), [indexedTitles]);
 
+  const codeEntries = useMemo(
+    () => copies
+      .filter((copy) => Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
+      .slice()
+      .sort(compareCopyCodes)
+      .map((copy) => ({
+        copy,
+        title: titleMap.get(copy.title_id) as TitleRow,
+        code: displayCopyCode(copy),
+        prefix: copyCodePrefix(copy),
+      })),
+    [copies, titleMap],
+  );
+
+  const codePrefixes = useMemo(
+    () => Array.from(new Set(codeEntries.map((entry) => entry.prefix))).sort((left, right) =>
+      left.localeCompare(right, "pt-BR", { numeric: true, sensitivity: "base" }),
+    ),
+    [codeEntries],
+  );
+
+  const selectedCodeEntries = useMemo(
+    () => selectedCodePrefix
+      ? codeEntries.filter((entry) => entry.prefix === selectedCodePrefix)
+      : [],
+    [codeEntries, selectedCodePrefix],
+  );
+
+  const codeMatchesByTitle = useMemo(() => {
+    const map = new Map<string, CopyRow[]>();
+    if (!query.trim() || !looksLikeCopyCode(query)) return map;
+
+    for (const copy of copies) {
+      if (!copyMatchesCode(copy, query)) continue;
+      const current = map.get(copy.title_id) ?? [];
+      current.push(copy);
+      map.set(copy.title_id, current);
+    }
+
+    for (const [titleId, matches] of map.entries()) {
+      matches.sort((left, right) => {
+        const leftExact = copyCodeEquals(left, query) ? 0 : 1;
+        const rightExact = copyCodeEquals(right, query) ? 0 : 1;
+        return leftExact - rightExact || compareCopyCodes(left, right);
+      });
+      map.set(titleId, matches);
+    }
+
+    return map;
+  }, [copies, query]);
+
   const searchedTitles = useMemo(() => {
     const needle = normalize(query.trim());
     if (!needle) return [];
-    return titles.filter((item) => normalize([
-      item.title,
-      item.subtitle || "",
-      ...(item.authors ?? []),
-      ...(item.subjects ?? []),
-    ].join(" ")).includes(needle));
-  }, [query, titles]);
+
+    const matches = titles.filter((item) =>
+      normalize([
+        item.title,
+        item.subtitle || "",
+        ...(item.authors ?? []),
+        ...(item.subjects ?? []),
+      ].join(" ")).includes(needle)
+      || codeMatchesByTitle.has(item.id),
+    );
+
+    if (!looksLikeCopyCode(query)) return matches;
+
+    return matches.slice().sort((left, right) => {
+      const leftCopies = codeMatchesByTitle.get(left.id) ?? [];
+      const rightCopies = codeMatchesByTitle.get(right.id) ?? [];
+      const leftExact = leftCopies.some((copy) => copyCodeEquals(copy, query)) ? 0 : 1;
+      const rightExact = rightCopies.some((copy) => copyCodeEquals(copy, query)) ? 0 : 1;
+      if (leftExact !== rightExact) return leftExact - rightExact;
+
+      const leftCopy = leftCopies[0];
+      const rightCopy = rightCopies[0];
+      if (leftCopy && rightCopy) return compareCopyCodes(leftCopy, rightCopy);
+      if (leftCopy) return -1;
+      if (rightCopy) return 1;
+      return left.title.localeCompare(right.title, "pt-BR");
+    });
+  }, [codeMatchesByTitle, query, titles]);
 
   const letterTitles = useMemo(
     () => selectedLetter ? indexedTitles.filter((item) => initialKey(item.title) === selectedLetter) : [],
@@ -532,6 +658,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   );
   const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
   const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
+  const currentCodeEntries = selectedCodeEntries.slice((codePage - 1) * PAGE_SIZE, codePage * PAGE_SIZE);
   const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
   const selectedTrailItems = useMemo(() => {
     if (!selectedTrail) return [];
@@ -628,7 +755,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
     const result = await run(
       action === "borrow-now"
-        ? { action, titleId: selectedTitle.id }
+        ? { action, titleId: selectedTitle.id, qrToken: selectedIdentifiedCopy?.qr_token || undefined }
         : {
             action,
             titleId: selectedTitle.id,
@@ -666,8 +793,16 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     }
   }
 
-  function openTitle(titleId: string) {
+  function openTitle(titleId: string, copyId = "") {
+    setSelectedManualCopyId(copyId);
     setSelectedTitleId(titleId);
+  }
+
+  function openSearchTitle(title: TitleRow) {
+    const matches = codeMatchesByTitle.get(title.id) ?? [];
+    const exact = matches.find((copy) => copyCodeEquals(copy, query));
+    const identified = exact ?? (matches.length === 1 ? matches[0] : null);
+    openTitle(title.id, identified?.id ?? "");
   }
 
   function openView(next: View) {
@@ -676,6 +811,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     setSearchPage(1);
     setSelectedLetter("");
     setSelectedBrowseCategory("");
+    setSelectedCodePrefix("");
+    setCodePage(1);
+    setSelectedManualCopyId("");
     setDiscoverMode("alfabeto");
     setTrailPage(1);
     setMyPage(1);
@@ -838,14 +976,48 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       {view === "descobrir" && (
         <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
           <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escolha como deseja encontrar os livros</p>
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
-            <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setDiscoverMode("alfabeto");
+                setSelectedBrowseCategory("");
+                setSelectedCodePrefix("");
+                setSelectedLetter("");
+                setCodePage(1);
+              }}
+              className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+            >
               Busca / alfabeto
               <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "alfabeto" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
             </button>
-            <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+            <button
+              type="button"
+              onClick={() => {
+                setDiscoverMode("categoria");
+                setQuery("");
+                setSelectedCodePrefix("");
+                setSelectedLetter("");
+                setSearchPage(1);
+              }}
+              className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+            >
               Por categoria
               <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "categoria" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDiscoverMode("codigo");
+                setQuery("");
+                setSelectedBrowseCategory("");
+                setSelectedLetter("");
+                setCodePage(1);
+              }}
+              className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "codigo" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+            >
+              Por código
+              <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "codigo" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
             </button>
           </div>
 
@@ -863,27 +1035,68 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               })}
               {categories.length === 0 && <p className="col-span-full rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">As categorias ainda estão sendo organizadas no cadastro.</p>}
             </div>
+          ) : discoverMode === "codigo" ? (
+            <div className="mt-3">
+              <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+                Use o mesmo código que está colado na lombada do livro. Toque no grupo inicial para ver os exemplares em ordem numérica.
+              </p>
+              <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
+                {codePrefixes.map((prefix) => {
+                  const count = codeEntries.filter((entry) => entry.prefix === prefix).length;
+                  return (
+                    <button
+                      key={prefix}
+                      type="button"
+                      onClick={() => { setSelectedCodePrefix(prefix); setCodePage(1); }}
+                      className="min-h-16 rounded-xl bg-[#E7F0E2] px-2 py-2 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                    >
+                      <span className="block text-lg">{prefix}</span>
+                      <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#2F6B43]">{count} exemplar(es)</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {codePrefixes.length === 0 && <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Ainda não há códigos cadastrados nos exemplares.</p>}
+            </div>
           ) : (
             <>
               <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
-                Buscar por título, autor ou tema
-                <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
+                Buscar por título, autor, tema ou código
+                <input
+                  value={query}
+                  onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }}
+                  className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]"
+                  placeholder="Ex.: mediunidade, Umbanda, R-3, ACV-R-3..."
+                />
               </label>
 
               {query.trim() ? (
                 <div className="mt-3">
                   <div className="grid gap-2">
-                    {currentSearch.map((item) => (
-                      <button key={item.id} type="button" onClick={() => openTitle(item.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
-                        <Cover title={item} compact />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
-                          <span className="mt-1 block text-xs font-semibold text-slate-500">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
-                        </span>
-                        <span className="text-[10px] font-black text-[#2F6B43]">ABRIR</span>
-                      </button>
-                    ))}
-                    {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
+                    {currentSearch.map((item) => {
+                      const matchedCodes = codeMatchesByTitle.get(item.id) ?? [];
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openSearchTitle(item)}
+                          className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
+                        >
+                          <Cover title={item} compact />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>
+                            <span className="mt-1 block text-xs font-semibold text-slate-500">{item.totalCopies ?? 0} exemplar(es) • {item.availableCopies ?? 0} disponível(is)</span>
+                            {matchedCodes.length > 0 && (
+                              <span className="mt-1 block text-[10px] font-black text-[#2F6B43]">
+                                Código: {matchedCodes.slice(0, 2).map(displayCopyCode).join(" • ")}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[10px] font-black text-[#2F6B43]">ABRIR</span>
+                        </button>
+                      );
+                    })}
+                    {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título ou código encontrado. Tente outro termo.</p>}
                   </div>
                   <Pager page={searchPage} total={searchedTitles.length} pageSize={PAGE_SIZE} onChange={setSearchPage} />
                   <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
@@ -916,6 +1129,39 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>
             ))}
           </div>
+        </Modal>
+      )}
+
+      {selectedCodePrefix && (
+        <Modal title={`Código ${selectedCodePrefix}`} eyebrow="Código antigo/patrimonial • escolha o exemplar" onClose={() => setSelectedCodePrefix("")} z={218}>
+          <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+            {selectedCodeEntries.length} exemplar(es) neste grupo. Os códigos estão em ordem numérica para facilitar a localização física na estante.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {currentCodeEntries.map(({ copy, title, code }) => (
+              <button
+                key={copy.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCodePrefix("");
+                  openTitle(title.id, copy.id);
+                }}
+                className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
+              >
+                <span className="flex min-h-14 min-w-20 items-center justify-center rounded-xl bg-[#E7F0E2] px-2 text-center text-sm font-black text-[#123D2C]">
+                  {code}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-black text-[#123D2C]">{title.title}</span>
+                  <span className="mt-1 block text-xs font-semibold text-slate-500">{title.authors?.join(", ") || "Autor não informado"}</span>
+                  <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">
+                    {copy.status === "disponivel" ? "Disponível" : copy.status}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <Pager page={codePage} total={selectedCodeEntries.length} pageSize={PAGE_SIZE} onChange={setCodePage} />
         </Modal>
       )}
 
@@ -1068,7 +1314,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
       )}
 
       {selectedTitle && (
-        <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" onClose={() => { setSelectedTitleId(""); setCommentsOpen(false); setConfirmAction(null); }} z={240}>
+        <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" onClose={() => { setSelectedTitleId(""); setSelectedManualCopyId(""); setCommentsOpen(false); setConfirmAction(null); }} z={240}>
           <div className="flex gap-3">
             <Cover title={selectedTitle} />
             <div className="min-w-0 flex-1">
@@ -1082,6 +1328,16 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </p>
             </div>
           </div>
+
+          {selectedIdentifiedCopy && (
+            <p className="mt-3 rounded-xl bg-emerald-50 p-2.5 text-xs font-bold leading-5 text-emerald-900 ring-1 ring-emerald-200">
+              Exemplar identificado pelo código <strong>{displayCopyCode(selectedIdentifiedCopy)}</strong>
+              {selectedIdentifiedCopy.legacy_code && selectedIdentifiedCopy.asset_code
+                ? ` • Patrimônio ${selectedIdentifiedCopy.asset_code}`
+                : ""}
+              . Ao confirmar o empréstimo, este exemplar específico será utilizado.
+            </p>
+          )}
 
           {canManageLibrary ? (
             <section className="mt-3 rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
@@ -1252,8 +1508,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <p className="mt-2">A devolução deve ser feita de preferência exatamente no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
                 <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
                 <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-                {selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && (
-                  <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para maior precisão, prefira iniciar o empréstimo pelo QR Code colado no exemplar que está em suas mãos.</p>
+                {!selectedIdentifiedCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && (
+                  <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>
                 )}
               </>
             ) : (

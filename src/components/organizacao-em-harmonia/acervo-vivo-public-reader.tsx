@@ -133,6 +133,49 @@ function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+function normalizeCopyCode(value: string) {
+  return normalize(value).replace(/[^a-z0-9]/g, "").toUpperCase();
+}
+
+function displayCopyCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
+  return copy.legacy_code?.trim() || copy.asset_code?.trim() || "";
+}
+
+function looksLikeCopyCode(value: string) {
+  const normalized = normalizeCopyCode(value);
+  return /[A-Z]/.test(normalized) && /[0-9]/.test(normalized);
+}
+
+function copyCodePrefix(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
+  const source = copy.legacy_code?.trim() || copy.asset_code?.replace(/^ACV[\s-]*/i, "").trim() || "";
+  const match = source.match(/[A-Za-z]+/);
+  if (match) return match[0].toUpperCase();
+  return source ? "0-9" : "#";
+}
+
+function copyMatchesCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">, query: string) {
+  const needle = normalizeCopyCode(query);
+  if (!needle) return false;
+  return [copy.legacy_code, copy.asset_code]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => normalizeCopyCode(value).includes(needle));
+}
+
+function copyCodeEquals(copy: Pick<CopyRow, "asset_code" | "legacy_code">, query: string) {
+  const needle = normalizeCopyCode(query);
+  if (!needle) return false;
+  return [copy.legacy_code, copy.asset_code]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .some((value) => normalizeCopyCode(value) === needle);
+}
+
+function compareCopyCodes(left: CopyRow, right: CopyRow) {
+  return displayCopyCode(left).localeCompare(displayCopyCode(right), "pt-BR", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function initialKey(title: string) {
   const first = normalize(title.trim()).charAt(0).toUpperCase();
   if (/[A-Z]/.test(first)) return first;
@@ -312,11 +355,14 @@ export function AcervoVivoPublicReader() {
   const [searchPage, setSearchPage] = useState(1);
   const [selectedLetter, setSelectedLetter] = useState("");
   const [selectedBrowseCategory, setSelectedBrowseCategory] = useState("");
-  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria">("alfabeto");
+  const [selectedCodePrefix, setSelectedCodePrefix] = useState("");
+  const [discoverMode, setDiscoverMode] = useState<"alfabeto" | "categoria" | "codigo">("alfabeto");
   const [letterPage, setLetterPage] = useState(1);
+  const [codePage, setCodePage] = useState(1);
   const [trailPage, setTrailPage] = useState(1);
   const [trailItemPage, setTrailItemPage] = useState(1);
   const [selectedTitleId, setSelectedTitleId] = useState("");
+  const [selectedManualCopyId, setSelectedManualCopyId] = useState("");
   const [selectedTrailId, setSelectedTrailId] = useState("");
   const [selectedFolhaYear, setSelectedFolhaYear] = useState<number | null>(null);
   const [identifierOpen, setIdentifierOpen] = useState(false);
@@ -439,7 +485,12 @@ export function AcervoVivoPublicReader() {
   const versionMap = useMemo(() => new Map(versions.map((item) => [item.resource_id, item])), [versions]);
   const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
+  const selectedManualCopy = selectedManualCopyId
+    ? copies.find((copy) => copy.id === selectedManualCopyId) ?? null
+    : null;
   const selectedQrCopy = payload.selectedCopy?.title_id === selectedTitle?.id ? payload.selectedCopy : null;
+  const selectedIdentifiedCopy = selectedQrCopy
+    ?? (selectedManualCopy?.title_id === selectedTitle?.id ? selectedManualCopy : null);
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
   const categories = useMemo(() => {
@@ -473,18 +524,103 @@ export function AcervoVivoPublicReader() {
     return a.localeCompare(b, "pt-BR");
   }), [indexedTitles]);
 
+  const codeEntries = useMemo(
+    () => copies
+      .filter((copy) => Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
+      .slice()
+      .sort(compareCopyCodes)
+      .map((copy) => ({
+        copy,
+        title: titleMap.get(copy.title_id) as TitleRow,
+        code: displayCopyCode(copy),
+        prefix: copyCodePrefix(copy),
+      })),
+    [copies, titleMap],
+  );
+
+  const codePrefixes = useMemo(
+    () => Array.from(new Set(codeEntries.map((entry) => entry.prefix))).sort((left, right) =>
+      left.localeCompare(right, "pt-BR", { numeric: true, sensitivity: "base" }),
+    ),
+    [codeEntries],
+  );
+
+  const selectedCodeEntries = useMemo(
+    () => selectedCodePrefix
+      ? codeEntries.filter((entry) => entry.prefix === selectedCodePrefix)
+      : [],
+    [codeEntries, selectedCodePrefix],
+  );
+
+  const codeMatchesByTitle = useMemo(() => {
+    const map = new Map<string, CopyRow[]>();
+    if (!query.trim() || !looksLikeCopyCode(query)) return map;
+
+    for (const copy of copies) {
+      if (!copyMatchesCode(copy, query)) continue;
+      const current = map.get(copy.title_id) ?? [];
+      current.push(copy);
+      map.set(copy.title_id, current);
+    }
+
+    for (const [titleId, matches] of map.entries()) {
+      matches.sort((left, right) => {
+        const leftExact = copyCodeEquals(left, query) ? 0 : 1;
+        const rightExact = copyCodeEquals(right, query) ? 0 : 1;
+        return leftExact - rightExact || compareCopyCodes(left, right);
+      });
+      map.set(titleId, matches);
+    }
+
+    return map;
+  }, [copies, query]);
+
   const searchedTitles = useMemo(() => {
     const needle = normalize(query.trim());
     if (!needle) return [] as TitleRow[];
-    return titles.filter((item) => normalize([item.title, ...(item.authors ?? []), ...(item.subjects ?? [])].join(" ")).includes(needle));
-  }, [query, titles]);
+
+    const matches = titles.filter((item) =>
+      normalize([item.title, ...(item.authors ?? []), ...(item.subjects ?? [])].join(" ")).includes(needle)
+      || codeMatchesByTitle.has(item.id),
+    );
+
+    if (!looksLikeCopyCode(query)) return matches;
+
+    return matches.slice().sort((left, right) => {
+      const leftCopies = codeMatchesByTitle.get(left.id) ?? [];
+      const rightCopies = codeMatchesByTitle.get(right.id) ?? [];
+      const leftExact = leftCopies.some((copy) => copyCodeEquals(copy, query)) ? 0 : 1;
+      const rightExact = rightCopies.some((copy) => copyCodeEquals(copy, query)) ? 0 : 1;
+      if (leftExact !== rightExact) return leftExact - rightExact;
+
+      const leftCopy = leftCopies[0];
+      const rightCopy = rightCopies[0];
+      if (leftCopy && rightCopy) return compareCopyCodes(leftCopy, rightCopy);
+      if (leftCopy) return -1;
+      if (rightCopy) return 1;
+      return left.title.localeCompare(right.title, "pt-BR");
+    });
+  }, [codeMatchesByTitle, query, titles]);
   const letterTitles = useMemo(
     () => selectedLetter ? indexedTitles.filter((item) => initialKey(item.title) === selectedLetter) : [],
     [indexedTitles, selectedLetter],
   );
   const currentSearch = searchedTitles.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE);
   const currentLetter = letterTitles.slice((letterPage - 1) * PAGE_SIZE, letterPage * PAGE_SIZE);
+  const currentCodeEntries = selectedCodeEntries.slice((codePage - 1) * PAGE_SIZE, codePage * PAGE_SIZE);
   const currentTrails = trails.slice((trailPage - 1) * PAGE_SIZE, trailPage * PAGE_SIZE);
+
+  function openTitle(titleId: string, copyId = "") {
+    setSelectedManualCopyId(copyId);
+    setSelectedTitleId(titleId);
+  }
+
+  function openSearchTitle(title: TitleRow) {
+    const matches = codeMatchesByTitle.get(title.id) ?? [];
+    const exact = matches.find((copy) => copyCodeEquals(copy, query));
+    const identified = exact ?? (matches.length === 1 ? matches[0] : null);
+    openTitle(title.id, identified?.id ?? "");
+  }
 
   const selectedTrailItems = useMemo(() => {
     if (!selectedTrail) return [] as TrailItem[];
@@ -523,6 +659,7 @@ export function AcervoVivoPublicReader() {
     const url = new URL(window.location.href);
     url.searchParams.set("continuar", action);
     if (selectedTitle?.id) url.searchParams.set("titulo", selectedTitle.id);
+    if (selectedIdentifiedCopy?.qr_token) url.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
@@ -610,7 +747,7 @@ export function AcervoVivoPublicReader() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(action === "borrow-now"
-          ? { action, qrToken: selectedQrCopy?.qr_token, titleId: selectedTitle.id }
+          ? { action, qrToken: selectedIdentifiedCopy?.qr_token, titleId: selectedTitle.id }
           : {
               action,
               titleId: selectedTitle.id,
@@ -784,6 +921,9 @@ export function AcervoVivoPublicReader() {
         if (selectedTitle?.id) {
           returnUrl.searchParams.set("titulo", selectedTitle.id);
         }
+        if (selectedIdentifiedCopy?.qr_token) {
+          returnUrl.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
+        }
       }
 
       returnTo = `${returnUrl.pathname}${returnUrl.search}`;
@@ -850,7 +990,7 @@ export function AcervoVivoPublicReader() {
         )}
 
         <section className="mt-3 grid grid-cols-3 gap-2">
-          <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); }} />
+          <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); setSelectedBrowseCategory(""); setSelectedCodePrefix(""); setCodePage(1); setSelectedManualCopyId(""); setDiscoverMode("alfabeto"); }} />
           <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => { setView("trilhas"); setTrailPage(1); }} />
           <AccessButton title="Meus livros" detail={myBooksDetail} onClick={() => void openMyBooks()} />
         </section>
@@ -873,14 +1013,48 @@ export function AcervoVivoPublicReader() {
 
       {view === "descobrir" && <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
         <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escolha como deseja encontrar os livros</p>
-        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
-          <button type="button" onClick={() => { setDiscoverMode("alfabeto"); setSelectedBrowseCategory(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setDiscoverMode("alfabeto");
+              setSelectedBrowseCategory("");
+              setSelectedCodePrefix("");
+              setSelectedLetter("");
+              setCodePage(1);
+            }}
+            className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "alfabeto" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+          >
             Busca / alfabeto
             <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "alfabeto" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
           </button>
-          <button type="button" onClick={() => { setDiscoverMode("categoria"); setQuery(""); setSelectedLetter(""); }} className={`min-h-16 rounded-xl px-3 py-2 text-xs font-black ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>
+          <button
+            type="button"
+            onClick={() => {
+              setDiscoverMode("categoria");
+              setQuery("");
+              setSelectedCodePrefix("");
+              setSelectedLetter("");
+              setSearchPage(1);
+            }}
+            className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "categoria" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+          >
             Por categoria
             <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "categoria" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDiscoverMode("codigo");
+              setQuery("");
+              setSelectedBrowseCategory("");
+              setSelectedLetter("");
+              setCodePage(1);
+            }}
+            className={`min-h-16 rounded-xl px-2 py-2 text-[11px] font-black sm:px-3 sm:text-xs ${discoverMode === "codigo" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}
+          >
+            Por código
+            <span className={`mt-1 block text-[8px] uppercase tracking-[0.1em] ${discoverMode === "codigo" ? "text-white/75" : "text-[#2F6B43]"}`}>TOQUE PARA ABRIR</span>
           </button>
         </div>
 
@@ -892,17 +1066,66 @@ export function AcervoVivoPublicReader() {
             })}
             {categories.length === 0 && <p className="col-span-full rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">As categorias ainda estão sendo organizadas no cadastro.</p>}
           </div>
+        ) : discoverMode === "codigo" ? (
+          <div className="mt-3">
+            <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+              Use o mesmo código que está colado na lombada do livro. Toque no grupo inicial para ver os exemplares em ordem numérica.
+            </p>
+            <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
+              {codePrefixes.map((prefix) => {
+                const count = codeEntries.filter((entry) => entry.prefix === prefix).length;
+                return (
+                  <button
+                    key={prefix}
+                    type="button"
+                    onClick={() => { setSelectedCodePrefix(prefix); setCodePage(1); }}
+                    className="min-h-16 rounded-xl bg-[#E7F0E2] px-2 py-2 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                  >
+                    <span className="block text-lg">{prefix}</span>
+                    <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#2F6B43]">{count} exemplar(es)</span>
+                  </button>
+                );
+              })}
+            </div>
+            {codePrefixes.length === 0 && <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Ainda não há códigos cadastrados nos exemplares.</p>}
+          </div>
         ) : (
           <>
             <label className="mt-3 grid gap-1 text-xs font-black text-[#123D2C]">
-              Buscar por título, autor ou tema
-              <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }} className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]" placeholder="Ex.: mediunidade, Umbanda, cambono..." />
+              Buscar por título, autor, tema ou código
+              <input
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); setSearchPage(1); }}
+                className="rounded-xl border border-[#123D2C]/15 bg-[#F9FBF7] px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#2F6B43]"
+                placeholder="Ex.: mediunidade, Umbanda, R-3, ACV-R-3..."
+              />
             </label>
             {query.trim() ? (
               <div className="mt-3">
                 <div className="grid gap-2">
-                  {currentSearch.map((title) => <button key={title.id} type="button" onClick={() => setSelectedTitleId(title.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
-                  {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título encontrado. Tente outro termo.</p>}
+                  {currentSearch.map((title) => {
+                    const matchedCodes = codeMatchesByTitle.get(title.id) ?? [];
+                    return (
+                      <button
+                        key={title.id}
+                        type="button"
+                        onClick={() => openSearchTitle(title)}
+                        className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
+                      >
+                        <Cover title={title} compact />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-black text-[#123D2C]">{title.title}</span>
+                          <span className="mt-1 block text-xs font-semibold text-slate-500">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span>
+                          {matchedCodes.length > 0 && (
+                            <span className="mt-1 block text-[10px] font-black text-[#2F6B43]">
+                              Código: {matchedCodes.slice(0, 2).map(displayCopyCode).join(" • ")}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {searchedTitles.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">Nenhum título ou código encontrado. Tente outro termo.</p>}
                 </div>
                 <Pager page={searchPage} total={searchedTitles.length} onChange={setSearchPage} />
                 <button type="button" onClick={() => setQuery("")} className="mt-3 w-full rounded-xl bg-[#E7F0E2] px-3 py-2 text-xs font-black text-[#123D2C]">Voltar ao alfabeto</button>
@@ -925,6 +1148,37 @@ export function AcervoVivoPublicReader() {
         <div className="mt-3 grid grid-cols-6 gap-2 sm:grid-cols-9">
           {letters.map((letter) => <button key={letter} type="button" onClick={() => { setSelectedLetter(letter); setLetterPage(1); }} className="rounded-xl bg-[#E7F0E2] px-2 py-2.5 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{letter}</button>)}
         </div>
+      </Modal>}
+
+      {selectedCodePrefix && <Modal title={`Código ${selectedCodePrefix}`} eyebrow="Código antigo/patrimonial • escolha o exemplar" onClose={() => setSelectedCodePrefix("")} z={218}>
+        <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold leading-5 text-slate-600">
+          {selectedCodeEntries.length} exemplar(es) neste grupo. Os códigos estão em ordem numérica para facilitar a localização física na estante.
+        </p>
+        <div className="mt-3 grid gap-2">
+          {currentCodeEntries.map(({ copy, title, code }) => (
+            <button
+              key={copy.id}
+              type="button"
+              onClick={() => {
+                setSelectedCodePrefix("");
+                openTitle(title.id, copy.id);
+              }}
+              className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
+            >
+              <span className="flex min-h-14 min-w-20 items-center justify-center rounded-xl bg-[#E7F0E2] px-2 text-center text-sm font-black text-[#123D2C]">
+                {code}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-black text-[#123D2C]">{title.title}</span>
+                <span className="mt-1 block text-xs font-semibold text-slate-500">{title.authors?.join(", ") || "Autor não informado"}</span>
+                <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">
+                  {copy.status === "disponivel" ? "Disponível" : copy.status}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <Pager page={codePage} total={selectedCodeEntries.length} onChange={setCodePage} />
       </Modal>}
 
       {selectedLetter && <Modal title={selectedBrowseCategory ? `${selectedBrowseCategory} • ${selectedLetter}` : `Títulos com ${selectedLetter}`} eyebrow={selectedBrowseCategory ? "Categoria • índice alfabético" : "Índice alfabético"} onClose={() => setSelectedLetter("")} z={220}>
@@ -993,7 +1247,7 @@ export function AcervoVivoPublicReader() {
         </div>
       </Modal>}
 
-      {selectedTitle && <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" z={260} onClose={() => { setSelectedTitleId(""); setCommentsOpen(false); }}>
+      {selectedTitle && <Modal title={selectedTitle.title} eyebrow="Livro do Acervo Vivo" z={260} onClose={() => { setSelectedTitleId(""); setSelectedManualCopyId(""); setCommentsOpen(false); }}>
         <div className="flex gap-3">
           <Cover title={selectedTitle} />
           <div className="min-w-0 flex-1">
@@ -1001,6 +1255,16 @@ export function AcervoVivoPublicReader() {
             <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">{selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}</p>
           </div>
         </div>
+
+        {selectedIdentifiedCopy && (
+          <p className="mt-3 rounded-xl bg-emerald-50 p-2.5 text-xs font-bold leading-5 text-emerald-900 ring-1 ring-emerald-200">
+            Exemplar identificado pelo código <strong>{displayCopyCode(selectedIdentifiedCopy)}</strong>
+            {selectedIdentifiedCopy.legacy_code && selectedIdentifiedCopy.asset_code
+              ? ` • Patrimônio ${selectedIdentifiedCopy.asset_code}`
+              : ""}
+            . Ao confirmar o empréstimo, este exemplar específico será utilizado.
+          </p>
+        )}
 
         <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1051,7 +1315,7 @@ export function AcervoVivoPublicReader() {
                 <span className="ml-1 underline underline-offset-2">Abrir no Google Maps</span>
               </a>
               <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-              {!selectedQrCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Sempre que possível, leia o QR Code colado no exemplar em suas mãos para identificar exatamente o livro retirado.</p>}
+              {!selectedIdentifiedCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>}
             </>
           ) : (
             <>
