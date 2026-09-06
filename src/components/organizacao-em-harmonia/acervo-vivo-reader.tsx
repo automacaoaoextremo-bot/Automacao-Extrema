@@ -1142,10 +1142,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               <button
                 key={copy.id}
                 type="button"
-                onClick={() => {
-                  setSelectedCodePrefix("");
-                  openTitle(title.id, copy.id);
-                }}
+                onClick={() => openTitle(title.id, copy.id)}
                 className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
               >
                 <span className="flex min-h-14 min-w-20 items-center justify-center rounded-xl bg-[#E7F0E2] px-2 text-center text-sm font-black text-[#123D2C]">
@@ -1169,7 +1166,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
         <Modal title={selectedBrowseCategory ? `${selectedBrowseCategory} • ${selectedLetter}` : `Títulos com ${selectedLetter}`} eyebrow={selectedBrowseCategory ? "Categoria • índice alfabético" : "Índice alfabético"} onClose={() => setSelectedLetter("")} z={220}>
           <div className="grid gap-2">
             {currentLetter.map((item) => (
-              <button key={item.id} type="button" onClick={() => { setSelectedLetter(""); openTitle(item.id); }} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
+              <button key={item.id} type="button" onClick={() => openTitle(item.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10">
                 <Cover title={item} compact />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-black text-[#123D2C]">{item.title}</span>

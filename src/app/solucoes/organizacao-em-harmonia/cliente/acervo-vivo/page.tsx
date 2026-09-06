@@ -219,7 +219,7 @@ function compactCatalogSearch(value: string) {
 }
 
 async function coverFileToDataUrl(file: File) {
-  if (!file.type.startsWith("image/")) throw new Error("Escolha uma imagem válida para a capa.");
+  if (!file.type.startsWith("image/")) throw new Error("Escolha uma imagem válida.");
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -236,7 +236,7 @@ async function coverFileToDataUrl(file: File) {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("Não foi possível preparar a foto da capa.");
+    if (!context) throw new Error("Não foi possível preparar a imagem.");
     context.drawImage(image, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", 0.82);
   } finally {
@@ -461,7 +461,10 @@ export default function AcervoVivoGestaoPage() {
   const [completionTitleId, setCompletionTitleId] = useState("");
   const [completionDescription, setCompletionDescription] = useState("");
   const [completionCoverDataUrl, setCompletionCoverDataUrl] = useState("");
+  const [completionExcerptDataUrl, setCompletionExcerptDataUrl] = useState("");
+  const [completionListOpen, setCompletionListOpen] = useState(false);
   const [completionPage, setCompletionPage] = useState(0);
+  const [suggestingDescription, setSuggestingDescription] = useState(false);
 
   const [copyTitleId, setCopyTitleId] = useState("");
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
@@ -585,8 +588,18 @@ export default function AcervoVivoGestaoPage() {
     const total = activeTitlesForCompletion.length;
     const withCover = activeTitlesForCompletion.filter((item) => Boolean(item.cover_url)).length;
     const withDescription = activeTitlesForCompletion.filter((item) => Boolean((item.description ?? "").trim())).length;
-    const complete = activeTitlesForCompletion.filter((item) => Boolean(item.cover_url) && Boolean((item.description ?? "").trim())).length;
-    return { total, withCover, withDescription, complete, percentage: total ? Math.round((complete / total) * 100) : 0 };
+    const complete = activeTitlesForCompletion.filter(
+      (item) => Boolean(item.cover_url) && Boolean((item.description ?? "").trim()),
+    ).length;
+    const pending = Math.max(0, total - complete);
+    return {
+      total,
+      withCover,
+      withDescription,
+      complete,
+      pending,
+      percentage: total ? Math.round((complete / total) * 100) : 0,
+    };
   }, [activeTitlesForCompletion]);
 
   const copiesByTitle = useMemo(() => {
@@ -627,7 +640,7 @@ export default function AcervoVivoGestaoPage() {
       });
   }, [activeTitlesForCompletion, completionFilter, completionQuery, copiesByTitle]);
 
-  const completionPageSize = 12;
+  const completionPageSize = 5;
   const completionPageItems = useMemo(
     () => completionItems.slice(completionPage * completionPageSize, completionPage * completionPageSize + completionPageSize),
     [completionItems, completionPage],
@@ -742,6 +755,8 @@ export default function AcervoVivoGestaoPage() {
       skippedExisting?: number;
       notFound?: number;
       coverUrl?: string;
+      descriptionSuggestion?: string;
+      model?: string;
     };
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
@@ -763,12 +778,21 @@ export default function AcervoVivoGestaoPage() {
     }
   }
 
+  function openCatalogCompletionList(filter: typeof completionFilter, clearQuery = true) {
+    setCompletionFilter(filter);
+    if (clearQuery) setCompletionQuery("");
+    setCompletionPage(0);
+    closeCatalogCompletion();
+    setCompletionListOpen(true);
+  }
+
   function openCatalogCompletion(titleId: string) {
     const current = titles.find((item) => item.id === titleId);
     if (!current) return;
     setCompletionTitleId(titleId);
     setCompletionDescription(current.description ?? "");
     setCompletionCoverDataUrl("");
+    setCompletionExcerptDataUrl("");
     setError("");
     setSuccess("");
   }
@@ -777,6 +801,14 @@ export default function AcervoVivoGestaoPage() {
     setCompletionTitleId("");
     setCompletionDescription("");
     setCompletionCoverDataUrl("");
+    setCompletionExcerptDataUrl("");
+    setSuggestingDescription(false);
+  }
+
+  function closeCatalogCompletionList() {
+    closeCatalogCompletion();
+    setCompletionListOpen(false);
+    setCompletionPage(0);
   }
 
   async function chooseCompletionCover(file: File) {
@@ -787,6 +819,41 @@ export default function AcervoVivoGestaoPage() {
       setCompletionCoverDataUrl(dataUrl);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Não foi possível preparar a foto da capa.");
+    }
+  }
+
+  async function chooseCompletionExcerpt(file: File) {
+    setError("");
+    try {
+      const dataUrl = await coverFileToDataUrl(file);
+      if (dataUrl.length > 3_000_000) {
+        throw new Error("A foto ficou grande demais. Tente enquadrar somente a contracapa, orelha, apresentação ou trecho introdutório.");
+      }
+      setCompletionExcerptDataUrl(dataUrl);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Não foi possível preparar a foto do trecho.");
+    }
+  }
+
+  async function suggestCompletionDescription() {
+    if (!token || suggestingDescription || !selectedCompletionTitle || !completionExcerptDataUrl) return;
+    setSuggestingDescription(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await post({
+        action: "suggest-description-from-image",
+        titleId: selectedCompletionTitle.id,
+        imageDataUrl: completionExcerptDataUrl,
+      });
+      const suggestion = result.descriptionSuggestion?.trim() ?? "";
+      if (!suggestion) throw new Error("A IA não retornou uma sugestão de descrição.");
+      setCompletionDescription(suggestion);
+      setSuccess("Rascunho gerado. Revise o texto antes de salvar no catálogo.");
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Não foi possível gerar a sugestão de descrição.");
+    } finally {
+      setSuggestingDescription(false);
     }
   }
 
@@ -809,6 +876,7 @@ export default function AcervoVivoGestaoPage() {
       }
       setSuccess(`Catálogo atualizado para ${selectedCompletionTitle.title}.`);
       closeCatalogCompletion();
+      setCompletionPage(0);
       await load(token);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao completar o catálogo.");
@@ -1379,6 +1447,7 @@ export default function AcervoVivoGestaoPage() {
     clearInventoryCopy();
     setInventoryCategory("");
     setQrCategory("");
+    closeCatalogCompletionList();
   }
 
   return (
@@ -1455,7 +1524,7 @@ export default function AcervoVivoGestaoPage() {
         <ManagementModal
           title={panelTitle}
           onClose={closePanel}
-          onBack={panelView ? () => {
+          onBack={panelView && panelView !== "acervo-finalizar" ? () => {
             if (panelView === "inventario-categoria" && inventoryCopyId) {
               clearInventoryCopy();
               return;
@@ -1467,10 +1536,6 @@ export default function AcervoVivoGestaoPage() {
             }
             if (panelView === "acervo-qrs" && qrCategory) {
               setQrCategory("");
-              return;
-            }
-            if (panelView === "acervo-finalizar" && completionTitleId) {
-              closeCatalogCompletion();
               return;
             }
             setPanelView("");
@@ -1500,7 +1565,7 @@ export default function AcervoVivoGestaoPage() {
                   <ActionTile title="Adicionar exemplar" onClick={() => setPanelView("acervo-exemplar")} />
                   <ActionTile title="Capas pendentes" note={`${payload.metrics?.pendingCovers ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-capas")} />
                   <ActionTile title="Descrições dos livros" note={`${payload.metrics?.pendingDescriptions ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-descricoes")} />
-                  <ActionTile title="Completar catálogo" note={`${completionStats.percentage}% completo • foto + descrição pelo celular`} onClick={() => { closeCatalogCompletion(); setCompletionFilter("pending"); setCompletionQuery(""); setCompletionPage(0); setPanelView("acervo-finalizar"); }} />
+                  <ActionTile title="Completar catálogo" note={`${completionStats.percentage}% completo • foto + descrição pelo celular`} onClick={() => { closeCatalogCompletionList(); setCompletionFilter("pending"); setCompletionQuery(""); setCompletionPage(0); setPanelView("acervo-finalizar"); }} />
                   <ActionTile title="QR Codes por categoria" note="Impressão para o inventário físico" onClick={() => { setQrCategory(""); setQrCategoryPage(0); setPanelView("acervo-qrs"); }} />
                 </>
               )}
@@ -1698,137 +1763,67 @@ export default function AcervoVivoGestaoPage() {
               <p className="mt-3 rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">Formato aceito: CSV separado por ponto e vírgula, com as colunas <strong>id</strong> e <strong>description</strong>. Até 500 livros por importação.</p>
             </section>
           ) : panelView === "acervo-finalizar" ? (
-            <div>
-              {selectedCompletionTitle ? (
-                <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
-                  <div className="flex items-start gap-3">
-                    <Cover url={completionCoverDataUrl || selectedCompletionTitle.cover_url} title={selectedCompletionTitle.title} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar catálogo</p>
-                      <h3 className="mt-1 text-lg font-black leading-tight text-[#00334E]">{selectedCompletionTitle.title}</h3>
-                      <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{(selectedCompletionTitle.authors ?? []).join("; ") || "Autor não informado"}</p>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {selectedCompletionCopies.map((copy) => (
-                          <span key={copy.id} className="rounded-full bg-[#F4FBF7] px-2 py-1 text-[9px] font-black text-[#2F6B43] ring-1 ring-[#123D2C]/10">
-                            {copy.legacy_code || copy.asset_code}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+            <div className="grid gap-3">
+              <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Progresso do catálogo</p>
+                    <p className="mt-1 text-3xl font-black text-[#00334E]">{completionStats.percentage}%</p>
                   </div>
+                  <p className="text-right text-[10px] font-bold leading-4 text-slate-500">{completionStats.complete} de {completionStats.total}<br />com capa + descrição</p>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E7F0E2]">
+                  <div className="h-full rounded-full bg-[#2F6B43]" style={{ width: `${completionStats.percentage}%` }} />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withCover}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com capa</p></div>
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withDescription}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com descrição</p></div>
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.pending}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">a completar</p></div>
+                </div>
+              </section>
 
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
-                      <p className="text-xs font-black text-[#00334E]">1. Foto da capa</p>
-                      <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">Fotografe a capa de frente, ocupando a maior parte da imagem. A foto é reduzida no celular antes do envio.</p>
-                      <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-[#2F6B43] px-3 py-3 text-center text-xs font-black text-white">
-                        {completionCoverDataUrl ? "Trocar foto selecionada" : selectedCompletionTitle.cover_url ? "Fotografar / substituir capa" : "Fotografar capa"}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          disabled={saving}
-                          className="sr-only"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            event.currentTarget.value = "";
-                            if (file) void chooseCompletionCover(file);
-                          }}
-                        />
-                      </label>
-                      {completionCoverDataUrl && <p className="mt-2 text-[10px] font-black text-emerald-700">Foto pronta para enviar ao Acervo Vivo.</p>}
-                    </div>
-
-                    <label className="rounded-2xl bg-white text-xs font-black text-[#00334E]">
-                      2. Descrição breve
-                      <textarea
-                        value={completionDescription}
-                        onChange={(event) => setCompletionDescription(event.target.value)}
-                        rows={4}
-                        maxLength={900}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium leading-5 text-slate-700"
-                        placeholder="Em 1 ou 2 frases, diga do que trata o livro e por que ele pode interessar ao leitor."
-                      />
-                      <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
-                    </label>
-
-                    <button type="button" disabled={saving} onClick={() => void saveCatalogCompletion()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">
-                      {saving ? "Salvando..." : "Salvar e voltar aos pendentes"}
+              <section className="rounded-3xl bg-white p-3 shadow ring-1 ring-slate-100">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setCompletionFilter("all");
+                    setCompletionPage(0);
+                    setCompletionListOpen(true);
+                  }}
+                  className="grid grid-cols-[1fr_auto] gap-2"
+                >
+                  <input
+                    value={completionQuery}
+                    onChange={(event) => setCompletionQuery(event.target.value)}
+                    className="min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    placeholder="Digite código (ex.: R-3), título ou autor"
+                  />
+                  <button type="submit" className="rounded-xl bg-[#00334E] px-4 py-2.5 text-xs font-black text-white">Buscar</button>
+                </form>
+                <p className="mt-3 text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ou escolha o que deseja completar</p>
+                <div className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {[
+                    ["pending", "Pendentes"],
+                    ["cover", "Sem capa"],
+                    ["description", "Sem descrição"],
+                    ["both", "Sem ambos"],
+                    ["all", "Todos"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => openCatalogCompletionList(value as typeof completionFilter)}
+                      className="rounded-xl bg-[#F4FBF7] px-2 py-2.5 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10"
+                    >
+                      {label}
+                      <span className="mt-1 block text-[7px] uppercase tracking-[0.08em] text-[#2F6B43]">TOQUE PARA LISTAR</span>
                     </button>
-                  </div>
-                </section>
-              ) : (
-                <>
-                  <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
-                    <div className="flex items-end justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Progresso do catálogo</p>
-                        <p className="mt-1 text-3xl font-black text-[#00334E]">{completionStats.percentage}%</p>
-                      </div>
-                      <p className="text-right text-[10px] font-bold leading-4 text-slate-500">{completionStats.complete} de {completionStats.total}<br />com capa + descrição</p>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E7F0E2]">
-                      <div className="h-full rounded-full bg-[#2F6B43]" style={{ width: `${completionStats.percentage}%` }} />
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withCover}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com capa</p></div>
-                      <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withDescription}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com descrição</p></div>
-                      <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.total - completionStats.complete}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">a completar</p></div>
-                    </div>
-                  </section>
-
-                  <section className="mt-3 rounded-3xl bg-white p-3 shadow ring-1 ring-slate-100">
-                    <input
-                      value={completionQuery}
-                      onChange={(event) => { setCompletionQuery(event.target.value); setCompletionPage(0); }}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-                      placeholder="Digite código (ex.: R-3), título ou autor"
-                    />
-                    <div className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5">
-                      {[
-                        ["pending", "Pendentes"],
-                        ["cover", "Sem capa"],
-                        ["description", "Sem descrição"],
-                        ["both", "Sem ambos"],
-                        ["all", "Todos"],
-                      ].map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => { setCompletionFilter(value as typeof completionFilter); setCompletionPage(0); }}
-                          className={`rounded-xl px-2 py-2 text-[9px] font-black ${completionFilter === value ? "bg-[#00334E] text-white" : "bg-[#F4FBF7] text-[#00334E] ring-1 ring-[#123D2C]/10"}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <div className="mt-3 grid gap-2">
-                    {completionPageItems.map((item) => {
-                      const itemCopies = copiesByTitle.get(item.id) ?? [];
-                      const code = itemCopies[0]?.legacy_code || itemCopies[0]?.asset_code || "Sem código";
-                      const hasDescription = Boolean((item.description ?? "").trim());
-                      return (
-                        <button key={item.id} type="button" onClick={() => openCatalogCompletion(item.id)} className="flex items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
-                          <Cover url={item.cover_url} title={item.title} />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{code}</p>
-                            <p className="mt-1 font-black leading-tight text-[#00334E]">{item.title}</p>
-                            <p className="mt-1 line-clamp-1 text-[10px] font-semibold text-slate-500">{(item.authors ?? []).join("; ") || "Autor não informado"}</p>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              <span className={`rounded-full px-2 py-1 text-[8px] font-black ${item.cover_url ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{item.cover_url ? "CAPA OK" : "SEM CAPA"}</span>
-                              <span className={`rounded-full px-2 py-1 text-[8px] font-black ${hasDescription ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{hasDescription ? "DESCRIÇÃO OK" : "SEM DESCRIÇÃO"}</span>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {!completionPageItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum livro encontrado neste filtro.</p>}
-                  </div>
-                  <CompactPager page={completionPage} total={completionItems.length} pageSize={completionPageSize} onChange={setCompletionPage} />
-                </>
-              )}
+                  ))}
+                </div>
+                <p className="mt-3 rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">
+                  Os livros são abertos em uma lista paginada separada para evitar rolagem longa no celular. Ao escolher um livro, você pode fotografar a capa e, se faltar descrição, gerar um rascunho a partir de uma foto da contracapa, orelha, apresentação ou trecho introdutório.
+                </p>
+              </section>
             </div>
           ) : panelView === "acervo-qrs" ? (
             <div>
@@ -2144,6 +2139,173 @@ export default function AcervoVivoGestaoPage() {
             </form>
           ) : null}
         </ManagementModal>
+      )}
+
+      {panelOpen && panelView === "acervo-finalizar" && completionListOpen && (
+        <div
+          className="fixed inset-0 z-[220] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) closeCatalogCompletionList();
+          }}
+        >
+          <section className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F6F8F3] shadow-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar catálogo • lista paginada</p>
+                <h2 className="mt-0.5 text-lg font-black leading-tight text-[#00334E]">
+                  {completionFilter === "pending" ? "Pendentes" : completionFilter === "cover" ? "Sem capa" : completionFilter === "description" ? "Sem descrição" : completionFilter === "both" ? "Sem ambos" : "Todos"}
+                </h2>
+                <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{completionItems.length} livro(s){completionQuery.trim() ? ` • busca: ${completionQuery.trim()}` : ""}</p>
+              </div>
+              <button type="button" onClick={closeCatalogCompletionList} className="shrink-0 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3">
+              <div className="grid gap-2">
+                {completionPageItems.map((item) => {
+                  const itemCopies = copiesByTitle.get(item.id) ?? [];
+                  const code = itemCopies[0]?.legacy_code || itemCopies[0]?.asset_code || "Sem código";
+                  const hasDescription = Boolean((item.description ?? "").trim());
+                  return (
+                    <button key={item.id} type="button" onClick={() => openCatalogCompletion(item.id)} className="flex items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
+                      <Cover url={item.cover_url} title={item.title} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{code}</p>
+                        <p className="mt-1 line-clamp-2 font-black leading-tight text-[#00334E]">{item.title}</p>
+                        <p className="mt-1 line-clamp-1 text-[10px] font-semibold text-slate-500">{(item.authors ?? []).join("; ") || "Autor não informado"}</p>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          <span className={`rounded-full px-2 py-1 text-[8px] font-black ${item.cover_url ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{item.cover_url ? "CAPA OK" : "SEM CAPA"}</span>
+                          <span className={`rounded-full px-2 py-1 text-[8px] font-black ${hasDescription ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{hasDescription ? "DESCRIÇÃO OK" : "SEM DESCRIÇÃO"}</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!completionPageItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum livro encontrado neste filtro.</p>}
+              </div>
+              <CompactPager page={completionPage} total={completionItems.length} pageSize={completionPageSize} onChange={setCompletionPage} />
+            </div>
+          </section>
+        </div>
+      )}
+
+      {panelOpen && panelView === "acervo-finalizar" && completionListOpen && selectedCompletionTitle && (
+        <div
+          className="fixed inset-0 z-[240] flex items-end justify-center bg-[#10251C]/80 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) closeCatalogCompletion();
+          }}
+        >
+          <section className="flex max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F6F8F3] shadow-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar livro • revisão humana</p>
+                <h2 className="mt-0.5 line-clamp-2 text-lg font-black leading-tight text-[#00334E]">{selectedCompletionTitle.title}</h2>
+              </div>
+              <button type="button" onClick={closeCatalogCompletion} className="shrink-0 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3 sm:p-4">
+              {(error || success) && (
+                <div className="mb-3 grid gap-2">
+                  {error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold leading-5 text-red-800">{error}</p>}
+                  {success && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-800">{success}</p>}
+                </div>
+              )}
+
+              <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                <div className="flex items-start gap-3">
+                  <Cover url={completionCoverDataUrl || selectedCompletionTitle.cover_url} title={selectedCompletionTitle.title} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold leading-5 text-slate-500">{(selectedCompletionTitle.authors ?? []).join("; ") || "Autor não informado"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {selectedCompletionCopies.map((copy) => (
+                        <span key={copy.id} className="rounded-full bg-[#F4FBF7] px-2 py-1 text-[9px] font-black text-[#2F6B43] ring-1 ring-[#123D2C]/10">
+                          {copy.legacy_code || copy.asset_code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                    <p className="text-xs font-black text-[#00334E]">1. Foto da capa</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">Fotografe a capa de frente, ocupando a maior parte da imagem. A foto é reduzida no celular antes do envio.</p>
+                    <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-[#2F6B43] px-3 py-3 text-center text-xs font-black text-white">
+                      {completionCoverDataUrl ? "Trocar foto selecionada" : selectedCompletionTitle.cover_url ? "Fotografar / substituir capa" : "Fotografar capa"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        disabled={saving}
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.currentTarget.value = "";
+                          if (file) void chooseCompletionCover(file);
+                        }}
+                      />
+                    </label>
+                    {completionCoverDataUrl && <p className="mt-2 text-[10px] font-black text-emerald-700">Foto pronta para enviar ao Acervo Vivo.</p>}
+                  </div>
+
+                  <div className="rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
+                    <p className="text-xs font-black text-[#00334E]">2. Rascunho de descrição com IA</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">
+                      Fotografe a contracapa, a orelha, a apresentação ou um trecho introdutório legível. A foto é enviada somente para gerar a sugestão e não é gravada no catálogo. Revise o rascunho antes de salvar.
+                    </p>
+                    <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-3 text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/15">
+                      {completionExcerptDataUrl ? "Trocar foto do trecho" : "Fotografar trecho para descrição"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        disabled={saving || suggestingDescription}
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.currentTarget.value = "";
+                          if (file) void chooseCompletionExcerpt(file);
+                        }}
+                      />
+                    </label>
+                    {completionExcerptDataUrl && <p className="mt-2 text-[10px] font-black text-amber-800">Trecho pronto para interpretação. Gere o rascunho e revise antes de salvar.</p>}
+                    <button
+                      type="button"
+                      disabled={saving || suggestingDescription || !completionExcerptDataUrl}
+                      onClick={() => void suggestCompletionDescription()}
+                      className="mt-2 w-full rounded-xl bg-[#7B5C16] px-3 py-3 text-xs font-black text-white disabled:opacity-45"
+                    >
+                      {suggestingDescription ? "Interpretando trecho..." : "Gerar rascunho com IA"}
+                    </button>
+                  </div>
+
+                  <label className="rounded-2xl bg-white text-xs font-black text-[#00334E]">
+                    3. Descrição breve - revise antes de salvar
+                    <textarea
+                      value={completionDescription}
+                      onChange={(event) => setCompletionDescription(event.target.value)}
+                      rows={4}
+                      maxLength={900}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium leading-5 text-slate-700"
+                      placeholder="Em 1 ou 2 frases, diga do que trata o livro e por que ele pode interessar ao leitor."
+                    />
+                    <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
+                  </label>
+
+                  <button type="button" disabled={saving || suggestingDescription} onClick={() => void saveCatalogCompletion()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">
+                    {saving ? "Salvando..." : "Salvar e voltar à lista"}
+                  </button>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
       )}
 
       {qrDataUrl && (

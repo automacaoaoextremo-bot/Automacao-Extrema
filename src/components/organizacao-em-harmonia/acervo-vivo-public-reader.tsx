@@ -1159,10 +1159,7 @@ export function AcervoVivoPublicReader() {
             <button
               key={copy.id}
               type="button"
-              onClick={() => {
-                setSelectedCodePrefix("");
-                openTitle(title.id, copy.id);
-              }}
+              onClick={() => openTitle(title.id, copy.id)}
               className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"
             >
               <span className="flex min-h-14 min-w-20 items-center justify-center rounded-xl bg-[#E7F0E2] px-2 text-center text-sm font-black text-[#123D2C]">
@@ -1183,7 +1180,7 @@ export function AcervoVivoPublicReader() {
 
       {selectedLetter && <Modal title={selectedBrowseCategory ? `${selectedBrowseCategory} • ${selectedLetter}` : `Títulos com ${selectedLetter}`} eyebrow={selectedBrowseCategory ? "Categoria • índice alfabético" : "Índice alfabético"} onClose={() => setSelectedLetter("")} z={220}>
         <div className="grid gap-2">
-          {currentLetter.map((title) => <button key={title.id} type="button" onClick={() => { setSelectedLetter(""); setSelectedTitleId(title.id); }} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.authors?.join(", ") || "Autor não informado"}</span><span className="mt-1 block text-[10px] font-black text-[#2F6B43]">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
+          {currentLetter.map((title) => <button key={title.id} type="button" onClick={() => setSelectedTitleId(title.id)} className="flex items-center gap-3 rounded-2xl bg-[#F7FAF2] p-2.5 text-left ring-1 ring-[#123D2C]/10"><Cover title={title} compact /><span className="min-w-0 flex-1"><span className="block font-black text-[#123D2C]">{title.title}</span><span className="mt-1 block text-xs font-semibold text-slate-500">{title.authors?.join(", ") || "Autor não informado"}</span><span className="mt-1 block text-[10px] font-black text-[#2F6B43]">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</span></span></button>)}
         </div>
         <Pager page={letterPage} total={letterTitles.length} onChange={setLetterPage} />
       </Modal>}

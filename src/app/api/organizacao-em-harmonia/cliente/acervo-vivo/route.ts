@@ -200,6 +200,92 @@ function coverImageFromDataUrl(value: unknown) {
   return { mimeType, buffer, extension };
 }
 
+function openAiResponseText(value: unknown) {
+  const payload = record(value);
+  const direct = text(payload.output_text);
+  if (direct) return direct;
+
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const parts: string[] = [];
+
+  for (const item of output) {
+    const current = record(item);
+    const content = Array.isArray(current.content) ? current.content : [];
+    for (const part of content) {
+      const segment = record(part);
+      if (text(segment.type) !== "output_text") continue;
+      const valueText = text(segment.text);
+      if (valueText) parts.push(valueText);
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+async function suggestAcervoDescriptionFromImage(input: {
+  imageDataUrl: string;
+  title: string;
+  authors: string[];
+  subjects: string[];
+}) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) {
+    throw new Error("A sugestão por IA ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  }
+
+  const model = text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const authorLabel = input.authors.length ? input.authors.join(", ") : "autor não informado";
+  const subjectLabel = input.subjects.length ? input.subjects.join(", ") : "categorias não informadas";
+  const prompt = [
+    "Você apoia a catalogação do Acervo Vivo - Biblioteca do Tucxa.",
+    `Livro: ${input.title}. Autor(es): ${authorLabel}. Categorias/temas: ${subjectLabel}.`,
+    "Analise somente o conteúdo legível na foto enviada (contracapa, orelha, apresentação ou trecho introdutório).",
+    "Gere um RASCUNHO de descrição em português do Brasil, com 1 ou 2 frases, entre 80 e 420 caracteres.",
+    "A descrição deve explicar de forma simples do que trata a obra e por que pode interessar ao leitor.",
+    "Não copie frases longas do texto fotografado, não use aspas e não invente fatos que não estejam sustentados pela imagem ou pelos metadados informados.",
+    "Se a foto não trouxer informação suficiente para uma descrição confiável, responda exatamente: FOTO_INSUFICIENTE",
+    "Retorne somente a descrição ou FOTO_INSUFICIENTE, sem títulos, comentários ou markdown.",
+  ].join("\n");
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            { type: "input_image", image_url: input.imageDataUrl, detail: "high" },
+          ],
+        },
+      ],
+      max_output_tokens: 220,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+
+  const suggestion = openAiResponseText(payload).replace(/^['"“”]+|['"“”]+$/g, "").trim();
+  if (!suggestion || suggestion === "FOTO_INSUFICIENTE") {
+    throw new Error("A foto não trouxe conteúdo suficiente para gerar uma descrição confiável. Tente a contracapa, a orelha, a apresentação ou um trecho introdutório mais legível.");
+  }
+
+  if (suggestion.length < 20) {
+    throw new Error("A sugestão gerada ficou curta demais. Tente fotografar outro trecho com mais contexto.");
+  }
+
+  return { suggestion: suggestion.slice(0, 900), model };
+}
+
 function errorMessage(value: unknown, fallback: string) {
   if (value instanceof Error && value.message) return value.message;
   const current = record(value);
@@ -714,6 +800,65 @@ export async function POST(request: Request) {
         previousCoverSource: text(currentTitle.cover_source) || null,
       });
       return NextResponse.json({ ok: true, coverUrl });
+    }
+
+    if (action === "suggest-description-from-image") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode gerar sugestões de descrição.");
+      }
+
+      const titleId = text(body.titleId);
+      const imageDataUrl = text(body.imageDataUrl);
+      const image = coverImageFromDataUrl(imageDataUrl);
+
+      if (!titleId) {
+        return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      }
+
+      if (!image) {
+        return NextResponse.json(
+          { error: "Imagem inválida ou maior que 2,5 MB após a preparação no celular." },
+          { status: 400 },
+        );
+      }
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,title,authors,subjects")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+
+      if (titleError) throw titleError;
+      if (!currentTitle?.id) {
+        return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
+      }
+
+      const suggestionResult = await suggestAcervoDescriptionFromImage({
+        imageDataUrl,
+        title: text(currentTitle.title) || "Livro do Acervo Vivo",
+        authors: asTextList(currentTitle.authors),
+        subjects: asTextList(currentTitle.subjects),
+      });
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "descricao_sugerida_por_imagem",
+        "title",
+        titleId,
+        {
+          model: suggestionResult.model,
+          suggestionLength: suggestionResult.suggestion.length,
+          sourceImageStored: false,
+        },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        descriptionSuggestion: suggestionResult.suggestion,
+        model: suggestionResult.model,
+      });
     }
 
     if (action === "bulk-update-descriptions") {
