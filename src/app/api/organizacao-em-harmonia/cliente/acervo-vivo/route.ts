@@ -188,6 +188,7 @@ function nowIso() {
 }
 
 const ACERVO_COVERS_BUCKET = "tucxa-acervo-vivo-capas";
+const ACERVO_DESCRIPTION_PHOTOS_BUCKET = "tucxa-acervo-vivo-descricao-fotos";
 
 function coverImageFromDataUrl(value: unknown) {
   const raw = text(value);
@@ -220,6 +221,57 @@ function openAiResponseText(value: unknown) {
   }
 
   return parts.join("\n").trim();
+}
+
+async function saveDescriptionPhotoForManualReview(input: {
+  organizationId: string;
+  titleId: string;
+  image: { mimeType: string; buffer: Buffer; extension: string };
+  actorPersonId?: string;
+}) {
+  const capturedAt = nowIso();
+  const storagePath = `titles/${input.organizationId}/${input.titleId}/descricao-${capturedAt.replace(/[:.]/g, "-")}.${input.image.extension}`;
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(ACERVO_DESCRIPTION_PHOTOS_BUCKET)
+    .upload(storagePath, input.image.buffer, {
+      contentType: input.image.mimeType,
+      upsert: true,
+      cacheControl: "3600",
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data: currentTitle, error: titleError } = await supabaseAdmin
+    .from("oh_acervo_titles")
+    .select("metadata")
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.titleId)
+    .maybeSingle();
+
+  if (titleError) throw titleError;
+
+  const metadata = {
+    ...record(currentTitle?.metadata),
+    description_photo: {
+      storage_path: storagePath,
+      captured_at: capturedAt,
+      captured_by_person_id: input.actorPersonId || null,
+      status: "aguardando_processamento_manual",
+    },
+  };
+
+  const { error: updateError } = await supabaseAdmin
+    .from("oh_acervo_titles")
+    .update({ metadata, updated_at: capturedAt })
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.titleId);
+
+  if (updateError) throw updateError;
+
+  await audit(input.organizationId, input.actorPersonId, "foto_descricao_guardada", "title", input.titleId, { storagePath });
+
+  return { storagePath, capturedAt };
 }
 
 async function suggestAcervoDescriptionFromImage(input: {
@@ -750,6 +802,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === "create-description-photo-download") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode baixar fotos de descrição.");
+      }
+
+      const titleId = text(body.titleId);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+
+      if (titleError) throw titleError;
+      const descriptionPhoto = record(record(currentTitle?.metadata).description_photo);
+      const storagePath = text(descriptionPhoto.storage_path);
+      if (!storagePath) {
+        return NextResponse.json({ error: "Este livro ainda não possui foto de descrição guardada." }, { status: 404 });
+      }
+
+      const { data, error } = await supabaseAdmin.storage
+        .from(ACERVO_DESCRIPTION_PHOTOS_BUCKET)
+        .createSignedUrl(storagePath, 60 * 10, { download: true });
+
+      if (error) throw error;
+
+      await audit(organizationId, actorPersonId, "foto_descricao_download", "title", titleId, { storagePath });
+
+            const signedUrl = text(data?.signedUrl);
+      if (!signedUrl) {
+        return NextResponse.json({ error: "Não foi possível gerar o link temporário da foto de descrição." }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, descriptionPhotoUrl: signedUrl, descriptionPhotoPath: storagePath });
+    }
+
     if (action === "upload-cover-image") {
       if (!permissions.library) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode enviar fotos de capa.");
@@ -824,7 +914,7 @@ export async function POST(request: Request) {
 
       const { data: currentTitle, error: titleError } = await supabaseAdmin
         .from("oh_acervo_titles")
-        .select("id,title,authors,subjects")
+        .select("id,title,authors,subjects,metadata")
         .eq("organization_id", organizationId)
         .eq("id", titleId)
         .maybeSingle();
@@ -832,6 +922,22 @@ export async function POST(request: Request) {
       if (titleError) throw titleError;
       if (!currentTitle?.id) {
         return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
+      }
+
+      if (!text(process.env.OPENAI_API_KEY)) {
+        const saved = await saveDescriptionPhotoForManualReview({
+          organizationId,
+          titleId,
+          image,
+          actorPersonId,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          descriptionPhotoPath: saved.storagePath,
+          message: "Foto guardada para processamento manual. A assinatura ChatGPT Plus não inclui uso da API; quando a chave API não estiver configurada, o Gestor pode baixar esta foto e encaminhar ao Administrator para gerar a descrição e atualizar o catálogo.",
+        });
       }
 
       const suggestionResult = await suggestAcervoDescriptionFromImage({

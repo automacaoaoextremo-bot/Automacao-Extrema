@@ -20,6 +20,14 @@ type TitleRow = {
   cover_url?: string | null;
   cover_match_status?: string;
   active?: boolean;
+  metadata?: {
+    description_photo?: {
+      storage_path?: string | null;
+      captured_at?: string | null;
+      captured_by_person_id?: string | null;
+      status?: string | null;
+    } | null;
+  } | null;
 };
 
 type CopyRow = {
@@ -465,6 +473,9 @@ export default function AcervoVivoGestaoPage() {
   const [completionListOpen, setCompletionListOpen] = useState(false);
   const [completionPage, setCompletionPage] = useState(0);
   const [suggestingDescription, setSuggestingDescription] = useState(false);
+  const [completionCopyId, setCompletionCopyId] = useState("");
+  const [completionInventoryShelf, setCompletionInventoryShelf] = useState("");
+  const [completionQrConfirmed, setCompletionQrConfirmed] = useState(false);
 
   const [copyTitleId, setCopyTitleId] = useState("");
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
@@ -653,6 +664,10 @@ export default function AcervoVivoGestaoPage() {
     () => (completionTitleId ? copiesByTitle.get(completionTitleId) ?? [] : []),
     [completionTitleId, copiesByTitle],
   );
+  const selectedCompletionCopy = useMemo(
+    () => selectedCompletionCopies.find((copy) => copy.id === completionCopyId) ?? selectedCompletionCopies[0] ?? null,
+    [completionCopyId, selectedCompletionCopies],
+  );
 
   const catalogCategories = useMemo(() => {
     const labels = new Map<string, string>();
@@ -757,6 +772,10 @@ export default function AcervoVivoGestaoPage() {
       coverUrl?: string;
       descriptionSuggestion?: string;
       model?: string;
+      manualProcessingRequired?: boolean;
+      descriptionPhotoPath?: string;
+      descriptionPhotoUrl?: string;
+      message?: string;
     };
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
@@ -793,6 +812,10 @@ export default function AcervoVivoGestaoPage() {
     setCompletionDescription(current.description ?? "");
     setCompletionCoverDataUrl("");
     setCompletionExcerptDataUrl("");
+    const firstCopy = (copiesByTitle.get(titleId) ?? [])[0];
+    setCompletionCopyId(firstCopy?.id ?? "");
+    setCompletionInventoryShelf(firstCopy?.metadata?.last_inventory_observed_shelf || firstCopy?.shelf || "");
+    setCompletionQrConfirmed(firstCopy?.metadata?.inventory_status === "inventariado");
     setError("");
     setSuccess("");
   }
@@ -802,6 +825,9 @@ export default function AcervoVivoGestaoPage() {
     setCompletionDescription("");
     setCompletionCoverDataUrl("");
     setCompletionExcerptDataUrl("");
+    setCompletionCopyId("");
+    setCompletionInventoryShelf("");
+    setCompletionQrConfirmed(false);
     setSuggestingDescription(false);
   }
 
@@ -846,6 +872,13 @@ export default function AcervoVivoGestaoPage() {
         titleId: selectedCompletionTitle.id,
         imageDataUrl: completionExcerptDataUrl,
       });
+      if (result.manualProcessingRequired) {
+        setCompletionExcerptDataUrl("");
+        setSuccess(result.message || "Foto guardada para processamento manual pelo Gestor/Administrator.");
+        await load(token);
+        return;
+      }
+
       const suggestion = result.descriptionSuggestion?.trim() ?? "";
       if (!suggestion) throw new Error("A IA não retornou uma sugestão de descrição.");
       setCompletionDescription(suggestion);
@@ -854,6 +887,48 @@ export default function AcervoVivoGestaoPage() {
       setError(currentError instanceof Error ? currentError.message : "Não foi possível gerar a sugestão de descrição.");
     } finally {
       setSuggestingDescription(false);
+    }
+  }
+
+  async function downloadCompletionDescriptionPhoto() {
+    if (!token || saving || !selectedCompletionTitle) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await post({ action: "create-description-photo-download", titleId: selectedCompletionTitle.id });
+      if (!result.descriptionPhotoUrl) throw new Error("Não foi possível gerar o link temporário da foto.");
+      window.open(result.descriptionPhotoUrl, "_blank", "noopener,noreferrer");
+      setSuccess("Link temporário da foto de descrição aberto. Ele expira em poucos minutos.");
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao baixar a foto de descrição.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmCompletionInventoryCopy() {
+    if (!token || saving || !selectedCompletionCopy) return;
+    if (!completionQrConfirmed) {
+      setError("Marque que o QR foi conferido/colado antes de concluir o inventário deste exemplar.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await post({
+        action: "inventory-copy",
+        copyId: selectedCompletionCopy.id,
+        observedShelf: completionInventoryShelf,
+        qrConfirmed: true,
+      });
+      setSuccess(`Exemplar ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code} inventariado e QR Code confirmado.`);
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao inventariar o exemplar.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1455,8 +1530,8 @@ export default function AcervoVivoGestaoPage() {
       title="Acervo Vivo"
       description="Gestão da Biblioteca em telas curtas: escolha o que deseja fazer e abra somente a área necessária."
       simpleFinancialHeader
-      simpleHeaderHideSignOut
       financialBackHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/acervo-vivo"
+      simpleHeaderSignOutHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
       simpleHeaderHelpMessage="Olá, preciso de ajuda na Gestão do Acervo Vivo do Tucxa em Harmonia."
     >
       {(error || success) && (
@@ -2275,6 +2350,16 @@ export default function AcervoVivoGestaoPage() {
                       />
                     </label>
                     {completionExcerptDataUrl && <p className="mt-2 text-[10px] font-black text-amber-800">Trecho pronto para interpretação. Gere o rascunho e revise antes de salvar.</p>}
+                    {selectedCompletionTitle.metadata?.description_photo?.storage_path && (
+                      <button
+                        type="button"
+                        disabled={saving || suggestingDescription}
+                        onClick={() => void downloadCompletionDescriptionPhoto()}
+                        className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#7B5C16] ring-1 ring-amber-200 disabled:opacity-45"
+                      >
+                        Baixar foto guardada para descrição
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={saving || suggestingDescription || !completionExcerptDataUrl}
@@ -2297,6 +2382,47 @@ export default function AcervoVivoGestaoPage() {
                     />
                     <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
                   </label>
+
+                  <div className="rounded-2xl bg-[#EEF7F9] p-3 ring-1 ring-[#00334E]/10">
+                    <p className="text-xs font-black text-[#00334E]">4. Inventário e QR Code</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">Confirme qual exemplar está em mãos, gere/imprima o QR Code e marque quando a etiqueta estiver colada ou conferida.</p>
+                    {selectedCompletionCopies.length ? (
+                      <>
+                        <select
+                          value={selectedCompletionCopy?.id ?? ""}
+                          onChange={(event) => {
+                            const nextCopy = selectedCompletionCopies.find((copy) => copy.id === event.target.value);
+                            setCompletionCopyId(event.target.value);
+                            setCompletionInventoryShelf(nextCopy?.metadata?.last_inventory_observed_shelf || nextCopy?.shelf || "");
+                            setCompletionQrConfirmed(nextCopy?.metadata?.inventory_status === "inventariado");
+                          }}
+                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#00334E]"
+                        >
+                          {selectedCompletionCopies.map((copy) => (
+                            <option key={copy.id} value={copy.id}>
+                              {(copy.legacy_code || copy.asset_code)} • {copy.status}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={completionInventoryShelf}
+                          onChange={(event) => setCompletionInventoryShelf(event.target.value)}
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-[#00334E]"
+                          placeholder="Estante observada, ex.: Romances / prateleira 2"
+                        />
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <button type="button" disabled={saving || !selectedCompletionCopy} onClick={() => selectedCompletionCopy && void showQr(selectedCompletionCopy.id)} className="rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20 disabled:opacity-45">Gerar / imprimir QR</button>
+                          <label className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20">
+                            <input type="checkbox" checked={completionQrConfirmed} onChange={(event) => setCompletionQrConfirmed(event.target.checked)} />
+                            QR colado ou conferido
+                          </label>
+                        </div>
+                        <button type="button" disabled={saving || !selectedCompletionCopy || !completionQrConfirmed} onClick={() => void confirmCompletionInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white disabled:opacity-45">Inventariar exemplar e QR</button>
+                      </>
+                    ) : (
+                      <p className="mt-2 rounded-xl bg-white p-3 text-[10px] font-bold leading-4 text-slate-500">Este título ainda não possui exemplar ativo cadastrado. Cadastre o exemplar antes de concluir o inventário/QR.</p>
+                    )}
+                  </div>
 
                   <button type="button" disabled={saving || suggestingDescription} onClick={() => void saveCatalogCompletion()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">
                     {saving ? "Salvando..." : "Salvar e voltar à lista"}
