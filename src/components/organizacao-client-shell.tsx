@@ -17,6 +17,7 @@ type ShellProps = {
   simpleFinancialHeaderControl?: ReactNode;
   simpleHeaderHelpMessage?: string;
   simpleHeaderHideSignOut?: boolean;
+  simpleHeaderSignOutHref?: string;
 };
 
 type NavItem = {
@@ -289,6 +290,7 @@ export function OrganizacaoClientShell({
   simpleFinancialHeaderControl,
   simpleHeaderHelpMessage = "Olá, preciso de ajuda na área financeira do Tucxa em Harmonia.",
   simpleHeaderHideSignOut = false,
+  simpleHeaderSignOutHref,
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -440,9 +442,10 @@ export function OrganizacaoClientShell({
     const wasMember = accessGate === "financialMember" || accessGate === "moduleMember";
     await supabaseBrowser.auth.signOut();
     router.replace(
-      wasMember
-        ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
-        : "/solucoes/organizacao-em-harmonia/login",
+      simpleHeaderSignOutHref ||
+        (wasMember
+          ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
+          : "/solucoes/organizacao-em-harmonia/login"),
     );
   }
 

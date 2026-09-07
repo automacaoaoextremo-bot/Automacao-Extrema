@@ -187,6 +187,157 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const ACERVO_COVERS_BUCKET = "tucxa-acervo-vivo-capas";
+const ACERVO_DESCRIPTION_PHOTOS_BUCKET = "tucxa-acervo-vivo-descricao-fotos";
+
+function coverImageFromDataUrl(value: unknown) {
+  const raw = text(value);
+  const match = raw.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > 2_500_000) return null;
+  const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+  return { mimeType, buffer, extension };
+}
+
+function openAiResponseText(value: unknown) {
+  const payload = record(value);
+  const direct = text(payload.output_text);
+  if (direct) return direct;
+
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const parts: string[] = [];
+
+  for (const item of output) {
+    const current = record(item);
+    const content = Array.isArray(current.content) ? current.content : [];
+    for (const part of content) {
+      const segment = record(part);
+      if (text(segment.type) !== "output_text") continue;
+      const valueText = text(segment.text);
+      if (valueText) parts.push(valueText);
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+async function saveDescriptionPhotoForManualReview(input: {
+  organizationId: string;
+  titleId: string;
+  image: { mimeType: string; buffer: Buffer; extension: string };
+  actorPersonId?: string;
+}) {
+  const capturedAt = nowIso();
+  const storagePath = `titles/${input.organizationId}/${input.titleId}/descricao-${capturedAt.replace(/[:.]/g, "-")}.${input.image.extension}`;
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(ACERVO_DESCRIPTION_PHOTOS_BUCKET)
+    .upload(storagePath, input.image.buffer, {
+      contentType: input.image.mimeType,
+      upsert: true,
+      cacheControl: "3600",
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data: currentTitle, error: titleError } = await supabaseAdmin
+    .from("oh_acervo_titles")
+    .select("metadata")
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.titleId)
+    .maybeSingle();
+
+  if (titleError) throw titleError;
+
+  const metadata = {
+    ...record(currentTitle?.metadata),
+    description_photo: {
+      storage_path: storagePath,
+      captured_at: capturedAt,
+      captured_by_person_id: input.actorPersonId || null,
+      status: "aguardando_processamento_manual",
+    },
+  };
+
+  const { error: updateError } = await supabaseAdmin
+    .from("oh_acervo_titles")
+    .update({ metadata, updated_at: capturedAt })
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.titleId);
+
+  if (updateError) throw updateError;
+
+  await audit(input.organizationId, input.actorPersonId, "foto_descricao_guardada", "title", input.titleId, { storagePath });
+
+  return { storagePath, capturedAt };
+}
+
+async function suggestAcervoDescriptionFromImage(input: {
+  imageDataUrl: string;
+  title: string;
+  authors: string[];
+  subjects: string[];
+}) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) {
+    throw new Error("A sugestão por IA ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  }
+
+  const model = text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const authorLabel = input.authors.length ? input.authors.join(", ") : "autor não informado";
+  const subjectLabel = input.subjects.length ? input.subjects.join(", ") : "categorias não informadas";
+  const prompt = [
+    "Você apoia a catalogação do Acervo Vivo - Biblioteca do Tucxa.",
+    `Livro: ${input.title}. Autor(es): ${authorLabel}. Categorias/temas: ${subjectLabel}.`,
+    "Analise somente o conteúdo legível na foto enviada (contracapa, orelha, apresentação ou trecho introdutório).",
+    "Gere um RASCUNHO de descrição em português do Brasil, com 1 ou 2 frases, entre 80 e 420 caracteres.",
+    "A descrição deve explicar de forma simples do que trata a obra e por que pode interessar ao leitor.",
+    "Não copie frases longas do texto fotografado, não use aspas e não invente fatos que não estejam sustentados pela imagem ou pelos metadados informados.",
+    "Se a foto não trouxer informação suficiente para uma descrição confiável, responda exatamente: FOTO_INSUFICIENTE",
+    "Retorne somente a descrição ou FOTO_INSUFICIENTE, sem títulos, comentários ou markdown.",
+  ].join("\n");
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            { type: "input_image", image_url: input.imageDataUrl, detail: "high" },
+          ],
+        },
+      ],
+      max_output_tokens: 220,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+
+  const suggestion = openAiResponseText(payload).replace(/^['"“”]+|['"“”]+$/g, "").trim();
+  if (!suggestion || suggestion === "FOTO_INSUFICIENTE") {
+    throw new Error("A foto não trouxe conteúdo suficiente para gerar uma descrição confiável. Tente a contracapa, a orelha, a apresentação ou um trecho introdutório mais legível.");
+  }
+
+  if (suggestion.length < 20) {
+    throw new Error("A sugestão gerada ficou curta demais. Tente fotografar outro trecho com mais contexto.");
+  }
+
+  return { suggestion: suggestion.slice(0, 900), model };
+}
+
 function errorMessage(value: unknown, fallback: string) {
   if (value instanceof Error && value.message) return value.message;
   const current = record(value);
@@ -298,6 +449,7 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     overdue: loanRows.filter((row) => !row.returned_at && new Date(row.due_at).getTime() < Date.now()).length,
     reservations: reservationRows.filter((row) => ["aguardando", "disponivel"].includes(row.status)).length,
     pendingCovers: titleRows.filter((row) => !row.cover_url || ["pendente", "sugerida"].includes(row.cover_match_status ?? "")).length,
+    pendingDescriptions: titleRows.filter((row) => row.active !== false && !text(row.description)).length,
   };
 
   let catalogWarning: string | null = null;
@@ -628,6 +780,251 @@ export async function POST(request: Request) {
       if (error) throw error;
       await audit(organizationId, actorPersonId, "titulo_atualizado", "title", titleId, { title });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "save-catalog-details") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode completar o catálogo.");
+      }
+      const titleId = text(body.titleId);
+      const description = text(body.description).slice(0, 900);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      if (description && description.length < 20) {
+        return NextResponse.json({ error: "A descrição precisa ter pelo menos 20 caracteres." }, { status: 400 });
+      }
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .update({ description: description || null, updated_at: nowIso() })
+        .eq("organization_id", organizationId)
+        .eq("id", titleId);
+      if (error) throw error;
+      await audit(organizationId, actorPersonId, "catalogo_completado_descricao", "title", titleId, { hasDescription: Boolean(description) });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "create-description-photo-download") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode baixar fotos de descrição.");
+      }
+
+      const titleId = text(body.titleId);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+
+      if (titleError) throw titleError;
+      const descriptionPhoto = record(record(currentTitle?.metadata).description_photo);
+      const storagePath = text(descriptionPhoto.storage_path);
+      if (!storagePath) {
+        return NextResponse.json({ error: "Este livro ainda não possui foto de descrição guardada." }, { status: 404 });
+      }
+
+      const { data, error } = await supabaseAdmin.storage
+        .from(ACERVO_DESCRIPTION_PHOTOS_BUCKET)
+        .createSignedUrl(storagePath, 60 * 10, { download: true });
+
+      if (error) throw error;
+
+      await audit(organizationId, actorPersonId, "foto_descricao_download", "title", titleId, { storagePath });
+
+            const signedUrl = text(data?.signedUrl);
+      if (!signedUrl) {
+        return NextResponse.json({ error: "Não foi possível gerar o link temporário da foto de descrição." }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, descriptionPhotoUrl: signedUrl, descriptionPhotoPath: storagePath });
+    }
+
+    if (action === "upload-cover-image") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode enviar fotos de capa.");
+      }
+      const titleId = text(body.titleId);
+      const image = coverImageFromDataUrl(body.imageDataUrl);
+      if (!titleId) return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      if (!image) {
+        return NextResponse.json({ error: "Imagem inválida ou maior que 2,5 MB após a preparação no celular." }, { status: 400 });
+      }
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,title,cover_url,cover_source,cover_external_id")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+      if (titleError) throw titleError;
+      if (!currentTitle?.id) return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
+
+      const storagePath = `titles/${organizationId}/${titleId}.${image.extension}`;
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(ACERVO_COVERS_BUCKET)
+        .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: true, cacheControl: "3600" });
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabaseAdmin.storage.from(ACERVO_COVERS_BUCKET).getPublicUrl(storagePath);
+      const coverUrl = text(publicData.publicUrl);
+      if (!coverUrl) throw new Error("Não foi possível gerar a URL pública da capa.");
+
+      const { error: updateError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .update({
+          cover_url: coverUrl,
+          cover_source: "supabase-storage",
+          cover_external_id: storagePath,
+          cover_match_status: "manual",
+          cover_match_confidence: 100,
+          updated_at: nowIso(),
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", titleId);
+      if (updateError) throw updateError;
+
+      await audit(organizationId, actorPersonId, "capa_fotografada_enviada", "title", titleId, {
+        storagePath,
+        previousCoverUrl: text(currentTitle.cover_url) || null,
+        previousCoverSource: text(currentTitle.cover_source) || null,
+      });
+      return NextResponse.json({ ok: true, coverUrl });
+    }
+
+    if (action === "suggest-description-from-image") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode gerar sugestões de descrição.");
+      }
+
+      const titleId = text(body.titleId);
+      const imageDataUrl = text(body.imageDataUrl);
+      const image = coverImageFromDataUrl(imageDataUrl);
+
+      if (!titleId) {
+        return NextResponse.json({ error: "Título não informado." }, { status: 400 });
+      }
+
+      if (!image) {
+        return NextResponse.json(
+          { error: "Imagem inválida ou maior que 2,5 MB após a preparação no celular." },
+          { status: 400 },
+        );
+      }
+
+      const { data: currentTitle, error: titleError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,title,authors,subjects,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", titleId)
+        .maybeSingle();
+
+      if (titleError) throw titleError;
+      if (!currentTitle?.id) {
+        return NextResponse.json({ error: "Título não localizado." }, { status: 404 });
+      }
+
+      if (!text(process.env.OPENAI_API_KEY)) {
+        const saved = await saveDescriptionPhotoForManualReview({
+          organizationId,
+          titleId,
+          image,
+          actorPersonId,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          descriptionPhotoPath: saved.storagePath,
+          message: "Foto guardada para processamento manual. A assinatura ChatGPT Plus não inclui uso da API; quando a chave API não estiver configurada, o Gestor pode baixar esta foto e encaminhar ao Administrator para gerar a descrição e atualizar o catálogo.",
+        });
+      }
+
+      const suggestionResult = await suggestAcervoDescriptionFromImage({
+        imageDataUrl,
+        title: text(currentTitle.title) || "Livro do Acervo Vivo",
+        authors: asTextList(currentTitle.authors),
+        subjects: asTextList(currentTitle.subjects),
+      });
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "descricao_sugerida_por_imagem",
+        "title",
+        titleId,
+        {
+          model: suggestionResult.model,
+          suggestionLength: suggestionResult.suggestion.length,
+          sourceImageStored: false,
+        },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        descriptionSuggestion: suggestionResult.suggestion,
+        model: suggestionResult.model,
+      });
+    }
+
+    if (action === "bulk-update-descriptions") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode importar descrições em lote.");
+      }
+
+      const requested = Array.isArray(body.descriptions) ? body.descriptions.slice(0, 500) : [];
+      const overwrite = boolValue(body.overwrite, false);
+      const normalized = requested
+        .map((item) => {
+          const current = record(item);
+          return {
+            id: text(current.id),
+            description: text(current.description).slice(0, 900),
+          };
+        })
+        .filter((item) => item.id && item.description.length >= 20);
+
+      if (!normalized.length) {
+        return NextResponse.json({ error: "Nenhuma descrição válida foi enviada. Use id e description com pelo menos 20 caracteres." }, { status: 400 });
+      }
+
+      const ids = Array.from(new Set(normalized.map((item) => item.id)));
+      const { data: currentRows, error: currentRowsError } = await supabaseAdmin
+        .from("oh_acervo_titles")
+        .select("id,description")
+        .eq("organization_id", organizationId)
+        .in("id", ids);
+      if (currentRowsError) throw currentRowsError;
+
+      const currentMap = new Map((currentRows ?? []).map((item) => [text(item.id), text(item.description)]));
+      const updates = normalized.filter((item) => currentMap.has(item.id) && (overwrite || !currentMap.get(item.id)));
+      const skippedExisting = normalized.filter((item) => currentMap.has(item.id) && !overwrite && Boolean(currentMap.get(item.id))).length;
+      const notFound = normalized.filter((item) => !currentMap.has(item.id)).length;
+
+      let updated = 0;
+      for (let index = 0; index < updates.length; index += 25) {
+        const chunk = updates.slice(index, index + 25);
+        const results = await Promise.all(
+          chunk.map((item) => supabaseAdmin
+            .from("oh_acervo_titles")
+            .update({ description: item.description, updated_at: nowIso() })
+            .eq("organization_id", organizationId)
+            .eq("id", item.id)),
+        );
+        const firstError = results.find((result) => result.error)?.error;
+        if (firstError) throw firstError;
+        updated += chunk.length;
+      }
+
+      await audit(organizationId, actorPersonId, "descricoes_importadas_em_lote", "title", undefined, {
+        requested: normalized.length,
+        updated,
+        skippedExisting,
+        notFound,
+        overwrite,
+      });
+
+      return NextResponse.json({ ok: true, requested: normalized.length, updated, skippedExisting, notFound, overwrite });
     }
 
     if (action === "enrich-covers") {
