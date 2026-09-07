@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { AeSolutionHeader } from "@/components/ae-solution-header";
+import { OrganizacaoPublicHeader } from "@/components/organizacao-em-harmonia/organizacao-public-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const CLIENT_HOME = "/solucoes/organizacao-em-harmonia/cliente";
@@ -83,22 +82,11 @@ export default function TrocarSenhaOrganizacaoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <AeSolutionHeader
-        solutionName="Organização em Harmonia"
-        logoSrc="/organizacao-em-harmonia-logo.svg"
-        logoAlt="Logo Organização em Harmonia"
-        actions={[]}
-        sectionLinks={[]}
-        topAction={
-          <Link href={CLIENT_LOGIN} className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]">
-            ← Voltar ao login
-          </Link>
-        }
-      />
+    <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
+      <OrganizacaoPublicHeader backFallbackHref={CLIENT_LOGIN} />
 
-      <section className="mx-auto max-w-2xl px-4 py-8">
-        <form onSubmit={onSubmit} className="rounded-[2rem] bg-white p-6 shadow-xl ring-1 ring-slate-100 sm:p-8">
+      <section className="mx-auto max-w-2xl px-3 py-3 sm:px-4 sm:py-8">
+        <form onSubmit={onSubmit} className="rounded-[1.5rem] bg-white p-4 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-8">
           <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Nova senha</p>
           <h1 className="mt-2 text-3xl font-black text-[#00334E]">Trocar senha</h1>
           {message && <p className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p>}

@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
-import { AeSolutionHeader } from "@/components/ae-solution-header";
+import { OrganizacaoPublicHeader } from "@/components/organizacao-em-harmonia/organizacao-public-header";
 import {
   moduleInfo,
   moduleLabel,
@@ -85,26 +84,11 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
   }
 
   return (
-    <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <AeSolutionHeader
-        solutionName="Organização em Harmonia"
-        logoSrc="/organizacao-em-harmonia-logo.svg"
-        logoAlt="Logo Organização em Harmonia"
-        actions={[]}
-        sectionLinks={[]}
-        homeHref="/solucoes/organizacao-em-harmonia"
-        topAction={
-          <Link
-            href={current.href}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-          >
-            ← Voltar
-          </Link>
-        }
-      />
+    <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
+      <OrganizacaoPublicHeader backFallbackHref={current.href} />
 
-      <section className="mx-auto max-w-3xl px-4 pb-8 pt-3 sm:pb-10 sm:pt-5">
-        <div className="rounded-[2rem] bg-white p-4 shadow-xl ring-1 ring-slate-100 sm:p-6">
+      <section className="mx-auto max-w-3xl px-3 pb-6 pt-2.5 sm:px-4 sm:pb-10 sm:pt-5">
+        <div className="rounded-[1.5rem] bg-white p-3.5 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-6">
           <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43] sm:text-sm">
             Cadastro de interesse
           </p>

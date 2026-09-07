@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { AeSolutionHeader } from "@/components/ae-solution-header";
+import { OrganizacaoPublicHeader } from "@/components/organizacao-em-harmonia/organizacao-public-header";
 import { moduleInfo, normalizeOrganizacaoModulo, organizacaoWhatsappMessage } from "@/lib/organizacao-em-harmonia";
 
 function asParam(value: string | string[] | undefined) {
@@ -35,26 +34,11 @@ export default async function OrganizacaoObrigadoPage({
   const waUrl = whatsappLink({ module: selectedModule, name, email, whatsapp, leadId });
 
   return (
-    <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <AeSolutionHeader
-        solutionName="Organização em Harmonia"
-        logoSrc="/organizacao-em-harmonia-logo.svg"
-        logoAlt="Logo Organização em Harmonia"
-        actions={[]}
-        sectionLinks={[]}
-        homeHref="/solucoes/organizacao-em-harmonia"
-        topAction={
-          <Link
-            href={info.href}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-          >
-            ← Voltar
-          </Link>
-        }
-      />
+    <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
+      <OrganizacaoPublicHeader backFallbackHref={info.href} />
 
-      <section className="mx-auto max-w-3xl px-4 pb-8 pt-3 sm:pb-12 sm:pt-6">
-        <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-slate-100 sm:p-8">
+      <section className="mx-auto max-w-3xl px-3 pb-6 pt-2.5 sm:px-4 sm:pb-12 sm:pt-6">
+        <div className="rounded-[1.5rem] bg-white p-4 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43] sm:text-sm">Cadastro recebido</p>
           <h1 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-5xl">
             Seu interesse já está salvo.

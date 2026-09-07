@@ -1,342 +1,517 @@
-import Image from "next/image";
+"use client";
+
 import Link from "next/link";
-import { AeSolutionHeader, type SolutionSectionLink } from "@/components/ae-solution-header";
+import { useState, type ReactNode } from "react";
 import {
-  interesseQuery,
-  moduleInfo,
-  ORGANIZACAO_MODULOS_COMERCIAIS,
-  type OrganizacaoModulo,
-} from "@/lib/organizacao-em-harmonia";
+  OrganizacaoPublicHeader,
+  type OrganizacaoPublicHeaderAction,
+} from "@/components/organizacao-em-harmonia/organizacao-public-header";
 
-const solutionLinks: SolutionSectionLink[] = [
-  { label: "Visão", href: "#visao" },
-  { label: "Módulos", href: "#modulos" },
-  { label: "Base Única", href: "#base-unica" },
-  { label: "Benefícios", href: "#beneficios" },
-  { label: "Como Funciona", href: "#como-funciona" },
-  { label: "Cliente Fundador", href: "#cliente-fundador" },
-];
+type LandingModule =
+  | "organizacao-em-harmonia"
+  | "atendimento-em-harmonia"
+  | "agenda-viva"
+  | "corrente-em-dia"
+  | string;
 
-const headerActions = [
-  { label: "Quero Conhecer", href: "/solucoes/organizacao-em-harmonia/quero-conhecer", variant: "primary" as const },
-  { label: "Já sou Cliente", href: "/solucoes/organizacao-em-harmonia/cliente", variant: "secondary" as const },
-];
+type ModalKey =
+  | "visao"
+  | "modulos"
+  | "base-unica"
+  | "painel"
+  | "contribuicao"
+  | "beneficios"
+  | "como-funciona"
+  | "cliente-fundador";
 
-const suiteBenefits = [
-  "Uma base única para pessoas, funções e permissões compartilhada entre todos os módulos.",
-  "Menos tempo perdido procurando comprovante, escala, agenda ou decisão em conversas antigas.",
-  "Regras configuráveis por organização: quem cria, quem aprova, quem edita e quem acompanha.",
-  "Módulos independentes ou combinados, permitindo começar pequeno e evoluir sem recadastrar tudo.",
-  "Fluxos mobile-first para diretoria, coordenação, recepção, voluntários e responsáveis.",
-  "Mais clareza para decisões, menos retrabalho operacional e mais segurança na rotina.",
-];
-
-const benefitsByModule: Record<OrganizacaoModulo, string[]> = {
-  "organizacao-em-harmonia": suiteBenefits,
-  "pacote-completo": suiteBenefits,
-  "corrente-em-dia": [
-    "Contribuições, Pix, comprovantes e aprovações conectados à mesma base de pessoas.",
-    "Lembretes respeitosos, sem exposição e sem cobrança agressiva.",
-    "Relatórios de pagos, pendentes, em revisão e divergentes para a gestão acompanhar com clareza.",
-    "Permissões por função para separar contribuinte, tesouraria, aprovador e administrador.",
-    "Histórico de comprovantes e decisões para reduzir conferência manual.",
-    "Preparado para evoluir junto com Agenda Viva e Atendimento em Harmonia.",
-  ],
-  "atendimento-em-harmonia": [
-    "Recepção, fila, check-in, retornos e encaixes com critérios únicos entre presencial e WhatsApp.",
-    "Capacidade de atendimento organizada por dia, equipe, entidade, sala ou regra definida pela casa.",
-    "Apoio aos cambonos e responsáveis, sem levar eletrônicos para o momento do atendimento espiritual.",
-    "Status simples: aguardando, chamado, em atendimento, concluído, faltou ou encaminhado.",
-    "Relatórios de atendidos, faltas, retornos, encaixes e gargalos da operação.",
-    "Permissões para recepção, coordenação, responsáveis e diretoria sem expor dados desnecessários.",
-  ],
-  "agenda-viva": [
-    "Calendário único para atividades, grupos, mutirões, férias, estudos, reuniões e eventos.",
-    "Aprovação configurável para inclusão, alteração, cancelamento e publicação de atividades.",
-    "Recorrências, responsáveis, locais, público envolvido e checklist em um só lugar.",
-    "Alertas de conflito por data, responsável, local, equipe ou período de férias.",
-    "Visão mensal, anual e por tipo de atividade para reduzir desencontros.",
-    "Integração natural com pessoas, funções e permissões da Base Única.",
-  ],
+type ModuleCard = {
+  id: "atendimento-em-harmonia" | "agenda-viva" | "corrente-em-dia";
+  title: string;
+  summary: string;
+  href: string;
 };
 
-const baseItems = [
-  "Uma pessoa cadastrada uma vez pode ser contribuinte, cambono, responsável por evento, recepcionista ou aprovador.",
-  "Funções e permissões ficam no núcleo interno da Organização em Harmonia, sem repetição em cada módulo.",
-  "Cada cliente define quais módulos usa e quais funções podem ver, criar, aprovar, editar, cancelar ou acompanhar informações.",
-  "A mesma base sustenta Corrente em Dia, Atendimento em Harmonia e Agenda Viva, reduzindo retrabalho e inconsistência.",
+type LandingContent = {
+  solutionName: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  secondParagraph?: string;
+  benefits: string[];
+  howItWorks?: string[];
+};
+
+const MODULES: ModuleCard[] = [
+  {
+    id: "atendimento-em-harmonia",
+    title: "Atendimento em Harmonia",
+    summary: "Recepção, agenda, fila, retornos e responsáveis organizados com critérios claros e uso simples pelo celular.",
+    href: "/solucoes/atendimento-em-harmonia",
+  },
+  {
+    id: "agenda-viva",
+    title: "Agenda Viva",
+    summary: "Calendário único para atividades, grupos, mutirões, férias, reuniões, eventos, responsáveis, recorrências e aprovações.",
+    href: "/solucoes/agenda-viva",
+  },
+  {
+    id: "corrente-em-dia",
+    title: "Corrente em Dia",
+    summary: "Contribuições, Pix, comprovantes, pendências e visão financeira com privacidade, clareza e menos conferência manual.",
+    href: "/solucoes/corrente-em-dia",
+  },
 ];
 
-const founderBenefits = [
-  "participar da construção da solução com prioridade nas melhorias mais importantes para a organização.",
-  "receber acompanhamento inicial para configurar Base Única, módulos, responsáveis e permissões.",
-  "validar Corrente em Dia, Atendimento em Harmonia e Agenda Viva separadamente ou como solução completa.",
-  "manter condição especial de lançamento durante o período combinado.",
-  "ganhar destaque como Cliente Fundador somente se houver autorização expressa da organização.",
-  "trocar feedback prático por benefícios futuros, como acesso preferencial a evoluções da Automação Extrema.",
-];
+const CONTENT: Record<string, LandingContent> = {
+  "organizacao-em-harmonia": {
+    solutionName: "Organização em Harmonia",
+    eyebrow: "Suíte modular Automação Extrema",
+    title: "Organização, atendimento, agenda e contribuições trabalhando na mesma base.",
+    description:
+      "Uma suíte modular para organizações que precisam reduzir desencontros, retrabalho e decisões soltas no WhatsApp, com processos configuráveis, permissões por função e uso simples pelo celular.",
+    secondParagraph:
+      "A proposta não é colocar mais um sistema na rotina. É começar pelas dores reais, organizar critérios, preservar o jeito humano da organização e criar uma base simples para melhorar com segurança.",
+    benefits: [
+      "Uma Base Única para pessoas, funções e permissões compartilhada entre todos os módulos.",
+      "Menos tempo perdido procurando comprovante, escala, agenda ou decisão em conversas antigas.",
+      "Regras configuráveis por organização: quem cria, aprova, edita e acompanha.",
+      "Módulos independentes ou combinados, permitindo começar pequeno e evoluir sem recadastrar tudo.",
+      "Fluxos mobile-first para diretoria, coordenação, recepção, voluntários e responsáveis.",
+      "Mais clareza para decisões, menos retrabalho operacional e mais segurança na rotina.",
+    ],
+  },
+  "atendimento-em-harmonia": {
+    solutionName: "Atendimento em Harmonia",
+    eyebrow: "Módulo da Organização em Harmonia",
+    title: "Recepção, agenda, fila, retornos e cambonos organizados sem levar eletrônicos para o atendimento.",
+    description:
+      "Criado para organizar a recepção com critérios únicos entre presencial e WhatsApp, registrar retornos, prever capacidade e reduzir tensão operacional. Este módulo faz parte da Organização em Harmonia e usa a mesma Base Única de pessoas, funções e permissões.",
+    secondParagraph:
+      "A proposta não é colocar mais um sistema na rotina. É começar pelas dores reais, organizar critérios, preservar o jeito humano da organização e criar uma base simples para melhorar com segurança.",
+    benefits: [
+      "Recepção, fila, check-in, retornos e encaixes com critérios únicos entre presencial e WhatsApp.",
+      "Capacidade organizada por dia, equipe, entidade, sala ou regra definida pela organização.",
+      "Apoio aos responsáveis sem levar eletrônicos para o momento do atendimento.",
+      "Status simples: aguardando, chamado, em atendimento, concluído, faltou ou encaminhado.",
+      "Relatórios de atendidos, faltas, retornos, encaixes e gargalos da operação.",
+      "Permissões por função sem expor dados desnecessários.",
+    ],
+  },
+  "agenda-viva": {
+    solutionName: "Agenda Viva",
+    eyebrow: "Módulo da Organização em Harmonia",
+    title: "Calendário único com responsáveis, recorrências, aprovações, conflitos e comunicação.",
+    description:
+      "Para transformar atividades, grupos, mutirões, férias, reuniões, eventos e trabalhos recorrentes em uma agenda viva, clara e aprovada. Este módulo faz parte da Organização em Harmonia e usa a mesma Base Única de pessoas, funções e permissões.",
+    secondParagraph:
+      "A proposta não é colocar mais um sistema na rotina. É começar pelas dores reais, organizar critérios, preservar o jeito humano da organização e criar uma base simples para melhorar com segurança.",
+    benefits: [
+      "Calendário único para atividades, grupos, mutirões, férias, estudos, reuniões e eventos.",
+      "Aprovação configurável para inclusão, alteração, cancelamento e publicação.",
+      "Recorrências, responsáveis, locais, público envolvido e checklist em um só lugar.",
+      "Alertas de conflito por data, responsável, local, equipe ou período de férias.",
+      "Visão mensal, anual e por tipo de atividade para reduzir desencontros.",
+      "Integração natural com pessoas, funções e permissões da Base Única.",
+    ],
+  },
+  "corrente-em-dia": {
+    solutionName: "Corrente em Dia",
+    eyebrow: "Solução para arrecadações",
+    title: "A contribuição da casa organizada com respeito, clareza e custo fixo zero.",
+    description:
+      "O Corrente em Dia ajuda federações, associações e terreiros a organizar contribuições, Pix, comprovantes e pendências sem transformar cuidado coletivo em cobrança fria. A casa ganha previsibilidade, o gestor ganha clareza e o contribuinte resolve tudo pelo celular.",
+    benefits: [
+      "Implantação R$ 0,00 e mensalidade R$ 0,00 no período de Cliente Fundador.",
+      "QR Code Pix e Pix copia e cola para facilitar a contribuição.",
+      "Upload, pré-validação e aprovação humana de comprovantes.",
+      "Painel simples para celular e página clara para computador.",
+      "Relatórios de pagos, pendentes, em revisão e divergentes.",
+      "Lembretes respeitosos, sem exposição e sem cobrança agressiva.",
+    ],
+    howItWorks: [
+      "A organização cadastra sua chave Pix oficial e seus contribuintes.",
+      "O sistema gera a contribuição do mês com QR Code e Pix copia e cola.",
+      "O contribuinte paga pelo banco e envia o comprovante pelo celular.",
+      "A organização confere e aprova o comprovante sem expor dados individuais.",
+      "O painel mostra pagos, pendentes, em revisão e divergentes para facilitar o fechamento.",
+    ],
+  },
+};
 
-const steps = [
+const HOW_IT_WORKS = [
   "O contato informa nome, WhatsApp, e-mail e módulo de interesse no Quero Conhecer único.",
   "A Automação Extrema entende a dor prioritária: contribuições, atendimento, agenda ou solução completa.",
   "A organização configura a Base Única com pessoas, funções, permissões e módulos habilitados.",
   "Cada módulo passa a usar a mesma base, evitando cadastros duplicados e regras desencontradas.",
-  "A validação acompanha indicadores, dúvidas e ajustes antes de transformar em pacote comercial definitivo.",
+  "A validação acompanha indicadores, dúvidas e ajustes antes de transformar o piloto em pacote definitivo.",
 ];
 
-function whatsappUrl(message: string) {
-  const phone = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
-  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+const FOUNDER_BENEFITS = [
+  "Participar da construção da solução com prioridade nas melhorias mais importantes.",
+  "Receber acompanhamento inicial para configurar Base Única, módulos, responsáveis e permissões.",
+  "Validar os módulos separadamente ou como solução completa.",
+  "Manter condição especial de lançamento durante o período combinado.",
+  "Ganhar destaque como Cliente Fundador somente com autorização expressa.",
+  "Trocar feedback prático por acesso preferencial a evoluções futuras.",
+];
+
+function InfoModal({
+  title,
+  eyebrow,
+  onClose,
+  children,
+}: {
+  title: string;
+  eyebrow: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-[#00263A]/70 p-2 backdrop-blur-sm sm:p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.35rem] bg-white p-3 shadow-2xl sm:max-h-[92dvh] sm:rounded-[1.75rem] sm:p-5"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[10px]">{eyebrow}</p>
+            <h2 className="mt-0.5 text-lg font-black leading-tight text-[#00334E] sm:text-2xl">{title}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">
+            Fechar
+          </button>
+        </div>
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+      </section>
+    </div>
+  );
 }
 
-function actionHref(module: OrganizacaoModulo) {
-  return `/solucoes/organizacao-em-harmonia/quero-conhecer${interesseQuery(module)}`;
+function TouchButton({ label, detail, onClick }: { label: string; detail: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="min-h-20 rounded-2xl bg-white px-2.5 py-2.5 text-center shadow ring-1 ring-[#00334E]/10 transition active:scale-[0.98] sm:min-h-24"
+    >
+      <span className="block text-sm font-black leading-tight text-[#00334E]">{label}</span>
+      <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-500">{detail}</span>
+      <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.11em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+    </button>
+  );
 }
 
-export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia" }: { module?: OrganizacaoModulo }) {
-  const current = moduleInfo(module);
-  const isUmbrella = current.slug === "organizacao-em-harmonia";
-  const query = interesseQuery(current.slug);
-  const headline = isUmbrella
-    ? "Organização, atendimento, agenda e contribuições trabalhando na mesma base."
-    : current.headline;
-  const subheadline = isUmbrella
-    ? "Uma suíte modular para organizações que precisam reduzir desencontros, retrabalho e decisões soltas no WhatsApp, com processos configuráveis, permissões por função e uso simples pelo celular."
-    : `${current.description} Este módulo faz parte da Organização em Harmonia e usa a mesma Base Única de pessoas, funções e permissões.`;
-  const waMessage = `Olá! Quero conhecer a ${current.name} e entender como validar essa solução como Cliente Fundador.`;
-  const benefits = benefitsByModule[current.slug] ?? suiteBenefits;
+function moduleParam(module: LandingModule) {
+  return module === "organizacao-em-harmonia" ? "organizacao-em-harmonia" : module;
+}
+
+export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia" }: { module?: LandingModule }) {
+  const normalizedModule = CONTENT[module] ? module : "organizacao-em-harmonia";
+  const content = CONTENT[normalizedModule];
+  const [modal, setModal] = useState<ModalKey | null>(null);
+  const isSuite = normalizedModule === "organizacao-em-harmonia";
+  const isCorrente = normalizedModule === "corrente-em-dia";
+  const interestHref = `/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=${encodeURIComponent(moduleParam(normalizedModule))}`;
+  const aeWhatsapp = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
+  const whatsappHref = `https://wa.me/${aeWhatsapp}?text=${encodeURIComponent(`Olá, quero saber mais sobre ${content.solutionName}.`)}`;
+
+  const headerActions: OrganizacaoPublicHeaderAction[] = isCorrente
+    ? [
+        { label: "Solução", actionId: "visao" },
+        { label: "Painel", actionId: "painel" },
+        { label: "Contribuição", actionId: "contribuicao" },
+        { label: "Benefícios", actionId: "beneficios" },
+        { label: "Como Funciona", actionId: "como-funciona" },
+        { label: "Cliente Fundador", actionId: "cliente-fundador" },
+        { label: "Quero Conhecer", href: interestHref },
+        { label: "Já sou Cliente", href: "/solucoes/organizacao-em-harmonia/cliente" },
+      ]
+    : [
+        { label: "Visão", actionId: "visao" },
+        { label: "Módulos", actionId: "modulos" },
+        { label: "Base Única", actionId: "base-unica" },
+        { label: "Benefícios", actionId: "beneficios" },
+        { label: "Como Funciona", actionId: "como-funciona" },
+        { label: "Cliente Fundador", actionId: "cliente-fundador" },
+        { label: "Quero Conhecer", href: interestHref },
+        { label: "Já sou Cliente", href: "/solucoes/organizacao-em-harmonia/cliente" },
+      ];
+
+  const modalTitles: Record<ModalKey, { title: string; eyebrow: string }> = {
+    visao: {
+      title: isCorrente
+        ? "Contribuições organizadas sem transformar cuidado em cobrança"
+        : isSuite
+          ? "Uma memória operacional para a organização"
+          : "Visão do módulo",
+      eyebrow: isCorrente ? "Solução" : "Visão",
+    },
+    modulos: { title: "Módulos conectados pela mesma base", eyebrow: "Módulos" },
+    "base-unica": { title: "Pessoas, funções e permissões compartilhadas", eyebrow: "Base Única" },
+    painel: { title: "Visão simples para quem organiza", eyebrow: "Painel" },
+    contribuicao: { title: "Pix e comprovante pelo celular", eyebrow: "Contribuição" },
+    beneficios: { title: "Mais clareza e menos retrabalho", eyebrow: "Benefícios" },
+    "como-funciona": { title: "Um caminho simples para começar", eyebrow: "Como funciona" },
+    "cliente-fundador": { title: "Construa a solução junto com a Automação Extrema", eyebrow: "Cliente Fundador" },
+  };
 
   return (
-    <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <AeSolutionHeader
-        solutionName={current.name}
-        logoSrc={current.logoSrc}
-        logoAlt={`Logo ${current.name}`}
-        actions={headerActions.map((action) => ({
-          ...action,
-          href: action.label === "Quero Conhecer" ? `${action.href}${query}` : action.href,
-        }))}
-        sectionLinks={solutionLinks}
-        homeHref={current.href}
+    <main id="inicio" className="min-h-screen bg-[#F6FBF8] text-slate-800">
+      <OrganizacaoPublicHeader
+        actions={headerActions}
+        onAction={(actionId) => setModal(actionId as ModalKey)}
+        backFallbackHref={isSuite ? "/" : "/solucoes/organizacao-em-harmonia"}
+        solutionName={content.solutionName}
       />
 
-      <section id="visao" className="scroll-mt-56 border-b border-[#dfe8df] bg-[#f6fbf8]">
-        <div className="mx-auto grid max-w-6xl gap-7 px-4 py-7 lg:grid-cols-[1.05fr_0.95fr] lg:py-12">
-          <div className="space-y-4">
-            <p className="text-sm font-black uppercase tracking-[0.35em] text-[#2F6B43]">
-              {isUmbrella ? "Suíte modular Automação Extrema" : "Módulo da Organização em Harmonia"}
+      <section className="mx-auto max-w-6xl px-3 py-2.5 sm:px-6 sm:py-5 lg:px-8">
+        <div className="rounded-[1.45rem] bg-white p-3.5 shadow-xl shadow-emerald-900/10 ring-1 ring-[#00334E]/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[0.62rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] ring-1 ring-emerald-100 sm:text-xs sm:tracking-[0.2em]">
+            {content.eyebrow}
+          </p>
+          <h1 className="mt-1.5 max-w-5xl text-[1.45rem] font-black leading-[1.1] tracking-tight text-[#00334E] sm:mt-2.5 sm:text-4xl lg:text-[2.75rem]">
+            {content.title}
+          </h1>
+          <p className="mt-1.5 max-w-5xl text-[0.82rem] font-semibold leading-[1.22rem] text-slate-700 sm:mt-2.5 sm:text-base sm:leading-7">
+            {content.description}
+          </p>
+          {content.secondParagraph && (
+            <p className="mt-1.5 max-w-5xl rounded-xl bg-[#F7FAF2] px-2.5 py-1.5 text-[0.7rem] font-semibold leading-[1.05rem] text-[#00334E] ring-1 ring-[#00334E]/8 sm:mt-2.5 sm:px-3 sm:py-2.5 sm:text-sm sm:leading-6">
+              {content.secondParagraph}
             </p>
-            <h1 className="text-4xl font-black leading-[1.08] text-[#00334E] sm:text-5xl">{headline}</h1>
-            <p className="max-w-3xl text-lg leading-8 text-slate-700">{subheadline}</p>
-            <div className="rounded-3xl bg-white p-4 text-sm font-semibold leading-6 text-slate-700 shadow-sm ring-1 ring-slate-100 sm:text-base sm:leading-7">
-              A proposta não é colocar mais um sistema na rotina. É começar pelas dores reais, organizar critérios, preservar o jeito humano da organização e criar uma base simples para melhorar com segurança.
-            </div>
-            <div className="grid gap-3 sm:max-w-xl sm:grid-cols-2">
-              <Link
-                href={actionHref(current.slug)}
-                className="rounded-2xl bg-[#31C16B] px-5 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] hover:shadow-xl"
-              >
-                Quero Conhecer
-              </Link>
-              <a
-                href={whatsappUrl(waMessage)}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-2xl border-2 border-[#00334E] bg-white px-5 py-4 text-center text-base font-black text-[#00334E] shadow-md transition hover:-translate-y-0.5 hover:bg-[#00334E] hover:text-white"
-              >
-                Falar no WhatsApp
-              </a>
-            </div>
-            {!isUmbrella && (
-              <Link
-                href="/solucoes/organizacao-em-harmonia#modulos"
-                className="inline-flex rounded-2xl bg-white px-4 py-3 text-sm font-black text-[#00334E] shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-              >
-                Ver a solução completa Organização em Harmonia
-              </Link>
-            )}
-          </div>
+          )}
 
-          <div className="rounded-[2rem] bg-white p-4 shadow-xl sm:p-5">
-            <div className="rounded-[1.5rem] bg-[#00334E] p-5 text-white">
-              <p className="text-sm font-bold text-emerald-300">Painel integrado</p>
-              <h2 className="mt-2 text-2xl font-black">Uma memória operacional para a organização.</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4 sm:max-w-2xl sm:gap-3">
+            <Link
+              href={interestHref}
+              className="rounded-xl bg-[#31C16B] px-2.5 py-2.5 text-center text-[0.78rem] font-black leading-tight text-[#00334E] shadow-lg shadow-emerald-900/10 transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+            >
+              Quero Conhecer
+              <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#00334E]/70">TOQUE PARA CONTINUAR</span>
+            </Link>
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl bg-[#00334E] px-2.5 py-2.5 text-center text-[0.78rem] font-black leading-tight text-white shadow-lg shadow-slate-900/10 transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+            >
+              Falar no WhatsApp
+              <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-white/70">TOQUE PARA CONTINUAR</span>
+            </a>
+          </div>
+          {!isSuite && (
+            <Link
+              href="/solucoes/organizacao-em-harmonia"
+              className="mt-2 inline-flex rounded-xl bg-[#F7FAF2] px-3 py-2 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/10 sm:mt-3 sm:text-xs"
+            >
+              Ver a solução completa Organização em Harmonia
+            </Link>
+          )}
+        </div>
+
+        <section className="mt-2.5 rounded-[1.45rem] bg-[#EAF6EF] p-2.5 ring-1 ring-emerald-100 sm:mt-4 sm:p-4">
+          <p className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-xs">
+            Encontre a informação sem alongar a página
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {isCorrente ? (
+              <>
+                <TouchButton label="Solução" detail="entenda a proposta" onClick={() => setModal("visao")} />
+                <TouchButton label="Painel" detail="acompanhe o mês" onClick={() => setModal("painel")} />
+                <TouchButton label="Contribuição" detail="Pix e comprovante" onClick={() => setModal("contribuicao")} />
+              </>
+            ) : (
+              <>
+                <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
+                <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
+                <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
+              </>
+            )}
+            <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
+            <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
+            <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
+          </div>
+        </section>
+
+        <p className="mt-2.5 px-1 text-center text-[10px] font-semibold leading-4 text-slate-500 sm:mt-4 sm:text-xs">
+          {content.solutionName} — uma solução Automação Extrema. Organização, clareza e cuidado para manter a rotina mais previsível, sem perder o jeito humano de funcionar.
+        </p>
+      </section>
+
+      {modal && (
+        <InfoModal
+          title={modalTitles[modal].title}
+          eyebrow={modalTitles[modal].eyebrow}
+          onClose={() => setModal(null)}
+        >
+          {modal === "visao" && (
+            <div className="grid gap-2">
+              <p className="rounded-xl bg-emerald-50 p-3 text-xs font-semibold leading-5 text-slate-700 ring-1 ring-emerald-100 sm:text-sm sm:leading-6">
+                {content.description}
+              </p>
+              {isCorrente ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {["Pix · simples", "Comprovantes · organizados", "Pendências · visíveis", "Privacidade · preservada"].map((item) => (
+                    <div key={item} className="rounded-xl bg-[#F7FAF2] p-2.5 text-center text-[11px] font-black leading-4 text-[#00334E] ring-1 ring-[#00334E]/8 sm:text-sm">
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {["Pessoas · Base Única", "Funções · Permissões", "Módulos · Habilitados", "Aprovações · Por perfil"].map((item) => (
+                      <div key={item} className="rounded-xl bg-[#F7FAF2] p-2.5 text-center text-[11px] font-black leading-4 text-[#00334E] ring-1 ring-[#00334E]/8 sm:text-sm">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      "1. Cadastra pessoas, funções e permissões.",
+                      "2. Ativa os módulos daquele cliente.",
+                      "3. Define quem aprova, edita e acompanha.",
+                      "4. Opera pelo celular ou computador.",
+                    ].map((item) => (
+                      <p key={item} className="rounded-xl bg-white p-2 text-[10px] font-semibold leading-4 text-slate-700 ring-1 ring-[#00334E]/10 sm:text-xs">
+                        {item}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              )}
+              <p className="rounded-xl bg-white p-3 text-xs font-bold leading-5 text-[#2F6B43] ring-1 ring-[#00334E]/10">
+                Mobile-first: no celular, as informações principais ficam em botões e pop-ups; no computador, a gestão pode usar mais espaço sem perder clareza.
+              </p>
+            </div>
+          )}
+
+          {modal === "modulos" && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {MODULES.map((item) => (
+                <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#00334E]/10">
+                  <h3 className="text-sm font-black text-[#00334E]">{item.title}</h3>
+                  <p className="mt-1 text-[11px] font-semibold leading-4 text-slate-600">{item.summary}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-1">
+                    <Link href={item.href} className="rounded-xl bg-[#00334E] px-2 py-2 text-center text-[10px] font-black text-white">
+                      Abrir módulo
+                    </Link>
+                    <Link href={`/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=${item.id}`} className="rounded-xl bg-white px-2 py-2 text-center text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/10">
+                      Quero conhecer
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {modal === "base-unica" && (
+            <div className="grid gap-2">
+              {[
+                "A Base Única sustenta os módulos e evita cadastro repetido de pessoas, funções, permissões e responsáveis.",
+                "Uma pessoa cadastrada uma vez pode participar de diferentes processos conforme suas funções.",
+                "Cada cliente define quais módulos usa e quem pode ver, criar, aprovar, editar, cancelar ou acompanhar informações.",
+                "A mesma base reduz retrabalho e inconsistência entre Atendimento em Harmonia, Agenda Viva e Corrente em Dia.",
+              ].map((item) => (
+                <p key={item} className="rounded-xl bg-[#F7FAF2] p-2.5 text-xs font-semibold leading-5 text-slate-700 ring-1 ring-[#00334E]/8 sm:text-sm">
+                  {item}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {modal === "painel" && (
+            <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {[
-                  ["Pessoas", "Base Única"],
-                  ["Funções", "Permissões"],
-                  ["Módulos", "Habilitados"],
-                  ["Aprovações", "Por perfil"],
+                  ["Arrecadado", "R$ 1.840"],
+                  ["Pendentes", "12"],
+                  ["Em revisão", "8"],
+                  ["Divergentes", "2"],
                 ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl bg-white/10 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/60">{label}</p>
-                    <p className="mt-1 text-xl font-black">{value}</p>
+                  <div key={label} className="rounded-xl bg-[#F7FAF2] p-3 text-center ring-1 ring-[#00334E]/8">
+                    <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{label}</p>
+                    <p className="mt-1 text-xl font-black text-[#00334E]">{value}</p>
                   </div>
                 ))}
               </div>
+              <p className="rounded-xl bg-emerald-50 p-3 text-xs font-semibold leading-5 text-slate-700 ring-1 ring-emerald-100">
+                A visão resume o mês sem expor detalhes individuais para quem não possui permissão.
+              </p>
             </div>
+          )}
 
-            <div className="mt-4 rounded-3xl border border-slate-200 p-4">
-              <p className="font-black text-[#00334E]">Fluxo configurável</p>
-              <ol className="mt-3 space-y-2 text-sm font-semibold leading-6 text-slate-700">
-                <li>1. Cadastra pessoas, funções e permissões na Base Única.</li>
-                <li>2. Ativa os módulos contratados para aquele cliente.</li>
-                <li>3. Define quem aprova, edita, cancela e visualiza.</li>
-                <li>4. Opera pelo celular ou computador, conforme o papel da pessoa.</li>
-              </ol>
-              <div className="mt-4 rounded-2xl bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
-                <strong>Mobile-first:</strong> no celular, o menu fica no cabeçalho como pílulas; no desktop, a gestão pode usar menu lateral para ganhar espaço e clareza.
+          {modal === "contribuicao" && (
+            <div className="grid gap-2">
+              <div className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#00334E]/10">
+                <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Minha contribuição</p>
+                <p className="mt-1 text-base font-black text-[#00334E]">Valor: R$ 50,00 · Até dia 10</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div className="flex min-h-20 items-center justify-center rounded-xl bg-white text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/10">QR Code Pix</div>
+                  <div className="flex min-h-20 items-center justify-center rounded-xl bg-white text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/10">Pix copia e cola</div>
+                </div>
+                <button type="button" className="mt-2 w-full rounded-xl bg-[#00334E] px-3 py-2.5 text-xs font-black text-white">Enviar comprovante</button>
+              </div>
+              <p className="rounded-xl bg-emerald-50 p-3 text-[11px] font-semibold leading-4 text-slate-700 ring-1 ring-emerald-100 sm:text-xs sm:leading-5">
+                Privacidade e LGPD: valores, comprovantes, WhatsApp, e-mail e histórico ficam disponíveis somente conforme as permissões e a necessidade operacional.
+              </p>
+            </div>
+          )}
+
+          {modal === "beneficios" && (
+            <div className="grid grid-cols-2 gap-2">
+              {content.benefits.map((benefit) => (
+                <div key={benefit} className="rounded-xl bg-[#F7FAF2] p-2.5 text-[11px] font-semibold leading-4 text-slate-700 ring-1 ring-[#00334E]/8 sm:text-sm sm:leading-5">
+                  <span className="mr-1 font-black text-[#2F6B43]">✓</span>
+                  {benefit}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {modal === "como-funciona" && (
+            <div className="grid gap-2">
+              {(content.howItWorks ?? HOW_IT_WORKS).map((step, index) => (
+                <div key={step} className="flex gap-2 rounded-xl bg-[#F7FAF2] p-2.5 ring-1 ring-[#00334E]/8">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#00334E] text-[10px] font-black text-white">{index + 1}</span>
+                  <p className="text-[11px] font-semibold leading-4 text-slate-700 sm:text-sm sm:leading-5">{step}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {modal === "cliente-fundador" && (
+            <div className="grid gap-2">
+              <p className="rounded-xl bg-emerald-50 p-2.5 text-xs font-bold leading-5 text-[#00334E] ring-1 ring-emerald-100">
+                Sua organização participa da fase inicial com acompanhamento mais próximo, prioridade nas melhorias e validação prática dos módulos que realmente fazem diferença na rotina.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {FOUNDER_BENEFITS.map((item) => (
+                  <p key={item} className="rounded-xl bg-[#F7FAF2] p-2 text-[10px] font-semibold leading-4 text-slate-700 ring-1 ring-[#00334E]/8 sm:text-xs">
+                    ✓ {item}
+                  </p>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Link href={interestHref} className="rounded-xl bg-[#31C16B] px-3 py-2.5 text-center text-xs font-black text-[#00334E]">
+                  Quero ser Cliente Fundador
+                </Link>
+                <a href={whatsappHref} target="_blank" rel="noreferrer" className="rounded-xl bg-[#00334E] px-3 py-2.5 text-center text-xs font-black text-white">
+                  Tirar dúvidas no WhatsApp
+                </a>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="beneficios" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
-        <div className="mb-6 max-w-3xl">
-          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Benefícios</p>
-          <h2 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
-            Mais clareza para a organização, menos esforço para quem cuida da rotina.
-          </h2>
-          <p className="mt-3 text-base leading-7 text-slate-700">
-            O valor está em reduzir procura, retrabalho, tensão e decisões soltas, mantendo cada módulo configurável para a realidade do cliente.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {benefits.map((benefit) => (
-            <div key={benefit} className="rounded-3xl bg-white p-5 shadow-md ring-1 ring-slate-100">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-lg font-black text-emerald-700">✓</span>
-              <p className="mt-3 font-bold leading-7 text-slate-800">{benefit}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="modulos" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
-        <div className="mb-6 max-w-3xl">
-          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#2F6B43]">Módulos</p>
-          <h2 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-4xl">
-            Comece pelo módulo prioritário ou valide a solução completa.
-          </h2>
-          <p className="mt-3 text-base leading-7 text-slate-700">
-            Organização em Harmonia é a suíte completa. Corrente em Dia, Atendimento em Harmonia e Agenda Viva são módulos que podem ser usados separadamente ou juntos, sempre sobre a mesma Base Única.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {ORGANIZACAO_MODULOS_COMERCIAIS.map((item) => (
-            <article key={item.slug} className="rounded-3xl bg-white p-5 shadow-md ring-1 ring-slate-100">
-              <Link href={item.href} className="block transition hover:-translate-y-1 hover:opacity-95">
-                <Image src={item.logoSrc} alt={`Logo ${item.name}`} width={56} height={56} className="h-14 w-14 rounded-2xl object-cover" />
-                <p className="mt-4 text-lg font-black text-[#00334E]">{item.name}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
-              </Link>
-              <Link
-                href={actionHref(item.slug)}
-                className="mt-4 inline-flex w-full justify-center rounded-2xl bg-[#31C16B] px-4 py-3 text-center text-sm font-black text-[#00334E] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-              >
-                Quero conhecer este módulo
-              </Link>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="base-unica" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
-        <div className="rounded-[2rem] bg-white p-6 shadow sm:p-8">
-          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Base Única</p>
-          <h2 className="mt-2 text-3xl font-black text-[#00334E]">Pessoas, funções e permissões compartilhadas.</h2>
-          <p className="mt-3 max-w-4xl leading-7 text-slate-700">
-            A Base Única é um módulo interno da suíte. Ela não precisa ser vendida como produto separado: ela sustenta os módulos contratados e evita cadastro repetido de pessoas, funções, permissões e responsáveis.
-          </p>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {baseItems.map((item) => (
-              <div key={item} className="rounded-2xl bg-slate-50 p-4 font-semibold leading-7 text-slate-700">
-                {item}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="como-funciona" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
-        <div className="rounded-[2rem] bg-white p-6 shadow sm:p-8">
-          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Como funciona</p>
-          <h2 className="mt-2 text-3xl font-black text-[#00334E]">Um caminho simples para começar sem travar a operação.</h2>
-          <ol className="mt-6 grid gap-4 md:grid-cols-2">
-            {steps.map((step, index) => (
-              <li key={step} className="flex gap-3 rounded-2xl bg-slate-50 p-4">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00334E] text-sm font-black text-white">{index + 1}</span>
-                <span className="font-medium leading-7 text-slate-700">{step}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      <section id="cliente-fundador" className="scroll-mt-56 mx-auto max-w-6xl px-4 py-10">
-        <div className="grid gap-6 rounded-[2rem] bg-[#00334E] p-6 text-white shadow sm:p-8 lg:grid-cols-[0.95fr_1.05fr]">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.25em] text-emerald-300">Cliente Fundador</p>
-            <h2 className="mt-2 text-3xl font-black">Ajude a construir uma solução feita para a realidade da sua organização.</h2>
-            <p className="mt-3 leading-7 text-white/80">
-              Como Cliente Fundador, sua organização participa da fase inicial com acompanhamento mais próximo, prioridade nas melhorias e validação prática dos módulos que realmente fazem diferença na rotina.
-            </p>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <Link
-                href={actionHref(current.slug)}
-                className="rounded-2xl bg-[#31C16B] px-5 py-4 text-center font-black text-[#00334E] shadow-lg shadow-emerald-950/30 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-              >
-                Quero ser Cliente Fundador
-              </Link>
-              <a
-                href={whatsappUrl(waMessage)}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-2xl border border-white/40 bg-white/10 px-5 py-4 text-center font-black text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-[#00334E]"
-              >
-                Tirar dúvidas no WhatsApp
-              </a>
-            </div>
-          </div>
-          <div className="grid gap-3">
-            {founderBenefits.map((benefit) => (
-              <div key={benefit} className="rounded-2xl bg-white/10 p-4 text-sm font-semibold leading-6 text-white/90">
-                {benefit}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <footer className="border-t border-slate-200 bg-white px-4 py-8">
-        <div className="mx-auto grid max-w-6xl gap-5 rounded-[2rem] bg-[#f6fbf8] p-5 shadow-sm ring-1 ring-slate-100 sm:grid-cols-[1fr_auto] sm:items-center sm:p-6">
-          <div>
-            <p className="text-xl font-black text-[#00334E] sm:text-2xl">
-              {current.name} — uma solução Automação Extrema.
-            </p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Organização, clareza e cuidado para manter a rotina mais previsível, sem perder o jeito humano de funcionar.
-            </p>
-            <a
-              href={whatsappUrl(waMessage)}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-4 inline-flex rounded-2xl bg-[#31C16B] px-5 py-3 text-sm font-black text-[#00334E] shadow-md transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-            >
-              Falar no WhatsApp
-            </a>
-          </div>
-          <Link href="/" aria-label="Conhecer a Automação Extrema" className="inline-flex justify-start sm:justify-end">
-            <Image
-              src="/ae-logo-horizontal.png"
-              alt="Automação Extrema"
-              width={200}
-              height={60}
-              className="h-auto w-52 rounded-2xl bg-[#00334E] object-contain p-2 shadow"
-            />
-          </Link>
-        </div>
-      </footer>
+          )}
+        </InfoModal>
+      )}
     </main>
   );
 }
