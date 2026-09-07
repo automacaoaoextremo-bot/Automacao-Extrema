@@ -1320,6 +1320,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <span className="mx-1">•</span>
                 <strong>Categoria:</strong> {selectedCategoryLabel}
               </p>
+              {selectedCopies.length > 0 && (
+                <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código no armário:</strong> {selectedCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
+              )}
               <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
                 {selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}
               </p>
