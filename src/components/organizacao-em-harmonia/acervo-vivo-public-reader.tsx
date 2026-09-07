@@ -8,6 +8,16 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
 const PUBLIC_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const PAGE_SIZE = 4;
+const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v1-hidden";
+
+const LOAN_TUTORIAL_STEPS = [
+  { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura.", tip: "Comece por Descobrir ou Trilhas." },
+  { title: "Encontre sua leitura", eyebrow: "Passo 2 de 6", body: "Pesquise pelo que deseja estudar. Se você já estiver diante do armário, também pode digitar o código da lombada, como R-3.", tip: "O código ajuda a localizar o exemplar físico correto." },
+  { title: "Pegue o livro físico", eyebrow: "Passo 3 de 6", body: "Abra o armário da Biblioteca do Tucxa. Os livros estão organizados por categoria. Confira no detalhe do livro o código da lombada e localize o exemplar correspondente.", tip: "Confira se o código do livro bate com o código exibido no Acervo." },
+  { title: "Registre o empréstimo", eyebrow: "Passo 4 de 6", body: "No detalhe do livro, toque em “Está com o livro em mãos”. Se necessário, faça seu acesso e confirme o exemplar que está levando.", tip: "O registro mantém o Acervo Vivo organizado para todos." },
+  { title: "Acompanhe em Meus livros", eyebrow: "Passo 5 de 6", body: "Depois do empréstimo, acompanhe seus livros pelo próprio Acervo Vivo. Ali você encontra os registros e a data prevista de devolução.", tip: "Use Meus livros sempre que quiser consultar sua situação." },
+  { title: "Para devolver", eyebrow: "Passo 6 de 6", body: "Devolva o livro no local indicado pelo Tucxa e siga a orientação mostrada pelo sistema para manter o registro atualizado.", tip: "Cuide do livro: outra pessoa também pode precisar dessa leitura." },
+] as const;
 
 type ReviewComment = {
   id: string;
@@ -385,6 +395,8 @@ export function AcervoVivoPublicReader() {
   const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
   const [signedInProfile, setSignedInProfile] = useState("");
   const [blockingNotice, setBlockingNotice] = useState<BlockingNotice | null>(null);
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null);
+  const [hideTutorial, setHideTutorial] = useState(false);
 
   const fetchPayload = useCallback(async (): Promise<Payload> => {
     const exemplar = typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("exemplar") || "";
@@ -473,6 +485,31 @@ export function AcervoVivoPublicReader() {
       });
     return () => { active = false; };
   }, [fetchPayload]);
+
+  useEffect(() => {
+    let shouldOpenTutorial = true;
+
+    try {
+      shouldOpenTutorial = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) !== "1";
+    } catch {
+      shouldOpenTutorial = true;
+    }
+
+    if (!shouldOpenTutorial) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setTutorialStep(0);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  function closeTutorial() {
+    if (hideTutorial) {
+      try { window.localStorage.setItem(TUTORIAL_STORAGE_KEY, "1"); } catch {}
+    }
+    setTutorialStep(null);
+  }
 
   const titles = useMemo(() => payload.titles ?? [], [payload.titles]);
   const copies = useMemo(() => payload.copies ?? [], [payload.copies]);
@@ -962,11 +999,35 @@ export function AcervoVivoPublicReader() {
 
   return (
     <>
+      {tutorialStep !== null && (() => {
+        const step = LOAN_TUTORIAL_STEPS[tutorialStep];
+        const isLast = tutorialStep === LOAN_TUTORIAL_STEPS.length - 1;
+        return (
+          <Modal title={step.title} eyebrow={step.eyebrow} onClose={closeTutorial} z={500} viewportFit>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+                <p className="text-sm font-semibold leading-6 text-slate-700">{step.body}</p>
+                <p className="mt-3 rounded-xl bg-[#E9F2E7] p-3 text-xs font-black leading-5 text-[#123D2C]">{step.tip}</p>
+              </div>
+              <label className="mt-3 flex items-center gap-2 rounded-xl bg-white p-2 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
+                <input type="checkbox" checked={hideTutorial} onChange={(event) => setHideTutorial(event.target.checked)} />
+                Não mostrar este passo a passo automaticamente novamente neste aparelho
+              </label>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" disabled={tutorialStep === 0} onClick={() => setTutorialStep((current) => Math.max(0, Number(current ?? 0) - 1))} className="rounded-xl bg-[#F4F8F1] px-3 py-3 text-xs font-black text-[#123D2C] disabled:opacity-35">Anterior</button>
+                <button type="button" onClick={() => { if (isLast) closeTutorial(); else setTutorialStep(tutorialStep + 1); }} className="rounded-xl bg-[#123D2C] px-3 py-3 text-xs font-black text-white">{isLast ? "Começar a usar" : "Próximo"}</button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
+
       <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
         <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
           <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
+          <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white ring-1 ring-white/20">Como emprestar um livro</button>
         </section>
 
         {(error || success) && <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
@@ -1249,6 +1310,9 @@ export function AcervoVivoPublicReader() {
           <Cover title={selectedTitle} />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold leading-5 text-slate-600"><strong>Autor:</strong> {selectedTitle.authors?.join(", ") || "Não informado"} <span className="mx-1">•</span> <strong>Categoria:</strong> {category}</p>
+            {selectedCopies.length > 0 && (
+              <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código no armário:</strong> {selectedCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
+            )}
             <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">{selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}</p>
           </div>
         </div>

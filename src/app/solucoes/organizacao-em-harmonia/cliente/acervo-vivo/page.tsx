@@ -476,6 +476,7 @@ export default function AcervoVivoGestaoPage() {
   const [completionCopyId, setCompletionCopyId] = useState("");
   const [completionInventoryShelf, setCompletionInventoryShelf] = useState("");
   const [completionQrConfirmed, setCompletionQrConfirmed] = useState(false);
+  const [completionStage, setCompletionStage] = useState<"cover" | "ai" | "description" | "inventory" | null>(null);
 
   const [copyTitleId, setCopyTitleId] = useState("");
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
@@ -816,6 +817,7 @@ export default function AcervoVivoGestaoPage() {
     setCompletionCopyId(firstCopy?.id ?? "");
     setCompletionInventoryShelf(firstCopy?.metadata?.last_inventory_observed_shelf || firstCopy?.shelf || "");
     setCompletionQrConfirmed(firstCopy?.metadata?.inventory_status === "inventariado");
+    setCompletionStage(null);
     setError("");
     setSuccess("");
   }
@@ -828,6 +830,7 @@ export default function AcervoVivoGestaoPage() {
     setCompletionCopyId("");
     setCompletionInventoryShelf("");
     setCompletionQrConfirmed(false);
+    setCompletionStage(null);
     setSuggestingDescription(false);
   }
 
@@ -2307,122 +2310,22 @@ export default function AcervoVivoGestaoPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-3">
-                  <div className="rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
-                    <p className="text-xs font-black text-[#00334E]">1. Foto da capa</p>
-                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">Fotografe a capa de frente, ocupando a maior parte da imagem. A foto é reduzida no celular antes do envio.</p>
-                    <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-[#2F6B43] px-3 py-3 text-center text-xs font-black text-white">
-                      {completionCoverDataUrl ? "Trocar foto selecionada" : selectedCompletionTitle.cover_url ? "Fotografar / substituir capa" : "Fotografar capa"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        disabled={saving}
-                        className="sr-only"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.currentTarget.value = "";
-                          if (file) void chooseCompletionCover(file);
-                        }}
-                      />
-                    </label>
-                    {completionCoverDataUrl && <p className="mt-2 text-[10px] font-black text-emerald-700">Foto pronta para enviar ao Acervo Vivo.</p>}
-                  </div>
-
-                  <div className="rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
-                    <p className="text-xs font-black text-[#00334E]">2. Rascunho de descrição com IA</p>
-                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">
-                      Fotografe a contracapa, a orelha, a apresentação ou um trecho introdutório legível. A foto é enviada somente para gerar a sugestão e não é gravada no catálogo. Revise o rascunho antes de salvar.
-                    </p>
-                    <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-3 text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/15">
-                      {completionExcerptDataUrl ? "Trocar foto do trecho" : "Fotografar trecho para descrição"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        disabled={saving || suggestingDescription}
-                        className="sr-only"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.currentTarget.value = "";
-                          if (file) void chooseCompletionExcerpt(file);
-                        }}
-                      />
-                    </label>
-                    {completionExcerptDataUrl && <p className="mt-2 text-[10px] font-black text-amber-800">Trecho pronto para interpretação. Gere o rascunho e revise antes de salvar.</p>}
-                    {selectedCompletionTitle.metadata?.description_photo?.storage_path && (
-                      <button
-                        type="button"
-                        disabled={saving || suggestingDescription}
-                        onClick={() => void downloadCompletionDescriptionPhoto()}
-                        className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#7B5C16] ring-1 ring-amber-200 disabled:opacity-45"
-                      >
-                        Baixar foto guardada para descrição
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={saving || suggestingDescription || !completionExcerptDataUrl}
-                      onClick={() => void suggestCompletionDescription()}
-                      className="mt-2 w-full rounded-xl bg-[#7B5C16] px-3 py-3 text-xs font-black text-white disabled:opacity-45"
-                    >
-                      {suggestingDescription ? "Interpretando trecho..." : "Gerar rascunho com IA"}
+                <div className="mt-4 grid gap-2">
+                  {[
+                    { key: "cover" as const, n: "1", title: "Foto da capa", detail: completionCoverDataUrl ? "Nova foto selecionada" : selectedCompletionTitle.cover_url ? "Capa já cadastrada • toque para manter ou alterar" : "Capa pendente • toque para fotografar" },
+                    { key: "ai" as const, n: "2", title: "Rascunho de descrição com IA", detail: selectedCompletionTitle.metadata?.description_photo?.storage_path ? "Foto de apoio já guardada • toque para revisar/alterar" : completionExcerptDataUrl ? "Foto de apoio selecionada" : "Fotografe contracapa, orelha ou apresentação" },
+                    { key: "description" as const, n: "3", title: "Descrição breve", detail: completionDescription.trim() ? "Descrição cadastrada • toque para manter ou alterar" : "Descrição pendente • toque para preencher" },
+                    { key: "inventory" as const, n: "4", title: "Inventário e QR Code", detail: selectedCompletionCopy?.metadata?.inventory_status === "inventariado" ? `Inventariado • ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code}` : selectedCompletionCopy ? `Exemplar ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code} • toque para conferir` : "Sem exemplar ativo cadastrado" },
+                  ].map((stage) => (
+                    <button key={stage.key} type="button" onClick={() => setCompletionStage(stage.key)} className="flex min-h-16 items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9F2E7] text-sm font-black text-[#123D2C]">{stage.n}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-black text-[#00334E]">{stage.title}</span>
+                        <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-500">{stage.detail}</span>
+                      </span>
+                      <span className="text-lg font-black text-[#2F6B43]">›</span>
                     </button>
-                  </div>
-
-                  <label className="rounded-2xl bg-white text-xs font-black text-[#00334E]">
-                    3. Descrição breve - revise antes de salvar
-                    <textarea
-                      value={completionDescription}
-                      onChange={(event) => setCompletionDescription(event.target.value)}
-                      rows={4}
-                      maxLength={900}
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium leading-5 text-slate-700"
-                      placeholder="Em 1 ou 2 frases, diga do que trata o livro e por que ele pode interessar ao leitor."
-                    />
-                    <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
-                  </label>
-
-                  <div className="rounded-2xl bg-[#EEF7F9] p-3 ring-1 ring-[#00334E]/10">
-                    <p className="text-xs font-black text-[#00334E]">4. Inventário e QR Code</p>
-                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">Confirme qual exemplar está em mãos, gere/imprima o QR Code e marque quando a etiqueta estiver colada ou conferida.</p>
-                    {selectedCompletionCopies.length ? (
-                      <>
-                        <select
-                          value={selectedCompletionCopy?.id ?? ""}
-                          onChange={(event) => {
-                            const nextCopy = selectedCompletionCopies.find((copy) => copy.id === event.target.value);
-                            setCompletionCopyId(event.target.value);
-                            setCompletionInventoryShelf(nextCopy?.metadata?.last_inventory_observed_shelf || nextCopy?.shelf || "");
-                            setCompletionQrConfirmed(nextCopy?.metadata?.inventory_status === "inventariado");
-                          }}
-                          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#00334E]"
-                        >
-                          {selectedCompletionCopies.map((copy) => (
-                            <option key={copy.id} value={copy.id}>
-                              {(copy.legacy_code || copy.asset_code)} • {copy.status}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          value={completionInventoryShelf}
-                          onChange={(event) => setCompletionInventoryShelf(event.target.value)}
-                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-[#00334E]"
-                          placeholder="Estante observada, ex.: Romances / prateleira 2"
-                        />
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <button type="button" disabled={saving || !selectedCompletionCopy} onClick={() => selectedCompletionCopy && void showQr(selectedCompletionCopy.id)} className="rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20 disabled:opacity-45">Gerar / imprimir QR</button>
-                          <label className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20">
-                            <input type="checkbox" checked={completionQrConfirmed} onChange={(event) => setCompletionQrConfirmed(event.target.checked)} />
-                            QR colado ou conferido
-                          </label>
-                        </div>
-                        <button type="button" disabled={saving || !selectedCompletionCopy || !completionQrConfirmed} onClick={() => void confirmCompletionInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white disabled:opacity-45">Inventariar exemplar e QR</button>
-                      </>
-                    ) : (
-                      <p className="mt-2 rounded-xl bg-white p-3 text-[10px] font-bold leading-4 text-slate-500">Este título ainda não possui exemplar ativo cadastrado. Cadastre o exemplar antes de concluir o inventário/QR.</p>
-                    )}
-                  </div>
+                  ))}
 
                   <button type="button" disabled={saving || suggestingDescription} onClick={() => void saveCatalogCompletion()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">
                     {saving ? "Salvando..." : "Salvar e voltar à lista"}
@@ -2430,6 +2333,85 @@ export default function AcervoVivoGestaoPage() {
                 </div>
               </section>
             </div>
+          </section>
+        </div>
+      )}
+
+      {selectedCompletionTitle && completionStage && (
+        <div className="fixed inset-0 z-[228] flex items-end justify-center bg-[#10251C]/80 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setCompletionStage(null); }}>
+          <section className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-[1.75rem] bg-white p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar livro • {selectedCompletionTitle.title}</p>
+                <h3 className="mt-1 text-lg font-black text-[#00334E]">{completionStage === "cover" ? "1. Foto da capa" : completionStage === "ai" ? "2. Rascunho com IA" : completionStage === "description" ? "3. Descrição breve" : "4. Inventário e QR Code"}</h3>
+              </div>
+              <button type="button" onClick={() => setCompletionStage(null)} className="rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            {completionStage === "cover" && (
+              <div className="mt-3 rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                {selectedCompletionTitle.cover_url ? (
+                  <>
+                    <p className="text-xs font-black text-[#00334E]">Já existe uma capa cadastrada.</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">Se estiver correta, mantenha como está. Para trocar, fotografe ou escolha uma nova imagem.</p>
+                    <div className="mt-2"><Cover url={completionCoverDataUrl || selectedCompletionTitle.cover_url} title={selectedCompletionTitle.title} /></div>
+                    <button type="button" onClick={() => { setCompletionCoverDataUrl(""); setCompletionStage(null); }} className="mt-3 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter capa cadastrada</button>
+                  </>
+                ) : <p className="text-xs font-black text-[#00334E]">Este livro ainda está sem capa.</p>}
+                <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-[#2F6B43] px-3 py-3 text-center text-xs font-black text-white">
+                  {completionCoverDataUrl ? "Trocar foto selecionada" : selectedCompletionTitle.cover_url ? "Fotografar / substituir capa" : "Fotografar capa"}
+                  <input type="file" accept="image/*" capture="environment" disabled={saving} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void chooseCompletionCover(file); }} />
+                </label>
+                {completionCoverDataUrl && <p className="mt-2 text-[10px] font-black text-emerald-700">Nova foto pronta. Feche esta etapa e use “Salvar e voltar à lista” para publicar.</p>}
+              </div>
+            )}
+
+            {completionStage === "ai" && (
+              <div className="mt-3 rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
+                {selectedCompletionTitle.description && <p className="mb-2 rounded-xl bg-white p-2 text-[10px] font-bold leading-4 text-slate-600">Já existe uma descrição cadastrada. Ela será mantida até você revisar e salvar um novo texto.</p>}
+                <p className="text-[10px] font-semibold leading-4 text-slate-600">Fotografe a contracapa, a orelha, a apresentação ou um trecho introdutório legível.</p>
+                <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-3 text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/15">
+                  {completionExcerptDataUrl ? "Trocar foto do trecho" : "Fotografar trecho para descrição"}
+                  <input type="file" accept="image/*" capture="environment" disabled={saving || suggestingDescription} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void chooseCompletionExcerpt(file); }} />
+                </label>
+                {selectedCompletionTitle.metadata?.description_photo?.storage_path && <button type="button" disabled={saving || suggestingDescription} onClick={() => void downloadCompletionDescriptionPhoto()} className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#7B5C16] ring-1 ring-amber-200 disabled:opacity-45">Baixar foto guardada para descrição</button>}
+                <button type="button" disabled={saving || suggestingDescription || !completionExcerptDataUrl} onClick={() => void suggestCompletionDescription()} className="mt-2 w-full rounded-xl bg-[#7B5C16] px-3 py-3 text-xs font-black text-white disabled:opacity-45">{suggestingDescription ? "Interpretando trecho..." : "Gerar rascunho com IA"}</button>
+                {completionDescription.trim() && <button type="button" onClick={() => setCompletionStage("description")} className="mt-2 w-full rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Revisar descrição sugerida</button>}
+              </div>
+            )}
+
+            {completionStage === "description" && (
+              <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                {selectedCompletionTitle.description && <p className="mb-2 text-[10px] font-semibold leading-4 text-slate-600"><strong>Descrição atual:</strong> {selectedCompletionTitle.description}</p>}
+                <label className="text-xs font-black text-[#00334E]">
+                  {selectedCompletionTitle.description ? "Manter ou alterar a descrição" : "Cadastrar descrição breve"}
+                  <textarea value={completionDescription} onChange={(event) => setCompletionDescription(event.target.value)} rows={5} maxLength={900} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium leading-5 text-slate-700" placeholder="Em 1 ou 2 frases, diga do que trata o livro e por que ele pode interessar ao leitor." />
+                  <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
+                </label>
+                {selectedCompletionTitle.description && <button type="button" onClick={() => { setCompletionDescription(selectedCompletionTitle.description ?? ""); setCompletionStage(null); }} className="mt-2 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter descrição cadastrada</button>}
+                <button type="button" onClick={() => setCompletionStage(null)} className="mt-2 w-full rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Concluir revisão desta etapa</button>
+              </div>
+            )}
+
+            {completionStage === "inventory" && (
+              <div className="mt-3 rounded-2xl bg-[#EEF7F9] p-3 ring-1 ring-[#00334E]/10">
+                {selectedCompletionCopies.length ? (
+                  <>
+                    <select value={selectedCompletionCopy?.id ?? ""} onChange={(event) => { const nextCopy = selectedCompletionCopies.find((copy) => copy.id === event.target.value); setCompletionCopyId(event.target.value); setCompletionInventoryShelf(nextCopy?.metadata?.last_inventory_observed_shelf || nextCopy?.shelf || ""); setCompletionQrConfirmed(nextCopy?.metadata?.inventory_status === "inventariado"); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#00334E]">
+                      {selectedCompletionCopies.map((copy) => <option key={copy.id} value={copy.id}>{copy.legacy_code || copy.asset_code} • {copy.status}</option>)}
+                    </select>
+                    {selectedCompletionCopy?.metadata?.inventory_status === "inventariado" && <p className="mt-2 rounded-xl bg-white p-2 text-[10px] font-bold leading-4 text-[#2F6B43]">Este exemplar já está inventariado. Se os dados continuam corretos, você pode manter o cadastro atual.</p>}
+                    <input value={completionInventoryShelf} onChange={(event) => setCompletionInventoryShelf(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-[#00334E]" placeholder="Estante observada, ex.: Romances / prateleira 2" />
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button type="button" disabled={saving || !selectedCompletionCopy} onClick={() => selectedCompletionCopy && void showQr(selectedCompletionCopy.id)} className="rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20 disabled:opacity-45">Gerar / visualizar QR</button>
+                      <label className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20"><input type="checkbox" checked={completionQrConfirmed} onChange={(event) => setCompletionQrConfirmed(event.target.checked)} />QR colado ou conferido</label>
+                    </div>
+                    {selectedCompletionCopy?.metadata?.inventory_status === "inventariado" && <button type="button" onClick={() => setCompletionStage(null)} className="mt-2 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter inventário / QR atual</button>}
+                    <button type="button" disabled={saving || !selectedCompletionCopy || !completionQrConfirmed} onClick={() => void confirmCompletionInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white disabled:opacity-45">Atualizar inventário e QR</button>
+                  </>
+                ) : <p className="rounded-xl bg-white p-3 text-[10px] font-bold leading-4 text-slate-500">Este título ainda não possui exemplar ativo cadastrado. Cadastre o exemplar antes de concluir o inventário/QR.</p>}
+              </div>
+            )}
           </section>
         </div>
       )}
