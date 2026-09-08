@@ -20,7 +20,7 @@ type OrganizacaoPublicHeaderProps = {
 };
 
 const actionClassName = (primary = false) =>
-  `inline-flex min-h-7 flex-none items-center justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-center text-[0.68rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+  `inline-flex min-h-7 flex-none items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-center text-[0.6rem] font-black leading-none shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
     primary
       ? "bg-[#00334E] text-white ring-[#00334E] hover:bg-[#064862]"
       : "bg-white text-[#00334E] ring-[#00334E]/12 hover:bg-emerald-50"
@@ -96,7 +96,7 @@ export function OrganizacaoPublicHeader({
       </div>
 
       <nav className="border-t border-[#dbe7e0] bg-[#F6FBF8]/96 px-2 py-1.5" aria-label={navLabel}>
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 px-0.5 sm:gap-2.5 sm:px-0">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1 px-0.5 sm:gap-2.5 sm:px-0">
           <a href="#inicio" className={actionClassName(true)}>
             Início
           </a>
@@ -120,10 +120,25 @@ export function OrganizacaoPublicHeader({
               );
             }
 
+            const href = action.href || "#inicio";
+            if (/^https?:\/\//i.test(href)) {
+              return (
+                <a
+                  key={`${action.label}-${href}`}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={actionClassName(primary)}
+                >
+                  {action.label}
+                </a>
+              );
+            }
+
             return (
               <Link
-                key={`${action.label}-${action.href ?? "#"}`}
-                href={action.href || "#inicio"}
+                key={`${action.label}-${href}`}
+                href={href}
                 className={actionClassName(primary)}
               >
                 {action.label}

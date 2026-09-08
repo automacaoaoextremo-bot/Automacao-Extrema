@@ -241,15 +241,41 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
   const normalizedModule = CONTENT[module] ? module : "organizacao-em-harmonia";
   const content = CONTENT[normalizedModule];
   const [modal, setModal] = useState<ModalKey | null>(null);
+  const [modalReturnTo, setModalReturnTo] = useState<ModalKey | null>(null);
   const isSuite = normalizedModule === "organizacao-em-harmonia";
   const isCorrente = normalizedModule === "corrente-em-dia";
   const interestHref = `/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=${encodeURIComponent(moduleParam(normalizedModule))}`;
   const loginHref = "/solucoes/organizacao-em-harmonia/login?returnTo=%2Fsolucoes%2Forganizacao-em-harmonia%2Fcliente";
   const aeWhatsapp = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
   const whatsappHref = `https://wa.me/${aeWhatsapp}?text=${encodeURIComponent(`Olá, quero saber mais sobre ${content.solutionName}.`)}`;
+  const helpWhatsappHref = `https://wa.me/${aeWhatsapp}?text=${encodeURIComponent("Olá, preciso de ajuda com a Organização em Harmonia.")}`;
 
-  const headerActions: OrganizacaoPublicHeaderAction[] = isCorrente
+  function openModal(next: ModalKey, returnTo: ModalKey | null = null) {
+    setModalReturnTo(returnTo);
+    setModal(next);
+  }
+
+  function closeModal() {
+    if (modalReturnTo) {
+      setModal(modalReturnTo);
+      setModalReturnTo(null);
+      return;
+    }
+    setModal(null);
+  }
+
+  const headerActions: OrganizacaoPublicHeaderAction[] = isSuite
     ? [
+        { label: "Visão", actionId: "visao" },
+        { label: "Módulos", actionId: "modulos" },
+        { label: "Base Única", actionId: "base-unica" },
+        { label: "Benefícios", actionId: "beneficios" },
+        { label: "Como Funciona", actionId: "como-funciona" },
+        { label: "Cliente Fundador", actionId: "cliente-fundador" },
+        { label: "Ajuda", href: helpWhatsappHref, variant: "primary" },
+      ]
+    : isCorrente
+      ? [
         { label: "Solução", actionId: "visao" },
         { label: "Painel", actionId: "painel" },
         { label: "Contribuição", actionId: "contribuicao" },
@@ -259,16 +285,16 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         { label: "Quero Conhecer", href: interestHref },
         { label: "Já sou Cliente", href: loginHref },
       ]
-    : [
-        { label: "Visão", actionId: "visao" },
-        { label: "Módulos", actionId: "modulos" },
-        { label: "Base Única", actionId: "base-unica" },
-        { label: "Benefícios", actionId: "beneficios" },
-        { label: "Como Funciona", actionId: "como-funciona" },
-        { label: "Cliente Fundador", actionId: "cliente-fundador" },
-        { label: "Quero Conhecer", href: interestHref },
-        { label: "Já sou Cliente", href: loginHref },
-      ];
+      : [
+          { label: "Visão", actionId: "visao" },
+          { label: "Módulos", actionId: "modulos" },
+          { label: "Base Única", actionId: "base-unica" },
+          { label: "Benefícios", actionId: "beneficios" },
+          { label: "Como Funciona", actionId: "como-funciona" },
+          { label: "Cliente Fundador", actionId: "cliente-fundador" },
+          { label: "Quero Conhecer", href: interestHref },
+          { label: "Já sou Cliente", href: loginHref },
+        ];
 
   const modalTitles: Record<ModalKey, { title: string; eyebrow: string }> = {
     visao: {
@@ -293,7 +319,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
     <main id="inicio" className="min-h-screen bg-[#F6FBF8] text-slate-800">
       <OrganizacaoPublicHeader
         actions={headerActions}
-        onAction={(actionId) => setModal(actionId as ModalKey)}
+        onAction={(actionId) => openModal(actionId as ModalKey)}
         backFallbackHref={isSuite ? "/" : "/solucoes/organizacao-em-harmonia"}
         solutionName={content.solutionName}
         showBack={!isSuite}
@@ -344,7 +370,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
                 </Link>
                 <button
                   type="button"
-                  onClick={() => setModal("mais-informacoes")}
+                  onClick={() => openModal("mais-informacoes")}
                   className="rounded-xl bg-[#EAF6EF] px-2.5 py-2.5 text-center text-[0.78rem] font-black leading-tight text-[#00334E] shadow-lg shadow-emerald-900/5 ring-1 ring-[#00334E]/10 transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
                 >
                   MAIS INFORMAÇÕES
@@ -368,20 +394,20 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {isCorrente ? (
                 <>
-                  <TouchButton label="Solução" detail="entenda a proposta" onClick={() => setModal("visao")} />
-                  <TouchButton label="Painel" detail="acompanhe o mês" onClick={() => setModal("painel")} />
-                  <TouchButton label="Contribuição" detail="Pix e comprovante" onClick={() => setModal("contribuicao")} />
+                  <TouchButton label="Solução" detail="entenda a proposta" onClick={() => openModal("visao")} />
+                  <TouchButton label="Painel" detail="acompanhe o mês" onClick={() => openModal("painel")} />
+                  <TouchButton label="Contribuição" detail="Pix e comprovante" onClick={() => openModal("contribuicao")} />
                 </>
               ) : (
                 <>
-                  <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
-                  <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
-                  <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
+                  <TouchButton label="Visão" detail="entenda a proposta" onClick={() => openModal("visao")} />
+                  <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => openModal("modulos")} />
+                  <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => openModal("base-unica")} />
                 </>
               )}
-              <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
-              <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
-              <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
+              <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => openModal("beneficios")} />
+              <TouchButton label="Como funciona" detail="passo a passo" onClick={() => openModal("como-funciona")} />
+              <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => openModal("cliente-fundador")} />
             </div>
           </section>
         )}
@@ -395,7 +421,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         <InfoModal
           title={modalTitles[modal].title}
           eyebrow={modalTitles[modal].eyebrow}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
         >
           {modal === "visao" && (
             <div className="grid gap-2">
@@ -545,12 +571,12 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
           {modal === "mais-informacoes" && (
             <div className="rounded-[1.25rem] bg-[#EAF6EF] p-2.5 ring-1 ring-emerald-100 sm:p-4">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
-                <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
-                <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
-                <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
-                <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
-                <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
+                <TouchButton label="Visão" detail="entenda a proposta" onClick={() => openModal("visao", "mais-informacoes")} />
+                <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => openModal("modulos", "mais-informacoes")} />
+                <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => openModal("base-unica", "mais-informacoes")} />
+                <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => openModal("beneficios", "mais-informacoes")} />
+                <TouchButton label="Como funciona" detail="passo a passo" onClick={() => openModal("como-funciona", "mais-informacoes")} />
+                <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => openModal("cliente-fundador", "mais-informacoes")} />
               </div>
             </div>
           )}

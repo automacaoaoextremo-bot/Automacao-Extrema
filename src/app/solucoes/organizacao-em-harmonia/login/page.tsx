@@ -7,6 +7,9 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 const CLIENT_HOME = "/solucoes/organizacao-em-harmonia/cliente";
 const CLIENT_LOGIN = "/solucoes/organizacao-em-harmonia/login";
 const CLIENT_PASSWORD_RESET = "/solucoes/organizacao-em-harmonia/login/trocar-senha";
+const AE_HELP_WHATSAPP = `https://wa.me/5519989848246?text=${encodeURIComponent(
+  "Olá, preciso de ajuda com a Organização em Harmonia.",
+)}`;
 
 function isEmail(value: string) {
   return value.includes("@");
@@ -166,53 +169,63 @@ export default function OrganizacaoEmHarmoniaLoginPage() {
 
   return (
     <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <OrganizacaoPublicHeader backFallbackHref="/solucoes/organizacao-em-harmonia" />
+      <OrganizacaoPublicHeader
+        actions={[{ label: "Ajuda", href: AE_HELP_WHATSAPP, variant: "primary" }]}
+        backFallbackHref="/solucoes/organizacao-em-harmonia"
+      />
 
-      <section className="mx-auto max-w-3xl px-3 py-3 sm:px-4 sm:py-5 lg:py-8">
-        <div className="rounded-[1.5rem] bg-white p-4 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-7">
-          <div className="space-y-3">
-            <p className="text-sm font-black uppercase tracking-[0.28em] text-[#2F6B43]">Já sou cliente</p>
-            <h1 className="text-3xl font-black text-[#00334E]">Acessar Organização em Harmonia</h1>
-            <p className="text-base leading-7 text-slate-700">Área exclusiva para o responsável pela organização.</p>
+      <section className="mx-auto max-w-2xl px-2.5 py-1.5 sm:px-4 sm:py-4 lg:py-6">
+        <div className="rounded-[1.25rem] bg-white p-2.5 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-6">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">Já sou cliente</p>
+            <h1 className="mt-0.5 text-xl font-black leading-tight text-[#00334E] sm:mt-1 sm:text-3xl">Acessar Organização em Harmonia</h1>
+            <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-600 sm:mt-2 sm:text-sm">Área exclusiva para o responsável pela organização.</p>
           </div>
 
           {recoveryMode && (
-            <form onSubmit={updatePassword} className="mt-5 rounded-[1.5rem] bg-emerald-50 p-4 ring-1 ring-emerald-100 sm:p-5">
-              <p className="text-sm font-black uppercase tracking-[0.22em] text-[#2F6B43]">Redefinir senha</p>
-              <h2 className="mt-2 text-2xl font-black text-[#00334E]">Criar nova senha</h2>
-              <label className="mt-5 block">
-                <span className="text-sm font-bold text-slate-700">Nova senha</span>
-                <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" autoComplete="new-password" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white p-4 text-base outline-none transition focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" placeholder="Digite a nova senha" required />
+            <form onSubmit={updatePassword} className="mt-2 rounded-xl bg-emerald-50 p-2.5 ring-1 ring-emerald-100 sm:mt-4 sm:rounded-2xl sm:p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-xs">Redefinir senha</p>
+                  <h2 className="text-base font-black text-[#00334E] sm:text-xl">Criar nova senha</h2>
+                </div>
+              </div>
+              <label className="mt-2 block">
+                <span className="text-[10px] font-bold text-slate-700 sm:text-sm">Nova senha</span>
+                <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" autoComplete="new-password" className="mt-0.5 w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm outline-none transition focus:border-[#31C16B] focus:ring-2 focus:ring-emerald-100 sm:mt-1 sm:rounded-2xl sm:p-3" placeholder="Mínimo de 8 caracteres" required />
               </label>
-              {newPasswordMessage && <p className="mt-4 rounded-2xl bg-white p-3 text-sm font-bold text-emerald-800">{newPasswordMessage}</p>}
-              <button type="submit" disabled={newPasswordLoading} className="mt-5 w-full rounded-2xl bg-[#31C16B] px-5 py-4 text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:opacity-60">
+              {newPasswordMessage && <p className="mt-1.5 rounded-xl bg-white p-2 text-[10px] font-bold leading-4 text-emerald-800 sm:mt-3 sm:text-sm">{newPasswordMessage}</p>}
+              <button type="submit" disabled={newPasswordLoading} className="mt-2 w-full rounded-xl bg-[#31C16B] px-4 py-2.5 text-sm font-black text-[#00334E] shadow-sm transition hover:bg-[#43db7c] disabled:opacity-60 sm:mt-4 sm:rounded-2xl sm:py-3">
                 {newPasswordLoading ? "Atualizando..." : "Atualizar senha"}
               </button>
             </form>
           )}
 
-          <form onSubmit={onSubmit} className="mt-5">
+          <form onSubmit={onSubmit} className="mt-2.5 sm:mt-4">
             <label className="block">
-              <span className="text-sm font-bold text-slate-700">E-mail do responsável</span>
-              <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} type="email" autoComplete="username" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white p-4 text-base outline-none transition focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100" placeholder="responsavel@email.com" required />
+              <span className="text-[10px] font-bold text-slate-700 sm:text-sm">E-mail do responsável</span>
+              <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} type="email" autoComplete="username" className="mt-0.5 w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-sm outline-none transition focus:border-[#31C16B] focus:ring-2 focus:ring-emerald-100 sm:mt-1 sm:rounded-2xl sm:p-3" placeholder="responsavel@email.com" required />
             </label>
-            <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-700">Senha</span>
-              <div className="mt-2 flex rounded-2xl border border-slate-300 bg-white focus-within:border-[#31C16B] focus-within:ring-4 focus-within:ring-emerald-100">
-                <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" className="min-w-0 flex-1 rounded-2xl bg-transparent p-4 text-base outline-none" placeholder="Digite a senha" required />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} className="shrink-0 px-4 text-sm font-black text-[#00334E]">{showPassword ? "Ocultar" : "Mostrar"}</button>
+
+            <label className="mt-2 block sm:mt-3">
+              <span className="text-[10px] font-bold text-slate-700 sm:text-sm">Senha</span>
+              <div className="mt-0.5 flex rounded-xl border border-slate-300 bg-white focus-within:border-[#31C16B] focus-within:ring-2 focus-within:ring-emerald-100 sm:mt-1 sm:rounded-2xl">
+                <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" className="min-w-0 flex-1 rounded-xl bg-transparent px-2.5 py-2 text-sm outline-none sm:rounded-2xl sm:p-3" placeholder="Digite a senha" required />
+                <button type="button" onClick={() => setShowPassword((value) => !value)} className="shrink-0 px-3 text-[10px] font-black text-[#00334E] sm:px-4 sm:text-sm">{showPassword ? "Ocultar" : "Mostrar"}</button>
               </div>
             </label>
 
-            {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
-            {resetMessage && <p className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{resetMessage}</p>}
+            {error && <p className="mt-2 rounded-xl bg-red-50 p-2 text-[10px] font-bold leading-4 text-red-700 sm:mt-3 sm:text-sm">{error}</p>}
+            {resetMessage && <p className="mt-2 rounded-xl bg-emerald-50 p-2 text-[10px] font-bold leading-4 text-emerald-800 sm:mt-3 sm:text-sm">{resetMessage}</p>}
 
-            <button type="submit" disabled={loading} className="mt-6 w-full rounded-2xl bg-[#31C16B] px-5 py-4 text-base font-black text-[#00334E] shadow-lg shadow-emerald-200 ring-2 ring-[#31C16B]/20 transition hover:-translate-y-0.5 hover:bg-[#43db7c] disabled:opacity-60">
-              {loading ? "Entrando..." : "Entrar no painel"}
-            </button>
-            <button type="button" onClick={requestPasswordReset} disabled={resetLoading} className="mt-4 w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-[#00334E] transition hover:-translate-y-0.5 hover:border-[#31C16B] hover:bg-emerald-50 disabled:opacity-60">
-              {resetLoading ? "Enviando link..." : "Esqueci minha senha"}
-            </button>
+            <div className="mt-2.5 grid grid-cols-2 gap-2 sm:mt-4">
+              <button type="submit" disabled={loading} className="rounded-xl bg-[#31C16B] px-3 py-2.5 text-sm font-black text-[#00334E] shadow-sm transition hover:bg-[#43db7c] disabled:opacity-60 sm:rounded-2xl sm:px-5 sm:py-3">
+                {loading ? "Entrando..." : "Entrar no painel"}
+              </button>
+              <button type="button" onClick={requestPasswordReset} disabled={resetLoading} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[11px] font-black text-[#00334E] transition hover:border-[#31C16B] hover:bg-emerald-50 disabled:opacity-60 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-sm">
+                {resetLoading ? "Enviando..." : "Esqueci minha senha"}
+              </button>
+            </div>
           </form>
         </div>
       </section>
