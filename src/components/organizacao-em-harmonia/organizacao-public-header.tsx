@@ -16,6 +16,7 @@ type OrganizacaoPublicHeaderProps = {
   backFallbackHref?: string;
   navLabel?: string;
   solutionName?: string;
+  showBack?: boolean;
 };
 
 const actionClassName = (primary = false) =>
@@ -31,6 +32,7 @@ export function OrganizacaoPublicHeader({
   backFallbackHref = "/solucoes/organizacao-em-harmonia",
   navLabel = "Navegação da Organização em Harmonia",
   solutionName = "Organização em Harmonia",
+  showBack = true,
 }: OrganizacaoPublicHeaderProps) {
   function goBack() {
     if (typeof window === "undefined") return;
@@ -94,13 +96,15 @@ export function OrganizacaoPublicHeader({
       </div>
 
       <nav className="border-t border-[#dbe7e0] bg-[#F6FBF8]/96 px-2 py-1.5" aria-label={navLabel}>
-        <div className="mx-auto flex max-w-6xl flex-nowrap items-center justify-start gap-1.5 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible sm:px-0 sm:pb-0">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 px-0.5 sm:gap-2.5 sm:px-0">
           <a href="#inicio" className={actionClassName(true)}>
             Início
           </a>
-          <button type="button" onClick={goBack} className={actionClassName(false)}>
-            Voltar
-          </button>
+          {showBack && (
+            <button type="button" onClick={goBack} className={actionClassName(false)}>
+              Voltar
+            </button>
+          )}
           {actions.map((action) => {
             const primary = action.variant === "primary";
             if (action.actionId) {

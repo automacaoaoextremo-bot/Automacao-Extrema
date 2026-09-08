@@ -22,7 +22,8 @@ type ModalKey =
   | "contribuicao"
   | "beneficios"
   | "como-funciona"
-  | "cliente-fundador";
+  | "cliente-fundador"
+  | "mais-informacoes";
 
 type ModuleCard = {
   id: "atendimento-em-harmonia" | "agenda-viva" | "corrente-em-dia";
@@ -209,6 +210,29 @@ function TouchButton({ label, detail, onClick }: { label: string; detail: string
   );
 }
 
+function ModalCtas({ interestHref, whatsappHref }: { interestHref: string; whatsappHref: string }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Link
+        href={interestHref}
+        className="rounded-xl bg-[#31C16B] px-3 py-2.5 text-center text-xs font-black leading-tight text-[#00334E] shadow-sm"
+      >
+        Quero Conhecer
+        <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#00334E]/70">TOQUE PARA CONTINUAR</span>
+      </Link>
+      <a
+        href={whatsappHref}
+        target="_blank"
+        rel="noreferrer"
+        className="rounded-xl bg-[#00334E] px-3 py-2.5 text-center text-xs font-black leading-tight text-white shadow-sm"
+      >
+        Falar no WhatsApp
+        <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-white/70">TOQUE PARA CONTINUAR</span>
+      </a>
+    </div>
+  );
+}
+
 function moduleParam(module: LandingModule) {
   return module === "organizacao-em-harmonia" ? "organizacao-em-harmonia" : module;
 }
@@ -220,6 +244,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
   const isSuite = normalizedModule === "organizacao-em-harmonia";
   const isCorrente = normalizedModule === "corrente-em-dia";
   const interestHref = `/solucoes/organizacao-em-harmonia/quero-conhecer?modulo=${encodeURIComponent(moduleParam(normalizedModule))}`;
+  const loginHref = "/solucoes/organizacao-em-harmonia/login?returnTo=%2Fsolucoes%2Forganizacao-em-harmonia%2Fcliente";
   const aeWhatsapp = (process.env.NEXT_PUBLIC_AE_WHATSAPP_NUMBER || "5519989848246").replace(/\D/g, "");
   const whatsappHref = `https://wa.me/${aeWhatsapp}?text=${encodeURIComponent(`Olá, quero saber mais sobre ${content.solutionName}.`)}`;
 
@@ -232,7 +257,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         { label: "Como Funciona", actionId: "como-funciona" },
         { label: "Cliente Fundador", actionId: "cliente-fundador" },
         { label: "Quero Conhecer", href: interestHref },
-        { label: "Já sou Cliente", href: "/solucoes/organizacao-em-harmonia/cliente" },
+        { label: "Já sou Cliente", href: loginHref },
       ]
     : [
         { label: "Visão", actionId: "visao" },
@@ -242,7 +267,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         { label: "Como Funciona", actionId: "como-funciona" },
         { label: "Cliente Fundador", actionId: "cliente-fundador" },
         { label: "Quero Conhecer", href: interestHref },
-        { label: "Já sou Cliente", href: "/solucoes/organizacao-em-harmonia/cliente" },
+        { label: "Já sou Cliente", href: loginHref },
       ];
 
   const modalTitles: Record<ModalKey, { title: string; eyebrow: string }> = {
@@ -261,6 +286,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
     beneficios: { title: "Mais clareza e menos retrabalho", eyebrow: "Benefícios" },
     "como-funciona": { title: "Um caminho simples para começar", eyebrow: "Como funciona" },
     "cliente-fundador": { title: "Construa a solução junto com a Automação Extrema", eyebrow: "Cliente Fundador" },
+    "mais-informacoes": { title: "Mais informações", eyebrow: "Organização em Harmonia" },
   };
 
   return (
@@ -270,6 +296,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         onAction={(actionId) => setModal(actionId as ModalKey)}
         backFallbackHref={isSuite ? "/" : "/solucoes/organizacao-em-harmonia"}
         solutionName={content.solutionName}
+        showBack={!isSuite}
       />
 
       <section className="mx-auto max-w-6xl px-3 py-2.5 sm:px-6 sm:py-5 lg:px-8">
@@ -306,6 +333,25 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
               Falar no WhatsApp
               <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-white/70">TOQUE PARA CONTINUAR</span>
             </a>
+            {isSuite && (
+              <>
+                <Link
+                  href={loginHref}
+                  className="rounded-xl bg-white px-2.5 py-2.5 text-center text-[0.78rem] font-black leading-tight text-[#00334E] shadow-lg shadow-slate-900/5 ring-1 ring-[#00334E]/15 transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+                >
+                  Já sou Cliente
+                  <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA CONTINUAR</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setModal("mais-informacoes")}
+                  className="rounded-xl bg-[#EAF6EF] px-2.5 py-2.5 text-center text-[0.78rem] font-black leading-tight text-[#00334E] shadow-lg shadow-emerald-900/5 ring-1 ring-[#00334E]/10 transition hover:-translate-y-0.5 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
+                >
+                  MAIS INFORMAÇÕES
+                  <span className="mt-1 block text-[8px] uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+                </button>
+              </>
+            )}
           </div>
           {!isSuite && (
             <Link
@@ -317,29 +363,28 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
           )}
         </div>
 
-        <section className="mt-2.5 rounded-[1.45rem] bg-[#EAF6EF] p-2.5 ring-1 ring-emerald-100 sm:mt-4 sm:p-4">
-          <p className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-xs">
-            Encontre a informação sem alongar a página
-          </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {isCorrente ? (
-              <>
-                <TouchButton label="Solução" detail="entenda a proposta" onClick={() => setModal("visao")} />
-                <TouchButton label="Painel" detail="acompanhe o mês" onClick={() => setModal("painel")} />
-                <TouchButton label="Contribuição" detail="Pix e comprovante" onClick={() => setModal("contribuicao")} />
-              </>
-            ) : (
-              <>
-                <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
-                <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
-                <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
-              </>
-            )}
-            <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
-            <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
-            <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
-          </div>
-        </section>
+        {!isSuite && (
+          <section className="mt-2.5 rounded-[1.45rem] bg-[#EAF6EF] p-2.5 ring-1 ring-emerald-100 sm:mt-4 sm:p-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {isCorrente ? (
+                <>
+                  <TouchButton label="Solução" detail="entenda a proposta" onClick={() => setModal("visao")} />
+                  <TouchButton label="Painel" detail="acompanhe o mês" onClick={() => setModal("painel")} />
+                  <TouchButton label="Contribuição" detail="Pix e comprovante" onClick={() => setModal("contribuicao")} />
+                </>
+              ) : (
+                <>
+                  <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
+                  <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
+                  <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
+                </>
+              )}
+              <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
+              <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
+              <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
+            </div>
+          </section>
+        )}
 
         <p className="mt-2.5 px-1 text-center text-[10px] font-semibold leading-4 text-slate-500 sm:mt-4 sm:text-xs">
           {content.solutionName} — uma solução Automação Extrema. Organização, clareza e cuidado para manter a rotina mais previsível, sem perder o jeito humano de funcionar.
@@ -388,9 +433,13 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
                   </div>
                 </>
               )}
-              <p className="rounded-xl bg-white p-3 text-xs font-bold leading-5 text-[#2F6B43] ring-1 ring-[#00334E]/10">
-                Mobile-first: no celular, as informações principais ficam em botões e pop-ups; no computador, a gestão pode usar mais espaço sem perder clareza.
-              </p>
+              {isSuite ? (
+                <ModalCtas interestHref={interestHref} whatsappHref={whatsappHref} />
+              ) : (
+                <p className="rounded-xl bg-white p-3 text-xs font-bold leading-5 text-[#2F6B43] ring-1 ring-[#00334E]/10">
+                  Mobile-first: no celular, as informações principais ficam em botões e pop-ups; no computador, a gestão pode usar mais espaço sem perder clareza.
+                </p>
+              )}
             </div>
           )}
 
@@ -425,6 +474,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
                   {item}
                 </p>
               ))}
+              {isSuite && <ModalCtas interestHref={interestHref} whatsappHref={whatsappHref} />}
             </div>
           )}
 
@@ -467,13 +517,16 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
           )}
 
           {modal === "beneficios" && (
-            <div className="grid grid-cols-2 gap-2">
-              {content.benefits.map((benefit) => (
-                <div key={benefit} className="rounded-xl bg-[#F7FAF2] p-2.5 text-[11px] font-semibold leading-4 text-slate-700 ring-1 ring-[#00334E]/8 sm:text-sm sm:leading-5">
-                  <span className="mr-1 font-black text-[#2F6B43]">✓</span>
-                  {benefit}
-                </div>
-              ))}
+            <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                {content.benefits.map((benefit) => (
+                  <div key={benefit} className="rounded-xl bg-[#F7FAF2] p-2.5 text-[11px] font-semibold leading-4 text-slate-700 ring-1 ring-[#00334E]/8 sm:text-sm sm:leading-5">
+                    <span className="mr-1 font-black text-[#2F6B43]">✓</span>
+                    {benefit}
+                  </div>
+                ))}
+              </div>
+              {isSuite && <ModalCtas interestHref={interestHref} whatsappHref={whatsappHref} />}
             </div>
           )}
 
@@ -485,6 +538,20 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
                   <p className="text-[11px] font-semibold leading-4 text-slate-700 sm:text-sm sm:leading-5">{step}</p>
                 </div>
               ))}
+              {isSuite && <ModalCtas interestHref={interestHref} whatsappHref={whatsappHref} />}
+            </div>
+          )}
+
+          {modal === "mais-informacoes" && (
+            <div className="rounded-[1.25rem] bg-[#EAF6EF] p-2.5 ring-1 ring-emerald-100 sm:p-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <TouchButton label="Visão" detail="entenda a proposta" onClick={() => setModal("visao")} />
+                <TouchButton label="Módulos" detail="veja os caminhos" onClick={() => setModal("modulos")} />
+                <TouchButton label="Base Única" detail="pessoas e permissões" onClick={() => setModal("base-unica")} />
+                <TouchButton label="Benefícios" detail="ganhos práticos" onClick={() => setModal("beneficios")} />
+                <TouchButton label="Como funciona" detail="passo a passo" onClick={() => setModal("como-funciona")} />
+                <TouchButton label="Cliente Fundador" detail="participe da evolução" onClick={() => setModal("cliente-fundador")} />
+              </div>
             </div>
           )}
 
