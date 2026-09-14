@@ -17,6 +17,7 @@ type ShellProps = {
   simpleFinancialHeaderControl?: ReactNode;
   simpleHeaderHelpMessage?: string;
   simpleHeaderHideSignOut?: boolean;
+  simpleHeaderSignOutHref?: string;
 };
 
 type NavItem = {
@@ -289,6 +290,7 @@ export function OrganizacaoClientShell({
   simpleFinancialHeaderControl,
   simpleHeaderHelpMessage = "Olá, preciso de ajuda na área financeira do Tucxa em Harmonia.",
   simpleHeaderHideSignOut = false,
+  simpleHeaderSignOutHref,
 }: ShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -440,10 +442,20 @@ export function OrganizacaoClientShell({
     const wasMember = accessGate === "financialMember" || accessGate === "moduleMember";
     await supabaseBrowser.auth.signOut();
     router.replace(
-      wasMember
-        ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
-        : "/solucoes/organizacao-em-harmonia/login",
+      simpleHeaderSignOutHref ||
+        (wasMember
+          ? "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
+          : "/solucoes/organizacao-em-harmonia/login"),
     );
+  }
+
+  function goBack(fallbackHref: string) {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+
+    router.push(fallbackHref);
   }
 
   const isFinancialMember = accessGate === "financialMember";
@@ -552,7 +564,7 @@ export function OrganizacaoClientShell({
 
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5">
           {simpleFinancialHeader ? (
-            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
+            <div className="mx-auto flex max-w-6xl flex-nowrap items-center justify-start gap-1.5 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible sm:px-0 sm:pb-0">
               <a
                 href="#inicio"
                 aria-current={simpleFinancialActive === "inicio" ? "page" : undefined}
@@ -564,8 +576,9 @@ export function OrganizacaoClientShell({
               >
                 Início
               </a>
-              <Link
-                href={financialBackHref}
+              <button
+                type="button"
+                onClick={() => goBack(financialBackHref)}
                 aria-current={simpleFinancialActive === "voltar" ? "page" : undefined}
                 className={`inline-flex min-h-7 items-center justify-center rounded-full px-2.5 py-1 text-center text-[0.72rem] font-black shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
                   simpleFinancialActive === "voltar"
@@ -574,7 +587,7 @@ export function OrganizacaoClientShell({
                 }`}
               >
                 Voltar
-              </Link>
+              </button>
               {!simpleHeaderHideSignOut && (
                 <button type="button" onClick={signOut} className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm">
                   Sair
@@ -590,8 +603,27 @@ export function OrganizacaoClientShell({
               </a>
             </div>
           ) : (
-            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-              {effectiveTopNav.map((item) => (
+            <div className="mx-auto flex max-w-6xl flex-nowrap items-center justify-start gap-1.5 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:justify-center sm:gap-2.5 sm:overflow-visible sm:px-0 sm:pb-0">
+              <a
+                href="#inicio"
+                className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+              >
+                Início
+              </a>
+              <button
+                type="button"
+                onClick={() =>
+                  goBack(
+                    isMemberAccess
+                      ? MEMBER_PANEL
+                      : "/solucoes/organizacao-em-harmonia/cliente",
+                  )
+                }
+                className="inline-flex min-h-7 items-center justify-center rounded-full bg-white px-2.5 py-1 text-center text-[0.72rem] font-black text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:bg-[#E9F2E7] sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm"
+              >
+                Voltar
+              </button>
+              {effectiveTopNav.filter((item) => item.label !== "Início").map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}

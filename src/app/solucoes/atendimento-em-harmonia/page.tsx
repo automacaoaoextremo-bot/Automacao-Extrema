@@ -1,5 +1,5 @@
 import { OrganizacaoEmHarmoniaLanding } from "@/components/organizacao-em-harmonia-landing";
 
-export default function AtendimentoEmHarmoniaPage() {
+export default function Page() {
   return <OrganizacaoEmHarmoniaLanding module="atendimento-em-harmonia" />;
 }

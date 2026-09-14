@@ -20,6 +20,14 @@ type TitleRow = {
   cover_url?: string | null;
   cover_match_status?: string;
   active?: boolean;
+  metadata?: {
+    description_photo?: {
+      storage_path?: string | null;
+      captured_at?: string | null;
+      captured_by_person_id?: string | null;
+      status?: string | null;
+    } | null;
+  } | null;
 };
 
 type CopyRow = {
@@ -154,6 +162,7 @@ type Payload = {
     overdue?: number;
     reservations?: number;
     pendingCovers?: number;
+    pendingDescriptions?: number;
   };
 };
 
@@ -169,6 +178,8 @@ type PanelView =
   | "acervo-titulo"
   | "acervo-exemplar"
   | "acervo-capas"
+  | "acervo-descricoes"
+  | "acervo-finalizar"
   | "acervo-qrs"
   | "circulacao-reservas"
   | "circulacao-emprestimos"
@@ -205,6 +216,40 @@ function formatDate(value?: string | null) {
 function Cover({ url, title }: { url?: string | null; title: string }) {
   if (!url) return <div className="flex h-28 w-20 shrink-0 items-center justify-center rounded-lg bg-[#E7F0E2] p-2 text-center text-[10px] font-black text-[#123D2C]">{title}</div>;
   return <div role="img" aria-label={`Capa de ${title}`} className="h-28 w-20 shrink-0 rounded-lg bg-cover bg-center shadow ring-1 ring-black/10" style={{ backgroundImage: `url(${url})` }} />;
+}
+
+function compactCatalogSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+async function coverFileToDataUrl(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Escolha uma imagem válida.");
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const current = new Image();
+      current.onload = () => resolve(current);
+      current.onerror = () => reject(new Error("Não foi possível abrir a imagem selecionada."));
+      current.src = objectUrl;
+    });
+    const maxSide = 1400;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Não foi possível preparar a imagem.");
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function ActionTile({
@@ -329,6 +374,49 @@ function ManagementModal({
   );
 }
 
+function parseSemicolonCsv(textValue: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < textValue.length; index += 1) {
+    const char = textValue[index];
+    const next = textValue[index + 1];
+
+    if (char === '"') {
+      if (quoted && next === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+
+    if (!quoted && char === ";") {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if (!quoted && (char === "\n" || char === "\r")) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(field);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += char;
+  }
+
+  row.push(field);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
 export default function AcervoVivoGestaoPage() {
   const [payload, setPayload] = useState<Payload>({});
   const [token, setToken] = useState("");
@@ -375,6 +463,20 @@ export default function AcervoVivoGestaoPage() {
   const [titleDescription, setTitleDescription] = useState("");
   const [selectedTitleId, setSelectedTitleId] = useState("");
   const [coverCandidates, setCoverCandidates] = useState<CoverCandidate[]>([]);
+  const [descriptionOverwrite, setDescriptionOverwrite] = useState(false);
+  const [completionFilter, setCompletionFilter] = useState<"pending" | "cover" | "description" | "both" | "all">("pending");
+  const [completionQuery, setCompletionQuery] = useState("");
+  const [completionTitleId, setCompletionTitleId] = useState("");
+  const [completionDescription, setCompletionDescription] = useState("");
+  const [completionCoverDataUrl, setCompletionCoverDataUrl] = useState("");
+  const [completionExcerptDataUrl, setCompletionExcerptDataUrl] = useState("");
+  const [completionListOpen, setCompletionListOpen] = useState(false);
+  const [completionPage, setCompletionPage] = useState(0);
+  const [suggestingDescription, setSuggestingDescription] = useState(false);
+  const [completionCopyId, setCompletionCopyId] = useState("");
+  const [completionInventoryShelf, setCompletionInventoryShelf] = useState("");
+  const [completionQrConfirmed, setCompletionQrConfirmed] = useState(false);
+  const [completionStage, setCompletionStage] = useState<"cover" | "ai" | "description" | "inventory" | null>(null);
 
   const [copyTitleId, setCopyTitleId] = useState("");
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
@@ -493,6 +595,81 @@ export default function AcervoVivoGestaoPage() {
   const inventoryScans = useMemo(() => payload.inventoryScans ?? [], [payload.inventoryScans]);
   const openInventories = useMemo(() => inventorySessions.filter((item) => item.status === "aberto"), [inventorySessions]);
 
+  const activeTitlesForCompletion = useMemo(() => titles.filter((item) => item.active !== false), [titles]);
+  const completionStats = useMemo(() => {
+    const total = activeTitlesForCompletion.length;
+    const withCover = activeTitlesForCompletion.filter((item) => Boolean(item.cover_url)).length;
+    const withDescription = activeTitlesForCompletion.filter((item) => Boolean((item.description ?? "").trim())).length;
+    const complete = activeTitlesForCompletion.filter(
+      (item) => Boolean(item.cover_url) && Boolean((item.description ?? "").trim()),
+    ).length;
+    const pending = Math.max(0, total - complete);
+    return {
+      total,
+      withCover,
+      withDescription,
+      complete,
+      pending,
+      percentage: total ? Math.round((complete / total) * 100) : 0,
+    };
+  }, [activeTitlesForCompletion]);
+
+  const copiesByTitle = useMemo(() => {
+    const map = new Map<string, CopyRow[]>();
+    for (const copy of copies.filter((item) => item.active !== false)) {
+      const list = map.get(copy.title_id) ?? [];
+      list.push(copy);
+      map.set(copy.title_id, list);
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) =>
+        (left.legacy_code || left.asset_code).localeCompare(right.legacy_code || right.asset_code, "pt-BR", { numeric: true, sensitivity: "base" }),
+      );
+    }
+    return map;
+  }, [copies]);
+
+  const completionItems = useMemo(() => {
+    const needle = completionQuery.trim();
+    const compactNeedle = compactCatalogSearch(needle);
+    return activeTitlesForCompletion
+      .filter((item) => {
+        const hasCover = Boolean(item.cover_url);
+        const hasDescription = Boolean((item.description ?? "").trim());
+        if (completionFilter === "cover" && hasCover) return false;
+        if (completionFilter === "description" && hasDescription) return false;
+        if (completionFilter === "both" && (hasCover || hasDescription)) return false;
+        if (completionFilter === "pending" && hasCover && hasDescription) return false;
+        if (!needle) return true;
+        const titleText = [item.title, ...(item.authors ?? []), ...(item.subjects ?? [])].join(" ").toLocaleLowerCase("pt-BR");
+        const copyCodes = (copiesByTitle.get(item.id) ?? []).flatMap((copy) => [copy.legacy_code ?? "", copy.asset_code]);
+        return titleText.includes(needle.toLocaleLowerCase("pt-BR")) || copyCodes.some((code) => compactCatalogSearch(code).includes(compactNeedle));
+      })
+      .sort((left, right) => {
+        const leftCode = copiesByTitle.get(left.id)?.[0]?.legacy_code || copiesByTitle.get(left.id)?.[0]?.asset_code || left.title;
+        const rightCode = copiesByTitle.get(right.id)?.[0]?.legacy_code || copiesByTitle.get(right.id)?.[0]?.asset_code || right.title;
+        return leftCode.localeCompare(rightCode, "pt-BR", { numeric: true, sensitivity: "base" });
+      });
+  }, [activeTitlesForCompletion, completionFilter, completionQuery, copiesByTitle]);
+
+  const completionPageSize = 5;
+  const completionPageItems = useMemo(
+    () => completionItems.slice(completionPage * completionPageSize, completionPage * completionPageSize + completionPageSize),
+    [completionItems, completionPage],
+  );
+  const selectedCompletionTitle = useMemo(
+    () => titles.find((item) => item.id === completionTitleId) ?? null,
+    [completionTitleId, titles],
+  );
+  const selectedCompletionCopies = useMemo(
+    () => (completionTitleId ? copiesByTitle.get(completionTitleId) ?? [] : []),
+    [completionTitleId, copiesByTitle],
+  );
+  const selectedCompletionCopy = useMemo(
+    () => selectedCompletionCopies.find((copy) => copy.id === completionCopyId) ?? selectedCompletionCopies[0] ?? null,
+    [completionCopyId, selectedCompletionCopies],
+  );
+
   const catalogCategories = useMemo(() => {
     const labels = new Map<string, string>();
     for (const title of titles) {
@@ -590,6 +767,16 @@ export default function AcervoVivoGestaoPage() {
       summary?: { expected?: number; scanned?: number; missing?: number };
       copy?: CopyRow;
       labels?: BatchQrLabel[];
+      updated?: number;
+      skippedExisting?: number;
+      notFound?: number;
+      coverUrl?: string;
+      descriptionSuggestion?: string;
+      model?: string;
+      manualProcessingRequired?: boolean;
+      descriptionPhotoPath?: string;
+      descriptionPhotoUrl?: string;
+      message?: string;
     };
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
@@ -606,6 +793,171 @@ export default function AcervoVivoGestaoPage() {
       await load(token);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openCatalogCompletionList(filter: typeof completionFilter, clearQuery = true) {
+    setCompletionFilter(filter);
+    if (clearQuery) setCompletionQuery("");
+    setCompletionPage(0);
+    closeCatalogCompletion();
+    setCompletionListOpen(true);
+  }
+
+  function openCatalogCompletion(titleId: string) {
+    const current = titles.find((item) => item.id === titleId);
+    if (!current) return;
+    setCompletionTitleId(titleId);
+    setCompletionDescription(current.description ?? "");
+    setCompletionCoverDataUrl("");
+    setCompletionExcerptDataUrl("");
+    const firstCopy = (copiesByTitle.get(titleId) ?? [])[0];
+    setCompletionCopyId(firstCopy?.id ?? "");
+    setCompletionInventoryShelf(firstCopy?.metadata?.last_inventory_observed_shelf || firstCopy?.shelf || "");
+    setCompletionQrConfirmed(firstCopy?.metadata?.inventory_status === "inventariado");
+    setCompletionStage(null);
+    setError("");
+    setSuccess("");
+  }
+
+  function closeCatalogCompletion() {
+    setCompletionTitleId("");
+    setCompletionDescription("");
+    setCompletionCoverDataUrl("");
+    setCompletionExcerptDataUrl("");
+    setCompletionCopyId("");
+    setCompletionInventoryShelf("");
+    setCompletionQrConfirmed(false);
+    setCompletionStage(null);
+    setSuggestingDescription(false);
+  }
+
+  function closeCatalogCompletionList() {
+    closeCatalogCompletion();
+    setCompletionListOpen(false);
+    setCompletionPage(0);
+  }
+
+  async function chooseCompletionCover(file: File) {
+    setError("");
+    try {
+      const dataUrl = await coverFileToDataUrl(file);
+      if (dataUrl.length > 3_000_000) throw new Error("A foto ficou grande demais. Tente fotografar somente a capa, com menos fundo ao redor.");
+      setCompletionCoverDataUrl(dataUrl);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Não foi possível preparar a foto da capa.");
+    }
+  }
+
+  async function chooseCompletionExcerpt(file: File) {
+    setError("");
+    try {
+      const dataUrl = await coverFileToDataUrl(file);
+      if (dataUrl.length > 3_000_000) {
+        throw new Error("A foto ficou grande demais. Tente enquadrar somente a contracapa, orelha, apresentação ou trecho introdutório.");
+      }
+      setCompletionExcerptDataUrl(dataUrl);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Não foi possível preparar a foto do trecho.");
+    }
+  }
+
+  async function suggestCompletionDescription() {
+    if (!token || suggestingDescription || !selectedCompletionTitle || !completionExcerptDataUrl) return;
+    setSuggestingDescription(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await post({
+        action: "suggest-description-from-image",
+        titleId: selectedCompletionTitle.id,
+        imageDataUrl: completionExcerptDataUrl,
+      });
+      if (result.manualProcessingRequired) {
+        setCompletionExcerptDataUrl("");
+        setSuccess(result.message || "Foto guardada para processamento manual pelo Gestor/Administrator.");
+        await load(token);
+        return;
+      }
+
+      const suggestion = result.descriptionSuggestion?.trim() ?? "";
+      if (!suggestion) throw new Error("A IA não retornou uma sugestão de descrição.");
+      setCompletionDescription(suggestion);
+      setSuccess("Rascunho gerado. Revise o texto antes de salvar no catálogo.");
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Não foi possível gerar a sugestão de descrição.");
+    } finally {
+      setSuggestingDescription(false);
+    }
+  }
+
+  async function downloadCompletionDescriptionPhoto() {
+    if (!token || saving || !selectedCompletionTitle) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await post({ action: "create-description-photo-download", titleId: selectedCompletionTitle.id });
+      if (!result.descriptionPhotoUrl) throw new Error("Não foi possível gerar o link temporário da foto.");
+      window.open(result.descriptionPhotoUrl, "_blank", "noopener,noreferrer");
+      setSuccess("Link temporário da foto de descrição aberto. Ele expira em poucos minutos.");
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao baixar a foto de descrição.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmCompletionInventoryCopy() {
+    if (!token || saving || !selectedCompletionCopy) return;
+    if (!completionQrConfirmed) {
+      setError("Marque que o QR foi conferido/colado antes de concluir o inventário deste exemplar.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await post({
+        action: "inventory-copy",
+        copyId: selectedCompletionCopy.id,
+        observedShelf: completionInventoryShelf,
+        qrConfirmed: true,
+      });
+      setSuccess(`Exemplar ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code} inventariado e QR Code confirmado.`);
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao inventariar o exemplar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveCatalogCompletion() {
+    if (!token || saving || !selectedCompletionTitle) return;
+    const description = completionDescription.trim();
+    if (description && description.length < 20) {
+      setError("A descrição deve ter pelo menos 20 caracteres ou ficar vazia para manter a atual.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      if (description !== (selectedCompletionTitle.description ?? "").trim()) {
+        await post({ action: "save-catalog-details", titleId: selectedCompletionTitle.id, description });
+      }
+      if (completionCoverDataUrl) {
+        await post({ action: "upload-cover-image", titleId: selectedCompletionTitle.id, imageDataUrl: completionCoverDataUrl });
+      }
+      setSuccess(`Catálogo atualizado para ${selectedCompletionTitle.title}.`);
+      closeCatalogCompletion();
+      setCompletionPage(0);
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao completar o catálogo.");
     } finally {
       setSaving(false);
     }
@@ -933,6 +1285,69 @@ export default function AcervoVivoGestaoPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportPendingDescriptionsCsv() {
+    const pending = titles.filter((item) => item.active !== false && !(item.description ?? "").trim());
+    const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [
+      ["id", "titulo", "autor", "description"],
+      ...pending.map((item) => [
+        item.id,
+        item.title,
+        (item.authors ?? []).join("; "),
+        "",
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map((value) => escapeCsv(String(value))).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "acervo-vivo-descricoes-pendentes.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importDescriptionsCsv(file: File) {
+    if (!token || saving) return;
+    setSaving(true); setError(""); setSuccess("");
+
+    try {
+      const rows = parseSemicolonCsv(await file.text());
+      if (rows.length < 2) throw new Error("O CSV não possui linhas de dados.");
+
+      const header = rows[0].map((value) => value.replace(/^\uFEFF/, "").trim().toLowerCase());
+      const idIndex = header.indexOf("id");
+      const descriptionIndex = Math.max(header.indexOf("description"), header.indexOf("descricao"), header.indexOf("descrição"));
+
+      if (idIndex < 0 || descriptionIndex < 0) {
+        throw new Error("O CSV precisa das colunas id e description (ou descricao).");
+      }
+
+      const descriptions = rows.slice(1)
+        .map((values) => ({
+          id: (values[idIndex] ?? "").trim(),
+          description: (values[descriptionIndex] ?? "").trim(),
+        }))
+        .filter((item) => item.id && item.description.length >= 20);
+
+      if (!descriptions.length) throw new Error("Nenhuma descrição válida foi encontrada no CSV.");
+
+      const result = await post({
+        action: "bulk-update-descriptions",
+        descriptions,
+        overwrite: descriptionOverwrite,
+      });
+
+      setSuccess(`Descrições atualizadas: ${result.updated ?? 0}. Existentes preservadas: ${result.skippedExisting ?? 0}. IDs não localizados: ${result.notFound ?? 0}.`);
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao importar descrições.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createInventory(event: FormEvent) {
     event.preventDefault();
     if (!token || saving) return;
@@ -1044,6 +1459,8 @@ export default function AcervoVivoGestaoPage() {
     "acervo-titulo": editingTitleId ? "Editar título" : "Cadastrar título",
     "acervo-exemplar": "Adicionar exemplar",
     "acervo-capas": "Capas pendentes",
+    "acervo-descricoes": "Descrições dos livros",
+    "acervo-finalizar": "Completar catálogo",
     "acervo-qrs": "QR Codes por categoria",
     "circulacao-reservas": "Reservas e retiradas",
     "circulacao-emprestimos": "Empréstimos ativos",
@@ -1108,6 +1525,7 @@ export default function AcervoVivoGestaoPage() {
     clearInventoryCopy();
     setInventoryCategory("");
     setQrCategory("");
+    closeCatalogCompletionList();
   }
 
   return (
@@ -1115,8 +1533,8 @@ export default function AcervoVivoGestaoPage() {
       title="Acervo Vivo"
       description="Gestão da Biblioteca em telas curtas: escolha o que deseja fazer e abra somente a área necessária."
       simpleFinancialHeader
-      simpleHeaderHideSignOut
       financialBackHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/acervo-vivo"
+      simpleHeaderSignOutHref="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
       simpleHeaderHelpMessage="Olá, preciso de ajuda na Gestão do Acervo Vivo do Tucxa em Harmonia."
     >
       {(error || success) && (
@@ -1135,7 +1553,7 @@ export default function AcervoVivoGestaoPage() {
         </div>
       )}
 
-      <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-7 sm:gap-2">
+      <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-8 sm:gap-2">
         {[
           ["Títulos", payload.metrics?.titles ?? 0],
           ["Exemplares", payload.metrics?.copies ?? 0],
@@ -1144,6 +1562,7 @@ export default function AcervoVivoGestaoPage() {
           ["Atrasados", payload.metrics?.overdue ?? 0],
           ["Reservas", payload.metrics?.reservations ?? 0],
           ["Capas pendentes", payload.metrics?.pendingCovers ?? 0],
+          ["Descrições pendentes", payload.metrics?.pendingDescriptions ?? 0],
         ].map(([label, value]) => (
           <article key={String(label)} className="min-w-0 rounded-2xl bg-white p-2.5 text-center shadow ring-1 ring-slate-100 sm:p-3">
             <p className="truncate text-[8px] font-black uppercase tracking-[0.08em] text-[#2F6B43] sm:text-[9px]">{label}</p>
@@ -1183,7 +1602,7 @@ export default function AcervoVivoGestaoPage() {
         <ManagementModal
           title={panelTitle}
           onClose={closePanel}
-          onBack={panelView ? () => {
+          onBack={panelView && panelView !== "acervo-finalizar" ? () => {
             if (panelView === "inventario-categoria" && inventoryCopyId) {
               clearInventoryCopy();
               return;
@@ -1223,6 +1642,8 @@ export default function AcervoVivoGestaoPage() {
                   <ActionTile title="Cadastrar título" onClick={() => { clearTitleForm(); setPanelView("acervo-titulo"); }} />
                   <ActionTile title="Adicionar exemplar" onClick={() => setPanelView("acervo-exemplar")} />
                   <ActionTile title="Capas pendentes" note={`${payload.metrics?.pendingCovers ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-capas")} />
+                  <ActionTile title="Descrições dos livros" note={`${payload.metrics?.pendingDescriptions ?? 0} pendente(s)`} onClick={() => setPanelView("acervo-descricoes")} />
+                  <ActionTile title="Completar catálogo" note={`${completionStats.percentage}% completo • foto + descrição pelo celular`} onClick={() => { closeCatalogCompletionList(); setCompletionFilter("pending"); setCompletionQuery(""); setCompletionPage(0); setPanelView("acervo-finalizar"); }} />
                   <ActionTile title="QR Codes por categoria" note="Impressão para o inventário físico" onClick={() => { setQrCategory(""); setQrCategoryPage(0); setPanelView("acervo-qrs"); }} />
                 </>
               )}
@@ -1392,6 +1813,96 @@ export default function AcervoVivoGestaoPage() {
                 <button type="button" onClick={exportPendingCoversCsv} className="rounded-xl bg-white px-3 py-3 text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/20">Baixar CSV pendências</button>
               </div>
             </section>
+          ) : panelView === "acervo-descricoes" ? (
+            <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+              <p className="text-sm font-black text-[#00334E]">{payload.metrics?.pendingDescriptions ?? 0} descrição(ões) ainda pendente(s)</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Baixe a planilha, preencha a coluna description e importe novamente. Por segurança, descrições já existentes são preservadas por padrão.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button type="button" onClick={exportPendingDescriptionsCsv} className="rounded-xl bg-white px-3 py-3 text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/20">Baixar CSV pendências</button>
+                <label className="flex cursor-pointer items-center justify-center rounded-xl bg-[#E7F0E2] px-3 py-3 text-center text-xs font-black text-[#2F6B43]">
+                  {saving ? "Importando..." : "Importar CSV preenchido"}
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    disabled={saving}
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void importDescriptionsCsv(file);
+                    }}
+                  />
+                </label>
+              </div>
+              <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-bold leading-4 text-amber-900">
+                <input type="checkbox" checked={descriptionOverwrite} onChange={(event) => setDescriptionOverwrite(event.target.checked)} className="mt-0.5" />
+                Sobrescrever descrições que já existem no catálogo. Use somente quando o CSV tiver sido revisado.
+              </label>
+              <p className="mt-3 rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">Formato aceito: CSV separado por ponto e vírgula, com as colunas <strong>id</strong> e <strong>description</strong>. Até 500 livros por importação.</p>
+            </section>
+          ) : panelView === "acervo-finalizar" ? (
+            <div className="grid gap-3">
+              <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Progresso do catálogo</p>
+                    <p className="mt-1 text-3xl font-black text-[#00334E]">{completionStats.percentage}%</p>
+                  </div>
+                  <p className="text-right text-[10px] font-bold leading-4 text-slate-500">{completionStats.complete} de {completionStats.total}<br />com capa + descrição</p>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#E7F0E2]">
+                  <div className="h-full rounded-full bg-[#2F6B43]" style={{ width: `${completionStats.percentage}%` }} />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withCover}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com capa</p></div>
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.withDescription}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">com descrição</p></div>
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-lg font-black text-[#00334E]">{completionStats.pending}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">a completar</p></div>
+                </div>
+              </section>
+
+              <section className="rounded-3xl bg-white p-3 shadow ring-1 ring-slate-100">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setCompletionFilter("all");
+                    setCompletionPage(0);
+                    setCompletionListOpen(true);
+                  }}
+                  className="grid grid-cols-[1fr_auto] gap-2"
+                >
+                  <input
+                    value={completionQuery}
+                    onChange={(event) => setCompletionQuery(event.target.value)}
+                    className="min-w-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                    placeholder="Digite código (ex.: R-3), título ou autor"
+                  />
+                  <button type="submit" className="rounded-xl bg-[#00334E] px-4 py-2.5 text-xs font-black text-white">Buscar</button>
+                </form>
+                <p className="mt-3 text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ou escolha o que deseja completar</p>
+                <div className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {[
+                    ["pending", "Pendentes"],
+                    ["cover", "Sem capa"],
+                    ["description", "Sem descrição"],
+                    ["both", "Sem ambos"],
+                    ["all", "Todos"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => openCatalogCompletionList(value as typeof completionFilter)}
+                      className="rounded-xl bg-[#F4FBF7] px-2 py-2.5 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10"
+                    >
+                      {label}
+                      <span className="mt-1 block text-[7px] uppercase tracking-[0.08em] text-[#2F6B43]">TOQUE PARA LISTAR</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">
+                  Os livros são abertos em uma lista paginada separada para evitar rolagem longa no celular. Ao escolher um livro, você pode fotografar a capa e, se faltar descrição, gerar um rascunho a partir de uma foto da contracapa, orelha, apresentação ou trecho introdutório.
+                </p>
+              </section>
+            </div>
           ) : panelView === "acervo-qrs" ? (
             <div>
               {!qrCategory ? (
@@ -1706,6 +2217,203 @@ export default function AcervoVivoGestaoPage() {
             </form>
           ) : null}
         </ManagementModal>
+      )}
+
+      {panelOpen && panelView === "acervo-finalizar" && completionListOpen && (
+        <div
+          className="fixed inset-0 z-[220] flex items-end justify-center bg-[#10251C]/75 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) closeCatalogCompletionList();
+          }}
+        >
+          <section className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F6F8F3] shadow-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar catálogo • lista paginada</p>
+                <h2 className="mt-0.5 text-lg font-black leading-tight text-[#00334E]">
+                  {completionFilter === "pending" ? "Pendentes" : completionFilter === "cover" ? "Sem capa" : completionFilter === "description" ? "Sem descrição" : completionFilter === "both" ? "Sem ambos" : "Todos"}
+                </h2>
+                <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{completionItems.length} livro(s){completionQuery.trim() ? ` • busca: ${completionQuery.trim()}` : ""}</p>
+              </div>
+              <button type="button" onClick={closeCatalogCompletionList} className="shrink-0 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3">
+              <div className="grid gap-2">
+                {completionPageItems.map((item) => {
+                  const itemCopies = copiesByTitle.get(item.id) ?? [];
+                  const code = itemCopies[0]?.legacy_code || itemCopies[0]?.asset_code || "Sem código";
+                  const hasDescription = Boolean((item.description ?? "").trim());
+                  return (
+                    <button key={item.id} type="button" onClick={() => openCatalogCompletion(item.id)} className="flex items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
+                      <Cover url={item.cover_url} title={item.title} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{code}</p>
+                        <p className="mt-1 line-clamp-2 font-black leading-tight text-[#00334E]">{item.title}</p>
+                        <p className="mt-1 line-clamp-1 text-[10px] font-semibold text-slate-500">{(item.authors ?? []).join("; ") || "Autor não informado"}</p>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          <span className={`rounded-full px-2 py-1 text-[8px] font-black ${item.cover_url ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{item.cover_url ? "CAPA OK" : "SEM CAPA"}</span>
+                          <span className={`rounded-full px-2 py-1 text-[8px] font-black ${hasDescription ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{hasDescription ? "DESCRIÇÃO OK" : "SEM DESCRIÇÃO"}</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!completionPageItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum livro encontrado neste filtro.</p>}
+              </div>
+              <CompactPager page={completionPage} total={completionItems.length} pageSize={completionPageSize} onChange={setCompletionPage} />
+            </div>
+          </section>
+        </div>
+      )}
+
+      {panelOpen && panelView === "acervo-finalizar" && completionListOpen && selectedCompletionTitle && (
+        <div
+          className="fixed inset-0 z-[240] flex items-end justify-center bg-[#10251C]/80 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) closeCatalogCompletion();
+          }}
+        >
+          <section className="flex max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F6F8F3] shadow-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar livro • revisão humana</p>
+                <h2 className="mt-0.5 line-clamp-2 text-lg font-black leading-tight text-[#00334E]">{selectedCompletionTitle.title}</h2>
+              </div>
+              <button type="button" onClick={closeCatalogCompletion} className="shrink-0 rounded-xl bg-[#00334E] px-4 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3 sm:p-4">
+              {(error || success) && (
+                <div className="mb-3 grid gap-2">
+                  {error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold leading-5 text-red-800">{error}</p>}
+                  {success && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-800">{success}</p>}
+                </div>
+              )}
+
+              <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                <div className="flex items-start gap-3">
+                  <Cover url={completionCoverDataUrl || selectedCompletionTitle.cover_url} title={selectedCompletionTitle.title} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold leading-5 text-slate-500">{(selectedCompletionTitle.authors ?? []).join("; ") || "Autor não informado"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {selectedCompletionCopies.map((copy) => (
+                        <span key={copy.id} className="rounded-full bg-[#F4FBF7] px-2 py-1 text-[9px] font-black text-[#2F6B43] ring-1 ring-[#123D2C]/10">
+                          {copy.legacy_code || copy.asset_code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {[
+                    { key: "cover" as const, n: "1", title: "Foto da capa", detail: completionCoverDataUrl ? "Nova foto selecionada" : selectedCompletionTitle.cover_url ? "Capa já cadastrada • toque para manter ou alterar" : "Capa pendente • toque para fotografar" },
+                    { key: "ai" as const, n: "2", title: "Rascunho de descrição com IA", detail: selectedCompletionTitle.metadata?.description_photo?.storage_path ? "Foto de apoio já guardada • toque para revisar/alterar" : completionExcerptDataUrl ? "Foto de apoio selecionada" : "Fotografe contracapa, orelha ou apresentação" },
+                    { key: "description" as const, n: "3", title: "Descrição breve", detail: completionDescription.trim() ? "Descrição cadastrada • toque para manter ou alterar" : "Descrição pendente • toque para preencher" },
+                    { key: "inventory" as const, n: "4", title: "Inventário e QR Code", detail: selectedCompletionCopy?.metadata?.inventory_status === "inventariado" ? `Inventariado • ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code}` : selectedCompletionCopy ? `Exemplar ${selectedCompletionCopy.legacy_code || selectedCompletionCopy.asset_code} • toque para conferir` : "Sem exemplar ativo cadastrado" },
+                  ].map((stage) => (
+                    <button key={stage.key} type="button" onClick={() => setCompletionStage(stage.key)} className="flex min-h-16 items-center gap-3 rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E9F2E7] text-sm font-black text-[#123D2C]">{stage.n}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-black text-[#00334E]">{stage.title}</span>
+                        <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-500">{stage.detail}</span>
+                      </span>
+                      <span className="text-lg font-black text-[#2F6B43]">›</span>
+                    </button>
+                  ))}
+
+                  <button type="button" disabled={saving || suggestingDescription} onClick={() => void saveCatalogCompletion()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">
+                    {saving ? "Salvando..." : "Salvar e voltar à lista"}
+                  </button>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {selectedCompletionTitle && completionStage && (
+        <div className="fixed inset-0 z-[228] flex items-end justify-center bg-[#10251C]/80 p-2 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setCompletionStage(null); }}>
+          <section className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-[1.75rem] bg-white p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Completar livro • {selectedCompletionTitle.title}</p>
+                <h3 className="mt-1 text-lg font-black text-[#00334E]">{completionStage === "cover" ? "1. Foto da capa" : completionStage === "ai" ? "2. Rascunho com IA" : completionStage === "description" ? "3. Descrição breve" : "4. Inventário e QR Code"}</h3>
+              </div>
+              <button type="button" onClick={() => setCompletionStage(null)} className="rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">Fechar</button>
+            </div>
+
+            {completionStage === "cover" && (
+              <div className="mt-3 rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                {selectedCompletionTitle.cover_url ? (
+                  <>
+                    <p className="text-xs font-black text-[#00334E]">Já existe uma capa cadastrada.</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">Se estiver correta, mantenha como está. Para trocar, fotografe ou escolha uma nova imagem.</p>
+                    <div className="mt-2"><Cover url={completionCoverDataUrl || selectedCompletionTitle.cover_url} title={selectedCompletionTitle.title} /></div>
+                    <button type="button" onClick={() => { setCompletionCoverDataUrl(""); setCompletionStage(null); }} className="mt-3 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter capa cadastrada</button>
+                  </>
+                ) : <p className="text-xs font-black text-[#00334E]">Este livro ainda está sem capa.</p>}
+                <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-[#2F6B43] px-3 py-3 text-center text-xs font-black text-white">
+                  {completionCoverDataUrl ? "Trocar foto selecionada" : selectedCompletionTitle.cover_url ? "Fotografar / substituir capa" : "Fotografar capa"}
+                  <input type="file" accept="image/*" capture="environment" disabled={saving} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void chooseCompletionCover(file); }} />
+                </label>
+                {completionCoverDataUrl && <p className="mt-2 text-[10px] font-black text-emerald-700">Nova foto pronta. Feche esta etapa e use “Salvar e voltar à lista” para publicar.</p>}
+              </div>
+            )}
+
+            {completionStage === "ai" && (
+              <div className="mt-3 rounded-2xl bg-[#FFF8E7] p-3 ring-1 ring-amber-200">
+                {selectedCompletionTitle.description && <p className="mb-2 rounded-xl bg-white p-2 text-[10px] font-bold leading-4 text-slate-600">Já existe uma descrição cadastrada. Ela será mantida até você revisar e salvar um novo texto.</p>}
+                <p className="text-[10px] font-semibold leading-4 text-slate-600">Fotografe a contracapa, a orelha, a apresentação ou um trecho introdutório legível.</p>
+                <label className="mt-2 flex cursor-pointer items-center justify-center rounded-xl bg-white px-3 py-3 text-center text-xs font-black text-[#00334E] ring-1 ring-[#00334E]/15">
+                  {completionExcerptDataUrl ? "Trocar foto do trecho" : "Fotografar trecho para descrição"}
+                  <input type="file" accept="image/*" capture="environment" disabled={saving || suggestingDescription} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void chooseCompletionExcerpt(file); }} />
+                </label>
+                {selectedCompletionTitle.metadata?.description_photo?.storage_path && <button type="button" disabled={saving || suggestingDescription} onClick={() => void downloadCompletionDescriptionPhoto()} className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#7B5C16] ring-1 ring-amber-200 disabled:opacity-45">Baixar foto guardada para descrição</button>}
+                <button type="button" disabled={saving || suggestingDescription || !completionExcerptDataUrl} onClick={() => void suggestCompletionDescription()} className="mt-2 w-full rounded-xl bg-[#7B5C16] px-3 py-3 text-xs font-black text-white disabled:opacity-45">{suggestingDescription ? "Interpretando trecho..." : "Gerar rascunho com IA"}</button>
+                {completionDescription.trim() && <button type="button" onClick={() => setCompletionStage("description")} className="mt-2 w-full rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Revisar descrição sugerida</button>}
+              </div>
+            )}
+
+            {completionStage === "description" && (
+              <div className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                {selectedCompletionTitle.description && <p className="mb-2 text-[10px] font-semibold leading-4 text-slate-600"><strong>Descrição atual:</strong> {selectedCompletionTitle.description}</p>}
+                <label className="text-xs font-black text-[#00334E]">
+                  {selectedCompletionTitle.description ? "Manter ou alterar a descrição" : "Cadastrar descrição breve"}
+                  <textarea value={completionDescription} onChange={(event) => setCompletionDescription(event.target.value)} rows={5} maxLength={900} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium leading-5 text-slate-700" placeholder="Em 1 ou 2 frases, diga do que trata o livro e por que ele pode interessar ao leitor." />
+                  <span className="mt-1 block text-right text-[9px] font-bold text-slate-400">{completionDescription.length}/900</span>
+                </label>
+                {selectedCompletionTitle.description && <button type="button" onClick={() => { setCompletionDescription(selectedCompletionTitle.description ?? ""); setCompletionStage(null); }} className="mt-2 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter descrição cadastrada</button>}
+                <button type="button" onClick={() => setCompletionStage(null)} className="mt-2 w-full rounded-xl bg-[#00334E] px-3 py-3 text-xs font-black text-white">Concluir revisão desta etapa</button>
+              </div>
+            )}
+
+            {completionStage === "inventory" && (
+              <div className="mt-3 rounded-2xl bg-[#EEF7F9] p-3 ring-1 ring-[#00334E]/10">
+                {selectedCompletionCopies.length ? (
+                  <>
+                    <select value={selectedCompletionCopy?.id ?? ""} onChange={(event) => { const nextCopy = selectedCompletionCopies.find((copy) => copy.id === event.target.value); setCompletionCopyId(event.target.value); setCompletionInventoryShelf(nextCopy?.metadata?.last_inventory_observed_shelf || nextCopy?.shelf || ""); setCompletionQrConfirmed(nextCopy?.metadata?.inventory_status === "inventariado"); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#00334E]">
+                      {selectedCompletionCopies.map((copy) => <option key={copy.id} value={copy.id}>{copy.legacy_code || copy.asset_code} • {copy.status}</option>)}
+                    </select>
+                    {selectedCompletionCopy?.metadata?.inventory_status === "inventariado" && <p className="mt-2 rounded-xl bg-white p-2 text-[10px] font-bold leading-4 text-[#2F6B43]">Este exemplar já está inventariado. Se os dados continuam corretos, você pode manter o cadastro atual.</p>}
+                    <input value={completionInventoryShelf} onChange={(event) => setCompletionInventoryShelf(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-[#00334E]" placeholder="Estante observada, ex.: Romances / prateleira 2" />
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button type="button" disabled={saving || !selectedCompletionCopy} onClick={() => selectedCompletionCopy && void showQr(selectedCompletionCopy.id)} className="rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20 disabled:opacity-45">Gerar / visualizar QR</button>
+                      <label className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-3 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20"><input type="checkbox" checked={completionQrConfirmed} onChange={(event) => setCompletionQrConfirmed(event.target.checked)} />QR colado ou conferido</label>
+                    </div>
+                    {selectedCompletionCopy?.metadata?.inventory_status === "inventariado" && <button type="button" onClick={() => setCompletionStage(null)} className="mt-2 w-full rounded-xl bg-white px-3 py-3 text-xs font-black text-[#2F6B43] ring-1 ring-[#2F6B43]/20">Manter inventário / QR atual</button>}
+                    <button type="button" disabled={saving || !selectedCompletionCopy || !completionQrConfirmed} onClick={() => void confirmCompletionInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#2F6B43] px-3 py-3 text-xs font-black text-white disabled:opacity-45">Atualizar inventário e QR</button>
+                  </>
+                ) : <p className="rounded-xl bg-white p-3 text-[10px] font-bold leading-4 text-slate-500">Este título ainda não possui exemplar ativo cadastrado. Cadastre o exemplar antes de concluir o inventário/QR.</p>}
+              </div>
+            )}
+          </section>
+        </div>
       )}
 
       {qrDataUrl && (

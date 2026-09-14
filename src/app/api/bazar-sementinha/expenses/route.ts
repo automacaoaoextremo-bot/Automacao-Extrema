@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getBazarEvent, parseMoney, requireBazarSession, sessionErrorStatus } from "@/lib/bazar-sementinha";
+import { getBazarEventFromRequest, parseMoney, requireBazarSession, sessionErrorStatus } from "@/lib/bazar-sementinha";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,9 @@ function normalizeExpensePayload(body: ExpensePayload) {
   return { category, description, amount, status, notes };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request);
     const { data, error } = await supabaseAdmin.from("bazar_expenses").select("*").eq("event_id", event.id).order("created_at", { ascending: false });
     if (error) throw error;
     return NextResponse.json({ expenses: data || [] });
@@ -40,8 +40,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await requireBazarSession(request);
-    const body = (await request.json()) as ExpensePayload;
-    const event = await getBazarEvent();
+    const body = (await request.json()) as ExpensePayload & { eventId?: unknown };
+    const event = await getBazarEventFromRequest(request, body as Record<string, unknown>);
     const payload = normalizeExpensePayload(body);
 
     const { data, error } = await supabaseAdmin
@@ -64,14 +64,14 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireBazarSession(request);
-    const body = (await request.json()) as ExpensePayload;
+    const body = (await request.json()) as ExpensePayload & { eventId?: unknown };
     const id = String(body.id || "").trim();
 
     if (!id) {
       return NextResponse.json({ error: "Informe a despesa que será editada." }, { status: 400 });
     }
 
-    const event = await getBazarEvent();
+    const event = await getBazarEventFromRequest(request, body as Record<string, unknown>);
     const payload = normalizeExpensePayload(body);
 
     const { data, error } = await supabaseAdmin
