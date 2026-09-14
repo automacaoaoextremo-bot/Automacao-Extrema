@@ -13,23 +13,29 @@ export type OrganizacaoPublicHeaderAction = {
 type OrganizacaoPublicHeaderProps = {
   actions?: OrganizacaoPublicHeaderAction[];
   onAction?: (actionId: string) => void;
+  activeActionId?: string | null;
   backFallbackHref?: string;
+  homeActive?: boolean;
   navLabel?: string;
   solutionName?: string;
   showBack?: boolean;
 };
 
-const actionClassName = (primary = false) =>
-  `inline-flex min-h-7 flex-none items-center justify-center whitespace-nowrap rounded-full px-2 py-1 text-center text-[0.6rem] font-black leading-none shadow-sm ring-1 transition hover:-translate-y-0.5 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
-    primary
+const actionClassName = (active = false, emphasized = false) =>
+  `inline-flex min-h-7 flex-none items-center justify-center whitespace-nowrap rounded-full px-1.5 py-1 text-center text-[0.54rem] font-black leading-none shadow-sm ring-1 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#31C16B] focus-visible:ring-offset-1 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm ${
+    active
       ? "bg-[#00334E] text-white ring-[#00334E] hover:bg-[#064862]"
-      : "bg-white text-[#00334E] ring-[#00334E]/12 hover:bg-emerald-50"
+      : emphasized
+        ? "bg-emerald-50 text-[#00334E] ring-emerald-200 hover:bg-emerald-100"
+        : "bg-white text-[#00334E] ring-[#00334E]/12 hover:bg-emerald-50"
   }`;
 
 export function OrganizacaoPublicHeader({
   actions = [],
   onAction,
+  activeActionId = null,
   backFallbackHref = "/solucoes/organizacao-em-harmonia",
+  homeActive = true,
   navLabel = "Navegação da Organização em Harmonia",
   solutionName = "Organização em Harmonia",
   showBack = true,
@@ -97,7 +103,7 @@ export function OrganizacaoPublicHeader({
 
       <nav className="border-t border-[#dbe7e0] bg-[#F6FBF8]/96 px-2 py-1.5" aria-label={navLabel}>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1 px-0.5 sm:gap-2.5 sm:px-0">
-          <a href="#inicio" className={actionClassName(true)}>
+          <a href="#inicio" className={actionClassName(homeActive && !activeActionId)}>
             Início
           </a>
           {showBack && (
@@ -106,14 +112,15 @@ export function OrganizacaoPublicHeader({
             </button>
           )}
           {actions.map((action) => {
-            const primary = action.variant === "primary";
+            const active = Boolean(action.actionId && action.actionId === activeActionId);
+            const emphasized = action.variant === "primary";
             if (action.actionId) {
               return (
                 <button
                   key={`${action.label}-${action.actionId}`}
                   type="button"
                   onClick={() => onAction?.(action.actionId as string)}
-                  className={actionClassName(primary)}
+                  className={actionClassName(active, emphasized)}
                 >
                   {action.label}
                 </button>
@@ -128,7 +135,7 @@ export function OrganizacaoPublicHeader({
                   href={href}
                   target="_blank"
                   rel="noreferrer"
-                  className={actionClassName(primary)}
+                  className={actionClassName(active, emphasized)}
                 >
                   {action.label}
                 </a>
@@ -139,7 +146,7 @@ export function OrganizacaoPublicHeader({
               <Link
                 key={`${action.label}-${href}`}
                 href={href}
-                className={actionClassName(primary)}
+                className={actionClassName(active, emphasized)}
               >
                 {action.label}
               </Link>

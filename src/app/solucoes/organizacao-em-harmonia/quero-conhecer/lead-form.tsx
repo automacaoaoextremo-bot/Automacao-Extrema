@@ -90,7 +90,7 @@ export function OrganizacaoLeadForm({ initialModule }: { initialModule: Organiza
   return (
     <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
       <OrganizacaoPublicHeader
-        actions={[{ label: "Ajuda", href: AE_HELP_WHATSAPP, variant: "primary" }]}
+        actions={[{ label: "Ajuda", href: AE_HELP_WHATSAPP }]}
         backFallbackHref={current.href}
       />
 

@@ -272,7 +272,7 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
         { label: "Benefícios", actionId: "beneficios" },
         { label: "Como Funciona", actionId: "como-funciona" },
         { label: "Cliente Fundador", actionId: "cliente-fundador" },
-        { label: "Ajuda", href: helpWhatsappHref, variant: "primary" },
+        { label: "Ajuda", href: helpWhatsappHref },
       ]
     : isCorrente
       ? [
@@ -320,7 +320,9 @@ export function OrganizacaoEmHarmoniaLanding({ module = "organizacao-em-harmonia
       <OrganizacaoPublicHeader
         actions={headerActions}
         onAction={(actionId) => openModal(actionId as ModalKey)}
+        activeActionId={modal && modal !== "mais-informacoes" ? modal : null}
         backFallbackHref={isSuite ? "/" : "/solucoes/organizacao-em-harmonia"}
+        homeActive={!modal}
         solutionName={content.solutionName}
         showBack={!isSuite}
       />
