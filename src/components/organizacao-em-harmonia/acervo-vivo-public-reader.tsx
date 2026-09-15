@@ -4,19 +4,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { AcervoVivoSupportCard } from "@/components/organizacao-em-harmonia/acervo-vivo-support-card";
+import { acervoVivoSupportWhatsappUrl } from "@/lib/organizacao-em-harmonia/acervo-vivo-support";
 
 const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
 const PUBLIC_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const PAGE_SIZE = 4;
-const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v1-hidden";
+const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v2-hidden";
 
 const LOAN_TUTORIAL_STEPS = [
-  { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura.", tip: "Comece por Descobrir ou Trilhas." },
+  { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura. Se precisar, há apoio humano para orientar você.", tip: "Comece por Descobrir ou Trilhas. Se preferir ajuda, fale com a Mariana." },
   { title: "Encontre sua leitura", eyebrow: "Passo 2 de 6", body: "Pesquise pelo que deseja estudar. Se você já estiver diante do armário, também pode digitar o código da lombada, como R-3.", tip: "O código ajuda a localizar o exemplar físico correto." },
   { title: "Pegue o livro físico", eyebrow: "Passo 3 de 6", body: "Abra o armário da Biblioteca do Tucxa. Os livros estão organizados por categoria. Confira no detalhe do livro o código da lombada e localize o exemplar correspondente.", tip: "Confira se o código do livro bate com o código exibido no Acervo." },
   { title: "Registre o empréstimo", eyebrow: "Passo 4 de 6", body: "No detalhe do livro, toque em “Está com o livro em mãos”. Se necessário, faça seu acesso e confirme o exemplar que está levando.", tip: "O registro mantém o Acervo Vivo organizado para todos." },
   { title: "Acompanhe em Meus livros", eyebrow: "Passo 5 de 6", body: "Depois do empréstimo, acompanhe seus livros pelo próprio Acervo Vivo. Ali você encontra os registros e a data prevista de devolução.", tip: "Use Meus livros sempre que quiser consultar sua situação." },
-  { title: "Para devolver", eyebrow: "Passo 6 de 6", body: "Devolva o livro no local indicado pelo Tucxa e siga a orientação mostrada pelo sistema para manter o registro atualizado.", tip: "Cuide do livro: outra pessoa também pode precisar dessa leitura." },
+  { title: "Para devolver", eyebrow: "Passo 6 de 6", body: "Devolva o livro no local indicado pelo Tucxa e siga a orientação mostrada pelo sistema para manter o registro atualizado. Se tiver qualquer dificuldade ao longo do processo, peça orientação à Mariana.", tip: "Cuide do livro: outra pessoa também pode precisar dessa leitura." },
 ] as const;
 
 type ReviewComment = {
@@ -1009,6 +1011,14 @@ export function AcervoVivoPublicReader() {
                 <p className="text-sm font-semibold leading-6 text-slate-700">{step.body}</p>
                 <p className="mt-3 rounded-xl bg-[#E9F2E7] p-3 text-xs font-black leading-5 text-[#123D2C]">{step.tip}</p>
               </div>
+              <a
+                href={acervoVivoSupportWhatsappUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+              >
+                Precisa de ajuda? Fale com a Mariana
+              </a>
               <label className="mt-3 flex items-center gap-2 rounded-xl bg-white p-2 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
                 <input type="checkbox" checked={hideTutorial} onChange={(event) => setHideTutorial(event.target.checked)} />
                 Não mostrar este passo a passo automaticamente novamente neste aparelho
@@ -1030,6 +1040,8 @@ export function AcervoVivoPublicReader() {
           <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white ring-1 ring-white/20">Como emprestar um livro</button>
         </section>
 
+        <AcervoVivoSupportCard />
+
         {(error || success) && <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
 
         {payload.reader?.authenticated && (payload.reader?.emailRequired || payload.reader?.hasValidEmail === false) && (
@@ -1049,6 +1061,14 @@ export function AcervoVivoPublicReader() {
             Você atingiu o limite de {Number(payload.reader.maxActiveLoans ?? 3)} empréstimo(s) ativo(s). Devolva um livro antes de registrar outro empréstimo.
           </div>
         )}
+
+        <section className="mt-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
+            <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura reúnem sugestões por tema para ajudar você a escolher a próxima leitura.</p>
+          </div>
+          <button type="button" onClick={() => { setView("trilhas"); setTrailPage(1); }} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
+        </section>
 
         <section className="mt-3 grid grid-cols-3 gap-2">
           <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); setSelectedBrowseCategory(""); setSelectedCodePrefix(""); setCodePage(1); setSelectedManualCopyId(""); setDiscoverMode("alfabeto"); }} />

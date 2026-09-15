@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { AcervoVivoSupportCard } from "@/components/organizacao-em-harmonia/acervo-vivo-support-card";
 
 type ReviewComment = {
   id: string;
@@ -914,6 +915,8 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           </p>
         </section>
 
+        <AcervoVivoSupportCard />
+
         {(error || success) && (
           <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>
             {error || success}
@@ -943,6 +946,14 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
         ) : (
           <>
+            <section className="mt-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
+                <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura organizam sugestões por tema para facilitar a escolha da sua próxima leitura.</p>
+              </div>
+              <button type="button" onClick={() => openView("trilhas")} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
+            </section>
+
             <section className="mt-3 grid grid-cols-3 gap-2">
               <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
               <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
