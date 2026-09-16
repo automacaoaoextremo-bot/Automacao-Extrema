@@ -71,6 +71,22 @@ type ReservationRow = {
   [key: string]: unknown;
 };
 
+type HomologationRow = {
+  id: string;
+  participant_person_id: string;
+  conducted_by_person_id?: string | null;
+  conducted_at: string;
+  source_type: "manual" | "foto" | "audio";
+  source_storage_path?: string | null;
+  source_file_name?: string | null;
+  source_mime_type?: string | null;
+  task_results?: Record<string, unknown> | null;
+  final_answers?: Record<string, unknown> | null;
+  notes?: string | null;
+  ai_metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
 const MANAGEMENT_FUNCTIONS = [
   "biblioteca-acervo-vivo",
   "gestor-acervo-vivo-biblioteca",
@@ -189,6 +205,34 @@ function nowIso() {
 
 const ACERVO_COVERS_BUCKET = "tucxa-acervo-vivo-capas";
 const ACERVO_DESCRIPTION_PHOTOS_BUCKET = "tucxa-acervo-vivo-descricao-fotos";
+const ACERVO_HOMOLOGATION_BUCKET = "tucxa-acervo-vivo-homologacao";
+
+const HOMOLOGATION_TASK_KEYS = [
+  "acessar_acervo",
+  "entender_inicio",
+  "realizar_cadastro",
+  "procurar_livro",
+  "abrir_detalhe",
+  "entender_codigo_lombada",
+  "localizar_livro",
+  "registrar_emprestimo",
+  "encontrar_meus_livros",
+  "entender_data_devolucao",
+  "encontrar_trilhas",
+  "encontrar_ajuda",
+  "entender_devolucao",
+] as const;
+
+const HOMOLOGATION_TASK_VALUES = ["sozinho", "com_ajuda", "nao_concluiu"] as const;
+
+const HOMOLOGATION_FINAL_OPTIONS = {
+  facilidade_geral: ["facil", "razoavel", "dificil"],
+  duvida_inseguranca: ["nao", "pouca", "muita"],
+  usaria_sozinho: ["sim", "talvez", "nao"],
+  trilhas_ajudaram: ["sim", "parcialmente", "nao", "nao_testado"],
+  apoio_humano_claro: ["sim", "parcialmente", "nao"],
+  recomendaria: ["sim", "talvez", "nao"],
+} as const;
 
 function coverImageFromDataUrl(value: unknown) {
   const raw = text(value);
@@ -199,6 +243,190 @@ function coverImageFromDataUrl(value: unknown) {
   if (!buffer.length || buffer.length > 2_500_000) return null;
   const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
   return { mimeType, buffer, extension };
+}
+
+function fileFromDataUrl(value: unknown, maxBytes = 3_100_000) {
+  const raw = text(value);
+  const match = raw.match(/^data:([a-z0-9.+\-/]+);base64,([A-Za-z0-9+/=\r\n]+)$/i);
+  if (!match) return null;
+  const mimeType = match[1].toLowerCase();
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > maxBytes) return null;
+  const extensionMap: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/wav": "wav",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+  };
+  const extension = extensionMap[mimeType];
+  if (!extension) return null;
+  return { mimeType, buffer, extension };
+}
+
+function jsonObjectFromModelText(value: string) {
+  const cleaned = value.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("A IA não retornou respostas estruturadas para revisão.");
+  const parsed = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
+  return record(parsed);
+}
+
+function sanitizeHomologationDraft(value: unknown) {
+  const current = record(value);
+  const rawTasks = record(current.taskResults);
+  const rawFinal = record(current.finalAnswers);
+  const taskResults: Record<string, string> = {};
+  const finalAnswers: Record<string, string> = {};
+
+  for (const key of HOMOLOGATION_TASK_KEYS) {
+    const selected = text(rawTasks[key]);
+    taskResults[key] = ([...HOMOLOGATION_TASK_VALUES, "nao_informado"] as readonly string[]).includes(selected)
+      ? selected
+      : "nao_informado";
+  }
+
+  for (const [key, options] of Object.entries(HOMOLOGATION_FINAL_OPTIONS)) {
+    const selected = text(rawFinal[key]);
+    finalAnswers[key] = ([...options, "nao_informado"] as string[]).includes(selected)
+      ? selected
+      : "nao_informado";
+  }
+
+  const hardest = text(rawFinal.etapa_mais_dificil);
+  finalAnswers.etapa_mais_dificil = hardest === "nenhuma" || (HOMOLOGATION_TASK_KEYS as readonly string[]).includes(hardest)
+    ? hardest
+    : "nao_informado";
+
+  return {
+    taskResults,
+    finalAnswers,
+    notes: text(current.notes).slice(0, 2000),
+  };
+}
+
+function homologationPrompt() {
+  return [
+    "Você está convertendo uma homologação do Acervo Vivo - Biblioteca do Tucxa em respostas estruturadas.",
+    "Não invente respostas. Quando uma resposta não estiver clara, use exatamente nao_informado.",
+    "Para cada tarefa use somente: sozinho, com_ajuda, nao_concluiu ou nao_informado.",
+    `Tarefas obrigatórias: ${HOMOLOGATION_TASK_KEYS.join(", ")}.`,
+    "Interpretação: sozinho = concluiu sem intervenção; com_ajuda = concluiu com orientação; nao_concluiu = não conseguiu concluir.",
+    "A tarefa realizar_cadastro deve indicar se a própria pessoa conseguiu fazer o cadastro sozinha ou com ajuda.",
+    "Para facilidade_geral use facil, razoavel, dificil ou nao_informado.",
+    "Para duvida_inseguranca use nao, pouca, muita ou nao_informado.",
+    "Para usaria_sozinho use sim, talvez, nao ou nao_informado.",
+    "Para trilhas_ajudaram use sim, parcialmente, nao, nao_testado ou nao_informado.",
+    "Para apoio_humano_claro use sim, parcialmente, nao ou nao_informado.",
+    "Para recomendaria use sim, talvez, nao ou nao_informado.",
+    `Para etapa_mais_dificil use uma das tarefas (${HOMOLOGATION_TASK_KEYS.join(", ")}), nenhuma ou nao_informado.`,
+    "Retorne SOMENTE JSON válido no formato:",
+    JSON.stringify({
+      taskResults: Object.fromEntries(HOMOLOGATION_TASK_KEYS.map((key) => [key, "nao_informado"])),
+      finalAnswers: {
+        facilidade_geral: "nao_informado",
+        duvida_inseguranca: "nao_informado",
+        usaria_sozinho: "nao_informado",
+        trilhas_ajudaram: "nao_informado",
+        apoio_humano_claro: "nao_informado",
+        recomendaria: "nao_informado",
+        etapa_mais_dificil: "nao_informado",
+      },
+      notes: "",
+    }),
+  ].join("\n");
+}
+
+async function saveHomologationEvidence(input: {
+  organizationId: string;
+  fileName: string;
+  file: { mimeType: string; buffer: Buffer; extension: string };
+}) {
+  const timestamp = nowIso().replace(/[:.]/g, "-");
+  const base = slugify(input.fileName.replace(/\.[^.]+$/, "")) || "evidencia";
+  const storagePath = `homologacao/${input.organizationId}/${timestamp}-${base}.${input.file.extension}`;
+  const { error } = await supabaseAdmin.storage
+    .from(ACERVO_HOMOLOGATION_BUCKET)
+    .upload(storagePath, input.file.buffer, {
+      contentType: input.file.mimeType,
+      upsert: false,
+      cacheControl: "3600",
+    });
+  if (error) throw error;
+  return storagePath;
+}
+
+async function extractHomologationFromText(sourceText: string) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A extração automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_HOMOLOGATION_MODEL) || text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content: [{ type: "input_text", text: `${homologationPrompt()}\n\nTranscrição/relato:\n${sourceText.slice(0, 14000)}` }] }],
+      max_output_tokens: 1200,
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+  return { draft: sanitizeHomologationDraft(jsonObjectFromModelText(openAiResponseText(payload))), model };
+}
+
+async function extractHomologationFromPhoto(imageDataUrl: string) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A extração automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_HOMOLOGATION_MODEL) || text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content: [
+        { type: "input_text", text: `${homologationPrompt()}\n\nLeia somente o que estiver marcado/escrito de forma legível na ficha fotografada.` },
+        { type: "input_image", image_url: imageDataUrl, detail: "high" },
+      ] }],
+      max_output_tokens: 1200,
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+  return { draft: sanitizeHomologationDraft(jsonObjectFromModelText(openAiResponseText(payload))), model };
+}
+
+async function transcribeHomologationAudio(input: { buffer: Buffer; mimeType: string; fileName: string }) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A transcrição automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_TRANSCRIBE_MODEL) || "gpt-4o-mini-transcribe";
+  const form = new FormData();
+  form.append("model", model);
+  form.append("file", new Blob([new Uint8Array(input.buffer)], { type: input.mimeType }), input.fileName || "homologacao-audio");
+  form.append("language", "pt");
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  const payload = record(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A transcrição respondeu com status ${response.status}.`);
+  }
+  const transcript = text(payload.text);
+  if (!transcript) throw new Error("O áudio não gerou uma transcrição utilizável.");
+  return { transcript, model };
 }
 
 function openAiResponseText(value: unknown) {
@@ -486,6 +714,32 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     .eq("organization_id", organizationId)
     .order("year", { ascending: false });
 
+  let homologationRows: HomologationRow[] = [];
+  let homologationWarning: string | null = null;
+  if (permissions.libraryRules) {
+    const homologations = await supabaseAdmin
+      .from("oh_acervo_homologations")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order("conducted_at", { ascending: false })
+      .limit(250);
+
+    if (homologations.error) {
+      const code = text(record(homologations.error).code).toUpperCase();
+      if (["42P01", "PGRST205"].includes(code)) {
+        homologationWarning = "Aplique a migration 20260916073000_oh_tucxa_acervo_vivo_homologacao.sql para habilitar o registro estruturado da homologação.";
+      } else {
+        throw homologations.error;
+      }
+    } else {
+      homologationRows = ((homologations.data ?? []) as HomologationRow[]).map((item) => ({
+        ...item,
+        participant: personMap.get(item.participant_person_id) ?? null,
+        conductedBy: item.conducted_by_person_id ? personMap.get(item.conducted_by_person_id) ?? null : null,
+      }));
+    }
+  }
+
   return {
     permissions,
     organizationId,
@@ -507,6 +761,8 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     inventorySessions: receptionOnly ? [] : inventorySessions.data ?? [],
     inventoryScans: receptionOnly ? [] : inventoryScans.data ?? [],
     folhaYears: receptionOnly || folhaYears.error ? [] : folhaYears.data ?? [],
+    homologations: permissions.libraryRules ? homologationRows : [],
+    homologationWarning,
     integrationsWarning: [
       courses.error ? `Cursos: ${errorMessage(courses.error, "indisponível")}` : "",
       lessons.error ? `Aulas: ${errorMessage(lessons.error, "indisponível")}` : "",
@@ -696,6 +952,194 @@ export async function POST(request: Request) {
   try {
     const permissions = await permissionsForContext(access.context);
     await reconcileExpiredAcervoReservations(organizationId);
+
+    if (action === "extract-homologation-evidence") {
+      if (!permissions.libraryRules) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode importar evidências da homologação.");
+      }
+
+      const sourceType = text(body.sourceType);
+      if (!['foto', 'audio'].includes(sourceType)) {
+        return NextResponse.json({ error: "Escolha foto ou áudio como origem da evidência." }, { status: 400 });
+      }
+
+      const file = fileFromDataUrl(body.dataUrl);
+      if (!file) {
+        return NextResponse.json({ error: "Arquivo inválido ou maior que aproximadamente 3 MB após a preparação." }, { status: 400 });
+      }
+      if (sourceType === 'foto' && !file.mimeType.startsWith('image/')) {
+        return NextResponse.json({ error: "Para a origem Foto, envie JPG, PNG ou WebP." }, { status: 400 });
+      }
+      if (sourceType === 'audio' && !file.mimeType.startsWith('audio/')) {
+        return NextResponse.json({ error: "Para a origem Áudio, envie um arquivo de áudio compatível." }, { status: 400 });
+      }
+
+      const fileName = text(body.fileName) || `homologacao-${sourceType}.${file.extension}`;
+      const storagePath = await saveHomologationEvidence({ organizationId, fileName, file });
+
+      if (!text(process.env.OPENAI_API_KEY)) {
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_guardada", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          automaticExtraction: false,
+        });
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          message: "Evidência guardada. Como OPENAI_API_KEY não está configurada, preencha as respostas estruturadas manualmente antes de salvar a homologação.",
+        });
+      }
+
+      try {
+        let draft: ReturnType<typeof sanitizeHomologationDraft>;
+        let extractionModel = "";
+        let transcriptionModel = "";
+        let transcript = "";
+
+        if (sourceType === 'foto') {
+          const extraction = await extractHomologationFromPhoto(text(body.dataUrl));
+          draft = extraction.draft;
+          extractionModel = extraction.model;
+        } else {
+          const transcription = await transcribeHomologationAudio({
+            buffer: file.buffer,
+            mimeType: file.mimeType,
+            fileName,
+          });
+          transcript = transcription.transcript;
+          transcriptionModel = transcription.model;
+          const extraction = await extractHomologationFromText(transcript);
+          draft = extraction.draft;
+          extractionModel = extraction.model;
+        }
+
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_extraida", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          extractionModel,
+          transcriptionModel: transcriptionModel || null,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          draft,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          extractionModel,
+          transcriptionModel: transcriptionModel || null,
+          transcript: transcript ? transcript.slice(0, 6000) : "",
+          message: "Rascunho extraído. Revise todas as respostas antes de confirmar a homologação.",
+        });
+      } catch (extractionError) {
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_guardada", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          automaticExtraction: false,
+          extractionError: errorMessage(extractionError, "Falha na extração automática"),
+        });
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          message: `Evidência guardada, mas a leitura automática não foi concluída: ${errorMessage(extractionError, "falha na extração")}. Revise/preencha os campos manualmente.`,
+        });
+      }
+    }
+
+    if (action === "save-homologation") {
+      if (!permissions.libraryRules) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode registrar resultados da homologação.");
+      }
+
+      const participantPersonId = text(body.participantPersonId);
+      if (!participantPersonId) {
+        return NextResponse.json({ error: "Selecione a pessoa que realizou o teste." }, { status: 400 });
+      }
+
+      const { data: participant, error: participantError } = await supabaseAdmin
+        .from("oh_people")
+        .select("id,full_name,active")
+        .eq("organization_id", organizationId)
+        .eq("id", participantPersonId)
+        .eq("active", true)
+        .maybeSingle();
+      if (participantError) throw participantError;
+      if (!participant?.id) {
+        return NextResponse.json({ error: "A pessoa selecionada não possui cadastro ativo no Tucxa." }, { status: 400 });
+      }
+
+      const taskInput = record(body.taskResults);
+      const taskResults: Record<string, string> = {};
+      for (const key of HOMOLOGATION_TASK_KEYS) {
+        const selected = text(taskInput[key]);
+        if (!(HOMOLOGATION_TASK_VALUES as readonly string[]).includes(selected)) {
+          return NextResponse.json({ error: `Preencha a etapa de homologação: ${key}.` }, { status: 400 });
+        }
+        taskResults[key] = selected;
+      }
+
+      const finalInput = record(body.finalAnswers);
+      const finalAnswers: Record<string, string> = {};
+      for (const [key, options] of Object.entries(HOMOLOGATION_FINAL_OPTIONS)) {
+        const selected = text(finalInput[key]);
+        if (!(options as readonly string[]).includes(selected)) {
+          return NextResponse.json({ error: `Responda a pergunta final: ${key}.` }, { status: 400 });
+        }
+        finalAnswers[key] = selected;
+      }
+      const hardest = text(finalInput.etapa_mais_dificil);
+      if (!(hardest === "nenhuma" || (HOMOLOGATION_TASK_KEYS as readonly string[]).includes(hardest))) {
+        return NextResponse.json({ error: "Informe qual foi a etapa mais difícil, ou marque Nenhuma." }, { status: 400 });
+      }
+      finalAnswers.etapa_mais_dificil = hardest;
+
+      const sourceType = ['manual', 'foto', 'audio'].includes(text(body.sourceType)) ? text(body.sourceType) : 'manual';
+      const sourceStoragePath = text(body.evidenceStoragePath);
+      if (sourceStoragePath && !sourceStoragePath.startsWith(`homologacao/${organizationId}/`)) {
+        return NextResponse.json({ error: "A evidência informada não pertence a esta organização." }, { status: 400 });
+      }
+
+      const { data: created, error: insertError } = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .insert({
+          organization_id: organizationId,
+          participant_person_id: participantPersonId,
+          conducted_by_person_id: actorPersonId || null,
+          conducted_at: nowIso(),
+          source_type: sourceType,
+          source_storage_path: sourceStoragePath || null,
+          source_file_name: text(body.evidenceFileName) || null,
+          source_mime_type: text(body.evidenceMimeType) || null,
+          task_results: taskResults,
+          final_answers: finalAnswers,
+          notes: text(body.notes).slice(0, 4000) || null,
+          ai_metadata: {
+            extracted: boolValue(body.extractedAutomatically, false),
+            extraction_model: text(body.extractionModel) || null,
+            transcription_model: text(body.transcriptionModel) || null,
+            reviewed_by_manager: true,
+          },
+          updated_at: nowIso(),
+        })
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+
+      await audit(organizationId, actorPersonId, "homologacao_registrada", "homologation", text(created?.id) || undefined, {
+        participantPersonId,
+        participantName: text(participant.full_name),
+        sourceType,
+      });
+
+      return NextResponse.json({ ok: true, id: created?.id });
+    }
+
     if (action === "save-settings") {
       if (!permissions.libraryRules) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar as regras de empréstimo, renovação, reservas e pendências.");

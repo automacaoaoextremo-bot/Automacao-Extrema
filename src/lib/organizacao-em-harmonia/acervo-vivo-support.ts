@@ -7,20 +7,10 @@ const DEFAULT_SUPPORT_MESSAGE = [
   "Se for mais fácil, posso enviar um áudio explicando minha dúvida.",
 ].join("\n");
 
-const DEFAULT_TEST_FEEDBACK_MESSAGE = [
-  "Olá, Mariana!",
-  "Participei do teste do Acervo Vivo e vou enviar meu feedback.",
-  "Posso responder por texto ou enviar um áudio com as dificuldades e sugestões que encontrei.",
-].join("\n");
-
 function whatsappUrl(message: string) {
   return `https://wa.me/${ACERVO_VIVO_SUPPORT_WHATSAPP}?text=${encodeURIComponent(message)}`;
 }
 
 export function acervoVivoSupportWhatsappUrl(message = DEFAULT_SUPPORT_MESSAGE) {
-  return whatsappUrl(message);
-}
-
-export function acervoVivoTestFeedbackWhatsappUrl(message = DEFAULT_TEST_FEEDBACK_MESSAGE) {
   return whatsappUrl(message);
 }

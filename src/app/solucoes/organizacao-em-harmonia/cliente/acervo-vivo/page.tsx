@@ -3,6 +3,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import {
+  AcervoVivoHomologacaoManager,
+  type AcervoHomologationRecord,
+} from "@/components/organizacao-em-harmonia/acervo-vivo-homologacao-manager";
 
 const API = "/api/organizacao-em-harmonia/cliente/acervo-vivo";
 
@@ -153,6 +157,8 @@ type Payload = {
   inventorySessions?: InventorySession[];
   inventoryScans?: InventoryScan[];
   folhaYears?: FolhaYear[];
+  homologations?: AcervoHomologationRecord[];
+  homologationWarning?: string | null;
   integrationsWarning?: string | null;
   metrics?: {
     titles?: number;
@@ -166,7 +172,7 @@ type Payload = {
   };
 };
 
-type Tab = "visao" | "acervo" | "circulacao" | "inventario" | "conteudos" | "trilhas";
+type Tab = "visao" | "acervo" | "circulacao" | "inventario" | "conteudos" | "trilhas" | "homologacao";
 
 type PanelView =
   | ""
@@ -587,6 +593,7 @@ export default function AcervoVivoGestaoPage() {
   const versions = useMemo(() => payload.resourceVersions ?? [], [payload.resourceVersions]);
   const trails = useMemo(() => payload.trails ?? [], [payload.trails]);
   const trailItems = useMemo(() => payload.trailItems ?? [], [payload.trailItems]);
+  const homologations = useMemo(() => payload.homologations ?? [], [payload.homologations]);
   const titleMap = useMemo(() => new Map(titles.map((item) => [item.id, item])), [titles]);
   const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
   const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
@@ -732,6 +739,7 @@ export default function AcervoVivoGestaoPage() {
       ["inventario", "Inventário", canManageLibrary],
       ["conteudos", "Conteúdos", canManageLibrary || canManageFolhaVerde],
       ["trilhas", "Trilhas + Integrações", canManageLibrary || canManageFolhaVerde || canManageGrupoEstudos || canManageClubeLivro],
+      ["homologacao", "Homologação", canManageRules],
     ];
     return items.filter((item) => item[2]).map(([value, label]) => [value, label]);
   }, [
@@ -740,6 +748,7 @@ export default function AcervoVivoGestaoPage() {
     canManageFolhaVerde,
     canManageGrupoEstudos,
     canManageLibrary,
+    canManageRules,
     receptionOnly,
   ]);
 
@@ -1552,6 +1561,11 @@ export default function AcervoVivoGestaoPage() {
           {payload.catalogWarning}
         </div>
       )}
+      {payload.homologationWarning && canManageRules && (
+        <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-5 text-amber-900 ring-1 ring-amber-200">
+          {payload.homologationWarning}
+        </div>
+      )}
 
       <section className="grid grid-cols-4 gap-1.5 sm:grid-cols-8 sm:gap-2">
         {[
@@ -1681,6 +1695,18 @@ export default function AcervoVivoGestaoPage() {
                   {canManageLibrary && <ActionTile title="Adicionar livro/conteúdo" onClick={() => setPanelView("trilhas-item")} />}
                   <ActionTile title="Criar integração" note="Clube, Grupo, Curso, Aula ou destaque" onClick={() => setPanelView("trilhas-integracao")} />
                 </>
+              )}
+
+              {tab === "homologacao" && canManageRules && (
+                <div className="col-span-2 sm:col-span-3">
+                  <AcervoVivoHomologacaoManager
+                    api={API}
+                    token={token}
+                    people={people}
+                    homologations={homologations}
+                    onSaved={() => load(token)}
+                  />
+                </div>
               )}
             </div>
           ) : panelView === "visao-resumo" ? (

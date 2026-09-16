@@ -10,7 +10,7 @@ import { acervoVivoSupportWhatsappUrl } from "@/lib/organizacao-em-harmonia/acer
 const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
 const PUBLIC_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const PAGE_SIZE = 4;
-const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v2-hidden";
+const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v3-hidden";
 
 const LOAN_TUTORIAL_STEPS = [
   { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura. Se precisar, há apoio humano para orientar você.", tip: "Comece por Descobrir ou Trilhas. Se preferir ajuda, fale com a Mariana." },
@@ -304,10 +304,10 @@ function Pager({ page, total, onChange }: { page: number; total: number; onChang
 
 function AccessButton({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="min-h-24 rounded-2xl bg-white px-2 py-3 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98]">
+    <button type="button" onClick={onClick} className="min-h-16 rounded-2xl bg-white px-2 py-2 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98] sm:min-h-24 sm:py-3">
       <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
-      <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-      <span className="mt-2 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+      <span className="mt-0.5 block text-[9px] font-bold leading-3 text-slate-500 sm:mt-1 sm:text-[10px] sm:leading-4">{detail}</span>
+      <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-2 sm:text-[9px] sm:tracking-[0.12em]">TOQUE PARA ABRIR</span>
     </button>
   );
 }
@@ -328,13 +328,13 @@ function CommunityAccess({
       href={href}
       className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
     >
-      <div className="relative aspect-[16/8] w-full bg-[#E7F0E2]">
+      <div className="relative hidden aspect-[16/8] w-full bg-[#E7F0E2] sm:block">
         <Image src={imageSrc} alt={`Logo ${title}`} fill sizes="(max-width: 640px) 50vw, 320px" className="object-cover" />
       </div>
-      <div className="p-2.5 text-center">
+      <div className="p-2 text-center sm:p-2.5">
         <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
         <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-        <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+        <span className="mt-1 block text-[7px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-1.5 sm:text-[8px] sm:tracking-[0.12em]">TOQUE PARA ABRIR</span>
       </div>
     </Link>
   );
@@ -1015,7 +1015,7 @@ export function AcervoVivoPublicReader() {
                 href={acervoVivoSupportWhatsappUrl()}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-3 rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                className="mt-3 flex min-h-12 items-center justify-center rounded-xl bg-[#E9F2E7] px-3 py-2.5 text-center text-sm font-black text-[#123D2C] shadow-sm ring-2 ring-[#2F6B43] transition hover:bg-[#DDECD9]"
               >
                 Precisa de ajuda? Fale com a Mariana
               </a>
@@ -1032,12 +1032,13 @@ export function AcervoVivoPublicReader() {
         );
       })()}
 
-      <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
-        <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
-          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
-          <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white ring-1 ring-white/20">Como emprestar um livro</button>
+      <section className="mx-auto max-w-5xl px-3 py-2 sm:px-6 sm:py-5 lg:px-8">
+        <section className="rounded-[1.5rem] bg-[#123D2C] p-3 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#CFE2C7] sm:text-[10px] sm:tracking-[0.2em]">Acervo Vivo • {audienceLabel}</p>
+          <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">O que você quer estudar hoje?</h1>
+          <p className="mt-1 text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:hidden">Livros, Trilhas, Clube do Livro e Grupo de Estudos em um só lugar.</p>
+          <p className="mt-2 hidden max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:block">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
+          <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-2 rounded-xl bg-white/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white ring-1 ring-white/20 sm:mt-3 sm:py-2 sm:text-[10px] sm:tracking-[0.12em]">Como emprestar um livro</button>
         </section>
 
         <AcervoVivoSupportCard />
@@ -1062,7 +1063,7 @@ export function AcervoVivoPublicReader() {
           </div>
         )}
 
-        <section className="mt-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
+        <section className="mt-2 hidden rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
             <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura reúnem sugestões por tema para ajudar você a escolher a próxima leitura.</p>
@@ -1070,7 +1071,7 @@ export function AcervoVivoPublicReader() {
           <button type="button" onClick={() => { setView("trilhas"); setTrailPage(1); }} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
         </section>
 
-        <section className="mt-3 grid grid-cols-3 gap-2">
+        <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
           <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); setSelectedBrowseCategory(""); setSelectedCodePrefix(""); setCodePage(1); setSelectedManualCopyId(""); setDiscoverMode("alfabeto"); }} />
           <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => { setView("trilhas"); setTrailPage(1); }} />
           <AccessButton title="Meus livros" detail={myBooksDetail} onClick={() => void openMyBooks()} />

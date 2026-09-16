@@ -327,10 +327,10 @@ function Pager({ page, total, pageSize, onChange }: { page: number; total: numbe
 
 function AccessButton({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="min-h-24 rounded-2xl bg-white px-2 py-3 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98]">
+    <button type="button" onClick={onClick} className="min-h-16 rounded-2xl bg-white px-2 py-2 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98] sm:min-h-24 sm:py-3">
       <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
-      <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-      <span className="mt-2 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+      <span className="mt-0.5 block text-[9px] font-bold leading-3 text-slate-500 sm:mt-1 sm:text-[10px] sm:leading-4">{detail}</span>
+      <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-2 sm:text-[9px] sm:tracking-[0.12em]">TOQUE PARA ABRIR</span>
     </button>
   );
 }
@@ -370,7 +370,7 @@ function CommunityAccess({
       href={href}
       className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
     >
-      <div className="relative aspect-[16/8] w-full bg-[#E7F0E2]">
+      <div className="relative hidden aspect-[16/8] w-full bg-[#E7F0E2] sm:block">
         <Image
           src={imageSrc}
           alt={`Logo ${title}`}
@@ -379,10 +379,10 @@ function CommunityAccess({
           className="object-cover"
         />
       </div>
-      <div className="p-2.5 text-center">
+      <div className="p-2 text-center sm:p-2.5">
         <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
         <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-        <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+        <span className="mt-1 block text-[7px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-1.5 sm:text-[8px] sm:tracking-[0.12em]">
           TOQUE PARA ABRIR
         </span>
       </div>
@@ -906,11 +906,12 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       {header}
 
-      <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
-        <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
-          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">
+      <section className="mx-auto max-w-5xl px-3 py-2 sm:px-6 sm:py-5 lg:px-8">
+        <section className="rounded-[1.5rem] bg-[#123D2C] p-3 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#CFE2C7] sm:text-[10px] sm:tracking-[0.2em]">Acervo Vivo • {audienceLabel}</p>
+          <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">O que você quer estudar hoje?</h1>
+          <p className="mt-1 text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:hidden">Livros, Trilhas, Clube do Livro e Grupo de Estudos em um só lugar.</p>
+          <p className="mt-2 hidden max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:block">
             Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo.
           </p>
         </section>
@@ -946,7 +947,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
         ) : (
           <>
-            <section className="mt-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
+            <section className="mt-2 hidden rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
                 <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura organizam sugestões por tema para facilitar a escolha da sua próxima leitura.</p>
@@ -954,7 +955,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               <button type="button" onClick={() => openView("trilhas")} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
             </section>
 
-            <section className="mt-3 grid grid-cols-3 gap-2">
+            <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
               <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
               <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
               <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
