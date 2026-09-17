@@ -17,6 +17,8 @@ export type AcervoHomologationRecord = {
   task_results?: Record<string, string> | null;
   final_answers?: Record<string, string> | null;
   notes?: string | null;
+  loan_id?: string | null;
+  ai_metadata?: Record<string, unknown> | null;
   participant?: AcervoHomologationPerson | null;
   conductedBy?: AcervoHomologationPerson | null;
 };
@@ -334,7 +336,7 @@ export function AcervoVivoHomologacaoManager({ api, token, people, homologations
         </button>
         <button type="button" onClick={() => setView("resultados")} className="rounded-2xl bg-[#F4FBF7] p-4 text-left text-[#00334E] ring-1 ring-[#123D2C]/10">
           <span className="block text-base font-black">Resultados</span>
-          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">{homologations.length} teste(s) registrados com contabilização automática.</span>
+          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">{homologations.length} teste(s) registrados, incluindo respostas enviadas pelo próprio participante quando a opção pós-empréstimo estiver habilitada.</span>
           <span className="mt-2 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
         </button>
       </div>
@@ -375,7 +377,9 @@ export function AcervoVivoHomologacaoManager({ api, token, people, homologations
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="font-black text-[#00334E]">{item.participant?.full_name || "Participante"}</p>
-                    <p className="text-[10px] font-bold text-slate-500">{formatDate(item.conducted_at)} • origem: {item.source_type}</p>
+                    <p className="text-[10px] font-bold text-slate-500">
+                      {formatDate(item.conducted_at)} • origem: {item.ai_metadata?.submitted_by_participant === true ? "participante após empréstimo" : item.source_type}
+                    </p>
                   </div>
                   <span className="rounded-full bg-[#E9F2E7] px-2.5 py-1 text-[9px] font-black text-[#123D2C]">{alone} sozinho • {helped} ajuda • {failed} não concluiu</span>
                 </div>

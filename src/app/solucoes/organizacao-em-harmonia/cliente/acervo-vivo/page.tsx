@@ -138,6 +138,7 @@ type Payload = {
     metadata?: {
       pickup_location?: string;
       self_service_enabled?: boolean;
+      post_loan_homologation_enabled?: boolean;
       notification_emails?: string[];
       loan_reminder_days_before_due?: number;
     } | null;
@@ -456,6 +457,7 @@ export default function AcervoVivoGestaoPage() {
   const [blockPendingFee, setBlockPendingFee] = useState(true);
   const [pickupLocation, setPickupLocation] = useState("Tucxa 1");
   const [selfServiceEnabled, setSelfServiceEnabled] = useState(true);
+  const [postLoanHomologationEnabled, setPostLoanHomologationEnabled] = useState(false);
   const [notificationEmails, setNotificationEmails] = useState("");
   const [loanReminderDays, setLoanReminderDays] = useState(3);
 
@@ -558,6 +560,7 @@ export default function AcervoVivoGestaoPage() {
     setBlockPendingFee(next.settings?.block_new_loans_with_pending_fee !== false);
     setPickupLocation(next.settings?.metadata?.pickup_location || "Tucxa 1");
     setSelfServiceEnabled(next.settings?.metadata?.self_service_enabled !== false);
+    setPostLoanHomologationEnabled(next.settings?.metadata?.post_loan_homologation_enabled === true);
     setNotificationEmails((next.settings?.metadata?.notification_emails ?? []).join("; "));
     setLoanReminderDays(Number(next.settings?.metadata?.loan_reminder_days_before_due ?? 3));
   }, []);
@@ -989,6 +992,7 @@ export default function AcervoVivoGestaoPage() {
       blockNewLoansWithPendingFee: blockPendingFee,
       pickupLocation,
       selfServiceEnabled,
+      postLoanHomologationEnabled,
       notificationEmails,
       loanReminderDaysBeforeDue: loanReminderDays,
     }, "Regras do Acervo Vivo atualizadas.");
@@ -1742,6 +1746,13 @@ export default function AcervoVivoGestaoPage() {
                 <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberReservations} onChange={(e) => setMemberReservations(e.target.checked)} />Permitir reservas</label>
                 <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberRenewals} onChange={(e) => setMemberRenewals(e.target.checked)} />Permitir renovações</label>
                 <label className="flex items-center gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2"><input type="checkbox" checked={selfServiceEnabled} onChange={(e) => setSelfServiceEnabled(e.target.checked)} />Permitir autoempréstimo pelo QR</label>
+                <label className="flex items-start gap-2 rounded-xl bg-[#E7F2FF] px-3 py-2">
+                  <input type="checkbox" checked={postLoanHomologationEnabled} onChange={(e) => setPostLoanHomologationEnabled(e.target.checked)} className="mt-0.5" />
+                  <span>
+                    <span className="block">Oferecer teste de uso após o empréstimo</span>
+                    <span className="mt-0.5 block text-[9px] font-semibold leading-4 text-slate-600">Quando habilitado, a pessoa poderá responder as mesmas questões estruturadas logo após concluir um empréstimo. A participação é opcional e entra nos Resultados da Homologação.</span>
+                  </span>
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-2 py-2"><input type="checkbox" checked={blockOverdue} onChange={(e) => setBlockOverdue(e.target.checked)} />Bloquear atraso</label>
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-2 py-2"><input type="checkbox" checked={blockPendingFee} onChange={(e) => setBlockPendingFee(e.target.checked)} />Bloquear taxa</label>

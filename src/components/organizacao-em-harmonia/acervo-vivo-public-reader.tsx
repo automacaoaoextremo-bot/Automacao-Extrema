@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { AcervoVivoSupportCard } from "@/components/organizacao-em-harmonia/acervo-vivo-support-card";
+import { AcervoVivoHomologacaoSelfForm } from "@/components/organizacao-em-harmonia/acervo-vivo-homologacao-self-form";
 import { acervoVivoSupportWhatsappUrl } from "@/lib/organizacao-em-harmonia/acervo-vivo-support";
 
 const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
@@ -113,6 +114,7 @@ type Payload = {
     pickup_address?: string;
     pickup_maps_url?: string;
     self_service_enabled?: boolean;
+    post_loan_homologation_enabled?: boolean;
     loan_reminder_days_before_due?: number;
   };
   titles?: TitleRow[];
@@ -129,6 +131,7 @@ type PendingAction = "reserve" | "borrow-now" | "my-books";
 type ConfirmAction = Exclude<PendingAction, "my-books">;
 
 type LoanThankYou = {
+  loanId: string;
   title: string;
   dueAt: string;
   profile?: string;
@@ -399,6 +402,9 @@ export function AcervoVivoPublicReader() {
   const [blockingNotice, setBlockingNotice] = useState<BlockingNotice | null>(null);
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const [hideTutorial, setHideTutorial] = useState(false);
+  const [trailsIntroOpen, setTrailsIntroOpen] = useState(false);
+  const [selfHomologationOpen, setSelfHomologationOpen] = useState(false);
+  const [selfHomologationSent, setSelfHomologationSent] = useState(false);
 
   const fetchPayload = useCallback(async (): Promise<Payload> => {
     const exemplar = typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("exemplar") || "";
@@ -799,6 +805,7 @@ export function AcervoVivoPublicReader() {
         error?: string;
         readyForPickup?: boolean;
         dueAt?: string;
+        loanId?: string;
       };
 
       if (!response.ok) {
@@ -833,10 +840,12 @@ export function AcervoVivoPublicReader() {
 
       if (action === "borrow-now") {
         setLoanThankYou({
+          loanId: result.loanId || "",
           title: selectedTitle.title,
           dueAt: result.dueAt || confirmDueAt,
           profile: signedInProfile || payload.reader?.profile,
         });
+        setSelfHomologationSent(false);
         return;
       }
 
@@ -1038,7 +1047,14 @@ export function AcervoVivoPublicReader() {
           <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">O que você quer estudar hoje?</h1>
           <p className="mt-1 text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:hidden">Livros, Trilhas, Clube do Livro e Grupo de Estudos em um só lugar.</p>
           <p className="mt-2 hidden max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:block">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
-          <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-2 rounded-xl bg-white/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.1em] text-white ring-1 ring-white/20 sm:mt-3 sm:py-2 sm:text-[10px] sm:tracking-[0.12em]">Como emprestar um livro</button>
+          <button
+            type="button"
+            onClick={() => { setHideTutorial(false); setTutorialStep(0); }}
+            className="mt-2 flex min-h-10 w-full items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.1em] text-white ring-1 ring-white/20 transition hover:bg-white/15 sm:mt-3 sm:min-h-11 sm:text-[11px]"
+          >
+            <span>Como emprestar um livro</span>
+            <span className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[8px] font-black tracking-[0.12em] text-[#123D2C]">ABRIR</span>
+          </button>
         </section>
 
         <AcervoVivoSupportCard />
@@ -1063,12 +1079,19 @@ export function AcervoVivoPublicReader() {
           </div>
         )}
 
-        <section className="mt-2 hidden rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
-            <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura reúnem sugestões por tema para ajudar você a escolher a próxima leitura.</p>
-          </div>
-          <button type="button" onClick={() => { setView("trilhas"); setTrailPage(1); }} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
+        <section className="mt-2" aria-label="Conheça as Trilhas de Leitura">
+          <button
+            type="button"
+            onClick={() => setTrailsIntroOpen(true)}
+            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl bg-[#E9F2E7] px-3 py-2.5 text-left shadow-sm ring-1 ring-[#123D2C]/10 transition hover:bg-[#DDECD9] sm:min-h-14 sm:px-4 sm:py-3"
+            aria-haspopup="dialog"
+          >
+            <span className="min-w-0">
+              <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[10px]">Não sabe por onde começar?</span>
+              <span className="block text-sm font-black leading-tight text-[#123D2C] sm:mt-0.5 sm:text-base">Conheça as Trilhas</span>
+            </span>
+            <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-[9px] font-black uppercase tracking-[0.1em] text-white sm:text-[10px]">ABRIR</span>
+          </button>
         </section>
 
         <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
@@ -1092,6 +1115,22 @@ export function AcervoVivoPublicReader() {
           />
         </section>
       </section>
+
+      {trailsIntroOpen && (
+        <Modal title="Não sabe por onde começar?" eyebrow="Trilhas de Leitura" onClose={() => setTrailsIntroOpen(false)} z={240}>
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p>As Trilhas de Leitura reúnem sugestões por tema para ajudar você a escolher a próxima leitura e seguir um caminho de estudo.</p>
+            <p className="mt-2">Você pode abrir uma Trilha, conhecer o objetivo e explorar os livros e conteúdos relacionados. As Trilhas podem ser atualizadas conforme as orientações dos responsáveis da Casa.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setTrailsIntroOpen(false); setView("trilhas"); setTrailPage(1); }}
+            className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+          >
+            Abrir as Trilhas
+          </button>
+        </Modal>
+      )}
 
       {view === "descobrir" && <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
         <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escolha como deseja encontrar os livros</p>
@@ -1419,8 +1458,32 @@ export function AcervoVivoPublicReader() {
           <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
           <p className="mt-3 font-bold">Isso ajuda a Biblioteca do Acervo Vivo do Tucxa a permanecer organizada e à disposição de todos.</p>
         </div>
+        {payload.settings?.post_loan_homologation_enabled && loanThankYou.loanId && !selfHomologationSent ? (
+          <button
+            type="button"
+            onClick={() => setSelfHomologationOpen(true)}
+            className="mt-3 w-full rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-2 ring-[#2F6B43]"
+          >
+            Participar do teste de uso (opcional)
+          </button>
+        ) : null}
+        {selfHomologationSent ? <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-xs font-black text-emerald-900 ring-1 ring-emerald-200">Obrigado! Suas respostas foram contabilizadas.</p> : null}
         <button type="button" onClick={closeLoanThankYou} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
       </Modal>}
+
+      {selfHomologationOpen && loanThankYou?.loanId ? (
+        <Modal title="Teste de uso do Acervo Vivo" eyebrow="Após o empréstimo • participação opcional" z={340} onClose={() => setSelfHomologationOpen(false)}>
+          <AcervoVivoHomologacaoSelfForm
+            api={API}
+            loanId={loanThankYou.loanId}
+            title={loanThankYou.title}
+            onDone={() => {
+              setSelfHomologationSent(true);
+              setSelfHomologationOpen(false);
+            }}
+          />
+        </Modal>
+      ) : null}
 
       {blockingNotice && <Modal title={blockingNotice.title} eyebrow="Acervo Vivo • atenção" z={330} onClose={() => setBlockingNotice(null)}>
         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-950 ring-1 ring-amber-200">

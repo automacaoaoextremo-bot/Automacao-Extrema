@@ -137,6 +137,7 @@ async function publicPayload(organizationId: string, qrToken?: string | null) {
       pickup_address: pickup.address,
       pickup_maps_url: pickup.mapsUrl,
       self_service_enabled: metadata.self_service_enabled !== false,
+      post_loan_homologation_enabled: metadata.post_loan_homologation_enabled === true,
       loan_reminder_days_before_due: Number(metadata.loan_reminder_days_before_due ?? 3),
     },
     titles: titleRows,

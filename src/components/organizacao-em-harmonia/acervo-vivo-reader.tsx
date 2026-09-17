@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { AcervoVivoSupportCard } from "@/components/organizacao-em-harmonia/acervo-vivo-support-card";
+import { AcervoVivoHomologacaoSelfForm } from "@/components/organizacao-em-harmonia/acervo-vivo-homologacao-self-form";
 
 type ReviewComment = {
   id: string;
@@ -146,6 +147,7 @@ type Payload = {
       pickup_address?: string;
       pickup_maps_url?: string;
       loan_reminder_days_before_due?: number;
+      post_loan_homologation_enabled?: boolean;
     } | null;
   };
   titles?: TitleRow[];
@@ -169,6 +171,7 @@ type View = "descobrir" | "trilhas" | "meus";
 type MyView = "emprestimos" | "reservas";
 
 type LoanThankYou = {
+  loanId: string;
   title: string;
   dueAt?: string | null;
 };
@@ -178,6 +181,15 @@ const PUBLIC_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo"
 const MANAGEMENT_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo";
 const MANAGEMENT_API = "/api/organizacao-em-harmonia/cliente/acervo-vivo";
 const MANAGEMENT_ACCESS_API = "/api/organizacao-em-harmonia/cliente/acervo-vivo?accessOnly=1";
+const LOAN_GUIDE = [
+  "Escolha o livro em Descobrir ou pelas Trilhas.",
+  "Abra o detalhe e confira o código da lombada do exemplar físico.",
+  "Com o livro em mãos, escolha a opção de empréstimo e confirme sua identificação.",
+  "Se o cadastro precisar de atualização, complete nome, WhatsApp e e-mail válido para continuar.",
+  "Depois da confirmação, acompanhe a data prevista de devolução em Meus livros.",
+  "Para devolver, siga a orientação mostrada pelo sistema e mantenha o Acervo organizado para a próxima pessoa.",
+] as const;
+
 
 function normalize(value: string) {
   return value
@@ -435,6 +447,10 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [confirmAction, setConfirmAction] = useState<"borrow-now" | "reserve" | null>(null);
   const [confirmDueAt, setConfirmDueAt] = useState("");
   const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
+  const [loanGuideOpen, setLoanGuideOpen] = useState(false);
+  const [trailsIntroOpen, setTrailsIntroOpen] = useState(false);
+  const [selfHomologationOpen, setSelfHomologationOpen] = useState(false);
+  const [selfHomologationSent, setSelfHomologationSent] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [notifyIfNotPickedUp, setNotifyIfNotPickedUp] = useState(true);
   const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
@@ -770,9 +786,11 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     setConfirmAction(null);
     if (action === "borrow-now") {
       setLoanThankYou({
+        loanId: typeof result.loanId === "string" ? result.loanId : "",
         title: selectedTitle.title,
         dueAt: typeof result.dueAt === "string" ? result.dueAt : confirmDueAt,
       });
+      setSelfHomologationSent(false);
     }
   }
 
@@ -914,6 +932,15 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-2 hidden max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:block">
             Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo.
           </p>
+          <button
+            type="button"
+            onClick={() => setLoanGuideOpen(true)}
+            className="mt-2 flex min-h-10 w-full items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.1em] text-white ring-1 ring-white/20 transition hover:bg-white/15 sm:mt-3 sm:min-h-11 sm:text-[11px]"
+            aria-haspopup="dialog"
+          >
+            <span>Como emprestar um livro</span>
+            <span className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[8px] font-black tracking-[0.12em] text-[#123D2C]">ABRIR</span>
+          </button>
         </section>
 
         <AcervoVivoSupportCard />
@@ -947,12 +974,19 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-[#123D2C] shadow ring-1 ring-[#123D2C]/10">Carregando o Acervo Vivo...</p>
         ) : (
           <>
-            <section className="mt-2 hidden rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10 sm:flex sm:items-center sm:justify-between sm:gap-4">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Não sabe por onde começar?</p>
-                <p className="mt-1 text-sm font-bold leading-5 text-[#123D2C]">As Trilhas de Leitura organizam sugestões por tema para facilitar a escolha da sua próxima leitura.</p>
-              </div>
-              <button type="button" onClick={() => openView("trilhas")} className="mt-2 w-full rounded-xl bg-[#123D2C] px-4 py-2 text-xs font-black text-white sm:mt-0 sm:w-auto">Conhecer as Trilhas</button>
+            <section className="mt-2" aria-label="Conheça as Trilhas de Leitura">
+              <button
+                type="button"
+                onClick={() => setTrailsIntroOpen(true)}
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl bg-[#E9F2E7] px-3 py-2.5 text-left shadow-sm ring-1 ring-[#123D2C]/10 transition hover:bg-[#DDECD9] sm:min-h-14 sm:px-4 sm:py-3"
+                aria-haspopup="dialog"
+              >
+                <span className="min-w-0">
+                  <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[10px]">Não sabe por onde começar?</span>
+                  <span className="block text-sm font-black leading-tight text-[#123D2C] sm:mt-0.5 sm:text-base">Conheça as Trilhas</span>
+                </span>
+                <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-[9px] font-black uppercase tracking-[0.1em] text-white sm:text-[10px]">ABRIR</span>
+              </button>
             </section>
 
             <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
@@ -984,6 +1018,31 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           </>
         )}
       </section>
+
+      {loanGuideOpen && (
+        <Modal title="Como emprestar um livro" eyebrow="Acervo Vivo • passo a passo" z={245} onClose={() => setLoanGuideOpen(false)}>
+          <div className="grid gap-2">
+            {LOAN_GUIDE.map((item, index) => (
+              <div key={item} className="flex gap-3 rounded-2xl bg-[#F7FAF2] p-3 text-sm font-semibold leading-5 text-slate-700 ring-1 ring-[#123D2C]/10">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#123D2C] text-[10px] font-black text-white">{index + 1}</span>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {trailsIntroOpen && (
+        <Modal title="Não sabe por onde começar?" eyebrow="Trilhas de Leitura" z={246} onClose={() => setTrailsIntroOpen(false)}>
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p>As Trilhas de Leitura organizam sugestões por tema para ajudar você a escolher a próxima leitura e seguir um caminho de estudo.</p>
+            <p className="mt-2">Abra uma Trilha para conhecer o objetivo e explorar os livros e conteúdos relacionados.</p>
+          </div>
+          <button type="button" onClick={() => { setTrailsIntroOpen(false); openView("trilhas"); }} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">
+            Abrir as Trilhas
+          </button>
+        </Modal>
+      )}
 
       {view === "descobrir" && (
         <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
@@ -1551,9 +1610,33 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             <p className="mt-2"><strong>{pickupLocation}</strong></p>
             <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
           </div>
+          {payload.settings?.metadata?.post_loan_homologation_enabled && loanThankYou.loanId && !selfHomologationSent ? (
+            <button
+              type="button"
+              onClick={() => setSelfHomologationOpen(true)}
+              className="mt-3 w-full rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-2 ring-[#2F6B43]"
+            >
+              Participar do teste de uso (opcional)
+            </button>
+          ) : null}
+          {selfHomologationSent ? <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-xs font-black text-emerald-900 ring-1 ring-emerald-200">Obrigado! Suas respostas foram contabilizadas.</p> : null}
           <button type="button" onClick={() => setLoanThankYou(null)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
         </Modal>
       )}
+
+      {selfHomologationOpen && loanThankYou?.loanId ? (
+        <Modal title="Teste de uso do Acervo Vivo" eyebrow="Após o empréstimo • participação opcional" z={300} onClose={() => setSelfHomologationOpen(false)}>
+          <AcervoVivoHomologacaoSelfForm
+            api={api}
+            loanId={loanThankYou.loanId}
+            title={loanThankYou.title}
+            onDone={() => {
+              setSelfHomologationSent(true);
+              setSelfHomologationOpen(false);
+            }}
+          />
+        </Modal>
+      ) : null}
 
       {returnLoanId && (
         <Modal title="Registrar devolução" eyebrow="Acervo Vivo • devolução" z={280} onClose={() => { setReturnLoanId(""); setReturnRating(0); setReturnComment(""); }}>

@@ -1169,6 +1169,10 @@ export async function POST(request: Request) {
           ...currentMetadata,
           pickup_location: text(body.pickupLocation) || text(currentMetadata.pickup_location) || "Tucxa 1",
           self_service_enabled: boolValue(body.selfServiceEnabled, currentMetadata.self_service_enabled !== false),
+          post_loan_homologation_enabled: boolValue(
+            body.postLoanHomologationEnabled,
+            currentMetadata.post_loan_homologation_enabled === true,
+          ),
           loan_reminder_days_before_due: Math.max(0, Math.min(30, numberValue(
             body.loanReminderDaysBeforeDue,
             numberValue(currentMetadata.loan_reminder_days_before_due, 3),

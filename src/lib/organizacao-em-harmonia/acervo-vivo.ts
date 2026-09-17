@@ -29,6 +29,31 @@ type AcervoSettings = {
 
 const ACERVO_STORAGE_BUCKET = "tucxa-acervo-vivo";
 const DAY_MS = 86_400_000;
+const ACERVO_HOMOLOGATION_TASK_KEYS = [
+  "acessar_acervo",
+  "entender_inicio",
+  "realizar_cadastro",
+  "procurar_livro",
+  "abrir_detalhe",
+  "entender_codigo_lombada",
+  "localizar_livro",
+  "registrar_emprestimo",
+  "encontrar_meus_livros",
+  "entender_data_devolucao",
+  "encontrar_trilhas",
+  "encontrar_ajuda",
+  "entender_devolucao",
+] as const;
+
+const ACERVO_HOMOLOGATION_FINAL_OPTIONS: Record<string, readonly string[]> = {
+  facilidade_geral: ["facil", "razoavel", "dificil"],
+  duvida_inseguranca: ["nao", "pouca", "muita"],
+  usaria_sozinho: ["sim", "talvez", "nao"],
+  trilhas_ajudaram: ["sim", "parcialmente", "nao", "nao_testado"],
+  apoio_humano_claro: ["sim", "parcialmente", "nao"],
+  recomendaria: ["sim", "talvez", "nao"],
+};
+
 
 export function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -581,6 +606,119 @@ export async function handleAcervoReaderPost(
   try {
     await reconcileExpiredAcervoReservations(context.organizationId);
     const settings = await settingsForReader(context.organizationId);
+
+    if (action === "save-self-homologation") {
+      const metadata = record(settings.metadata);
+      if (metadata.post_loan_homologation_enabled !== true) {
+        return NextResponse.json({ error: "O teste de uso após o empréstimo não está habilitado no momento." }, { status: 409 });
+      }
+
+      const loanId = text(body.loanId);
+      if (!loanId) return NextResponse.json({ error: "Empréstimo não informado." }, { status: 400 });
+
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .select("id,person_id,loaned_at")
+        .eq("organization_id", context.organizationId)
+        .eq("id", loanId)
+        .eq("person_id", context.personId)
+        .maybeSingle();
+      if (loanError) throw loanError;
+      if (!loan?.id) {
+        return NextResponse.json({ error: "O empréstimo deste teste não foi localizado para o seu cadastro." }, { status: 404 });
+      }
+
+      const taskResultsInput = record(body.taskResults);
+      const taskResults: Record<string, string> = {};
+      for (const key of ACERVO_HOMOLOGATION_TASK_KEYS) {
+        const value = text(taskResultsInput[key]);
+        if (!["sozinho", "com_ajuda", "nao_concluiu"].includes(value)) {
+          return NextResponse.json({ error: `Responda todas as etapas do teste antes de enviar. Etapa pendente: ${key}.` }, { status: 400 });
+        }
+        taskResults[key] = value;
+      }
+
+      const finalAnswersInput = record(body.finalAnswers);
+      const finalAnswers: Record<string, string> = {};
+      for (const [key, allowed] of Object.entries(ACERVO_HOMOLOGATION_FINAL_OPTIONS)) {
+        const value = text(finalAnswersInput[key]);
+        if (!allowed.includes(value)) {
+          return NextResponse.json({ error: `Responda todas as perguntas finais antes de enviar. Pergunta pendente: ${key}.` }, { status: 400 });
+        }
+        finalAnswers[key] = value;
+      }
+
+      const hardestStage = text(finalAnswersInput.etapa_mais_dificil);
+      if (hardestStage !== "nenhuma" && !ACERVO_HOMOLOGATION_TASK_KEYS.includes(hardestStage as typeof ACERVO_HOMOLOGATION_TASK_KEYS[number])) {
+        return NextResponse.json({ error: "Informe qual foi a etapa mais difícil ou marque Nenhuma." }, { status: 400 });
+      }
+      finalAnswers.etapa_mais_dificil = hardestStage;
+
+      const existing = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .select("id")
+        .eq("organization_id", context.organizationId)
+        .eq("loan_id", loan.id)
+        .limit(1)
+        .maybeSingle();
+      if (existing.error) {
+        const code = text(record(existing.error).code).toUpperCase();
+        if (["42703", "42P01", "PGRST204", "PGRST205"].includes(code)) {
+          return NextResponse.json(
+            { error: "Aplique a migration dos Ajustes 03 para habilitar o teste de uso após o empréstimo." },
+            { status: 409 },
+          );
+        }
+        throw existing.error;
+      }
+      if (existing.data?.id) {
+        return NextResponse.json({ error: "Este teste de uso já foi respondido para este empréstimo." }, { status: 409 });
+      }
+
+      const now = new Date().toISOString();
+      const { data: created, error: insertError } = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .insert({
+          organization_id: context.organizationId,
+          participant_person_id: context.personId,
+          conducted_by_person_id: context.personId,
+          conducted_at: now,
+          loan_id: loan.id,
+          source_type: "manual",
+          task_results: taskResults,
+          final_answers: finalAnswers,
+          notes: text(body.notes).slice(0, 2000) || null,
+          ai_metadata: {
+            submitted_by_participant: true,
+            reviewed_by_manager: false,
+            source: "post-loan-self",
+          },
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        const code = text(record(insertError).code).toUpperCase();
+        if (code === "23505") {
+          return NextResponse.json({ error: "Este teste de uso já foi respondido para este empréstimo." }, { status: 409 });
+        }
+        if (["42703", "42P01", "PGRST204", "PGRST205"].includes(code)) {
+          return NextResponse.json(
+            { error: "Aplique a migration dos Ajustes 03 para habilitar o teste de uso após o empréstimo." },
+            { status: 409 },
+          );
+        }
+        throw insertError;
+      }
+
+      await audit(context, "homologacao_pos_emprestimo_registrada", "homologation", text(created?.id) || undefined, {
+        loanId: loan.id,
+        participantPersonId: context.personId,
+      });
+
+      return NextResponse.json({ ok: true, id: created?.id });
+    }
 
     if (action === "borrow-now") {
       if (settings.member_loans_enabled === false) {
