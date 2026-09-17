@@ -12,6 +12,7 @@ const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
 const PUBLIC_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const PAGE_SIZE = 4;
 const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v3-hidden";
+const INTERNAL_RETURN_STORAGE_KEY = "tucxa-acervo-vivo-internal-return";
 
 const LOAN_TUTORIAL_STEPS = [
   { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura. Se precisar, há apoio humano para orientar você.", tip: "Comece por Descobrir ou Trilhas. Se preferir ajuda, fale com a Mariana." },
@@ -329,6 +330,11 @@ function CommunityAccess({
   return (
     <Link
       href={href}
+      onClick={() => {
+        try {
+          window.sessionStorage.setItem(INTERNAL_RETURN_STORAGE_KEY, "1");
+        } catch {}
+      }}
       className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
     >
       <div className="relative hidden aspect-[16/8] w-full bg-[#E7F0E2] sm:block">
@@ -496,6 +502,28 @@ export function AcervoVivoPublicReader() {
 
   useEffect(() => {
     let shouldOpenTutorial = true;
+    let isInternalReturn = false;
+
+    try {
+      const url = new URL(window.location.href);
+      const returnByQuery = url.searchParams.get("retorno") === "1";
+      const returnBySession = window.sessionStorage.getItem(INTERNAL_RETURN_STORAGE_KEY) === "1";
+
+      isInternalReturn = returnByQuery || returnBySession;
+
+      if (returnBySession) {
+        window.sessionStorage.removeItem(INTERNAL_RETURN_STORAGE_KEY);
+      }
+
+      if (returnByQuery) {
+        url.searchParams.delete("retorno");
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    } catch {
+      isInternalReturn = false;
+    }
+
+    if (isInternalReturn) return;
 
     try {
       shouldOpenTutorial = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) !== "1";
@@ -1045,8 +1073,9 @@ export function AcervoVivoPublicReader() {
         <section className="rounded-[1.5rem] bg-[#123D2C] p-3 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-6">
           <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#CFE2C7] sm:text-[10px] sm:tracking-[0.2em]">Acervo Vivo • {audienceLabel}</p>
           <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">O que você quer estudar hoje?</h1>
-          <p className="mt-1 text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:hidden">Livros, Trilhas, Clube do Livro e Grupo de Estudos em um só lugar.</p>
-          <p className="mt-2 hidden max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA] sm:block">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
+          <p className="mt-2 max-w-3xl text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:text-sm sm:leading-5">
+            Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.
+          </p>
           <button
             type="button"
             onClick={() => { setHideTutorial(false); setTutorialStep(0); }}
@@ -1094,9 +1123,8 @@ export function AcervoVivoPublicReader() {
           </button>
         </section>
 
-        <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
+        <section className="mt-2 grid grid-cols-2 gap-2 sm:mt-3">
           <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); setSelectedBrowseCategory(""); setSelectedCodePrefix(""); setCodePage(1); setSelectedManualCopyId(""); setDiscoverMode("alfabeto"); }} />
-          <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => { setView("trilhas"); setTrailPage(1); }} />
           <AccessButton title="Meus livros" detail={myBooksDetail} onClick={() => void openMyBooks()} />
         </section>
 
