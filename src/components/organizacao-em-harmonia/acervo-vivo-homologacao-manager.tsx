@@ -28,6 +28,7 @@ type Props = {
   token: string;
   people: AcervoHomologationPerson[];
   homologations: AcervoHomologationRecord[];
+  postLoanHomologationEnabled: boolean;
   onSaved: () => Promise<void> | void;
 };
 
@@ -130,7 +131,14 @@ function percent(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
 }
 
-export function AcervoVivoHomologacaoManager({ api, token, people, homologations, onSaved }: Props) {
+export function AcervoVivoHomologacaoManager({
+  api,
+  token,
+  people,
+  homologations,
+  postLoanHomologationEnabled,
+  onSaved,
+}: Props) {
   const [view, setView] = useState<"menu" | "registrar" | "resultados">("menu");
   const [participantPersonId, setParticipantPersonId] = useState("");
   const [sourceType, setSourceType] = useState<SourceType>("manual");
@@ -149,6 +157,12 @@ export function AcervoVivoHomologacaoManager({ api, token, people, homologations
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [postLoanEnabledDraft, setPostLoanEnabledDraft] = useState<boolean | null>(null);
+  const effectivePostLoanEnabled = postLoanEnabledDraft ?? postLoanHomologationEnabled;
+  const [settingBusy, setSettingBusy] = useState(false);
+  const [settingMessage, setSettingMessage] = useState("");
+  const [settingError, setSettingError] = useState("");
+
 
   const sortedPeople = useMemo(
     () => people.slice().sort((left, right) => (left.full_name || "").localeCompare(right.full_name || "", "pt-BR")),
@@ -171,6 +185,36 @@ export function AcervoVivoHomologacaoManager({ api, token, people, homologations
       wouldUseAloneRate: percent(wouldUseAlone, homologations.length),
     };
   }, [homologations]);
+
+  async function savePostLoanHomologationSetting() {
+    if (!token || settingBusy) return;
+    setSettingBusy(true);
+    setSettingError("");
+    setSettingMessage("");
+    try {
+      const response = await fetch(api, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: "save-settings",
+          postLoanHomologationEnabled: effectivePostLoanEnabled,
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível atualizar a configuração.");
+      setSettingMessage(
+        effectivePostLoanEnabled
+          ? "Teste de uso após o empréstimo habilitado."
+          : "Teste de uso após o empréstimo desabilitado.",
+      );
+      await onSaved();
+      setPostLoanEnabledDraft(null);
+    } catch (current) {
+      setSettingError(current instanceof Error ? current.message : "Erro ao atualizar a configuração.");
+    } finally {
+      setSettingBusy(false);
+    }
+  }
 
   function resetForm() {
     setParticipantPersonId("");
@@ -329,6 +373,46 @@ export function AcervoVivoHomologacaoManager({ api, token, people, homologations
   if (view === "menu") {
     return (
       <div className="grid gap-3 sm:grid-cols-2">
+        <section className="sm:col-span-2 rounded-2xl bg-[#E7F2FF] p-4 text-[#00334E] ring-1 ring-[#00334E]/10">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Teste após o empréstimo</p>
+              <p className="mt-1 text-sm font-black">Oferecer homologação ao usuário após o empréstimo</p>
+              <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">
+                Quando habilitado, a pessoa poderá responder as mesmas questões estruturadas logo após concluir um empréstimo. A participação é opcional e entra nos Resultados da Homologação.
+              </p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.1em] ${effectivePostLoanEnabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>
+              {effectivePostLoanEnabled ? "Habilitado" : "Desabilitado"}
+            </span>
+          </div>
+          <label className="mt-3 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black ring-1 ring-[#00334E]/10">
+            <input
+              type="checkbox"
+              checked={effectivePostLoanEnabled}
+              onChange={(event) => {
+                setPostLoanEnabledDraft(event.target.checked);
+                setSettingMessage("");
+                setSettingError("");
+              }}
+            />
+            Permitir que o participante responda após concluir um empréstimo
+          </label>
+          {(settingError || settingMessage) && (
+            <div className={`mt-2 rounded-xl p-2 text-[10px] font-bold ring-1 ${settingError ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-900 ring-emerald-200"}`}>
+              {settingError || settingMessage}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={settingBusy || effectivePostLoanEnabled === postLoanHomologationEnabled}
+            onClick={() => void savePostLoanHomologationSetting()}
+            className="mt-3 w-full rounded-xl bg-[#00334E] px-3 py-2.5 text-xs font-black text-white disabled:opacity-40"
+          >
+            {settingBusy ? "Salvando..." : "Salvar configuração"}
+          </button>
+        </section>
+
         <button type="button" onClick={() => { resetForm(); setView("registrar"); }} className="rounded-2xl bg-[#F4FBF7] p-4 text-left text-[#00334E] ring-1 ring-[#123D2C]/10">
           <span className="block text-base font-black">Registrar teste</span>
           <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">Selecione uma pessoa cadastrada, una roteiro + ficha e registre as respostas estruturadas.</span>

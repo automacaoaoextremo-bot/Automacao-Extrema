@@ -1146,7 +1146,7 @@ export async function POST(request: Request) {
       }
       const { data: currentSettings, error: currentSettingsError } = await supabaseAdmin
         .from("oh_acervo_settings")
-        .select("metadata")
+        .select("loan_days,daily_late_fee,max_active_loans,renewal_limit,reservation_hold_days,public_catalog_enabled,member_loans_enabled,member_reservations_enabled,member_renewals_enabled,block_new_loans_with_overdue,block_new_loans_with_pending_fee,metadata")
         .eq("organization_id", organizationId)
         .maybeSingle();
       if (currentSettingsError) throw currentSettingsError;
@@ -1154,17 +1154,17 @@ export async function POST(request: Request) {
       const notificationEmails = asTextList(body.notificationEmails).filter((value) => value.includes("@"));
       const payload = {
         organization_id: organizationId,
-        loan_days: Math.max(1, Math.min(365, numberValue(body.loanDays, 30))),
-        daily_late_fee: Math.max(0, numberValue(body.dailyLateFee, 1)),
-        max_active_loans: Math.max(1, Math.min(50, numberValue(body.maxActiveLoans, 3))),
-        renewal_limit: Math.max(0, Math.min(20, numberValue(body.renewalLimit, 1))),
-        reservation_hold_days: Math.max(1, Math.min(30, numberValue(body.reservationHoldDays, 3))),
-        public_catalog_enabled: boolValue(body.publicCatalogEnabled, true),
-        member_loans_enabled: boolValue(body.memberLoansEnabled, true),
-        member_reservations_enabled: boolValue(body.memberReservationsEnabled, true),
-        member_renewals_enabled: boolValue(body.memberRenewalsEnabled, true),
-        block_new_loans_with_overdue: boolValue(body.blockNewLoansWithOverdue, true),
-        block_new_loans_with_pending_fee: boolValue(body.blockNewLoansWithPendingFee, true),
+        loan_days: Math.max(1, Math.min(365, numberValue(body.loanDays, numberValue(currentSettings?.loan_days, 30)))),
+        daily_late_fee: Math.max(0, numberValue(body.dailyLateFee, numberValue(currentSettings?.daily_late_fee, 1))),
+        max_active_loans: Math.max(1, Math.min(50, numberValue(body.maxActiveLoans, numberValue(currentSettings?.max_active_loans, 3)))),
+        renewal_limit: Math.max(0, Math.min(20, numberValue(body.renewalLimit, numberValue(currentSettings?.renewal_limit, 1)))),
+        reservation_hold_days: Math.max(1, Math.min(30, numberValue(body.reservationHoldDays, numberValue(currentSettings?.reservation_hold_days, 3)))),
+        public_catalog_enabled: boolValue(body.publicCatalogEnabled, currentSettings?.public_catalog_enabled !== false),
+        member_loans_enabled: boolValue(body.memberLoansEnabled, currentSettings?.member_loans_enabled !== false),
+        member_reservations_enabled: boolValue(body.memberReservationsEnabled, currentSettings?.member_reservations_enabled !== false),
+        member_renewals_enabled: boolValue(body.memberRenewalsEnabled, currentSettings?.member_renewals_enabled !== false),
+        block_new_loans_with_overdue: boolValue(body.blockNewLoansWithOverdue, currentSettings?.block_new_loans_with_overdue !== false),
+        block_new_loans_with_pending_fee: boolValue(body.blockNewLoansWithPendingFee, currentSettings?.block_new_loans_with_pending_fee !== false),
         metadata: {
           ...currentMetadata,
           pickup_location: text(body.pickupLocation) || text(currentMetadata.pickup_location) || "Tucxa 1",

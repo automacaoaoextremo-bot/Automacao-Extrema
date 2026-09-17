@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendAcervoMovementNotifications } from "@/lib/organizacao-em-harmonia/acervo-vivo-notifications";
-import { record } from "@/lib/organizacao-em-harmonia/acervo-vivo";
+import { reconcileExpiredAcervoReservations, record } from "@/lib/organizacao-em-harmonia/acervo-vivo";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +34,16 @@ export async function GET(request: Request) {
   const results: Array<{ loanId: string; sent: boolean; reason?: string }> = [];
 
   for (const settings of settingsRows ?? []) {
+    try {
+      await reconcileExpiredAcervoReservations(settings.organization_id);
+    } catch (error) {
+      results.push({
+        loanId: `reservas:${settings.organization_id}`,
+        sent: false,
+        reason: error instanceof Error ? `Falha ao reconciliar reservas vencidas: ${error.message}` : "Falha ao reconciliar reservas vencidas.",
+      });
+    }
+
     const metadata = record(settings.metadata);
     const reminderDays = Math.max(0, Math.min(30, Number(metadata.loan_reminder_days_before_due ?? 3) || 0));
     if (reminderDays <= 0) continue;

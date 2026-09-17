@@ -1708,6 +1708,7 @@ export default function AcervoVivoGestaoPage() {
                     token={token}
                     people={people}
                     homologations={homologations}
+                    postLoanHomologationEnabled={postLoanHomologationEnabled}
                     onSaved={() => load(token)}
                   />
                 </div>

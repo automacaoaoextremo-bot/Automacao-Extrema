@@ -176,6 +176,13 @@ type LoanThankYou = {
   dueAt?: string | null;
 };
 
+type ReservationThankYou = {
+  reservationId: string;
+  title: string;
+  readyForPickup: boolean;
+  holdUntil?: string | null;
+};
+
 const PAGE_SIZE = 4;
 const PUBLIC_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const MANAGEMENT_ACERVO_PATH = "/solucoes/organizacao-em-harmonia/cliente/acervo-vivo";
@@ -447,6 +454,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const [confirmAction, setConfirmAction] = useState<"borrow-now" | "reserve" | null>(null);
   const [confirmDueAt, setConfirmDueAt] = useState("");
   const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
+  const [reservationThankYou, setReservationThankYou] = useState<ReservationThankYou | null>(null);
   const [loanGuideOpen, setLoanGuideOpen] = useState(false);
   const [trailsIntroOpen, setTrailsIntroOpen] = useState(false);
   const [selfHomologationOpen, setSelfHomologationOpen] = useState(false);
@@ -791,7 +799,36 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
         dueAt: typeof result.dueAt === "string" ? result.dueAt : confirmDueAt,
       });
       setSelfHomologationSent(false);
+    } else {
+      setReservationThankYou({
+        reservationId: typeof result.reservationId === "string" ? result.reservationId : "",
+        title: selectedTitle.title,
+        readyForPickup: result.readyForPickup === true,
+        holdUntil: typeof result.holdUntil === "string" ? result.holdUntil : null,
+      });
     }
+  }
+
+  async function confirmReservedLoan(reservation: ReservationRow) {
+    const title = reservation.title?.title || "Livro reservado";
+    const confirmed = window.confirm(
+      `Você está com o exemplar de "${title}" em mãos e deseja iniciar o empréstimo agora?`,
+    );
+    if (!confirmed) return;
+
+    const result = await run(
+      { action: "confirm-reservation-loan", reservationId: reservation.id },
+      "Empréstimo confirmado a partir da reserva.",
+    );
+    if (!result) return;
+
+    setLoanThankYou({
+      loanId: typeof result.loanId === "string" ? result.loanId : "",
+      title,
+      dueAt: typeof result.dueAt === "string" ? result.dueAt : "",
+    });
+    setSelfHomologationSent(false);
+    setMyView("emprestimos");
   }
 
   async function confirmReturn() {
@@ -1367,9 +1404,17 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                       : `Na fila desde ${formatDate(reservation.requested_at)}.`}
                   </p>
                   {reservation.status === "disponivel" && (
-                    <p className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-[10px] font-bold leading-4 text-[#123D2C]">
-                      Ao retirar o exemplar físico, leia o QR Code colado no livro para confirmar o empréstimo. O prazo de devolução começa somente nessa confirmação.
-                    </p>
+                    <div className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-[10px] font-bold leading-4 text-[#123D2C]">
+                      <p>Quando estiver com o exemplar em mãos, confirme aqui o empréstimo. O prazo de devolução começa somente depois dessa confirmação.</p>
+                      <button
+                        disabled={saving}
+                        type="button"
+                        onClick={() => void confirmReservedLoan(reservation)}
+                        className="mt-2 w-full rounded-lg bg-[#123D2C] px-3 py-2 text-[10px] font-black text-white disabled:opacity-50"
+                      >
+                        Confirmar empréstimo
+                      </button>
+                    </div>
                   )}
                   <button disabled={saving} type="button" onClick={() => void run({ action: "cancel-reservation", reservationId: reservation.id }, "Reserva cancelada.")} className="mt-2 rounded-lg bg-white px-3 py-1.5 text-[10px] font-black text-[#7A2D2D] ring-1 ring-red-200 disabled:opacity-50">Cancelar reserva</button>
                 </article>
@@ -1585,9 +1630,13 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </>
             ) : (
               <>
-                <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+                {(selectedTitle.availableCopies ?? 0) > 0 ? (
+                  <p className="mt-2">Ao confirmar a reserva, o exemplar disponível ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dias</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+                ) : (
+                  <p className="mt-2">Não há exemplar disponível neste momento. Ao confirmar, você entrará na fila de reserva e será avisado quando um exemplar for separado para retirada.</p>
+                )}
                 <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
-                <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
+                <p className="mt-2">Na retirada, siga as orientações no e-mail recebido e confirme o empréstimo em <strong>Meus livros</strong>.</p>
                 {(selectedTitle.availableCopies ?? 0) <= 0 && (
                   <div className="mt-3 grid gap-2">
                     <label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={notifyIfNotPickedUp} onChange={(event) => setNotifyIfNotPickedUp(event.target.checked)} />Avisar se uma reserva anterior não for retirada no prazo.</label>
@@ -1598,6 +1647,31 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
             )}
           </div>
           <button disabled={saving} type="button" onClick={() => void confirmSelectedAction()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+        </Modal>
+      )}
+
+      {reservationThankYou && (
+        <Modal
+          title="Obrigado!"
+          eyebrow={reservationThankYou.readyForPickup ? "Acervo Vivo • reserva confirmada" : "Acervo Vivo • solicitação registrada"}
+          z={280}
+          onClose={() => setReservationThankYou(null)}
+        >
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            {reservationThankYou.readyForPickup ? (
+              <>
+                <p>A reserva do livro <strong>{reservationThankYou.title}</strong> foi confirmada.</p>
+                <p className="mt-2">O exemplar foi retirado da disponibilidade e ficou separado para você em <strong>{pickupLocation}</strong>{reservationThankYou.holdUntil ? <> até <strong>{formatDate(reservationThankYou.holdUntil)}</strong></> : null}.</p>
+                <p className="mt-2">Na retirada, siga as orientações enviadas por e-mail e confirme o empréstimo em <strong>Meus livros → Reservas</strong>.</p>
+              </>
+            ) : (
+              <>
+                <p>Sua solicitação de reserva do livro <strong>{reservationThankYou.title}</strong> foi registrada.</p>
+                <p className="mt-2">Você entrou na fila e será avisado quando houver um exemplar disponível para retirada.</p>
+              </>
+            )}
+          </div>
+          <button type="button" onClick={() => setReservationThankYou(null)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
         </Modal>
       )}
 

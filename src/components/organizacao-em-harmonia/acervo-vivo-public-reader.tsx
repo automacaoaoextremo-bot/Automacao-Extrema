@@ -138,6 +138,13 @@ type LoanThankYou = {
   profile?: string;
 };
 
+type ReservationThankYou = {
+  reservationId: string;
+  title: string;
+  readyForPickup: boolean;
+  holdUntil?: string | null;
+};
+
 type BlockingNotice = {
   title: string;
   message: string;
@@ -404,6 +411,7 @@ export function AcervoVivoPublicReader() {
   const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
   const [confirmDueAt, setConfirmDueAt] = useState("");
   const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
+  const [reservationThankYou, setReservationThankYou] = useState<ReservationThankYou | null>(null);
   const [signedInProfile, setSignedInProfile] = useState("");
   const [blockingNotice, setBlockingNotice] = useState<BlockingNotice | null>(null);
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
@@ -831,7 +839,9 @@ export function AcervoVivoPublicReader() {
 
       const result = await response.json().catch(() => ({})) as {
         error?: string;
+        reservationId?: string;
         readyForPickup?: boolean;
+        holdUntil?: string | null;
         dueAt?: string;
         loanId?: string;
       };
@@ -877,11 +887,12 @@ export function AcervoVivoPublicReader() {
         return;
       }
 
-      setSuccess(
-        result.readyForPickup
-          ? `Reserva confirmada. O exemplar ficou separado para retirada em ${payload.settings?.pickup_location || "Tucxa 1"}.`
-          : "Você entrou na fila e será avisado quando houver disponibilidade.",
-      );
+      setReservationThankYou({
+        reservationId: result.reservationId || "",
+        title: selectedTitle.title,
+        readyForPickup: result.readyForPickup === true,
+        holdUntil: result.holdUntil ?? null,
+      });
       await load();
     } catch (current) {
       setError(current instanceof Error ? current.message : "Erro ao concluir a operação.");
@@ -1468,15 +1479,44 @@ export function AcervoVivoPublicReader() {
             </>
           ) : (
             <>
-              <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+              {availableCount > 0 ? (
+                <p className="mt-2">Ao confirmar a reserva, o exemplar disponível ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dias</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+              ) : (
+                <p className="mt-2">Não há exemplar disponível neste momento. Ao confirmar, você entrará na fila de reserva e será avisado quando um exemplar for separado para retirada.</p>
+              )}
               <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
-              <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
+              <p className="mt-2">Na retirada, siga as orientações no e-mail recebido e confirme o empréstimo em <strong>Meus livros</strong>.</p>
               {availableCount <= 0 && <div className="mt-3 grid gap-2"><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={notifyIfNotPickedUp} onChange={(event) => setNotifyIfNotPickedUp(event.target.checked)} />Avisar se uma reserva anterior não for retirada no prazo.</label><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={reserveAfterReturn} onChange={(event) => setReserveAfterReturn(event.target.checked)} />Manter meu interesse para reservar quando o livro for devolvido.</label></div>}
             </>
           )}
         </div>
         <button disabled={saving} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
       </Modal>}
+
+      {reservationThankYou && (
+        <Modal
+          title="Obrigado!"
+          eyebrow={reservationThankYou.readyForPickup ? "Acervo Vivo • reserva confirmada" : "Acervo Vivo • solicitação registrada"}
+          z={305}
+          onClose={() => setReservationThankYou(null)}
+        >
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            {reservationThankYou.readyForPickup ? (
+              <>
+                <p>A reserva do livro <strong>{reservationThankYou.title}</strong> foi confirmada.</p>
+                <p className="mt-2">O exemplar foi retirado da disponibilidade e ficou separado para você em <strong>{pickupLocation}</strong>{reservationThankYou.holdUntil ? <> até <strong>{formatDate(reservationThankYou.holdUntil)}</strong></> : null}.</p>
+                <p className="mt-2">Na retirada, siga as orientações enviadas por e-mail. Esteja logado no sistema, abra <strong>Meus livros → Reservas</strong> e toque em <strong>Confirmar empréstimo</strong> quando estiver com o exemplar em mãos.</p>
+              </>
+            ) : (
+              <>
+                <p>Sua solicitação de reserva do livro <strong>{reservationThankYou.title}</strong> foi registrada.</p>
+                <p className="mt-2">No momento não há exemplar livre. Você entrou na fila e receberá um aviso quando houver disponibilidade.</p>
+              </>
+            )}
+          </div>
+          <button type="button" onClick={() => setReservationThankYou(null)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
+        </Modal>
+      )}
 
       {loanThankYou && <Modal title="Obrigado!" eyebrow="Acervo Vivo • empréstimo confirmado" z={310} onClose={closeLoanThankYou}>
         <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">

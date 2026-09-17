@@ -4,6 +4,7 @@ import {
   getAcervoReaderContext,
   handleAcervoReaderPost,
   normalize,
+  reconcileExpiredAcervoReservations,
   record,
   text,
 } from "@/lib/organizacao-em-harmonia/acervo-vivo";
@@ -72,6 +73,8 @@ function yearMonth(resource: Record<string, unknown>) {
 }
 
 async function publicPayload(organizationId: string, qrToken?: string | null) {
+  await reconcileExpiredAcervoReservations(organizationId);
+
   const [settings, titles, copies, trails, trailItems, resources, versions, years] = await Promise.all([
     supabaseAdmin.from("oh_acervo_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
     supabaseAdmin.from("oh_acervo_titles").select("id,title,subtitle,authors,publisher,publication_year,isbn10,isbn13,description,subjects,cover_url,cover_source,active").eq("organization_id", organizationId).eq("active", true).order("title"),
