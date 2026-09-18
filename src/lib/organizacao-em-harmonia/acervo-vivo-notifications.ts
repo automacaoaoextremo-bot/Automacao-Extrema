@@ -8,6 +8,7 @@ export type AcervoNotificationKind =
   | "emprestimo"
   | "devolucao"
   | "reserva_disponivel"
+  | "reserva_cancelada"
   | "lembrete_devolucao";
 
 type NotificationInput = {
@@ -113,6 +114,7 @@ function labels(kind: AcervoNotificationKind) {
   if (kind === "emprestimo") return { subject: "Empréstimo registrado", action: "foi emprestado" };
   if (kind === "devolucao") return { subject: "Devolução registrada", action: "foi devolvido" };
   if (kind === "reserva_disponivel") return { subject: "Livro disponível para retirada", action: "está separado para retirada" };
+  if (kind === "reserva_cancelada") return { subject: "Reserva cancelada", action: "teve a reserva cancelada" };
   if (kind === "lembrete_devolucao") return { subject: "Lembrete de devolução", action: "continua em seu empréstimo" };
   if (kind === "fila") return { subject: "Entrada na fila de reserva", action: "foi incluído na fila de reserva" };
   return { subject: "Reserva registrada", action: "foi reservado" };
@@ -348,6 +350,82 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
           to: primary,
           cc: cc.length ? cc.join(",") : undefined,
           subject: `[Tucxa • Acervo Vivo] ${input.kind === "reserva" ? "Reserva confirmada" : "Reserva disponível"} — ${personName} — ${titleName}`,
+          text: managementBody,
+        }),
+      );
+    }
+
+    if (!sends.length) {
+      return { sent: false, reason: "Nenhum destinatário configurado." };
+    }
+
+    await Promise.all(sends);
+    return {
+      sent: true,
+      recipients: Array.from(new Set([personEmail, ...managerEmails].filter(Boolean))),
+    };
+  }
+
+  if (input.kind === "reserva_cancelada") {
+    const subject = `[Tucxa • Acervo Vivo] Reserva cancelada — ${titleName}`;
+
+    const personalBody = [
+      `Olá, ${personName}.`,
+      "",
+      `Sua reserva do livro "${titleName}" foi cancelada.`,
+      authors ? `Autor(es): ${authors}.` : "",
+      copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      "",
+      "Se desejar esse livro novamente, acesse o Acervo Vivo e faça uma nova reserva quando houver interesse.",
+      `Acervo Vivo: ${acervoUrl}`,
+      "",
+      "Tucxa em Harmonia — Acervo Vivo",
+    ].filter(Boolean).join("\n");
+
+    const personalHtml = emailHtml([
+      `Olá, ${escapeHtml(personName)}.`,
+      `Sua reserva do livro <strong>"${escapeHtml(titleName)}"</strong> foi cancelada.`,
+      authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
+      copyCode ? `Exemplar que estava separado: ${escapeHtml(copyCode)}.` : "",
+      `Se desejar esse livro novamente, <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">acesse o Acervo Vivo</a> e faça uma nova reserva quando houver interesse.`,
+      "Tucxa em Harmonia — Acervo Vivo",
+    ]);
+
+    const managementBody = [
+      `${personName}: reserva cancelada — "${titleName}".`,
+      authors ? `Autor(es): ${authors}.` : "",
+      copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      "",
+      copyCode
+        ? "O exemplar foi liberado para a próxima pessoa da fila ou voltou à disponibilidade, conforme as regras do Acervo Vivo."
+        : "A solicitação foi retirada da fila de reservas.",
+    ].filter(Boolean).join("\n");
+
+    const sends: Promise<unknown>[] = [];
+
+    if (personEmail) {
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: personEmail,
+          subject,
+          text: personalBody,
+          html: personalHtml,
+        }),
+      );
+    }
+
+    if (managerEmails.length) {
+      const primary = managerEmails.includes(PRIMARY_MANAGEMENT_EMAIL)
+        ? PRIMARY_MANAGEMENT_EMAIL
+        : managerEmails[0];
+      const cc = managerEmails.filter((email) => email !== primary);
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: primary,
+          cc: cc.length ? cc.join(",") : undefined,
+          subject: `[Tucxa • Acervo Vivo] Reserva cancelada — ${personName} — ${titleName}`,
           text: managementBody,
         }),
       );

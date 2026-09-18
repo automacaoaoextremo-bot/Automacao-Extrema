@@ -1367,6 +1367,14 @@ export async function handleAcervoReaderPost(
       }
 
       await audit(context, "reserva_cancelada", "reservation", reservation.id);
+      await sendAcervoMovementNotifications({
+        organizationId: context.organizationId,
+        personId: context.personId,
+        titleId: reservation.title_id,
+        copyId: reservation.available_copy_id,
+        kind: "reserva_cancelada",
+      }).catch(() => undefined);
+
       return NextResponse.json({ ok: true });
     }
 

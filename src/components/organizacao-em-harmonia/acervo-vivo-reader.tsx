@@ -560,7 +560,12 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const selectedManualCopy = selectedManualCopyId
     ? copies.find((copy) => copy.id === selectedManualCopyId) ?? null
     : null;
-  const selectedIdentifiedCopy = selectedManualCopy?.title_id === selectedTitle?.id ? selectedManualCopy : null;
+  const manualCopyIsAvailableForSelectedTitle = selectedManualCopy
+    ? selectedManualCopy.title_id === selectedTitle?.id && selectedManualCopy.status === "disponivel"
+    : false;
+  const selectedIdentifiedCopy = manualCopyIsAvailableForSelectedTitle
+    ? selectedManualCopy
+    : null;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
   const categories = useMemo(() => {
@@ -596,7 +601,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
   const codeEntries = useMemo(
     () => copies
-      .filter((copy) => Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
+      .filter((copy) => copy.status === "disponivel" && Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
       .slice()
       .sort(compareCopyCodes)
       .map((copy) => ({
@@ -627,7 +632,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
     if (!query.trim() || !looksLikeCopyCode(query)) return map;
 
     for (const copy of copies) {
-      if (!copyMatchesCode(copy, query)) continue;
+      if (copy.status !== "disponivel" || !copyMatchesCode(copy, query)) continue;
       const current = map.get(copy.title_id) ?? [];
       current.push(copy);
       map.set(copy.title_id, current);
@@ -741,6 +746,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const myRows = myView === "emprestimos" ? activeLoans : activeReservations;
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
+  const selectedAvailableCopies = selectedCopies.filter((copy) => copy.status === "disponivel");
   const inventoryTargetCopy = inventoryTargetCopyId ? copies.find((copy) => copy.id === inventoryTargetCopyId) ?? null : null;
   const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
   const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
@@ -1026,10 +1032,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </button>
             </section>
 
-            <section className="mt-2 grid grid-cols-3 gap-2 sm:mt-3">
+            <section className="mt-2 grid grid-cols-2 gap-2 sm:mt-3">
               <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => openView("descobrir")} />
-              <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => openView("trilhas")} />
-              <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s)`} onClick={() => openView("meus")} />
+              <AccessButton title="Meus livros" detail={`${activeLoans.length} empréstimo(s) • ${activeReservations.length} reserva(s)`} onClick={() => openView("meus")} />
             </section>
 
             {canManageLibrary ? (
@@ -1333,6 +1338,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                     <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                       <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {item.item_type === "title" ? "Livro" : "Material"}</p>
                       <p className="mt-1 text-sm font-black text-[#123D2C]">{title?.title || resource?.title || "Conteúdo"}</p>
+                      {title && <p className="mt-1 text-[10px] font-black text-[#2F6B43]">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</p>}
                       {item.note && <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{item.note}</p>}
                       {title && <button type="button" onClick={() => openTitle(title.id)} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Ver livro</button>}
                       {version?.source_url && <a href={version.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir PDF</a>}
@@ -1436,8 +1442,11 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <span className="mx-1">•</span>
                 <strong>Categoria:</strong> {selectedCategoryLabel}
               </p>
-              {selectedCopies.length > 0 && (
-                <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código no armário:</strong> {selectedCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
+              <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]">
+                <strong>Exemplares:</strong> {selectedTitle.totalCopies ?? selectedCopies.length} • <strong>Disponíveis:</strong> {selectedTitle.availableCopies ?? selectedAvailableCopies.length}
+              </p>
+              {selectedAvailableCopies.length > 0 && (
+                <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código disponível no armário:</strong> {selectedAvailableCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
               )}
               <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
                 {selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}
@@ -1624,7 +1633,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <p className="mt-2">A devolução deve ser feita de preferência exatamente no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
                 <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
                 <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-                {!selectedIdentifiedCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && (
+                {!selectedIdentifiedCopy && selectedAvailableCopies.length > 1 && (
                   <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>
                 )}
               </>
@@ -1671,7 +1680,6 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </>
             )}
           </div>
-          <button type="button" onClick={() => setReservationThankYou(null)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
         </Modal>
       )}
 
