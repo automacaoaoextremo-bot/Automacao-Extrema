@@ -581,6 +581,10 @@ export function AcervoVivoPublicReader() {
     : false;
   const selectedIdentifiedCopy = selectedQrCopy
     ?? (manualCopyIsAvailableForSelectedTitle ? selectedManualCopy : null);
+  const defaultBorrowCopy = selectedAvailableCopies
+    .slice()
+    .sort((left, right) => left.asset_code.localeCompare(right.asset_code, "pt-BR", { numeric: true, sensitivity: "base" }))[0] ?? null;
+  const selectedBorrowCopy = selectedIdentifiedCopy ?? defaultBorrowCopy;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
   const categories = useMemo(() => {
@@ -749,7 +753,7 @@ export function AcervoVivoPublicReader() {
     const url = new URL(window.location.href);
     url.searchParams.set("continuar", action);
     if (selectedTitle?.id) url.searchParams.set("titulo", selectedTitle.id);
-    if (selectedIdentifiedCopy?.qr_token) url.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
+    if (selectedBorrowCopy?.qr_token) url.searchParams.set("exemplar", selectedBorrowCopy.qr_token);
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
@@ -837,7 +841,7 @@ export function AcervoVivoPublicReader() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(action === "borrow-now"
-          ? { action, qrToken: selectedIdentifiedCopy?.qr_token, titleId: selectedTitle.id }
+          ? { action, qrToken: selectedBorrowCopy?.qr_token, titleId: selectedTitle.id }
           : {
               action,
               titleId: selectedTitle.id,
@@ -1017,8 +1021,8 @@ export function AcervoVivoPublicReader() {
         if (selectedTitle?.id) {
           returnUrl.searchParams.set("titulo", selectedTitle.id);
         }
-        if (selectedIdentifiedCopy?.qr_token) {
-          returnUrl.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
+        if (selectedBorrowCopy?.qr_token) {
+          returnUrl.searchParams.set("exemplar", selectedBorrowCopy.qr_token);
         }
       }
 
@@ -1487,7 +1491,20 @@ export function AcervoVivoPublicReader() {
                 <span className="ml-1 underline underline-offset-2">Abrir no Google Maps</span>
               </a>
               <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-              {!selectedIdentifiedCopy && selectedAvailableCopies.length > 1 && <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>}
+              {selectedBorrowCopy ? (
+                <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950 ring-1 ring-amber-200">
+                  <p>
+                    <strong>Exemplar que será confirmado:</strong> {displayCopyCode(selectedBorrowCopy)}
+                  </p>
+                  <p className="mt-1">
+                    Retire exatamente o livro cuja lombada possui o código <strong>{displayCopyCode(selectedBorrowCopy)}</strong>. O empréstimo será registrado para este exemplar específico.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-800 ring-1 ring-red-200">
+                  Não foi possível identificar um exemplar disponível para este empréstimo. Feche esta tela, atualize o Acervo Vivo e tente novamente.
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -1502,7 +1519,7 @@ export function AcervoVivoPublicReader() {
             </>
           )}
         </div>
-        <button disabled={saving} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+        <button disabled={saving || (confirmAction === "borrow-now" && !selectedBorrowCopy)} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
       </Modal>}
 
       {reservationThankYou && (

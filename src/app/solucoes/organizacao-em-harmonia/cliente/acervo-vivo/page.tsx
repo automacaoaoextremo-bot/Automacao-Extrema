@@ -50,6 +50,9 @@ type CopyRow = {
     last_inventory_by_person_id?: string | null;
     last_inventory_observed_shelf?: string | null;
     inventory_status?: string | null;
+    inventory_previous_copy_status?: string | null;
+    inventory_not_found_at?: string | null;
+    inventory_not_found_by_person_id?: string | null;
     qr_label_confirmed_at?: string | null;
   } | null;
 };
@@ -794,8 +797,8 @@ export default function AcervoVivoGestaoPage() {
     return result;
   }
 
-  async function run(body: Record<string, unknown>, message: string) {
-    if (!token || saving) return;
+  async function run(body: Record<string, unknown>, message: string): Promise<boolean> {
+    if (!token || saving) return false;
     setSaving(true);
     setError("");
     setSuccess("");
@@ -803,8 +806,10 @@ export default function AcervoVivoGestaoPage() {
       await post(body);
       setSuccess(message);
       await load(token);
+      return true;
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao salvar.");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1271,6 +1276,26 @@ export default function AcervoVivoGestaoPage() {
       `Exemplar ${selectedInventoryCopy.asset_code} inventariado e QR Code confirmado.`,
     );
     clearInventoryCopy();
+  }
+
+  async function markInventoryCopyNotFound() {
+    if (!selectedInventoryCopy || saving) return;
+
+    const code = selectedInventoryCopy.legacy_code || selectedInventoryCopy.asset_code;
+    const confirmed = window.confirm(
+      `Marcar o exemplar ${code} como "Não encontrado"?\n\nEle continuará cadastrado no Acervo Vivo, mas deixará de ser oferecido como disponível até ser localizado e inventariado novamente.`,
+    );
+    if (!confirmed) return;
+
+    const result = await run(
+      {
+        action: "inventory-copy-not-found",
+        copyId: selectedInventoryCopy.id,
+      },
+      `Exemplar ${code} marcado como Não encontrado no inventário.`,
+    );
+
+    if (result) clearInventoryCopy();
   }
 
   function exportPendingCoversCsv() {
@@ -2070,12 +2095,16 @@ export default function AcervoVivoGestaoPage() {
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {inventoryCopyItems.map((copy) => {
                       const title = titleMap.get(copy.title_id);
-                      const inventoried = copy.metadata?.inventory_status === "inventariado";
+                      const inventoryStatus = copy.metadata?.inventory_status || "";
+                      const inventoried = inventoryStatus === "inventariado";
+                      const notFound = inventoryStatus === "nao_encontrado";
                       return (
                         <button key={copy.id} type="button" onClick={() => selectInventoryCopy(copy)} className="rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
                           <span className="block text-sm font-black text-[#00334E]">{copy.legacy_code || copy.asset_code}</span>
                           <span className="mt-1 block line-clamp-2 text-[10px] font-semibold leading-4 text-slate-600">{title?.title || "Livro"}</span>
-                          <span className="mt-1 block text-[9px] font-black uppercase text-[#2F6B43]">{inventoried ? "✓ INVENTARIADO" : "TOQUE PARA INVENTARIAR"}</span>
+                          <span className={`mt-1 block text-[9px] font-black uppercase ${notFound ? "text-red-700" : "text-[#2F6B43]"}`}>
+                            {notFound ? "NÃO ENCONTRADO" : inventoried ? "✓ INVENTARIADO" : "TOQUE PARA INVENTARIAR"}
+                          </span>
                         </button>
                       );
                     })}
@@ -2098,7 +2127,14 @@ export default function AcervoVivoGestaoPage() {
                       ["Armário / estante", selectedInventoryCopy.shelf || "—"],
                       ["Prateleira / posição", selectedInventoryCopy.shelf_position || "—"],
                       ["Condição", selectedInventoryCopy.condition || "—"],
-                      ["Status", selectedInventoryCopy.status || "—"],
+                      ["Status", selectedInventoryCopy.metadata?.inventory_status === "nao_encontrado"
+                        ? "Não encontrado"
+                        : selectedInventoryCopy.status || "—"],
+                      ["Inventário", selectedInventoryCopy.metadata?.inventory_status === "nao_encontrado"
+                        ? "Não encontrado"
+                        : selectedInventoryCopy.metadata?.inventory_status === "inventariado"
+                          ? "Inventariado"
+                          : selectedInventoryCopy.metadata?.inventory_status || "Pendente"],
                       ["Autor", (selectedInventoryTitle?.authors ?? []).join(", ") || "—"],
                       ["Editora / ano", `${selectedInventoryTitle?.publisher || "—"}${selectedInventoryTitle?.publication_year ? ` • ${selectedInventoryTitle.publication_year}` : ""}`],
                       ["ISBN", selectedInventoryTitle?.isbn13 || selectedInventoryTitle?.isbn10 || "—"],
@@ -2115,7 +2151,25 @@ export default function AcervoVivoGestaoPage() {
                     <button type="button" disabled={saving} onClick={() => void showQr(selectedInventoryCopy.id)} className="rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20">Ver / imprimir QR</button>
                     <label className="flex items-center justify-center gap-2 rounded-xl bg-[#E9F2E7] px-2 py-2.5 text-[10px] font-black text-[#00334E]"><input type="checkbox" checked={inventoryQrConfirmed} onChange={(e) => setInventoryQrConfirmed(e.target.checked)} />QR correto colado/conferido</label>
                   </div>
+                  {selectedInventoryCopy.metadata?.inventory_status === "nao_encontrado" && (
+                    <p className="mt-2 rounded-xl bg-red-50 p-2 text-[10px] font-bold leading-4 text-red-800 ring-1 ring-red-200">
+                      Este exemplar está marcado como Não encontrado. Se ele foi localizado agora, confira o QR e confirme o inventário para restaurar sua situação anterior.
+                    </p>
+                  )}
                   <button type="button" disabled={saving || !inventoryQrConfirmed} onClick={() => void confirmInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Confirmar e marcar como inventariado</button>
+                  <button
+                    type="button"
+                    disabled={saving || ["emprestado", "reservado"].includes(selectedInventoryCopy.status)}
+                    onClick={() => void markInventoryCopyNotFound()}
+                    className="mt-2 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:opacity-40"
+                  >
+                    Marcar como Não encontrado
+                  </button>
+                  {["emprestado", "reservado"].includes(selectedInventoryCopy.status) && (
+                    <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">
+                      Exemplares emprestados ou reservados não podem ser marcados como Não encontrado, pois estão em circulação.
+                    </p>
+                  )}
                 </section>
               )}
             </div>

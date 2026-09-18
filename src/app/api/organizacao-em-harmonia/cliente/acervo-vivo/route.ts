@@ -2114,6 +2114,95 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, qrDataUrl, assetCode: copy.asset_code, qrValue: value });
     }
 
+    if (action === "inventory-copy-not-found") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode marcar exemplares como não encontrados.");
+      }
+
+      const copyId = text(body.copyId);
+      if (!copyId) {
+        return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      const { data: copy, error: copyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id,asset_code,legacy_code,shelf,shelf_position,condition,status,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .maybeSingle();
+
+      if (copyError) throw copyError;
+      if (!copy?.id) {
+        return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
+      }
+
+      if (["emprestado", "reservado"].includes(text(copy.status))) {
+        return NextResponse.json(
+          { error: "Este exemplar está em circulação e não deve ser marcado como não encontrado no inventário físico." },
+          { status: 409 },
+        );
+      }
+
+      const inventoryAt = nowIso();
+      const currentMetadata = record(copy.metadata);
+      const previousCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado"
+          ? text(currentMetadata.inventory_previous_copy_status) || text(copy.status)
+          : text(copy.status);
+
+      const metadata = {
+        ...currentMetadata,
+        last_inventory_at: inventoryAt,
+        last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_observed_shelf: null,
+        inventory_status: "nao_encontrado",
+        inventory_previous_copy_status: previousCopyStatus || null,
+        inventory_not_found_at: inventoryAt,
+        inventory_not_found_by_person_id: actorPersonId || null,
+      };
+
+      const nextCopyStatus = text(copy.status) === "disponivel" ? "perdido" : text(copy.status);
+
+      const { error: updateError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({
+          status: nextCopyStatus,
+          metadata,
+          updated_at: inventoryAt,
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", copy.id);
+
+      if (updateError) throw updateError;
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "inventario_exemplar_nao_encontrado",
+        "copy",
+        copy.id,
+        {
+          titleId: copy.title_id,
+          assetCode: copy.asset_code,
+          legacyCode: copy.legacy_code,
+          previousCopyStatus,
+          copyStatus: nextCopyStatus,
+          inventoryAt,
+          inventoryStatus: "nao_encontrado",
+        },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        copy: {
+          ...copy,
+          status: nextCopyStatus,
+          metadata,
+          inventory_at: inventoryAt,
+        },
+      });
+    }
+
     if (action === "inventory-copy") {
       if (!permissions.library) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode confirmar o inventário de exemplares.");
@@ -2140,18 +2229,29 @@ export async function POST(request: Request) {
       const observedShelf = text(body.observedShelf) || text(copy.shelf);
       const qrConfirmed = boolValue(body.qrConfirmed, false);
       const currentMetadata = record(copy.metadata);
+      const previousCopyStatus = text(currentMetadata.inventory_previous_copy_status);
+      const restoredCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado" &&
+        text(copy.status) === "perdido" &&
+        ["disponivel", "manutencao"].includes(previousCopyStatus)
+          ? previousCopyStatus
+          : text(copy.status);
+
       const metadata = {
         ...currentMetadata,
         last_inventory_at: inventoryAt,
         last_inventory_by_person_id: actorPersonId || null,
         last_inventory_observed_shelf: observedShelf || null,
         inventory_status: qrConfirmed ? "inventariado" : "conferido",
+        inventory_previous_copy_status: null,
+        inventory_not_found_at: null,
+        inventory_not_found_by_person_id: null,
         qr_label_confirmed_at: qrConfirmed ? inventoryAt : text(currentMetadata.qr_label_confirmed_at) || null,
       };
 
       const { error: updateError } = await supabaseAdmin
         .from("oh_acervo_copies")
-        .update({ metadata, updated_at: inventoryAt })
+        .update({ status: restoredCopyStatus, metadata, updated_at: inventoryAt })
         .eq("organization_id", organizationId)
         .eq("id", copy.id);
 
@@ -2170,7 +2270,7 @@ export async function POST(request: Request) {
           shelf: copy.shelf,
           shelfPosition: copy.shelf_position,
           condition: copy.condition,
-          status: copy.status,
+          status: restoredCopyStatus,
           observedShelf: observedShelf || null,
           inventoryAt,
           qrConfirmed,
@@ -2182,6 +2282,7 @@ export async function POST(request: Request) {
         ok: true,
         copy: {
           ...copy,
+          status: restoredCopyStatus,
           metadata,
           inventory_at: inventoryAt,
           observed_shelf: observedShelf || null,
@@ -2499,7 +2600,7 @@ export async function POST(request: Request) {
     if (action === "cancel-reservation") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cancelar reservas pela gestão.");
       const reservationId = text(body.reservationId);
-      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,title_id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
+      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,title_id,person_id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
       if (reservationError) throw reservationError;
       if (!reservation?.id) return NextResponse.json({ error: "Reserva não localizada." }, { status: 404 });
       const { error } = await supabaseAdmin.from("oh_acervo_reservations").update({ status: "cancelada", cancelled_at: nowIso(), updated_at: nowIso() }).eq("id", reservationId);
@@ -2517,7 +2618,26 @@ export async function POST(request: Request) {
           Number(settings?.reservation_hold_days ?? 3),
         );
       }
-      await audit(organizationId, actorPersonId, "reserva_cancelada_gestao", "reservation", reservationId);
+      await sendAcervoMovementNotifications({
+        organizationId,
+        personId: text(reservation.person_id),
+        titleId: text(reservation.title_id),
+        copyId: text(reservation.available_copy_id) || null,
+        kind: "reserva_cancelada",
+        cancelledByPersonId: actorPersonId || null,
+        cancelledByName: text(access.context.person?.full_name),
+        cancelledByEmail: text(access.context.person?.email) || text(access.context.user.email),
+        cancelledByWhatsapp: text(access.context.person?.whatsapp),
+      }).catch(() => undefined);
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "reserva_cancelada_gestao",
+        "reservation",
+        reservationId,
+        { cancelledByPersonId: actorPersonId || null },
+      );
       return NextResponse.json({ ok: true });
     }
 

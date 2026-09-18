@@ -19,6 +19,10 @@ type NotificationInput = {
   kind: AcervoNotificationKind;
   dueAt?: string | null;
   holdUntil?: string | null;
+  cancelledByPersonId?: string | null;
+  cancelledByName?: string | null;
+  cancelledByEmail?: string | null;
+  cancelledByWhatsapp?: string | null;
 };
 
 const PRIMARY_MANAGEMENT_EMAIL = "automacao.ao.extremo@gmail.com";
@@ -239,6 +243,17 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
     if (result.error) throw result.error;
   }
 
+  const cancelledByResult = input.cancelledByPersonId
+    ? await supabaseAdmin
+        .from("oh_people")
+        .select("full_name,email,whatsapp")
+        .eq("organization_id", input.organizationId)
+        .eq("id", input.cancelledByPersonId)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (cancelledByResult.error) throw cancelledByResult.error;
+
   const person = personResult.data;
   const title = titleResult.data;
   if (!person || !title) {
@@ -265,7 +280,12 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
   const authors = Array.isArray(title.authors)
     ? title.authors.map((item) => text(item)).filter(Boolean).join(", ")
     : "";
-  const copyCode = text(copyResult.data?.asset_code) || text(copyResult.data?.legacy_code);
+  const copyCode = text(copyResult.data?.legacy_code) || text(copyResult.data?.asset_code);
+  const cancelledBy = cancelledByResult.data;
+  const cancelledByName = text(input.cancelledByName) || text(cancelledBy?.full_name);
+  const cancelledByWhatsapp = text(input.cancelledByWhatsapp) || text(cancelledBy?.whatsapp);
+  const cancelledByEmailCandidate = text(input.cancelledByEmail) || text(cancelledBy?.email);
+  const cancelledByEmail = realEmail(cancelledByEmailCandidate) ? cancelledByEmailCandidate : "";
   const dueText = formatDate(input.dueAt);
   const holdText = formatDate(input.holdUntil);
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
@@ -368,6 +388,9 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
 
   if (input.kind === "reserva_cancelada") {
     const subject = `[Tucxa • Acervo Vivo] Reserva cancelada — ${titleName}`;
+    const cancelledByLabel = cancelledByName
+      ? `${cancelledByName} — Gestor Acervo Vivo - Biblioteca`
+      : "";
 
     const personalBody = [
       `Olá, ${personName}.`,
@@ -375,7 +398,12 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       `Sua reserva do livro "${titleName}" foi cancelada.`,
       authors ? `Autor(es): ${authors}.` : "",
       copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByWhatsapp ? `WhatsApp para contato: ${cancelledByWhatsapp}.` : "",
       "",
+      cancelledByLabel || cancelledByWhatsapp
+        ? "Se desejar entender o motivo do cancelamento, entre em contato com o responsável acima."
+        : "",
       "Se desejar esse livro novamente, acesse o Acervo Vivo e faça uma nova reserva quando houver interesse.",
       `Acervo Vivo: ${acervoUrl}`,
       "",
@@ -387,6 +415,11 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       `Sua reserva do livro <strong>"${escapeHtml(titleName)}"</strong> foi cancelada.`,
       authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
       copyCode ? `Exemplar que estava separado: ${escapeHtml(copyCode)}.` : "",
+      cancelledByLabel ? `<strong>Cancelamento realizado por:</strong> ${escapeHtml(cancelledByLabel)}.` : "",
+      cancelledByWhatsapp ? `<strong>WhatsApp para contato:</strong> ${escapeHtml(cancelledByWhatsapp)}.` : "",
+      cancelledByLabel || cancelledByWhatsapp
+        ? "Se desejar entender o motivo do cancelamento, entre em contato com o responsável acima."
+        : "",
       `Se desejar esse livro novamente, <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">acesse o Acervo Vivo</a> e faça uma nova reserva quando houver interesse.`,
       "Tucxa em Harmonia — Acervo Vivo",
     ]);
@@ -395,6 +428,8 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       `${personName}: reserva cancelada — "${titleName}".`,
       authors ? `Autor(es): ${authors}.` : "",
       copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByWhatsapp ? `WhatsApp do responsável: ${cancelledByWhatsapp}.` : "",
       "",
       copyCode
         ? "O exemplar foi liberado para a próxima pessoa da fila ou voltou à disponibilidade, conforme as regras do Acervo Vivo."
@@ -408,6 +443,7 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
         config.transporter.sendMail({
           from: config.from,
           to: personEmail,
+          cc: cancelledByEmail && cancelledByEmail !== personEmail ? cancelledByEmail : undefined,
           subject,
           text: personalBody,
           html: personalHtml,
@@ -415,11 +451,12 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       );
     }
 
-    if (managerEmails.length) {
-      const primary = managerEmails.includes(PRIMARY_MANAGEMENT_EMAIL)
+    const managementRecipients = managerEmails.filter((email) => email !== cancelledByEmail);
+    if (managementRecipients.length) {
+      const primary = managementRecipients.includes(PRIMARY_MANAGEMENT_EMAIL)
         ? PRIMARY_MANAGEMENT_EMAIL
-        : managerEmails[0];
-      const cc = managerEmails.filter((email) => email !== primary);
+        : managementRecipients[0];
+      const cc = managementRecipients.filter((email) => email !== primary);
       sends.push(
         config.transporter.sendMail({
           from: config.from,
@@ -438,7 +475,9 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
     await Promise.all(sends);
     return {
       sent: true,
-      recipients: Array.from(new Set([personEmail, ...managerEmails].filter(Boolean))),
+      recipients: Array.from(
+        new Set([personEmail, cancelledByEmail, ...managementRecipients].filter(Boolean)),
+      ),
     };
   }
 

@@ -747,6 +747,10 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
   const currentMyRows = myRows.slice((myPage - 1) * PAGE_SIZE, myPage * PAGE_SIZE);
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
   const selectedAvailableCopies = selectedCopies.filter((copy) => copy.status === "disponivel");
+  const defaultBorrowCopy = selectedAvailableCopies
+    .slice()
+    .sort(compareCopyCodes)[0] ?? null;
+  const selectedBorrowCopy = selectedIdentifiedCopy ?? defaultBorrowCopy;
   const inventoryTargetCopy = inventoryTargetCopyId ? copies.find((copy) => copy.id === inventoryTargetCopyId) ?? null : null;
   const hasSelectedTitleLoan = selectedTitle ? activeLoans.some((loan) => loan.title?.id === selectedTitle.id || loan.copy?.title_id === selectedTitle.id) : false;
   const hasSelectedTitleReservation = selectedTitle ? activeReservations.some((item) => item.title_id === selectedTitle.id) : false;
@@ -786,7 +790,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
     const result = await run(
       action === "borrow-now"
-        ? { action, titleId: selectedTitle.id, qrToken: selectedIdentifiedCopy?.qr_token || undefined }
+        ? { action, titleId: selectedTitle.id, qrToken: selectedBorrowCopy?.qr_token || undefined }
         : {
             action,
             titleId: selectedTitle.id,
@@ -817,8 +821,11 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
 
   async function confirmReservedLoan(reservation: ReservationRow) {
     const title = reservation.title?.title || "Livro reservado";
+    const copyCode = reservation.copy ? displayCopyCode(reservation.copy) : "";
     const confirmed = window.confirm(
-      `Você está com o exemplar de "${title}" em mãos e deseja iniciar o empréstimo agora?`,
+      copyCode
+        ? `Você está com o exemplar de "${title}" cuja lombada possui o código ${copyCode}?\n\nConfirme somente se estiver com exatamente este exemplar em mãos.`
+        : `Você está com o exemplar de "${title}" em mãos e deseja iniciar o empréstimo agora?`,
     );
     if (!confirmed) return;
 
@@ -1411,7 +1418,12 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                   </p>
                   {reservation.status === "disponivel" && (
                     <div className="mt-2 rounded-xl bg-[#E7F0E2] p-2 text-[10px] font-bold leading-4 text-[#123D2C]">
-                      <p>Quando estiver com o exemplar em mãos, confirme aqui o empréstimo. O prazo de devolução começa somente depois dessa confirmação.</p>
+                      <p>
+                        {reservation.copy
+                          ? <>Retire exatamente o exemplar cuja lombada possui o código <strong>{displayCopyCode(reservation.copy)}</strong>. Quando estiver com ele em mãos, confirme aqui o empréstimo.</>
+                          : <>Quando estiver com o exemplar em mãos, confirme aqui o empréstimo.</>}
+                        {" "}O prazo de devolução começa somente depois dessa confirmação.
+                      </p>
                       <button
                         disabled={saving}
                         type="button"
@@ -1633,8 +1645,19 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
                 <p className="mt-2">A devolução deve ser feita de preferência exatamente no mesmo local da retirada: <strong>{pickupLocation}</strong>.</p>
                 <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
                 <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-                {!selectedIdentifiedCopy && selectedAvailableCopies.length > 1 && (
-                  <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>
+                {selectedBorrowCopy ? (
+                  <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950 ring-1 ring-amber-200">
+                    <p>
+                      <strong>Exemplar que será confirmado:</strong> {displayCopyCode(selectedBorrowCopy)}
+                    </p>
+                    <p className="mt-1">
+                      Retire exatamente o livro cuja lombada possui o código <strong>{displayCopyCode(selectedBorrowCopy)}</strong>. O empréstimo será registrado para este exemplar específico.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-800 ring-1 ring-red-200">
+                    Não foi possível identificar um exemplar disponível para este empréstimo. Feche esta tela, atualize o Acervo Vivo e tente novamente.
+                  </p>
                 )}
               </>
             ) : (
@@ -1655,7 +1678,7 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </>
             )}
           </div>
-          <button disabled={saving} type="button" onClick={() => void confirmSelectedAction()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+          <button disabled={saving || (confirmAction === "borrow-now" && !selectedBorrowCopy)} type="button" onClick={() => void confirmSelectedAction()} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
         </Modal>
       )}
 
