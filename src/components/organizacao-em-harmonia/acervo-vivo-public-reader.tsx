@@ -4,19 +4,23 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { AcervoVivoSupportCard } from "@/components/organizacao-em-harmonia/acervo-vivo-support-card";
+import { AcervoVivoHomologacaoSelfForm } from "@/components/organizacao-em-harmonia/acervo-vivo-homologacao-self-form";
+import { acervoVivoSupportWhatsappUrl } from "@/lib/organizacao-em-harmonia/acervo-vivo-support";
 
 const API = "/api/organizacao-em-harmonia/site-tucxa/acervo-vivo";
 const PUBLIC_PATH = "/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo";
 const PAGE_SIZE = 4;
-const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v1-hidden";
+const TUTORIAL_STORAGE_KEY = "tucxa-acervo-vivo-tutorial-v3-hidden";
+const INTERNAL_RETURN_STORAGE_KEY = "tucxa-acervo-vivo-internal-return";
 
 const LOAN_TUTORIAL_STEPS = [
-  { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura.", tip: "Comece por Descobrir ou Trilhas." },
+  { title: "Bem-vindo ao Acervo Vivo", eyebrow: "Passo 1 de 6", body: "Escolha pelo celular e leia no seu ritmo. Você pode descobrir livros pelo título, autor, tema, categoria, código da lombada ou pelas Trilhas de Leitura. Se precisar, há apoio humano para orientar você.", tip: "Comece por Descobrir ou Trilhas. Se preferir ajuda, fale com a Mariana." },
   { title: "Encontre sua leitura", eyebrow: "Passo 2 de 6", body: "Pesquise pelo que deseja estudar. Se você já estiver diante do armário, também pode digitar o código da lombada, como R-3.", tip: "O código ajuda a localizar o exemplar físico correto." },
   { title: "Pegue o livro físico", eyebrow: "Passo 3 de 6", body: "Abra o armário da Biblioteca do Tucxa. Os livros estão organizados por categoria. Confira no detalhe do livro o código da lombada e localize o exemplar correspondente.", tip: "Confira se o código do livro bate com o código exibido no Acervo." },
   { title: "Registre o empréstimo", eyebrow: "Passo 4 de 6", body: "No detalhe do livro, toque em “Está com o livro em mãos”. Se necessário, faça seu acesso e confirme o exemplar que está levando.", tip: "O registro mantém o Acervo Vivo organizado para todos." },
   { title: "Acompanhe em Meus livros", eyebrow: "Passo 5 de 6", body: "Depois do empréstimo, acompanhe seus livros pelo próprio Acervo Vivo. Ali você encontra os registros e a data prevista de devolução.", tip: "Use Meus livros sempre que quiser consultar sua situação." },
-  { title: "Para devolver", eyebrow: "Passo 6 de 6", body: "Devolva o livro no local indicado pelo Tucxa e siga a orientação mostrada pelo sistema para manter o registro atualizado.", tip: "Cuide do livro: outra pessoa também pode precisar dessa leitura." },
+  { title: "Para devolver", eyebrow: "Passo 6 de 6", body: "Devolva o livro no local indicado pelo Tucxa e siga a orientação mostrada pelo sistema para manter o registro atualizado. Se tiver qualquer dificuldade ao longo do processo, peça orientação à Mariana.", tip: "Cuide do livro: outra pessoa também pode precisar dessa leitura." },
 ] as const;
 
 type ReviewComment = {
@@ -111,6 +115,7 @@ type Payload = {
     pickup_address?: string;
     pickup_maps_url?: string;
     self_service_enabled?: boolean;
+    post_loan_homologation_enabled?: boolean;
     loan_reminder_days_before_due?: number;
   };
   titles?: TitleRow[];
@@ -127,9 +132,17 @@ type PendingAction = "reserve" | "borrow-now" | "my-books";
 type ConfirmAction = Exclude<PendingAction, "my-books">;
 
 type LoanThankYou = {
+  loanId: string;
   title: string;
   dueAt: string;
   profile?: string;
+};
+
+type ReservationThankYou = {
+  reservationId: string;
+  title: string;
+  readyForPickup: boolean;
+  holdUntil?: string | null;
 };
 
 type BlockingNotice = {
@@ -149,6 +162,14 @@ function normalizeCopyCode(value: string) {
 
 function displayCopyCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
   return copy.legacy_code?.trim() || copy.asset_code?.trim() || "";
+}
+
+function reservationDisplayCode(reservationId: string) {
+  const compact = reservationId.replace(/[^a-fA-F0-9]/g, "").toUpperCase();
+  if (!compact) return "—";
+  const first = compact.slice(0, 8);
+  const last = compact.slice(-4);
+  return last && last !== first ? `RSV-${first}-${last}` : `RSV-${first}`;
 }
 
 function looksLikeCopyCode(value: string) {
@@ -302,10 +323,10 @@ function Pager({ page, total, onChange }: { page: number; total: number; onChang
 
 function AccessButton({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="min-h-24 rounded-2xl bg-white px-2 py-3 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98]">
+    <button type="button" onClick={onClick} className="min-h-16 rounded-2xl bg-white px-2 py-2 text-center shadow ring-1 ring-[#123D2C]/10 transition active:scale-[0.98] sm:min-h-24 sm:py-3">
       <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
-      <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-      <span className="mt-2 block text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+      <span className="mt-0.5 block text-[9px] font-bold leading-3 text-slate-500 sm:mt-1 sm:text-[10px] sm:leading-4">{detail}</span>
+      <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-2 sm:text-[9px] sm:tracking-[0.12em]">TOQUE PARA ABRIR</span>
     </button>
   );
 }
@@ -324,15 +345,20 @@ function CommunityAccess({
   return (
     <Link
       href={href}
+      onClick={() => {
+        try {
+          window.sessionStorage.setItem(INTERNAL_RETURN_STORAGE_KEY, "1");
+        } catch {}
+      }}
       className="overflow-hidden rounded-2xl bg-white shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"
     >
-      <div className="relative aspect-[16/8] w-full bg-[#E7F0E2]">
+      <div className="relative hidden aspect-[16/8] w-full bg-[#E7F0E2] sm:block">
         <Image src={imageSrc} alt={`Logo ${title}`} fill sizes="(max-width: 640px) 50vw, 320px" className="object-cover" />
       </div>
-      <div className="p-2.5 text-center">
+      <div className="p-2 text-center sm:p-2.5">
         <span className="block text-sm font-black leading-tight text-[#123D2C]">{title}</span>
         <span className="mt-1 block text-[10px] font-bold leading-4 text-slate-500">{detail}</span>
-        <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">TOQUE PARA ABRIR</span>
+        <span className="mt-1 block text-[7px] font-black uppercase tracking-[0.1em] text-[#2F6B43] sm:mt-1.5 sm:text-[8px] sm:tracking-[0.12em]">TOQUE PARA ABRIR</span>
       </div>
     </Link>
   );
@@ -393,10 +419,14 @@ export function AcervoVivoPublicReader() {
   const [reserveAfterReturn, setReserveAfterReturn] = useState(true);
   const [confirmDueAt, setConfirmDueAt] = useState("");
   const [loanThankYou, setLoanThankYou] = useState<LoanThankYou | null>(null);
+  const [reservationThankYou, setReservationThankYou] = useState<ReservationThankYou | null>(null);
   const [signedInProfile, setSignedInProfile] = useState("");
   const [blockingNotice, setBlockingNotice] = useState<BlockingNotice | null>(null);
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const [hideTutorial, setHideTutorial] = useState(false);
+  const [trailsIntroOpen, setTrailsIntroOpen] = useState(false);
+  const [selfHomologationOpen, setSelfHomologationOpen] = useState(false);
+  const [selfHomologationSent, setSelfHomologationSent] = useState(false);
 
   const fetchPayload = useCallback(async (): Promise<Payload> => {
     const exemplar = typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("exemplar") || "";
@@ -488,6 +518,28 @@ export function AcervoVivoPublicReader() {
 
   useEffect(() => {
     let shouldOpenTutorial = true;
+    let isInternalReturn = false;
+
+    try {
+      const url = new URL(window.location.href);
+      const returnByQuery = url.searchParams.get("retorno") === "1";
+      const returnBySession = window.sessionStorage.getItem(INTERNAL_RETURN_STORAGE_KEY) === "1";
+
+      isInternalReturn = returnByQuery || returnBySession;
+
+      if (returnBySession) {
+        window.sessionStorage.removeItem(INTERNAL_RETURN_STORAGE_KEY);
+      }
+
+      if (returnByQuery) {
+        url.searchParams.delete("retorno");
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    } catch {
+      isInternalReturn = false;
+    }
+
+    if (isInternalReturn) return;
 
     try {
       shouldOpenTutorial = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) !== "1";
@@ -522,12 +574,25 @@ export function AcervoVivoPublicReader() {
   const versionMap = useMemo(() => new Map(versions.map((item) => [item.resource_id, item])), [versions]);
   const selectedTitle = selectedTitleId ? titleMap.get(selectedTitleId) ?? null : null;
   const selectedCopies = selectedTitle ? copies.filter((copy) => copy.title_id === selectedTitle.id) : [];
+  const selectedAvailableCopies = selectedCopies.filter((copy) => copy.status === "disponivel");
   const selectedManualCopy = selectedManualCopyId
     ? copies.find((copy) => copy.id === selectedManualCopyId) ?? null
     : null;
-  const selectedQrCopy = payload.selectedCopy?.title_id === selectedTitle?.id ? payload.selectedCopy : null;
+  const payloadSelectedCopy = payload.selectedCopy ?? null;
+  const selectedQrCopy = payloadSelectedCopy
+    && payloadSelectedCopy.title_id === selectedTitle?.id
+    && payloadSelectedCopy.status === "disponivel"
+    ? payloadSelectedCopy
+    : null;
+  const manualCopyIsAvailableForSelectedTitle = selectedManualCopy
+    ? selectedManualCopy.title_id === selectedTitle?.id && selectedManualCopy.status === "disponivel"
+    : false;
   const selectedIdentifiedCopy = selectedQrCopy
-    ?? (selectedManualCopy?.title_id === selectedTitle?.id ? selectedManualCopy : null);
+    ?? (manualCopyIsAvailableForSelectedTitle ? selectedManualCopy : null);
+  const defaultBorrowCopy = selectedAvailableCopies
+    .slice()
+    .sort((left, right) => left.asset_code.localeCompare(right.asset_code, "pt-BR", { numeric: true, sensitivity: "base" }))[0] ?? null;
+  const selectedBorrowCopy = selectedIdentifiedCopy ?? defaultBorrowCopy;
   const selectedTrail = selectedTrailId ? trails.find((item) => item.id === selectedTrailId) ?? null : null;
 
   const categories = useMemo(() => {
@@ -563,7 +628,7 @@ export function AcervoVivoPublicReader() {
 
   const codeEntries = useMemo(
     () => copies
-      .filter((copy) => Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
+      .filter((copy) => copy.status === "disponivel" && Boolean(displayCopyCode(copy)) && titleMap.has(copy.title_id))
       .slice()
       .sort(compareCopyCodes)
       .map((copy) => ({
@@ -594,7 +659,7 @@ export function AcervoVivoPublicReader() {
     if (!query.trim() || !looksLikeCopyCode(query)) return map;
 
     for (const copy of copies) {
-      if (!copyMatchesCode(copy, query)) continue;
+      if (copy.status !== "disponivel" || !copyMatchesCode(copy, query)) continue;
       const current = map.get(copy.title_id) ?? [];
       current.push(copy);
       map.set(copy.title_id, current);
@@ -696,7 +761,7 @@ export function AcervoVivoPublicReader() {
     const url = new URL(window.location.href);
     url.searchParams.set("continuar", action);
     if (selectedTitle?.id) url.searchParams.set("titulo", selectedTitle.id);
-    if (selectedIdentifiedCopy?.qr_token) url.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
+    if (selectedBorrowCopy?.qr_token) url.searchParams.set("exemplar", selectedBorrowCopy.qr_token);
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
@@ -784,7 +849,7 @@ export function AcervoVivoPublicReader() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(action === "borrow-now"
-          ? { action, qrToken: selectedIdentifiedCopy?.qr_token, titleId: selectedTitle.id }
+          ? { action, qrToken: selectedBorrowCopy?.qr_token, titleId: selectedTitle.id }
           : {
               action,
               titleId: selectedTitle.id,
@@ -795,8 +860,11 @@ export function AcervoVivoPublicReader() {
 
       const result = await response.json().catch(() => ({})) as {
         error?: string;
+        reservationId?: string;
         readyForPickup?: boolean;
+        holdUntil?: string | null;
         dueAt?: string;
+        loanId?: string;
       };
 
       if (!response.ok) {
@@ -831,18 +899,21 @@ export function AcervoVivoPublicReader() {
 
       if (action === "borrow-now") {
         setLoanThankYou({
+          loanId: result.loanId || "",
           title: selectedTitle.title,
           dueAt: result.dueAt || confirmDueAt,
           profile: signedInProfile || payload.reader?.profile,
         });
+        setSelfHomologationSent(false);
         return;
       }
 
-      setSuccess(
-        result.readyForPickup
-          ? `Reserva confirmada. O exemplar ficou separado para retirada em ${payload.settings?.pickup_location || "Tucxa 1"}.`
-          : "Você entrou na fila e será avisado quando houver disponibilidade.",
-      );
+      setReservationThankYou({
+        reservationId: result.reservationId || "",
+        title: selectedTitle.title,
+        readyForPickup: result.readyForPickup === true,
+        holdUntil: result.holdUntil ?? null,
+      });
       await load();
     } catch (current) {
       setError(current instanceof Error ? current.message : "Erro ao concluir a operação.");
@@ -958,8 +1029,8 @@ export function AcervoVivoPublicReader() {
         if (selectedTitle?.id) {
           returnUrl.searchParams.set("titulo", selectedTitle.id);
         }
-        if (selectedIdentifiedCopy?.qr_token) {
-          returnUrl.searchParams.set("exemplar", selectedIdentifiedCopy.qr_token);
+        if (selectedBorrowCopy?.qr_token) {
+          returnUrl.searchParams.set("exemplar", selectedBorrowCopy.qr_token);
         }
       }
 
@@ -1009,6 +1080,14 @@ export function AcervoVivoPublicReader() {
                 <p className="text-sm font-semibold leading-6 text-slate-700">{step.body}</p>
                 <p className="mt-3 rounded-xl bg-[#E9F2E7] p-3 text-xs font-black leading-5 text-[#123D2C]">{step.tip}</p>
               </div>
+              <a
+                href={acervoVivoSupportWhatsappUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 flex min-h-12 items-center justify-center rounded-xl bg-[#E9F2E7] px-3 py-2.5 text-center text-sm font-black text-[#123D2C] shadow-sm ring-2 ring-[#2F6B43] transition hover:bg-[#DDECD9]"
+              >
+                Precisa de ajuda? Fale com a Mariana
+              </a>
               <label className="mt-3 flex items-center gap-2 rounded-xl bg-white p-2 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
                 <input type="checkbox" checked={hideTutorial} onChange={(event) => setHideTutorial(event.target.checked)} />
                 Não mostrar este passo a passo automaticamente novamente neste aparelho
@@ -1022,13 +1101,24 @@ export function AcervoVivoPublicReader() {
         );
       })()}
 
-      <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
-        <section className="rounded-[1.75rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/10 sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Acervo Vivo • {audienceLabel}</p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl">O que você quer estudar hoje?</h1>
-          <p className="mt-2 max-w-3xl text-sm font-semibold leading-5 text-[#EEF7EA]">Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.</p>
-          <button type="button" onClick={() => { setHideTutorial(false); setTutorialStep(0); }} className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white ring-1 ring-white/20">Como emprestar um livro</button>
+      <section className="mx-auto max-w-5xl px-3 py-2 sm:px-6 sm:py-5 lg:px-8">
+        <section className="rounded-[1.5rem] bg-[#123D2C] p-3 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#CFE2C7] sm:text-[10px] sm:tracking-[0.2em]">Acervo Vivo • {audienceLabel}</p>
+          <h1 className="mt-0.5 text-xl font-black leading-tight sm:mt-1 sm:text-3xl">O que você quer estudar hoje?</h1>
+          <p className="mt-2 max-w-3xl text-[11px] font-semibold leading-4 text-[#EEF7EA] sm:text-sm sm:leading-5">
+            Encontre livros, materiais da Casa, trilhas de estudo, o Clube do Livro e o Grupo de Estudos. O Acervo Vivo reúne caminhos para estudar, trocar experiências e continuar aprendendo; você só precisa se identificar quando decidir reservar ou emprestar.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setHideTutorial(false); setTutorialStep(0); }}
+            className="mt-2 flex min-h-10 w-full items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-2 text-left text-[10px] font-black uppercase tracking-[0.1em] text-white ring-1 ring-white/20 transition hover:bg-white/15 sm:mt-3 sm:min-h-11 sm:text-[11px]"
+          >
+            <span>Como emprestar um livro</span>
+            <span className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[8px] font-black tracking-[0.12em] text-[#123D2C]">ABRIR</span>
+          </button>
         </section>
+
+        <AcervoVivoSupportCard />
 
         {(error || success) && <div className={`mt-3 rounded-2xl p-3 text-sm font-bold ring-1 ${error ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>{error || success}</div>}
 
@@ -1050,9 +1140,23 @@ export function AcervoVivoPublicReader() {
           </div>
         )}
 
-        <section className="mt-3 grid grid-cols-3 gap-2">
+        <section className="mt-2" aria-label="Conheça as Trilhas de Leitura">
+          <button
+            type="button"
+            onClick={() => setTrailsIntroOpen(true)}
+            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl bg-[#E9F2E7] px-3 py-2.5 text-left shadow-sm ring-1 ring-[#123D2C]/10 transition hover:bg-[#DDECD9] sm:min-h-14 sm:px-4 sm:py-3"
+            aria-haspopup="dialog"
+          >
+            <span className="min-w-0">
+              <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[10px]">Não sabe por onde começar?</span>
+              <span className="block text-sm font-black leading-tight text-[#123D2C] sm:mt-0.5 sm:text-base">Conheça as Trilhas</span>
+            </span>
+            <span className="shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-[9px] font-black uppercase tracking-[0.1em] text-white sm:text-[10px]">ABRIR</span>
+          </button>
+        </section>
+
+        <section className="mt-2 grid grid-cols-2 gap-2 sm:mt-3">
           <AccessButton title="Descobrir" detail={`${titles.length} títulos`} onClick={() => { setView("descobrir"); setQuery(""); setSearchPage(1); setSelectedLetter(""); setSelectedBrowseCategory(""); setSelectedCodePrefix(""); setCodePage(1); setSelectedManualCopyId(""); setDiscoverMode("alfabeto"); }} />
-          <AccessButton title="Trilhas" detail={`${trails.length} caminhos`} onClick={() => { setView("trilhas"); setTrailPage(1); }} />
           <AccessButton title="Meus livros" detail={myBooksDetail} onClick={() => void openMyBooks()} />
         </section>
 
@@ -1071,6 +1175,22 @@ export function AcervoVivoPublicReader() {
           />
         </section>
       </section>
+
+      {trailsIntroOpen && (
+        <Modal title="Não sabe por onde começar?" eyebrow="Trilhas de Leitura" onClose={() => setTrailsIntroOpen(false)} z={240}>
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p>As Trilhas de Leitura reúnem sugestões por tema para ajudar você a escolher a próxima leitura e seguir um caminho de estudo.</p>
+            <p className="mt-2">Você pode abrir uma Trilha, conhecer o objetivo e explorar os livros e conteúdos relacionados. As Trilhas podem ser atualizadas conforme as orientações dos responsáveis da Casa.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setTrailsIntroOpen(false); setView("trilhas"); setTrailPage(1); }}
+            className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white"
+          >
+            Abrir as Trilhas
+          </button>
+        </Modal>
+      )}
 
       {view === "descobrir" && <Modal title="Descobrir o Acervo" eyebrow="Livros e exemplares" onClose={() => setView(null)}>
         <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Escolha como deseja encontrar os livros</p>
@@ -1283,7 +1403,7 @@ export function AcervoVivoPublicReader() {
                 const resource = item.resource_id ? resourceMap.get(item.resource_id) : null;
                 const version = resource ? versionMap.get(resource.id) : null;
                 const label = title?.title || resource?.title || "Conteúdo";
-                return <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {item.item_type === "title" ? "Livro" : "Material"}</p><p className="mt-1 font-black text-[#123D2C]">{label}</p>{item.note && <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{item.note}</p>}{title && <button type="button" onClick={() => setSelectedTitleId(title.id)} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Ver livro</button>}{version?.source_url && <Link href={version.source_url} target="_blank" className="mt-2 inline-flex rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir PDF</Link>}</article>;
+                return <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{absoluteIndex + 1}. {item.item_type === "title" ? "Livro" : "Material"}</p><p className="mt-1 font-black text-[#123D2C]">{label}</p>{title && <p className="mt-1 text-[10px] font-black text-[#2F6B43]">{title.totalCopies ?? 0} exemplar(es) • {title.availableCopies ?? 0} disponível(is)</p>}{item.note && <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{item.note}</p>}{title && <button type="button" onClick={() => setSelectedTitleId(title.id)} className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Ver livro</button>}{version?.source_url && <Link href={version.source_url} target="_blank" className="mt-2 inline-flex rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir PDF</Link>}</article>;
               })}
             </div>
             <Pager page={trailItemPage} total={selectedTrailItems.length} onChange={setTrailItemPage} />
@@ -1310,8 +1430,11 @@ export function AcervoVivoPublicReader() {
           <Cover title={selectedTitle} />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold leading-5 text-slate-600"><strong>Autor:</strong> {selectedTitle.authors?.join(", ") || "Não informado"} <span className="mx-1">•</span> <strong>Categoria:</strong> {category}</p>
-            {selectedCopies.length > 0 && (
-              <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código no armário:</strong> {selectedCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
+            <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]">
+              <strong>Exemplares:</strong> {selectedTitle.totalCopies ?? selectedCopies.length} • <strong>Disponíveis:</strong> {selectedTitle.availableCopies ?? selectedAvailableCopies.length}
+            </p>
+            {selectedAvailableCopies.length > 0 && (
+              <p className="mt-1 text-xs font-black leading-5 text-[#123D2C]"><strong>Código disponível no armário:</strong> {selectedAvailableCopies.map((copy) => displayCopyCode(copy)).filter(Boolean).join(" • ")}</p>
             )}
             <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">{selectedTitle.description || "Descrição ainda não cadastrada. O Gestor Acervo Vivo - Biblioteca pode incluir este resumo na gestão do catálogo."}</p>
           </div>
@@ -1376,19 +1499,66 @@ export function AcervoVivoPublicReader() {
                 <span className="ml-1 underline underline-offset-2">Abrir no Google Maps</span>
               </a>
               <p className="mt-2">Se o livro não for devolvido antes, o sistema enviará um lembrete por e-mail <strong>{reminderDays} dia(s) antes</strong> da data máxima de devolução <strong>{formatDate(confirmDueAt)}</strong>.</p>
-              {!selectedIdentifiedCopy && selectedCopies.filter((copy) => copy.status === "disponivel").length > 1 && <p className="mt-2 rounded-xl bg-amber-50 p-2 text-xs font-bold text-amber-900">Há mais de um exemplar disponível. Para identificar exatamente o livro retirado, pesquise o código da lombada ou leia o QR Code quando ele já estiver colado no exemplar.</p>}
+              {selectedBorrowCopy ? (
+                <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950 ring-1 ring-amber-200">
+                  <p>
+                    <strong>Exemplar que será confirmado:</strong> {displayCopyCode(selectedBorrowCopy)}
+                  </p>
+                  <p className="mt-1">
+                    Retire exatamente o livro cuja lombada possui o código <strong>{displayCopyCode(selectedBorrowCopy)}</strong>. O empréstimo será registrado para este exemplar específico.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-800 ring-1 ring-red-200">
+                  Não foi possível identificar um exemplar disponível para este empréstimo. Feche esta tela, atualize o Acervo Vivo e tente novamente.
+                </p>
+              )}
             </>
           ) : (
             <>
-              <p className="mt-2">Se houver exemplar disponível, ele ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dia(s)</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+              <p className="mt-2 rounded-xl bg-white p-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                Código da reserva: <span className="font-semibold">será gerado automaticamente após a confirmação.</span>
+              </p>
+              {availableCount > 0 ? (
+                <p className="mt-2">Ao confirmar a reserva, o exemplar disponível ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dias</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
+              ) : (
+                <p className="mt-2">Não há exemplar disponível neste momento. Ao confirmar, você entrará na fila de reserva e será avisado quando um exemplar for separado para retirada.</p>
+              )}
               <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
-              <p className="mt-2">Na retirada, leia o QR Code do livro para confirmar o empréstimo.</p>
+              <p className="mt-2">Na retirada, siga as orientações no e-mail recebido e confirme o empréstimo em <strong>Meus livros</strong>.</p>
               {availableCount <= 0 && <div className="mt-3 grid gap-2"><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={notifyIfNotPickedUp} onChange={(event) => setNotifyIfNotPickedUp(event.target.checked)} />Avisar se uma reserva anterior não for retirada no prazo.</label><label className="flex gap-2 rounded-xl bg-white p-2"><input type="checkbox" checked={reserveAfterReturn} onChange={(event) => setReserveAfterReturn(event.target.checked)} />Manter meu interesse para reservar quando o livro for devolvido.</label></div>}
             </>
           )}
         </div>
-        <button disabled={saving} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
+        <button disabled={saving || (confirmAction === "borrow-now" && !selectedBorrowCopy)} type="button" onClick={() => void executeAction(confirmAction)} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Confirmar</button>
       </Modal>}
+
+      {reservationThankYou && (
+        <Modal
+          title="Obrigado!"
+          eyebrow={reservationThankYou.readyForPickup ? "Acervo Vivo • reserva confirmada" : "Acervo Vivo • solicitação registrada"}
+          z={305}
+          onClose={() => setReservationThankYou(null)}
+        >
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p className="mb-2 rounded-xl bg-white p-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+              Código da reserva: <strong>{reservationDisplayCode(reservationThankYou.reservationId)}</strong>
+            </p>
+            {reservationThankYou.readyForPickup ? (
+              <>
+                <p>A reserva do livro <strong>{reservationThankYou.title}</strong> foi confirmada.</p>
+                <p className="mt-2">O exemplar foi retirado da disponibilidade e ficou separado para você em <strong>{pickupLocation}</strong>{reservationThankYou.holdUntil ? <> até <strong>{formatDate(reservationThankYou.holdUntil)}</strong></> : null}.</p>
+                <p className="mt-2">Na retirada, siga as orientações enviadas por e-mail. Esteja logado no sistema, abra <strong>Meus livros → Reservas</strong> e toque em <strong>Confirmar empréstimo</strong> quando estiver com o exemplar em mãos.</p>
+              </>
+            ) : (
+              <>
+                <p>Sua solicitação de reserva do livro <strong>{reservationThankYou.title}</strong> foi registrada.</p>
+                <p className="mt-2">No momento não há exemplar livre. Você entrou na fila e receberá um aviso quando houver disponibilidade.</p>
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {loanThankYou && <Modal title="Obrigado!" eyebrow="Acervo Vivo • empréstimo confirmado" z={310} onClose={closeLoanThankYou}>
         <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
@@ -1398,8 +1568,32 @@ export function AcervoVivoPublicReader() {
           <a href={pickupMapsUrl} target="_blank" rel="noreferrer" className="mt-2 block rounded-xl bg-white p-2 text-xs font-black leading-5 text-[#123D2C] ring-1 ring-[#123D2C]/10">📍 {pickupAddress} <span className="underline underline-offset-2">Abrir no Google Maps</span></a>
           <p className="mt-3 font-bold">Isso ajuda a Biblioteca do Acervo Vivo do Tucxa a permanecer organizada e à disposição de todos.</p>
         </div>
+        {payload.settings?.post_loan_homologation_enabled && loanThankYou.loanId && !selfHomologationSent ? (
+          <button
+            type="button"
+            onClick={() => setSelfHomologationOpen(true)}
+            className="mt-3 w-full rounded-2xl bg-[#E9F2E7] px-4 py-3 text-sm font-black text-[#123D2C] ring-2 ring-[#2F6B43]"
+          >
+            Participar do teste de uso (opcional)
+          </button>
+        ) : null}
+        {selfHomologationSent ? <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-xs font-black text-emerald-900 ring-1 ring-emerald-200">Obrigado! Suas respostas foram contabilizadas.</p> : null}
         <button type="button" onClick={closeLoanThankYou} className="mt-3 w-full rounded-2xl bg-[#123D2C] px-4 py-3 font-black text-white">Fechar</button>
       </Modal>}
+
+      {selfHomologationOpen && loanThankYou?.loanId ? (
+        <Modal title="Teste de uso do Acervo Vivo" eyebrow="Após o empréstimo • participação opcional" z={340} onClose={() => setSelfHomologationOpen(false)}>
+          <AcervoVivoHomologacaoSelfForm
+            api={API}
+            loanId={loanThankYou.loanId}
+            title={loanThankYou.title}
+            onDone={() => {
+              setSelfHomologationSent(true);
+              setSelfHomologationOpen(false);
+            }}
+          />
+        </Modal>
+      ) : null}
 
       {blockingNotice && <Modal title={blockingNotice.title} eyebrow="Acervo Vivo • atenção" z={330} onClose={() => setBlockingNotice(null)}>
         <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-950 ring-1 ring-amber-200">

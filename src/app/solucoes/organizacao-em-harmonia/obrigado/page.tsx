@@ -1,6 +1,9 @@
-import Link from "next/link";
-import { AeSolutionHeader } from "@/components/ae-solution-header";
+import { OrganizacaoPublicHeader } from "@/components/organizacao-em-harmonia/organizacao-public-header";
 import { moduleInfo, normalizeOrganizacaoModulo, organizacaoWhatsappMessage } from "@/lib/organizacao-em-harmonia";
+
+const AE_HELP_WHATSAPP = `https://wa.me/5519989848246?text=${encodeURIComponent(
+  "Olá, preciso de ajuda com a Organização em Harmonia.",
+)}`;
 
 function asParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -35,54 +38,42 @@ export default async function OrganizacaoObrigadoPage({
   const waUrl = whatsappLink({ module: selectedModule, name, email, whatsapp, leadId });
 
   return (
-    <main className="min-h-screen bg-[#f6fbf8] text-slate-800">
-      <AeSolutionHeader
-        solutionName="Organização em Harmonia"
-        logoSrc="/organizacao-em-harmonia-logo.svg"
-        logoAlt="Logo Organização em Harmonia"
-        actions={[]}
-        sectionLinks={[]}
-        homeHref="/solucoes/organizacao-em-harmonia"
-        topAction={
-          <Link
-            href={info.href}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#31C16B]/30 bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] shadow-md shadow-emerald-200/70 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-          >
-            ← Voltar
-          </Link>
-        }
+    <main id="inicio" className="min-h-screen bg-[#f6fbf8] text-slate-800">
+      <OrganizacaoPublicHeader
+        actions={[{ label: "Ajuda", href: AE_HELP_WHATSAPP }]}
+        backFallbackHref={info.href}
       />
 
-      <section className="mx-auto max-w-3xl px-4 pb-8 pt-3 sm:pb-12 sm:pt-6">
-        <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-slate-100 sm:p-8">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-[#2F6B43] sm:text-sm">Cadastro recebido</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight text-[#00334E] sm:text-5xl">
+      <section className="mx-auto max-w-3xl px-2.5 py-1.5 sm:px-4 sm:pb-12 sm:pt-6">
+        <div className="rounded-[1.25rem] bg-white p-2.5 shadow-xl ring-1 ring-slate-100 sm:rounded-[2rem] sm:p-8">
+          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-[#2F6B43] sm:text-sm sm:tracking-[0.28em]">
+            Cadastro recebido
+          </p>
+          <h1 className="mt-0.5 text-[1.4rem] font-black leading-tight text-[#00334E] sm:mt-2 sm:text-5xl">
             Seu interesse já está salvo.
           </h1>
-          <p className="mt-3 text-base leading-7 text-slate-700 sm:text-lg sm:leading-8">
-            Você deu o primeiro passo para tirar atividades, atendimentos, contribuições e decisões soltas da memória da organização. Agora continue pelo WhatsApp da Automação Extrema para manter o atendimento salvo no celular e receber as orientações de acesso da Organização em Harmonia.
+          <p className="mt-1.5 text-[10px] font-semibold leading-4 text-slate-700 sm:mt-3 sm:text-lg sm:leading-8">
+            Você deu o primeiro passo para organizar atividades, atendimentos, contribuições e decisões. Agora continue pelo WhatsApp da Automação Extrema para receber as orientações de acesso da Organização em Harmonia.
           </p>
 
-          <div className="mt-4 rounded-3xl bg-emerald-50 p-5 text-slate-800">
-            <p className="font-black text-[#00334E]">Próximo passo recomendado</p>
-            <p className="mt-2 leading-7">
+          <div className="mt-2 rounded-xl bg-emerald-50 p-2.5 text-slate-800 ring-1 ring-emerald-100 sm:mt-4 sm:rounded-3xl sm:p-5">
+            <p className="text-[11px] font-black text-[#00334E] sm:text-base">Próximo passo recomendado</p>
+            <p className="mt-1 text-[9px] font-semibold leading-4 sm:mt-2 sm:text-base sm:leading-7">
               Toque no botão abaixo e envie a mensagem pré-preenchida. Ela já leva nome, WhatsApp, e-mail, código do lead e a validação da Organização em Harmonia para o BotConversa identificar seu cadastro sem pedir tudo de novo.
             </p>
           </div>
 
-          <div className="mt-5">
-            <a
-              href={waUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#31C16B] px-6 py-4 text-center text-base font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c]"
-            >
-              Continuar cadastro pelo WhatsApp
-            </a>
-          </div>
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-[#31C16B] px-3 py-2 text-center text-xs font-black text-[#00334E] shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-[#43db7c] sm:mt-5 sm:min-h-14 sm:rounded-2xl sm:px-6 sm:py-4 sm:text-base"
+          >
+            Continuar cadastro pelo WhatsApp
+          </a>
 
-          <p className="mt-5 text-sm leading-6 text-slate-600">
-            Também enviamos uma confirmação para o e-mail informado{email ? `: ${email}` : ""}. Se não encontrar, confira spam/lixo eletrônico. O WhatsApp será o canal principal para confirmar dados, tirar dúvidas e orientar a validação.
+          <p className="mt-2 text-[9px] font-semibold leading-4 text-slate-600 sm:mt-5 sm:text-sm sm:leading-6">
+            Também enviamos uma confirmação para o e-mail informado{email ? `: ${email}` : ""}. Se não encontrar, confira spam/lixo eletrônico. O WhatsApp será o canal principal para confirmar dados e orientar a validação.
           </p>
         </div>
       </section>

@@ -7,7 +7,7 @@ const WHATSAPP = "https://chat.whatsapp.com/GPiB2S7syr7E5F23j9MtLw?mode=gi_t";
 const actions = [
   { label: "Início", href: "#inicio", variant: "primary" as const },
   { label: "Voltar", href: ACERVO, variant: "secondary" as const },
-  { label: "Ajuda", href: "#ajuda", variant: "secondary" as const, action: "supportWhatsapp" as const },
+  { label: "Ajuda", href: `${ACERVO}#apoio-acervo`, variant: "secondary" as const },
 ];
 
 export default function GrupoDeEstudosPage() {

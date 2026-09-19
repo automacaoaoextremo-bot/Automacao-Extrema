@@ -18,7 +18,7 @@ export default function AcervoVivoFilhoDaCorrentePage() {
           actions={[
             { label: "Início", href: panelBase, variant: "primary" },
             { label: "Voltar", href: atendimentoHref, variant: "secondary" },
-            { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
+            { label: "Ajuda", href: "#apoio-acervo", variant: "secondary" },
             { label: "Sair", href: "#sair", variant: "secondary", action: "signOutFilhoCorrente" },
           ]}
           mobileActionColumns={4}

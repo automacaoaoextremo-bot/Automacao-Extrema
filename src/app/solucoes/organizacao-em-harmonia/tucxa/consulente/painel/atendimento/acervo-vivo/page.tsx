@@ -21,7 +21,7 @@ export default function AcervoVivoConsulentePage() {
           actions={[
             { label: "Início", href: panelBase, variant: "primary" },
             { label: "Voltar", href: atendimentoHref, variant: "secondary" },
-            { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
+            { label: "Ajuda", href: "#apoio-acervo", variant: "secondary" },
             consulenteSignOutAction,
           ]}
         />

@@ -71,6 +71,22 @@ type ReservationRow = {
   [key: string]: unknown;
 };
 
+type HomologationRow = {
+  id: string;
+  participant_person_id: string;
+  conducted_by_person_id?: string | null;
+  conducted_at: string;
+  source_type: "manual" | "foto" | "audio";
+  source_storage_path?: string | null;
+  source_file_name?: string | null;
+  source_mime_type?: string | null;
+  task_results?: Record<string, unknown> | null;
+  final_answers?: Record<string, unknown> | null;
+  notes?: string | null;
+  ai_metadata?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
 const MANAGEMENT_FUNCTIONS = [
   "biblioteca-acervo-vivo",
   "gestor-acervo-vivo-biblioteca",
@@ -189,6 +205,34 @@ function nowIso() {
 
 const ACERVO_COVERS_BUCKET = "tucxa-acervo-vivo-capas";
 const ACERVO_DESCRIPTION_PHOTOS_BUCKET = "tucxa-acervo-vivo-descricao-fotos";
+const ACERVO_HOMOLOGATION_BUCKET = "tucxa-acervo-vivo-homologacao";
+
+const HOMOLOGATION_TASK_KEYS = [
+  "acessar_acervo",
+  "entender_inicio",
+  "realizar_cadastro",
+  "procurar_livro",
+  "abrir_detalhe",
+  "entender_codigo_lombada",
+  "localizar_livro",
+  "registrar_emprestimo",
+  "encontrar_meus_livros",
+  "entender_data_devolucao",
+  "encontrar_trilhas",
+  "encontrar_ajuda",
+  "entender_devolucao",
+] as const;
+
+const HOMOLOGATION_TASK_VALUES = ["sozinho", "com_ajuda", "nao_concluiu"] as const;
+
+const HOMOLOGATION_FINAL_OPTIONS = {
+  facilidade_geral: ["facil", "razoavel", "dificil"],
+  duvida_inseguranca: ["nao", "pouca", "muita"],
+  usaria_sozinho: ["sim", "talvez", "nao"],
+  trilhas_ajudaram: ["sim", "parcialmente", "nao", "nao_testado"],
+  apoio_humano_claro: ["sim", "parcialmente", "nao"],
+  recomendaria: ["sim", "talvez", "nao"],
+} as const;
 
 function coverImageFromDataUrl(value: unknown) {
   const raw = text(value);
@@ -199,6 +243,190 @@ function coverImageFromDataUrl(value: unknown) {
   if (!buffer.length || buffer.length > 2_500_000) return null;
   const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
   return { mimeType, buffer, extension };
+}
+
+function fileFromDataUrl(value: unknown, maxBytes = 3_100_000) {
+  const raw = text(value);
+  const match = raw.match(/^data:([a-z0-9.+\-/]+);base64,([A-Za-z0-9+/=\r\n]+)$/i);
+  if (!match) return null;
+  const mimeType = match[1].toLowerCase();
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (!buffer.length || buffer.length > maxBytes) return null;
+  const extensionMap: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/wav": "wav",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+  };
+  const extension = extensionMap[mimeType];
+  if (!extension) return null;
+  return { mimeType, buffer, extension };
+}
+
+function jsonObjectFromModelText(value: string) {
+  const cleaned = value.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("A IA não retornou respostas estruturadas para revisão.");
+  const parsed = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
+  return record(parsed);
+}
+
+function sanitizeHomologationDraft(value: unknown) {
+  const current = record(value);
+  const rawTasks = record(current.taskResults);
+  const rawFinal = record(current.finalAnswers);
+  const taskResults: Record<string, string> = {};
+  const finalAnswers: Record<string, string> = {};
+
+  for (const key of HOMOLOGATION_TASK_KEYS) {
+    const selected = text(rawTasks[key]);
+    taskResults[key] = ([...HOMOLOGATION_TASK_VALUES, "nao_informado"] as readonly string[]).includes(selected)
+      ? selected
+      : "nao_informado";
+  }
+
+  for (const [key, options] of Object.entries(HOMOLOGATION_FINAL_OPTIONS)) {
+    const selected = text(rawFinal[key]);
+    finalAnswers[key] = ([...options, "nao_informado"] as string[]).includes(selected)
+      ? selected
+      : "nao_informado";
+  }
+
+  const hardest = text(rawFinal.etapa_mais_dificil);
+  finalAnswers.etapa_mais_dificil = hardest === "nenhuma" || (HOMOLOGATION_TASK_KEYS as readonly string[]).includes(hardest)
+    ? hardest
+    : "nao_informado";
+
+  return {
+    taskResults,
+    finalAnswers,
+    notes: text(current.notes).slice(0, 2000),
+  };
+}
+
+function homologationPrompt() {
+  return [
+    "Você está convertendo uma homologação do Acervo Vivo - Biblioteca do Tucxa em respostas estruturadas.",
+    "Não invente respostas. Quando uma resposta não estiver clara, use exatamente nao_informado.",
+    "Para cada tarefa use somente: sozinho, com_ajuda, nao_concluiu ou nao_informado.",
+    `Tarefas obrigatórias: ${HOMOLOGATION_TASK_KEYS.join(", ")}.`,
+    "Interpretação: sozinho = concluiu sem intervenção; com_ajuda = concluiu com orientação; nao_concluiu = não conseguiu concluir.",
+    "A tarefa realizar_cadastro deve indicar se a própria pessoa conseguiu fazer o cadastro sozinha ou com ajuda.",
+    "Para facilidade_geral use facil, razoavel, dificil ou nao_informado.",
+    "Para duvida_inseguranca use nao, pouca, muita ou nao_informado.",
+    "Para usaria_sozinho use sim, talvez, nao ou nao_informado.",
+    "Para trilhas_ajudaram use sim, parcialmente, nao, nao_testado ou nao_informado.",
+    "Para apoio_humano_claro use sim, parcialmente, nao ou nao_informado.",
+    "Para recomendaria use sim, talvez, nao ou nao_informado.",
+    `Para etapa_mais_dificil use uma das tarefas (${HOMOLOGATION_TASK_KEYS.join(", ")}), nenhuma ou nao_informado.`,
+    "Retorne SOMENTE JSON válido no formato:",
+    JSON.stringify({
+      taskResults: Object.fromEntries(HOMOLOGATION_TASK_KEYS.map((key) => [key, "nao_informado"])),
+      finalAnswers: {
+        facilidade_geral: "nao_informado",
+        duvida_inseguranca: "nao_informado",
+        usaria_sozinho: "nao_informado",
+        trilhas_ajudaram: "nao_informado",
+        apoio_humano_claro: "nao_informado",
+        recomendaria: "nao_informado",
+        etapa_mais_dificil: "nao_informado",
+      },
+      notes: "",
+    }),
+  ].join("\n");
+}
+
+async function saveHomologationEvidence(input: {
+  organizationId: string;
+  fileName: string;
+  file: { mimeType: string; buffer: Buffer; extension: string };
+}) {
+  const timestamp = nowIso().replace(/[:.]/g, "-");
+  const base = slugify(input.fileName.replace(/\.[^.]+$/, "")) || "evidencia";
+  const storagePath = `homologacao/${input.organizationId}/${timestamp}-${base}.${input.file.extension}`;
+  const { error } = await supabaseAdmin.storage
+    .from(ACERVO_HOMOLOGATION_BUCKET)
+    .upload(storagePath, input.file.buffer, {
+      contentType: input.file.mimeType,
+      upsert: false,
+      cacheControl: "3600",
+    });
+  if (error) throw error;
+  return storagePath;
+}
+
+async function extractHomologationFromText(sourceText: string) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A extração automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_HOMOLOGATION_MODEL) || text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content: [{ type: "input_text", text: `${homologationPrompt()}\n\nTranscrição/relato:\n${sourceText.slice(0, 14000)}` }] }],
+      max_output_tokens: 1200,
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+  return { draft: sanitizeHomologationDraft(jsonObjectFromModelText(openAiResponseText(payload))), model };
+}
+
+async function extractHomologationFromPhoto(imageDataUrl: string) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A extração automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_HOMOLOGATION_MODEL) || text(process.env.OPENAI_ACERVO_VISION_MODEL) || "gpt-5.6-luna";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content: [
+        { type: "input_text", text: `${homologationPrompt()}\n\nLeia somente o que estiver marcado/escrito de forma legível na ficha fotografada.` },
+        { type: "input_image", image_url: imageDataUrl, detail: "high" },
+      ] }],
+      max_output_tokens: 1200,
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A IA respondeu com status ${response.status}.`);
+  }
+  return { draft: sanitizeHomologationDraft(jsonObjectFromModelText(openAiResponseText(payload))), model };
+}
+
+async function transcribeHomologationAudio(input: { buffer: Buffer; mimeType: string; fileName: string }) {
+  const apiKey = text(process.env.OPENAI_API_KEY);
+  if (!apiKey) throw new Error("A transcrição automática ainda não está configurada. Defina OPENAI_API_KEY no ambiente do projeto e no Vercel.");
+  const model = text(process.env.OPENAI_ACERVO_TRANSCRIBE_MODEL) || "gpt-4o-mini-transcribe";
+  const form = new FormData();
+  form.append("model", model);
+  form.append("file", new Blob([new Uint8Array(input.buffer)], { type: input.mimeType }), input.fileName || "homologacao-audio");
+  form.append("language", "pt");
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  const payload = record(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    const providerError = record(payload.error);
+    throw new Error(text(providerError.message) || `A transcrição respondeu com status ${response.status}.`);
+  }
+  const transcript = text(payload.text);
+  if (!transcript) throw new Error("O áudio não gerou uma transcrição utilizável.");
+  return { transcript, model };
 }
 
 function openAiResponseText(value: unknown) {
@@ -486,6 +714,32 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     .eq("organization_id", organizationId)
     .order("year", { ascending: false });
 
+  let homologationRows: HomologationRow[] = [];
+  let homologationWarning: string | null = null;
+  if (permissions.libraryRules) {
+    const homologations = await supabaseAdmin
+      .from("oh_acervo_homologations")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order("conducted_at", { ascending: false })
+      .limit(250);
+
+    if (homologations.error) {
+      const code = text(record(homologations.error).code).toUpperCase();
+      if (["42P01", "PGRST205"].includes(code)) {
+        homologationWarning = "Aplique a migration 20260916073000_oh_tucxa_acervo_vivo_homologacao.sql para habilitar o registro estruturado da homologação.";
+      } else {
+        throw homologations.error;
+      }
+    } else {
+      homologationRows = ((homologations.data ?? []) as HomologationRow[]).map((item) => ({
+        ...item,
+        participant: personMap.get(item.participant_person_id) ?? null,
+        conductedBy: item.conducted_by_person_id ? personMap.get(item.conducted_by_person_id) ?? null : null,
+      }));
+    }
+  }
+
   return {
     permissions,
     organizationId,
@@ -507,6 +761,8 @@ async function loadPayload(organizationId: string, permissions: ManagementPermis
     inventorySessions: receptionOnly ? [] : inventorySessions.data ?? [],
     inventoryScans: receptionOnly ? [] : inventoryScans.data ?? [],
     folhaYears: receptionOnly || folhaYears.error ? [] : folhaYears.data ?? [],
+    homologations: permissions.libraryRules ? homologationRows : [],
+    homologationWarning,
     integrationsWarning: [
       courses.error ? `Cursos: ${errorMessage(courses.error, "indisponível")}` : "",
       lessons.error ? `Aulas: ${errorMessage(lessons.error, "indisponível")}` : "",
@@ -696,13 +952,201 @@ export async function POST(request: Request) {
   try {
     const permissions = await permissionsForContext(access.context);
     await reconcileExpiredAcervoReservations(organizationId);
+
+    if (action === "extract-homologation-evidence") {
+      if (!permissions.libraryRules) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode importar evidências da homologação.");
+      }
+
+      const sourceType = text(body.sourceType);
+      if (!['foto', 'audio'].includes(sourceType)) {
+        return NextResponse.json({ error: "Escolha foto ou áudio como origem da evidência." }, { status: 400 });
+      }
+
+      const file = fileFromDataUrl(body.dataUrl);
+      if (!file) {
+        return NextResponse.json({ error: "Arquivo inválido ou maior que aproximadamente 3 MB após a preparação." }, { status: 400 });
+      }
+      if (sourceType === 'foto' && !file.mimeType.startsWith('image/')) {
+        return NextResponse.json({ error: "Para a origem Foto, envie JPG, PNG ou WebP." }, { status: 400 });
+      }
+      if (sourceType === 'audio' && !file.mimeType.startsWith('audio/')) {
+        return NextResponse.json({ error: "Para a origem Áudio, envie um arquivo de áudio compatível." }, { status: 400 });
+      }
+
+      const fileName = text(body.fileName) || `homologacao-${sourceType}.${file.extension}`;
+      const storagePath = await saveHomologationEvidence({ organizationId, fileName, file });
+
+      if (!text(process.env.OPENAI_API_KEY)) {
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_guardada", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          automaticExtraction: false,
+        });
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          message: "Evidência guardada. Como OPENAI_API_KEY não está configurada, preencha as respostas estruturadas manualmente antes de salvar a homologação.",
+        });
+      }
+
+      try {
+        let draft: ReturnType<typeof sanitizeHomologationDraft>;
+        let extractionModel = "";
+        let transcriptionModel = "";
+        let transcript = "";
+
+        if (sourceType === 'foto') {
+          const extraction = await extractHomologationFromPhoto(text(body.dataUrl));
+          draft = extraction.draft;
+          extractionModel = extraction.model;
+        } else {
+          const transcription = await transcribeHomologationAudio({
+            buffer: file.buffer,
+            mimeType: file.mimeType,
+            fileName,
+          });
+          transcript = transcription.transcript;
+          transcriptionModel = transcription.model;
+          const extraction = await extractHomologationFromText(transcript);
+          draft = extraction.draft;
+          extractionModel = extraction.model;
+        }
+
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_extraida", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          extractionModel,
+          transcriptionModel: transcriptionModel || null,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          draft,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          extractionModel,
+          transcriptionModel: transcriptionModel || null,
+          transcript: transcript ? transcript.slice(0, 6000) : "",
+          message: "Rascunho extraído. Revise todas as respostas antes de confirmar a homologação.",
+        });
+      } catch (extractionError) {
+        await audit(organizationId, actorPersonId, "homologacao_evidencia_guardada", "homologation", undefined, {
+          sourceType,
+          storagePath,
+          automaticExtraction: false,
+          extractionError: errorMessage(extractionError, "Falha na extração automática"),
+        });
+        return NextResponse.json({
+          ok: true,
+          manualProcessingRequired: true,
+          evidenceStoragePath: storagePath,
+          evidenceFileName: fileName,
+          evidenceMimeType: file.mimeType,
+          message: `Evidência guardada, mas a leitura automática não foi concluída: ${errorMessage(extractionError, "falha na extração")}. Revise/preencha os campos manualmente.`,
+        });
+      }
+    }
+
+    if (action === "save-homologation") {
+      if (!permissions.libraryRules) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode registrar resultados da homologação.");
+      }
+
+      const participantPersonId = text(body.participantPersonId);
+      if (!participantPersonId) {
+        return NextResponse.json({ error: "Selecione a pessoa que realizou o teste." }, { status: 400 });
+      }
+
+      const { data: participant, error: participantError } = await supabaseAdmin
+        .from("oh_people")
+        .select("id,full_name,active")
+        .eq("organization_id", organizationId)
+        .eq("id", participantPersonId)
+        .eq("active", true)
+        .maybeSingle();
+      if (participantError) throw participantError;
+      if (!participant?.id) {
+        return NextResponse.json({ error: "A pessoa selecionada não possui cadastro ativo no Tucxa." }, { status: 400 });
+      }
+
+      const taskInput = record(body.taskResults);
+      const taskResults: Record<string, string> = {};
+      for (const key of HOMOLOGATION_TASK_KEYS) {
+        const selected = text(taskInput[key]);
+        if (!(HOMOLOGATION_TASK_VALUES as readonly string[]).includes(selected)) {
+          return NextResponse.json({ error: `Preencha a etapa de homologação: ${key}.` }, { status: 400 });
+        }
+        taskResults[key] = selected;
+      }
+
+      const finalInput = record(body.finalAnswers);
+      const finalAnswers: Record<string, string> = {};
+      for (const [key, options] of Object.entries(HOMOLOGATION_FINAL_OPTIONS)) {
+        const selected = text(finalInput[key]);
+        if (!(options as readonly string[]).includes(selected)) {
+          return NextResponse.json({ error: `Responda a pergunta final: ${key}.` }, { status: 400 });
+        }
+        finalAnswers[key] = selected;
+      }
+      const hardest = text(finalInput.etapa_mais_dificil);
+      if (!(hardest === "nenhuma" || (HOMOLOGATION_TASK_KEYS as readonly string[]).includes(hardest))) {
+        return NextResponse.json({ error: "Informe qual foi a etapa mais difícil, ou marque Nenhuma." }, { status: 400 });
+      }
+      finalAnswers.etapa_mais_dificil = hardest;
+
+      const sourceType = ['manual', 'foto', 'audio'].includes(text(body.sourceType)) ? text(body.sourceType) : 'manual';
+      const sourceStoragePath = text(body.evidenceStoragePath);
+      if (sourceStoragePath && !sourceStoragePath.startsWith(`homologacao/${organizationId}/`)) {
+        return NextResponse.json({ error: "A evidência informada não pertence a esta organização." }, { status: 400 });
+      }
+
+      const { data: created, error: insertError } = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .insert({
+          organization_id: organizationId,
+          participant_person_id: participantPersonId,
+          conducted_by_person_id: actorPersonId || null,
+          conducted_at: nowIso(),
+          source_type: sourceType,
+          source_storage_path: sourceStoragePath || null,
+          source_file_name: text(body.evidenceFileName) || null,
+          source_mime_type: text(body.evidenceMimeType) || null,
+          task_results: taskResults,
+          final_answers: finalAnswers,
+          notes: text(body.notes).slice(0, 4000) || null,
+          ai_metadata: {
+            extracted: boolValue(body.extractedAutomatically, false),
+            extraction_model: text(body.extractionModel) || null,
+            transcription_model: text(body.transcriptionModel) || null,
+            reviewed_by_manager: true,
+          },
+          updated_at: nowIso(),
+        })
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+
+      await audit(organizationId, actorPersonId, "homologacao_registrada", "homologation", text(created?.id) || undefined, {
+        participantPersonId,
+        participantName: text(participant.full_name),
+        sourceType,
+      });
+
+      return NextResponse.json({ ok: true, id: created?.id });
+    }
+
     if (action === "save-settings") {
       if (!permissions.libraryRules) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode atualizar as regras de empréstimo, renovação, reservas e pendências.");
       }
       const { data: currentSettings, error: currentSettingsError } = await supabaseAdmin
         .from("oh_acervo_settings")
-        .select("metadata")
+        .select("loan_days,daily_late_fee,max_active_loans,renewal_limit,reservation_hold_days,public_catalog_enabled,member_loans_enabled,member_reservations_enabled,member_renewals_enabled,block_new_loans_with_overdue,block_new_loans_with_pending_fee,metadata")
         .eq("organization_id", organizationId)
         .maybeSingle();
       if (currentSettingsError) throw currentSettingsError;
@@ -710,21 +1154,25 @@ export async function POST(request: Request) {
       const notificationEmails = asTextList(body.notificationEmails).filter((value) => value.includes("@"));
       const payload = {
         organization_id: organizationId,
-        loan_days: Math.max(1, Math.min(365, numberValue(body.loanDays, 30))),
-        daily_late_fee: Math.max(0, numberValue(body.dailyLateFee, 1)),
-        max_active_loans: Math.max(1, Math.min(50, numberValue(body.maxActiveLoans, 3))),
-        renewal_limit: Math.max(0, Math.min(20, numberValue(body.renewalLimit, 1))),
-        reservation_hold_days: Math.max(1, Math.min(30, numberValue(body.reservationHoldDays, 3))),
-        public_catalog_enabled: boolValue(body.publicCatalogEnabled, true),
-        member_loans_enabled: boolValue(body.memberLoansEnabled, true),
-        member_reservations_enabled: boolValue(body.memberReservationsEnabled, true),
-        member_renewals_enabled: boolValue(body.memberRenewalsEnabled, true),
-        block_new_loans_with_overdue: boolValue(body.blockNewLoansWithOverdue, true),
-        block_new_loans_with_pending_fee: boolValue(body.blockNewLoansWithPendingFee, true),
+        loan_days: Math.max(1, Math.min(365, numberValue(body.loanDays, numberValue(currentSettings?.loan_days, 30)))),
+        daily_late_fee: Math.max(0, numberValue(body.dailyLateFee, numberValue(currentSettings?.daily_late_fee, 1))),
+        max_active_loans: Math.max(1, Math.min(50, numberValue(body.maxActiveLoans, numberValue(currentSettings?.max_active_loans, 3)))),
+        renewal_limit: Math.max(0, Math.min(20, numberValue(body.renewalLimit, numberValue(currentSettings?.renewal_limit, 1)))),
+        reservation_hold_days: Math.max(1, Math.min(30, numberValue(body.reservationHoldDays, numberValue(currentSettings?.reservation_hold_days, 3)))),
+        public_catalog_enabled: boolValue(body.publicCatalogEnabled, currentSettings?.public_catalog_enabled !== false),
+        member_loans_enabled: boolValue(body.memberLoansEnabled, currentSettings?.member_loans_enabled !== false),
+        member_reservations_enabled: boolValue(body.memberReservationsEnabled, currentSettings?.member_reservations_enabled !== false),
+        member_renewals_enabled: boolValue(body.memberRenewalsEnabled, currentSettings?.member_renewals_enabled !== false),
+        block_new_loans_with_overdue: boolValue(body.blockNewLoansWithOverdue, currentSettings?.block_new_loans_with_overdue !== false),
+        block_new_loans_with_pending_fee: boolValue(body.blockNewLoansWithPendingFee, currentSettings?.block_new_loans_with_pending_fee !== false),
         metadata: {
           ...currentMetadata,
           pickup_location: text(body.pickupLocation) || text(currentMetadata.pickup_location) || "Tucxa 1",
           self_service_enabled: boolValue(body.selfServiceEnabled, currentMetadata.self_service_enabled !== false),
+          post_loan_homologation_enabled: boolValue(
+            body.postLoanHomologationEnabled,
+            currentMetadata.post_loan_homologation_enabled === true,
+          ),
           loan_reminder_days_before_due: Math.max(0, Math.min(30, numberValue(
             body.loanReminderDaysBeforeDue,
             numberValue(currentMetadata.loan_reminder_days_before_due, 3),
@@ -1121,47 +1569,172 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-copy" || action === "update-copy") {
-      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar exemplares.");
-      const titleId = text(body.titleId);
-      if (!titleId) return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
-      let assetCode = text(body.assetCode);
-      if (!assetCode) {
-        const { count, error: countError } = await supabaseAdmin
-          .from("oh_acervo_copies")
-          .select("id", { count: "exact", head: true })
-          .eq("organization_id", organizationId);
-        if (countError) throw countError;
-        assetCode = `ACV-${String((count ?? 0) + 1).padStart(6, "0")}`;
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar exemplares.");
       }
-      const payload = {
-        organization_id: organizationId,
-        title_id: titleId,
-        legacy_code: text(body.legacyCode) || null,
-        asset_code: assetCode,
-        shelf: text(body.shelf) || null,
-        shelf_position: text(body.shelfPosition) || null,
-        condition: text(body.condition) || "bom",
-        status: text(body.status) || "disponivel",
-        acquisition_type: text(body.acquisitionType) || "acervo_historico",
-        donor_person_id: text(body.donorPersonId) || null,
-        acquired_at: dateOnly(body.acquiredAt),
-        notes: text(body.notes) || null,
-        active: body.active === undefined ? true : boolValue(body.active, true),
-        updated_at: nowIso(),
-      };
 
       if (action === "create-copy") {
-        const { data, error } = await supabaseAdmin.from("oh_acervo_copies").insert(payload).select("id,asset_code,qr_token").single();
+        const titleId = text(body.titleId);
+        if (!titleId) {
+          return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
+        }
+
+        const inventorySessionId = text(body.inventorySessionId);
+        let inventorySession:
+          | { id: string; status: string; started_at?: string | null; metadata?: unknown }
+          | null = null;
+
+        if (inventorySessionId) {
+          const { data: session, error: sessionError } = await supabaseAdmin
+            .from("oh_acervo_inventory_sessions")
+            .select("id,status,started_at,metadata")
+            .eq("organization_id", organizationId)
+            .eq("id", inventorySessionId)
+            .maybeSingle();
+          if (sessionError) throw sessionError;
+          if (!session?.id || session.status !== "aberto") {
+            return NextResponse.json(
+              { error: "O inventário selecionado não está mais aberto." },
+              { status: 409 },
+            );
+          }
+          inventorySession = session;
+        }
+
+        let assetCode = text(body.assetCode);
+        if (!assetCode) {
+          const { count, error: countError } = await supabaseAdmin
+            .from("oh_acervo_copies")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId);
+          if (countError) throw countError;
+          assetCode = `ACV-${String((count ?? 0) + 1).padStart(6, "0")}`;
+        }
+
+        const createdAt = nowIso();
+        const metadata = inventorySession
+          ? {
+              inventory_status: "inventariado",
+              last_inventory_at: createdAt,
+              last_inventory_by_person_id: actorPersonId || null,
+              last_inventory_session_id: inventorySession.id,
+              inventory_added_during_session_id: inventorySession.id,
+            }
+          : {};
+
+        const payload = {
+          organization_id: organizationId,
+          title_id: titleId,
+          legacy_code: text(body.legacyCode) || null,
+          asset_code: assetCode,
+          shelf: text(body.shelf) || null,
+          shelf_position: text(body.shelfPosition) || null,
+          condition: text(body.condition) || "bom",
+          status: text(body.status) || "disponivel",
+          acquisition_type: text(body.acquisitionType) || "acervo_historico",
+          donor_person_id: text(body.donorPersonId) || null,
+          acquired_at: dateOnly(body.acquiredAt),
+          notes: text(body.notes) || null,
+          active: body.active === undefined ? true : boolValue(body.active, true),
+          metadata,
+          created_at: createdAt,
+          updated_at: createdAt,
+        };
+
+        const { data, error } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .insert(payload)
+          .select("id,title_id,asset_code,legacy_code,qr_token,shelf,shelf_position,status,metadata,created_at")
+          .single();
         if (error) throw error;
-        await audit(organizationId, actorPersonId, "exemplar_criado", "copy", data.id, { assetCode: data.asset_code });
-        return NextResponse.json({ ok: true, copy: data });
+
+        if (inventorySession) {
+          const { error: scanError } = await supabaseAdmin
+            .from("oh_acervo_inventory_scans")
+            .upsert(
+              {
+                organization_id: organizationId,
+                session_id: inventorySession.id,
+                copy_id: data.id,
+                scanned_by_person_id: actorPersonId || null,
+                scanned_at: createdAt,
+                observed_shelf: text(body.shelf) || null,
+                note: "Exemplar cadastrado durante o inventário.",
+              },
+              { onConflict: "session_id,copy_id" },
+            );
+          if (scanError) throw scanError;
+        }
+
+        await audit(organizationId, actorPersonId, "exemplar_criado", "copy", data.id, {
+          assetCode: data.asset_code,
+          inventorySessionId: inventorySession?.id || null,
+          addedDuringInventory: Boolean(inventorySession),
+        });
+        return NextResponse.json({
+          ok: true,
+          copy: data,
+          inventoryAssociation: inventorySession
+            ? {
+                sessionId: inventorySession.id,
+                classification: "adicionado_durante_inventario",
+              }
+            : null,
+        });
       }
 
       const copyId = text(body.copyId);
-      const { error } = await supabaseAdmin.from("oh_acervo_copies").update(payload).eq("organization_id", organizationId).eq("id", copyId);
+      if (!copyId) {
+        return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      const { data: currentCopy, error: currentCopyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .maybeSingle();
+      if (currentCopyError) throw currentCopyError;
+      if (!currentCopy?.id) {
+        return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
+      }
+
+      const updates: Record<string, unknown> = { updated_at: nowIso() };
+      if (body.titleId !== undefined) {
+        const titleId = text(body.titleId);
+        if (!titleId) return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
+        updates.title_id = titleId;
+      }
+      if (body.legacyCode !== undefined) updates.legacy_code = text(body.legacyCode) || null;
+      if (body.assetCode !== undefined) {
+        const assetCode = text(body.assetCode);
+        if (!assetCode) return NextResponse.json({ error: "O código patrimonial não pode ficar vazio." }, { status: 400 });
+        updates.asset_code = assetCode;
+      }
+      if (body.shelf !== undefined) updates.shelf = text(body.shelf) || null;
+      if (body.shelfPosition !== undefined) updates.shelf_position = text(body.shelfPosition) || null;
+      if (body.condition !== undefined) updates.condition = text(body.condition) || text(currentCopy.condition) || "bom";
+      if (body.status !== undefined) updates.status = text(body.status) || text(currentCopy.status) || "disponivel";
+      if (body.acquisitionType !== undefined) updates.acquisition_type = text(body.acquisitionType) || text(currentCopy.acquisition_type) || "acervo_historico";
+      if (body.donorPersonId !== undefined) updates.donor_person_id = text(body.donorPersonId) || null;
+      if (body.acquiredAt !== undefined) updates.acquired_at = dateOnly(body.acquiredAt);
+      if (body.notes !== undefined) updates.notes = text(body.notes) || null;
+      if (body.active !== undefined) updates.active = boolValue(body.active, Boolean(currentCopy.active));
+
+      const { data: updatedCopy, error } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update(updates)
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .select("*")
+        .single();
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "exemplar_atualizado", "copy", copyId, { assetCode });
-      return NextResponse.json({ ok: true });
+
+      await audit(organizationId, actorPersonId, "exemplar_atualizado", "copy", copyId, {
+        fields: Object.keys(updates).filter((key) => key !== "updated_at"),
+        assetCode: updatedCopy.asset_code,
+      });
+      return NextResponse.json({ ok: true, copy: updatedCopy });
     }
 
     if (action === "confirm-reservation-loan") {
@@ -1666,14 +2239,157 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, qrDataUrl, assetCode: copy.asset_code, qrValue: value });
     }
 
+    if (action === "inventory-copy-not-found") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode marcar exemplares como não encontrados.");
+      }
+
+      const copyId = text(body.copyId);
+      const sessionId = text(body.sessionId);
+      if (!copyId) {
+        return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      let sessionMetadata: Record<string, unknown> | null = null;
+      if (sessionId) {
+        const { data: session, error: sessionError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .select("id,status,metadata")
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (sessionError) throw sessionError;
+        if (!session?.id || session.status !== "aberto") {
+          return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+        }
+        sessionMetadata = record(session.metadata);
+      }
+
+      const { data: copy, error: copyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id,asset_code,legacy_code,shelf,shelf_position,condition,status,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .maybeSingle();
+
+      if (copyError) throw copyError;
+      if (!copy?.id) {
+        return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
+      }
+
+      if (["emprestado", "reservado"].includes(text(copy.status))) {
+        return NextResponse.json(
+          { error: "Este exemplar está em circulação e não deve ser marcado como não encontrado no inventário físico." },
+          { status: 409 },
+        );
+      }
+
+      const inventoryAt = nowIso();
+      const currentMetadata = record(copy.metadata);
+      const previousCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado"
+          ? text(currentMetadata.inventory_previous_copy_status) || text(copy.status)
+          : text(copy.status);
+
+      const metadata = {
+        ...currentMetadata,
+        last_inventory_at: inventoryAt,
+        last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId || text(currentMetadata.last_inventory_session_id) || null,
+        last_inventory_observed_shelf: null,
+        inventory_status: "nao_encontrado",
+        inventory_previous_copy_status: previousCopyStatus || null,
+        inventory_not_found_at: inventoryAt,
+        inventory_not_found_by_person_id: actorPersonId || null,
+      };
+
+      const nextCopyStatus = text(copy.status) === "disponivel" ? "perdido" : text(copy.status);
+
+      const { error: updateError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({
+          status: nextCopyStatus,
+          metadata,
+          updated_at: inventoryAt,
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", copy.id);
+
+      if (updateError) throw updateError;
+
+      if (sessionId && sessionMetadata) {
+        const currentIds = Array.isArray(sessionMetadata.not_found_copy_ids)
+          ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+          : [];
+        const nextIds = Array.from(new Set([...currentIds, copy.id]));
+        const { error: sessionUpdateError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .update({
+            metadata: {
+              ...sessionMetadata,
+              not_found_copy_ids: nextIds,
+            },
+            updated_at: inventoryAt,
+          })
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .eq("status", "aberto");
+        if (sessionUpdateError) throw sessionUpdateError;
+      }
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "inventario_exemplar_nao_encontrado",
+        "copy",
+        copy.id,
+        {
+          titleId: copy.title_id,
+          assetCode: copy.asset_code,
+          legacyCode: copy.legacy_code,
+          previousCopyStatus,
+          copyStatus: nextCopyStatus,
+          inventoryAt,
+          inventoryStatus: "nao_encontrado",
+          sessionId: sessionId || null,
+        },
+      );
+
+      return NextResponse.json({
+        ok: true,
+        copy: {
+          ...copy,
+          status: nextCopyStatus,
+          metadata,
+          inventory_at: inventoryAt,
+        },
+      });
+    }
+
     if (action === "inventory-copy") {
       if (!permissions.library) {
         return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode confirmar o inventário de exemplares.");
       }
 
       const copyId = text(body.copyId);
+      const sessionId = text(body.sessionId);
       if (!copyId) {
         return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      let sessionMetadata: Record<string, unknown> | null = null;
+      if (sessionId) {
+        const { data: session, error: sessionError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .select("id,status,metadata")
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (sessionError) throw sessionError;
+        if (!session?.id || session.status !== "aberto") {
+          return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+        }
+        sessionMetadata = record(session.metadata);
       }
 
       const { data: copy, error: copyError } = await supabaseAdmin
@@ -1692,22 +2408,71 @@ export async function POST(request: Request) {
       const observedShelf = text(body.observedShelf) || text(copy.shelf);
       const qrConfirmed = boolValue(body.qrConfirmed, false);
       const currentMetadata = record(copy.metadata);
+      const previousCopyStatus = text(currentMetadata.inventory_previous_copy_status);
+      const restoredCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado" &&
+        text(copy.status) === "perdido" &&
+        ["disponivel", "manutencao"].includes(previousCopyStatus)
+          ? previousCopyStatus
+          : text(copy.status);
+
       const metadata = {
         ...currentMetadata,
         last_inventory_at: inventoryAt,
         last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId || text(currentMetadata.last_inventory_session_id) || null,
         last_inventory_observed_shelf: observedShelf || null,
         inventory_status: qrConfirmed ? "inventariado" : "conferido",
+        inventory_previous_copy_status: null,
+        inventory_not_found_at: null,
+        inventory_not_found_by_person_id: null,
         qr_label_confirmed_at: qrConfirmed ? inventoryAt : text(currentMetadata.qr_label_confirmed_at) || null,
       };
 
       const { error: updateError } = await supabaseAdmin
         .from("oh_acervo_copies")
-        .update({ metadata, updated_at: inventoryAt })
+        .update({ status: restoredCopyStatus, metadata, updated_at: inventoryAt })
         .eq("organization_id", organizationId)
         .eq("id", copy.id);
 
       if (updateError) throw updateError;
+
+      if (sessionId) {
+        const { error: scanError } = await supabaseAdmin
+          .from("oh_acervo_inventory_scans")
+          .upsert(
+            {
+              organization_id: organizationId,
+              session_id: sessionId,
+              copy_id: copy.id,
+              scanned_by_person_id: actorPersonId || null,
+              scanned_at: inventoryAt,
+              observed_shelf: observedShelf || null,
+              note: text(body.note) || null,
+            },
+            { onConflict: "session_id,copy_id" },
+          );
+        if (scanError) throw scanError;
+
+        if (sessionMetadata) {
+          const currentNotFound = Array.isArray(sessionMetadata.not_found_copy_ids)
+            ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+            : [];
+          const nextNotFound = currentNotFound.filter((id) => id !== copy.id);
+          if (nextNotFound.length !== currentNotFound.length) {
+            const { error: sessionUpdateError } = await supabaseAdmin
+              .from("oh_acervo_inventory_sessions")
+              .update({
+                metadata: { ...sessionMetadata, not_found_copy_ids: nextNotFound },
+                updated_at: inventoryAt,
+              })
+              .eq("organization_id", organizationId)
+              .eq("id", sessionId)
+              .eq("status", "aberto");
+            if (sessionUpdateError) throw sessionUpdateError;
+          }
+        }
+      }
 
       await audit(
         organizationId,
@@ -1722,11 +2487,12 @@ export async function POST(request: Request) {
           shelf: copy.shelf,
           shelfPosition: copy.shelf_position,
           condition: copy.condition,
-          status: copy.status,
+          status: restoredCopyStatus,
           observedShelf: observedShelf || null,
           inventoryAt,
           qrConfirmed,
           inventoryStatus: metadata.inventory_status,
+          sessionId: sessionId || null,
         },
       );
 
@@ -1734,6 +2500,7 @@ export async function POST(request: Request) {
         ok: true,
         copy: {
           ...copy,
+          status: restoredCopyStatus,
           metadata,
           inventory_at: inventoryAt,
           observed_shelf: observedShelf || null,
@@ -1742,18 +2509,56 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-inventory-session") {
-      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode iniciar inventários.");
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode criar inventários.");
+      }
+
       const name = text(body.name) || `Inventário ${new Date().toLocaleDateString("pt-BR")}`;
-      const { data, error } = await supabaseAdmin.from("oh_acervo_inventory_sessions").insert({
-        organization_id: organizationId,
-        name,
-        scope: text(body.scope) || "todo_acervo",
-        started_by_person_id: actorPersonId || null,
-        notes: text(body.notes) || null,
-      }).select("id").single();
+      const startedAt = nowIso();
+      const { data: expectedCopies, error: expectedError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("active", true)
+        .neq("status", "baixado");
+      if (expectedError) throw expectedError;
+
+      const expectedCopyIds = (expectedCopies ?? []).map((copy) => text(copy.id)).filter(Boolean);
+      const sessionMetadata = {
+        expected: expectedCopyIds.length,
+        expected_copy_ids: expectedCopyIds,
+        not_found_copy_ids: [],
+        baseline_at: startedAt,
+        baseline_rule: "Exemplares ativos existentes no momento da criação do inventário. Novos exemplares não alteram esta base.",
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .insert({
+          organization_id: organizationId,
+          name,
+          scope: text(body.scope) || "todo_acervo",
+          started_by_person_id: actorPersonId || null,
+          started_at: startedAt,
+          notes: text(body.notes) || null,
+          metadata: sessionMetadata,
+        })
+        .select("id,name,started_at,metadata")
+        .single();
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "inventario_iniciado", "inventory_session", data.id, { name });
-      return NextResponse.json({ ok: true, id: data.id });
+
+      await audit(organizationId, actorPersonId, "inventario_iniciado", "inventory_session", data.id, {
+        name,
+        expected: expectedCopyIds.length,
+        baselineAt: startedAt,
+      });
+      return NextResponse.json({
+        ok: true,
+        id: data.id,
+        name: data.name,
+        startedAt: data.started_at,
+        expected: expectedCopyIds.length,
+      });
     }
 
     if (action === "inventory-scan") {
@@ -1761,23 +2566,37 @@ export async function POST(request: Request) {
       const sessionId = text(body.sessionId);
       let code = text(body.code);
       if (code.toLowerCase().startsWith("acervo-vivo:")) code = code.slice("acervo-vivo:".length);
-      if (!sessionId || !code) return NextResponse.json({ error: "Informe a sessão e o código/QR do exemplar." }, { status: 400 });
+      if (!sessionId || !code) {
+        return NextResponse.json({ error: "Informe o inventário e o código/QR do exemplar." }, { status: 400 });
+      }
 
       const { data: session, error: sessionError } = await supabaseAdmin
         .from("oh_acervo_inventory_sessions")
-        .select("id,status")
+        .select("id,status,metadata")
         .eq("organization_id", organizationId)
         .eq("id", sessionId)
         .maybeSingle();
       if (sessionError) throw sessionError;
-      if (!session?.id || session.status !== "aberto") return NextResponse.json({ error: "A sessão de inventário não está aberta." }, { status: 409 });
+      if (!session?.id || session.status !== "aberto") {
+        return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+      }
 
       const fields = ["asset_code", "legacy_code", "qr_token"] as const;
-      let copy: { id: string; asset_code: string; legacy_code?: string | null; title_id: string; shelf?: string | null; shelf_position?: string | null; status: string } | null = null;
+      let copy: {
+        id: string;
+        asset_code: string;
+        legacy_code?: string | null;
+        title_id: string;
+        shelf?: string | null;
+        shelf_position?: string | null;
+        status: string;
+        metadata?: unknown;
+      } | null = null;
+
       for (const field of fields) {
         const result = await supabaseAdmin
           .from("oh_acervo_copies")
-          .select("id,asset_code,legacy_code,title_id,shelf,shelf_position,status")
+          .select("id,asset_code,legacy_code,title_id,shelf,shelf_position,status,metadata")
           .eq("organization_id", organizationId)
           .eq(field, code)
           .limit(2);
@@ -1790,41 +2609,276 @@ export async function POST(request: Request) {
           break;
         }
       }
-      if (!copy?.id) return NextResponse.json({ error: `Nenhum exemplar localizado para o código ${code}.` }, { status: 404 });
 
-      const { error } = await supabaseAdmin.from("oh_acervo_inventory_scans").upsert({
-        organization_id: organizationId,
-        session_id: sessionId,
-        copy_id: copy.id,
-        scanned_by_person_id: actorPersonId || null,
-        scanned_at: nowIso(),
-        observed_shelf: text(body.observedShelf) || null,
-        note: text(body.note) || null,
-      }, { onConflict: "session_id,copy_id" });
+      if (!copy?.id) {
+        return NextResponse.json({ error: `Nenhum exemplar localizado para o código ${code}.` }, { status: 404 });
+      }
+
+      const scannedAt = nowIso();
+      const observedShelf = text(body.observedShelf) || text(copy.shelf);
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .upsert(
+          {
+            organization_id: organizationId,
+            session_id: sessionId,
+            copy_id: copy.id,
+            scanned_by_person_id: actorPersonId || null,
+            scanned_at: scannedAt,
+            observed_shelf: observedShelf || null,
+            note: text(body.note) || null,
+          },
+          { onConflict: "session_id,copy_id" },
+        );
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "inventario_exemplar_lido", "copy", copy.id, { sessionId, code });
-      return NextResponse.json({ ok: true, copy });
+
+      const currentMetadata = record(copy.metadata);
+      const previousCopyStatus = text(currentMetadata.inventory_previous_copy_status);
+      const restoredCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado" &&
+        text(copy.status) === "perdido" &&
+        ["disponivel", "manutencao"].includes(previousCopyStatus)
+          ? previousCopyStatus
+          : text(copy.status);
+
+      const copyMetadata = {
+        ...currentMetadata,
+        last_inventory_at: scannedAt,
+        last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId,
+        last_inventory_observed_shelf: observedShelf || null,
+        inventory_status: "conferido",
+        inventory_previous_copy_status: null,
+        inventory_not_found_at: null,
+        inventory_not_found_by_person_id: null,
+      };
+
+      const { error: copyUpdateError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({
+          status: restoredCopyStatus,
+          metadata: copyMetadata,
+          updated_at: scannedAt,
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", copy.id);
+      if (copyUpdateError) throw copyUpdateError;
+
+      const sessionMetadata = record(session.metadata);
+      const currentNotFound = Array.isArray(sessionMetadata.not_found_copy_ids)
+        ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+      if (currentNotFound.includes(copy.id)) {
+        const { error: sessionUpdateError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .update({
+            metadata: {
+              ...sessionMetadata,
+              not_found_copy_ids: currentNotFound.filter((id) => id !== copy.id),
+            },
+            updated_at: scannedAt,
+          })
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .eq("status", "aberto");
+        if (sessionUpdateError) throw sessionUpdateError;
+      }
+
+      await audit(organizationId, actorPersonId, "inventario_exemplar_lido", "copy", copy.id, {
+        sessionId,
+        code,
+        observedShelf: observedShelf || null,
+      });
+      return NextResponse.json({
+        ok: true,
+        copy: {
+          ...copy,
+          status: restoredCopyStatus,
+          metadata: copyMetadata,
+        },
+      });
     }
 
     if (action === "close-inventory-session") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode concluir inventários.");
       const sessionId = text(body.sessionId);
-      const [{ count: expected, error: expectedError }, { count: scanned, error: scannedError }] = await Promise.all([
-        supabaseAdmin.from("oh_acervo_copies").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("active", true).neq("status", "baixado"),
-        supabaseAdmin.from("oh_acervo_inventory_scans").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("session_id", sessionId),
-      ]);
-      if (expectedError || scannedError) throw expectedError || scannedError;
-      const { error } = await supabaseAdmin.from("oh_acervo_inventory_sessions").update({
-        status: "concluido",
-        closed_by_person_id: actorPersonId || null,
-        closed_at: nowIso(),
-        updated_at: nowIso(),
-        metadata: { expected: expected ?? 0, scanned: scanned ?? 0, missing: Math.max(0, (expected ?? 0) - (scanned ?? 0)) },
-      }).eq("organization_id", organizationId).eq("id", sessionId).eq("status", "aberto");
+      if (!sessionId) {
+        return NextResponse.json({ error: "Inventário não informado." }, { status: 400 });
+      }
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .select("id,status,started_at,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session?.id || session.status !== "aberto") {
+        return NextResponse.json({ error: "O inventário não está aberto." }, { status: 409 });
+      }
+
+      const sessionMetadata = record(session.metadata);
+      let expectedCopyIds = Array.isArray(sessionMetadata.expected_copy_ids)
+        ? sessionMetadata.expected_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+
+      if (!expectedCopyIds.length) {
+        const baselineQuery = supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("active", true)
+          .neq("status", "baixado");
+        const { data: baselineCopies, error: baselineError } = session.started_at
+          ? await baselineQuery.lte("created_at", session.started_at)
+          : await baselineQuery;
+        if (baselineError) throw baselineError;
+        expectedCopyIds = (baselineCopies ?? []).map((copy) => text(copy.id)).filter(Boolean);
+      }
+
+      const { data: scanRows, error: scansError } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .select("copy_id")
+        .eq("organization_id", organizationId)
+        .eq("session_id", sessionId);
+      if (scansError) throw scansError;
+
+      const expectedSet = new Set(expectedCopyIds);
+      const scannedIds = Array.from(
+        new Set((scanRows ?? []).map((scan) => text(scan.copy_id)).filter(Boolean)),
+      );
+      const scannedExpected = scannedIds.filter((id) => expectedSet.has(id));
+      const addedDuringInventory = scannedIds.filter((id) => !expectedSet.has(id));
+      const missingIds = expectedCopyIds.filter((id) => !scannedExpected.includes(id));
+      const notFoundIds = Array.isArray(sessionMetadata.not_found_copy_ids)
+        ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+      const explicitNotFound = missingIds.filter((id) => notFoundIds.includes(id));
+      const pendingMissing = missingIds.filter((id) => !notFoundIds.includes(id));
+
+      const summary = {
+        expected: expectedCopyIds.length,
+        scanned: scannedExpected.length,
+        missing: missingIds.length,
+        notFound: explicitNotFound.length,
+        pending: pendingMissing.length,
+        addedDuringInventory: addedDuringInventory.length,
+      };
+      const closedAt = nowIso();
+
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .update({
+          status: "concluido",
+          closed_by_person_id: actorPersonId || null,
+          closed_at: closedAt,
+          updated_at: closedAt,
+          metadata: {
+            ...sessionMetadata,
+            expected: summary.expected,
+            scanned: summary.scanned,
+            missing: summary.missing,
+            not_found: summary.notFound,
+            pending: summary.pending,
+            added_during_inventory: summary.addedDuringInventory,
+            added_during_inventory_copy_ids: addedDuringInventory,
+            closed_at: closedAt,
+          },
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .eq("status", "aberto");
       if (error) throw error;
-      const summary = { expected: expected ?? 0, scanned: scanned ?? 0, missing: Math.max(0, (expected ?? 0) - (scanned ?? 0)) };
+
       await audit(organizationId, actorPersonId, "inventario_concluido", "inventory_session", sessionId, summary);
       return NextResponse.json({ ok: true, summary });
+    }
+
+    if (action === "delete-inventory-session") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode excluir inventários.");
+      }
+
+      const sessionId = text(body.sessionId);
+      if (!sessionId) {
+        return NextResponse.json({ error: "Inventário não informado." }, { status: 400 });
+      }
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .select("id,name,status,started_at,closed_at,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session?.id) {
+        return NextResponse.json({ error: "Inventário não localizado." }, { status: 404 });
+      }
+
+      const { data: scans, error: scansError } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("session_id", sessionId);
+      if (scansError) throw scansError;
+
+      const { data: linkedCopies, error: linkedCopiesError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,metadata")
+        .eq("organization_id", organizationId);
+      if (linkedCopiesError) throw linkedCopiesError;
+
+      const copyMetadataUpdates = (linkedCopies ?? [])
+        .map((copy) => {
+          const metadata = record(copy.metadata);
+          const lastSessionId = text(metadata.last_inventory_session_id);
+          const addedDuringSessionId = text(metadata.inventory_added_during_session_id);
+          if (lastSessionId !== sessionId && addedDuringSessionId !== sessionId) return null;
+
+          return {
+            id: text(copy.id),
+            metadata: {
+              ...metadata,
+              ...(lastSessionId === sessionId ? { last_inventory_session_id: null } : {}),
+              ...(addedDuringSessionId === sessionId ? { inventory_added_during_session_id: null } : {}),
+            },
+          };
+        })
+        .filter((item): item is { id: string; metadata: Record<string, unknown> } => Boolean(item?.id));
+
+      for (const item of copyMetadataUpdates) {
+        const { error: copyMetadataError } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ metadata: item.metadata, updated_at: nowIso() })
+          .eq("organization_id", organizationId)
+          .eq("id", item.id);
+        if (copyMetadataError) throw copyMetadataError;
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId);
+      if (deleteError) throw deleteError;
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "inventario_excluido",
+        "inventory_session",
+        sessionId,
+        {
+          name: text(session.name),
+          status: text(session.status),
+          startedAt: text(session.started_at),
+          closedAt: text(session.closed_at) || null,
+          scanCount: (scans ?? []).length,
+          metadata: record(session.metadata),
+        },
+      );
+
+      return NextResponse.json({ ok: true, id: sessionId });
     }
 
     if (action === "save-folha-year") {
@@ -2051,7 +3105,7 @@ export async function POST(request: Request) {
     if (action === "cancel-reservation") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cancelar reservas pela gestão.");
       const reservationId = text(body.reservationId);
-      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,title_id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
+      const { data: reservation, error: reservationError } = await supabaseAdmin.from("oh_acervo_reservations").select("id,title_id,person_id,available_copy_id,status").eq("organization_id", organizationId).eq("id", reservationId).maybeSingle();
       if (reservationError) throw reservationError;
       if (!reservation?.id) return NextResponse.json({ error: "Reserva não localizada." }, { status: 404 });
       const { error } = await supabaseAdmin.from("oh_acervo_reservations").update({ status: "cancelada", cancelled_at: nowIso(), updated_at: nowIso() }).eq("id", reservationId);
@@ -2069,7 +3123,26 @@ export async function POST(request: Request) {
           Number(settings?.reservation_hold_days ?? 3),
         );
       }
-      await audit(organizationId, actorPersonId, "reserva_cancelada_gestao", "reservation", reservationId);
+      await sendAcervoMovementNotifications({
+        organizationId,
+        personId: text(reservation.person_id),
+        titleId: text(reservation.title_id),
+        copyId: text(reservation.available_copy_id) || null,
+        kind: "reserva_cancelada",
+        cancelledByPersonId: actorPersonId || null,
+        cancelledByName: text(access.context.person?.full_name),
+        cancelledByEmail: text(access.context.person?.email) || text(access.context.user.email),
+        cancelledByWhatsapp: text(access.context.person?.whatsapp),
+      }).catch(() => undefined);
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "reserva_cancelada_gestao",
+        "reservation",
+        reservationId,
+        { cancelledByPersonId: actorPersonId || null },
+      );
       return NextResponse.json({ ok: true });
     }
 

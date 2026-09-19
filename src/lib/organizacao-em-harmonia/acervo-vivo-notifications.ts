@@ -8,6 +8,7 @@ export type AcervoNotificationKind =
   | "emprestimo"
   | "devolucao"
   | "reserva_disponivel"
+  | "reserva_cancelada"
   | "lembrete_devolucao";
 
 type NotificationInput = {
@@ -18,6 +19,10 @@ type NotificationInput = {
   kind: AcervoNotificationKind;
   dueAt?: string | null;
   holdUntil?: string | null;
+  cancelledByPersonId?: string | null;
+  cancelledByName?: string | null;
+  cancelledByEmail?: string | null;
+  cancelledByWhatsapp?: string | null;
 };
 
 const PRIMARY_MANAGEMENT_EMAIL = "automacao.ao.extremo@gmail.com";
@@ -61,6 +66,18 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function whatsappUrl(value: unknown) {
+  let digits = text(value).replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  return `https://wa.me/${digits}`;
+}
+
+function contactButton(href: string, label: string) {
+  if (!href) return "";
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:4px 8px 4px 0;padding:10px 14px;border-radius:10px;background:#123D2C;color:#ffffff;text-decoration:none;font-weight:700">${escapeHtml(label)}</a>`;
 }
 
 function emailHtml(lines: Array<string | false | null | undefined>) {
@@ -113,6 +130,7 @@ function labels(kind: AcervoNotificationKind) {
   if (kind === "emprestimo") return { subject: "Empréstimo registrado", action: "foi emprestado" };
   if (kind === "devolucao") return { subject: "Devolução registrada", action: "foi devolvido" };
   if (kind === "reserva_disponivel") return { subject: "Livro disponível para retirada", action: "está separado para retirada" };
+  if (kind === "reserva_cancelada") return { subject: "Reserva cancelada", action: "teve a reserva cancelada" };
   if (kind === "lembrete_devolucao") return { subject: "Lembrete de devolução", action: "continua em seu empréstimo" };
   if (kind === "fila") return { subject: "Entrada na fila de reserva", action: "foi incluído na fila de reserva" };
   return { subject: "Reserva registrada", action: "foi reservado" };
@@ -237,6 +255,17 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
     if (result.error) throw result.error;
   }
 
+  const cancelledByResult = input.cancelledByPersonId
+    ? await supabaseAdmin
+        .from("oh_people")
+        .select("full_name,email,whatsapp")
+        .eq("organization_id", input.organizationId)
+        .eq("id", input.cancelledByPersonId)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (cancelledByResult.error) throw cancelledByResult.error;
+
   const person = personResult.data;
   const title = titleResult.data;
   if (!person || !title) {
@@ -263,9 +292,214 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
   const authors = Array.isArray(title.authors)
     ? title.authors.map((item) => text(item)).filter(Boolean).join(", ")
     : "";
-  const copyCode = text(copyResult.data?.asset_code) || text(copyResult.data?.legacy_code);
+  const copyCode = text(copyResult.data?.legacy_code) || text(copyResult.data?.asset_code);
+  const cancelledBy = cancelledByResult.data;
+  const cancelledByName = text(input.cancelledByName) || text(cancelledBy?.full_name);
+  const cancelledByWhatsapp = text(input.cancelledByWhatsapp) || text(cancelledBy?.whatsapp);
+  const cancelledByEmailCandidate = text(input.cancelledByEmail) || text(cancelledBy?.email);
+  const cancelledByEmail = realEmail(cancelledByEmailCandidate) ? cancelledByEmailCandidate : "";
   const dueText = formatDate(input.dueAt);
   const holdText = formatDate(input.holdUntil);
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
+  const acervoUrl = `${siteUrl}/solucoes/organizacao-em-harmonia/tucxa/acervo-vivo`;
+
+  if (input.kind === "reserva" || input.kind === "reserva_disponivel") {
+    const subject = input.kind === "reserva"
+      ? `[Tucxa • Acervo Vivo] Reserva confirmada — ${titleName}`
+      : `[Tucxa • Acervo Vivo] Livro disponível para retirada — ${titleName}`;
+
+    const personalBody = [
+      `Olá, ${personName}.`,
+      "",
+      input.kind === "reserva"
+        ? `Sua reserva do livro "${titleName}" foi confirmada.`
+        : `O livro "${titleName}" que você aguardava está disponível e foi separado para você.`,
+      authors ? `Autor(es): ${authors}.` : "",
+      copyCode ? `Exemplar separado: ${copyCode}.` : "",
+      holdText ? `Retire até: ${holdText}.` : "",
+      `Local de retirada: ${pickup.label}.`,
+      `📍 ${pickup.address}`,
+      `Google Maps: ${pickup.mapsUrl}`,
+      "",
+      "Para confirmar o empréstimo quando estiver com o exemplar em mãos:",
+      `1. Acesse o Acervo Vivo e esteja logado: ${acervoUrl}`,
+      "2. Toque em Meus livros.",
+      "3. Abra Reservas.",
+      '4. Na reserva pronta para retirada, toque em "Confirmar empréstimo".',
+      "",
+      "O prazo de devolução começa somente depois dessa confirmação.",
+      "",
+      "Tucxa em Harmonia — Acervo Vivo",
+    ].filter(Boolean).join("\n");
+
+    const personalHtml = emailHtml([
+      `Olá, ${escapeHtml(personName)}.`,
+      input.kind === "reserva"
+        ? `Sua reserva do livro <strong>"${escapeHtml(titleName)}"</strong> foi confirmada.`
+        : `O livro <strong>"${escapeHtml(titleName)}"</strong> que você aguardava está disponível e foi separado para você.`,
+      authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
+      copyCode ? `Exemplar separado: ${escapeHtml(copyCode)}.` : "",
+      holdText ? `Retire até: <strong>${escapeHtml(holdText)}</strong>.` : "",
+      `Local de retirada: <strong>${escapeHtml(pickup.label)}</strong>.`,
+      `📍 ${escapeHtml(pickup.address)}`,
+      contactButton(pickup.mapsUrl, "Abrir no Google Maps"),
+      "<strong>Para confirmar o empréstimo quando estiver com o exemplar em mãos:</strong>",
+      `1. <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">Acesse o Acervo Vivo</a> e esteja logado.<br/>2. Toque em <strong>Meus livros</strong>.<br/>3. Abra <strong>Reservas</strong>.<br/>4. Na reserva pronta para retirada, toque em <strong>Confirmar empréstimo</strong>.`,
+      "O prazo de devolução começa somente depois dessa confirmação.",
+      "Tucxa em Harmonia — Acervo Vivo",
+    ]);
+
+    const managementBody = [
+      `${personName}: ${input.kind === "reserva" ? "reserva confirmada" : "reserva liberada para retirada"} — "${titleName}".`,
+      copyCode ? `Exemplar: ${copyCode}.` : "",
+      holdText ? `Retirada até: ${holdText}.` : "",
+      `Local: ${pickup.label}.`,
+      "",
+      "O leitor recebeu a orientação para entrar no Acervo Vivo > Meus livros > Reservas e confirmar o empréstimo quando estiver com o exemplar em mãos.",
+    ].filter(Boolean).join("\n");
+
+    const sends: Promise<unknown>[] = [];
+    if (personEmail) {
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: personEmail,
+          subject,
+          text: personalBody,
+          html: personalHtml,
+        }),
+      );
+    }
+
+    if (managerEmails.length) {
+      const primary = managerEmails.includes(PRIMARY_MANAGEMENT_EMAIL)
+        ? PRIMARY_MANAGEMENT_EMAIL
+        : managerEmails[0];
+      const cc = managerEmails.filter((email) => email !== primary);
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: primary,
+          cc: cc.length ? cc.join(",") : undefined,
+          subject: `[Tucxa • Acervo Vivo] ${input.kind === "reserva" ? "Reserva confirmada" : "Reserva disponível"} — ${personName} — ${titleName}`,
+          text: managementBody,
+        }),
+      );
+    }
+
+    if (!sends.length) {
+      return { sent: false, reason: "Nenhum destinatário configurado." };
+    }
+
+    await Promise.all(sends);
+    return {
+      sent: true,
+      recipients: Array.from(new Set([personEmail, ...managerEmails].filter(Boolean))),
+    };
+  }
+
+  if (input.kind === "reserva_cancelada") {
+    const subject = `[Tucxa • Acervo Vivo] Reserva cancelada — ${titleName}`;
+    const cancelledByLabel = cancelledByName
+      ? `${cancelledByName} — Gestor Acervo Vivo - Biblioteca`
+      : "";
+
+    const personalBody = [
+      `Olá, ${personName}.`,
+      "",
+      `Sua reserva do livro "${titleName}" foi cancelada.`,
+      authors ? `Autor(es): ${authors}.` : "",
+      copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByEmail ? `E-mail para contato: ${cancelledByEmail}.` : "",
+      cancelledByWhatsapp ? `WhatsApp para contato: ${cancelledByWhatsapp}.` : "",
+      "",
+      cancelledByLabel || cancelledByWhatsapp || cancelledByEmail
+        ? "Se desejar entender o motivo do cancelamento, entre em contato com o responsável acima."
+        : "",
+      "Se desejar esse livro novamente, acesse o Acervo Vivo e faça uma nova reserva quando houver interesse.",
+      `Acervo Vivo: ${acervoUrl}`,
+      "",
+      "Tucxa em Harmonia — Acervo Vivo",
+    ].filter(Boolean).join("\n");
+
+    const cancelledByWhatsappUrl = whatsappUrl(cancelledByWhatsapp);
+    const cancelledByEmailUrl = cancelledByEmail ? `mailto:${cancelledByEmail}` : "";
+    const personalHtml = emailHtml([
+      `Olá, ${escapeHtml(personName)}.`,
+      `Sua reserva do livro <strong>"${escapeHtml(titleName)}"</strong> foi cancelada.`,
+      authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
+      copyCode ? `Exemplar que estava separado: ${escapeHtml(copyCode)}.` : "",
+      cancelledByLabel ? `<strong>Cancelamento realizado por:</strong> ${escapeHtml(cancelledByLabel)}.` : "",
+      cancelledByEmail ? `<strong>E-mail:</strong> <a href="${escapeHtml(cancelledByEmailUrl)}" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByEmail)}</a>` : "",
+      cancelledByWhatsapp ? `<strong>WhatsApp:</strong> <a href="${escapeHtml(cancelledByWhatsappUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByWhatsapp)}</a>` : "",
+      cancelledByEmailUrl || cancelledByWhatsappUrl || acervoUrl
+        ? `${contactButton(cancelledByEmailUrl, "Enviar e-mail")}${contactButton(cancelledByWhatsappUrl, "Falar pelo WhatsApp")}${contactButton(acervoUrl, "Acessar o Acervo Vivo")}`
+        : "",
+      cancelledByLabel || cancelledByWhatsapp || cancelledByEmail
+        ? "Se desejar entender o motivo do cancelamento, use um dos contatos acima."
+        : "",
+      `Se desejar esse livro novamente, <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">acesse o Acervo Vivo</a> e faça uma nova reserva quando houver interesse.`,
+      "Tucxa em Harmonia — Acervo Vivo",
+    ]);
+
+    const managementBody = [
+      `${personName}: reserva cancelada — "${titleName}".`,
+      authors ? `Autor(es): ${authors}.` : "",
+      copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
+      cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByEmail ? `E-mail do responsável: ${cancelledByEmail}.` : "",
+      cancelledByWhatsapp ? `WhatsApp do responsável: ${cancelledByWhatsapp}.` : "",
+      "",
+      copyCode
+        ? "O exemplar foi liberado para a próxima pessoa da fila ou voltou à disponibilidade, conforme as regras do Acervo Vivo."
+        : "A solicitação foi retirada da fila de reservas.",
+    ].filter(Boolean).join("\n");
+
+    const sends: Promise<unknown>[] = [];
+
+    if (personEmail) {
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: personEmail,
+          cc: cancelledByEmail && cancelledByEmail !== personEmail ? cancelledByEmail : undefined,
+          subject,
+          text: personalBody,
+          html: personalHtml,
+        }),
+      );
+    }
+
+    const managementRecipients = managerEmails.filter((email) => email !== cancelledByEmail);
+    if (managementRecipients.length) {
+      const primary = managementRecipients.includes(PRIMARY_MANAGEMENT_EMAIL)
+        ? PRIMARY_MANAGEMENT_EMAIL
+        : managementRecipients[0];
+      const cc = managementRecipients.filter((email) => email !== primary);
+      sends.push(
+        config.transporter.sendMail({
+          from: config.from,
+          to: primary,
+          cc: cc.length ? cc.join(",") : undefined,
+          subject: `[Tucxa • Acervo Vivo] Reserva cancelada — ${personName} — ${titleName}`,
+          text: managementBody,
+        }),
+      );
+    }
+
+    if (!sends.length) {
+      return { sent: false, reason: "Nenhum destinatário configurado." };
+    }
+
+    await Promise.all(sends);
+    return {
+      sent: true,
+      recipients: Array.from(
+        new Set([personEmail, cancelledByEmail, ...managementRecipients].filter(Boolean)),
+      ),
+    };
+  }
 
   if (input.kind === "emprestimo") {
     const personalBody = [

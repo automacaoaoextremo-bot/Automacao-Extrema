@@ -29,6 +29,31 @@ type AcervoSettings = {
 
 const ACERVO_STORAGE_BUCKET = "tucxa-acervo-vivo";
 const DAY_MS = 86_400_000;
+const ACERVO_HOMOLOGATION_TASK_KEYS = [
+  "acessar_acervo",
+  "entender_inicio",
+  "realizar_cadastro",
+  "procurar_livro",
+  "abrir_detalhe",
+  "entender_codigo_lombada",
+  "localizar_livro",
+  "registrar_emprestimo",
+  "encontrar_meus_livros",
+  "entender_data_devolucao",
+  "encontrar_trilhas",
+  "encontrar_ajuda",
+  "entender_devolucao",
+] as const;
+
+const ACERVO_HOMOLOGATION_FINAL_OPTIONS: Record<string, readonly string[]> = {
+  facilidade_geral: ["facil", "razoavel", "dificil"],
+  duvida_inseguranca: ["nao", "pouca", "muita"],
+  usaria_sozinho: ["sim", "talvez", "nao"],
+  trilhas_ajudaram: ["sim", "parcialmente", "nao", "nao_testado"],
+  apoio_humano_claro: ["sim", "parcialmente", "nao"],
+  recomendaria: ["sim", "talvez", "nao"],
+};
+
 
 export function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -323,7 +348,7 @@ export async function reconcileExpiredAcervoReservations(organizationId: string)
 
   const { data: expired, error } = await supabaseAdmin
     .from("oh_acervo_reservations")
-    .select("id,title_id,available_copy_id")
+    .select("id,title_id,available_copy_id,metadata")
     .eq("organization_id", organizationId)
     .eq("status", "disponivel")
     .lt("hold_until", now.toISOString());
@@ -336,7 +361,10 @@ export async function reconcileExpiredAcervoReservations(organizationId: string)
         status: "expirada",
         cancelled_at: now.toISOString(),
         updated_at: now.toISOString(),
-        metadata: { expiration_reason: "prazo_retirada_encerrado" },
+        metadata: {
+          ...record(reservation.metadata),
+          expiration_reason: "prazo_retirada_encerrado",
+        },
       })
       .eq("organization_id", organizationId)
       .eq("id", reservation.id)
@@ -582,6 +610,352 @@ export async function handleAcervoReaderPost(
     await reconcileExpiredAcervoReservations(context.organizationId);
     const settings = await settingsForReader(context.organizationId);
 
+    if (action === "save-self-homologation") {
+      const metadata = record(settings.metadata);
+      if (metadata.post_loan_homologation_enabled !== true) {
+        return NextResponse.json({ error: "O teste de uso após o empréstimo não está habilitado no momento." }, { status: 409 });
+      }
+
+      const loanId = text(body.loanId);
+      if (!loanId) return NextResponse.json({ error: "Empréstimo não informado." }, { status: 400 });
+
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .select("id,person_id,loaned_at")
+        .eq("organization_id", context.organizationId)
+        .eq("id", loanId)
+        .eq("person_id", context.personId)
+        .maybeSingle();
+      if (loanError) throw loanError;
+      if (!loan?.id) {
+        return NextResponse.json({ error: "O empréstimo deste teste não foi localizado para o seu cadastro." }, { status: 404 });
+      }
+
+      const taskResultsInput = record(body.taskResults);
+      const taskResults: Record<string, string> = {};
+      for (const key of ACERVO_HOMOLOGATION_TASK_KEYS) {
+        const value = text(taskResultsInput[key]);
+        if (!["sozinho", "com_ajuda", "nao_concluiu"].includes(value)) {
+          return NextResponse.json({ error: `Responda todas as etapas do teste antes de enviar. Etapa pendente: ${key}.` }, { status: 400 });
+        }
+        taskResults[key] = value;
+      }
+
+      const finalAnswersInput = record(body.finalAnswers);
+      const finalAnswers: Record<string, string> = {};
+      for (const [key, allowed] of Object.entries(ACERVO_HOMOLOGATION_FINAL_OPTIONS)) {
+        const value = text(finalAnswersInput[key]);
+        if (!allowed.includes(value)) {
+          return NextResponse.json({ error: `Responda todas as perguntas finais antes de enviar. Pergunta pendente: ${key}.` }, { status: 400 });
+        }
+        finalAnswers[key] = value;
+      }
+
+      const hardestStage = text(finalAnswersInput.etapa_mais_dificil);
+      if (hardestStage !== "nenhuma" && !ACERVO_HOMOLOGATION_TASK_KEYS.includes(hardestStage as typeof ACERVO_HOMOLOGATION_TASK_KEYS[number])) {
+        return NextResponse.json({ error: "Informe qual foi a etapa mais difícil ou marque Nenhuma." }, { status: 400 });
+      }
+      finalAnswers.etapa_mais_dificil = hardestStage;
+
+      const existing = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .select("id")
+        .eq("organization_id", context.organizationId)
+        .eq("loan_id", loan.id)
+        .limit(1)
+        .maybeSingle();
+      if (existing.error) {
+        const code = text(record(existing.error).code).toUpperCase();
+        if (["42703", "42P01", "PGRST204", "PGRST205"].includes(code)) {
+          return NextResponse.json(
+            { error: "Aplique a migration dos Ajustes 03 para habilitar o teste de uso após o empréstimo." },
+            { status: 409 },
+          );
+        }
+        throw existing.error;
+      }
+      if (existing.data?.id) {
+        return NextResponse.json({ error: "Este teste de uso já foi respondido para este empréstimo." }, { status: 409 });
+      }
+
+      const now = new Date().toISOString();
+      const { data: created, error: insertError } = await supabaseAdmin
+        .from("oh_acervo_homologations")
+        .insert({
+          organization_id: context.organizationId,
+          participant_person_id: context.personId,
+          conducted_by_person_id: context.personId,
+          conducted_at: now,
+          loan_id: loan.id,
+          source_type: "manual",
+          task_results: taskResults,
+          final_answers: finalAnswers,
+          notes: text(body.notes).slice(0, 2000) || null,
+          ai_metadata: {
+            submitted_by_participant: true,
+            reviewed_by_manager: false,
+            source: "post-loan-self",
+          },
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        const code = text(record(insertError).code).toUpperCase();
+        if (code === "23505") {
+          return NextResponse.json({ error: "Este teste de uso já foi respondido para este empréstimo." }, { status: 409 });
+        }
+        if (["42703", "42P01", "PGRST204", "PGRST205"].includes(code)) {
+          return NextResponse.json(
+            { error: "Aplique a migration dos Ajustes 03 para habilitar o teste de uso após o empréstimo." },
+            { status: 409 },
+          );
+        }
+        throw insertError;
+      }
+
+      await audit(context, "homologacao_pos_emprestimo_registrada", "homologation", text(created?.id) || undefined, {
+        loanId: loan.id,
+        participantPersonId: context.personId,
+      });
+
+      return NextResponse.json({ ok: true, id: created?.id });
+    }
+
+    if (action === "confirm-reservation-loan") {
+      if (settings.member_loans_enabled === false) {
+        return NextResponse.json({ error: "As retiradas pelo leitor estão temporariamente desabilitadas." }, { status: 409 });
+      }
+
+      const reservationId = text(body.reservationId);
+      if (!reservationId) {
+        return NextResponse.json({ error: "Reserva não informada." }, { status: 400 });
+      }
+
+      const [
+        reservationResult,
+        personResult,
+        activeLoansResult,
+        pendingFeesResult,
+      ] = await Promise.all([
+        supabaseAdmin
+          .from("oh_acervo_reservations")
+          .select("id,title_id,person_id,status,available_copy_id,hold_until,metadata")
+          .eq("organization_id", context.organizationId)
+          .eq("id", reservationId)
+          .eq("person_id", context.personId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("oh_people")
+          .select("id,full_name,email,whatsapp")
+          .eq("organization_id", context.organizationId)
+          .eq("id", context.personId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("oh_acervo_loans")
+          .select("id,copy_id,due_at,status")
+          .eq("organization_id", context.organizationId)
+          .eq("person_id", context.personId)
+          .is("returned_at", null)
+          .in("status", ["ativo", "atrasado"]),
+        supabaseAdmin
+          .from("oh_acervo_loans")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", context.organizationId)
+          .eq("person_id", context.personId)
+          .eq("late_fee_status", "pendente"),
+      ]);
+
+      for (const result of [reservationResult, personResult, activeLoansResult, pendingFeesResult]) {
+        if (result.error) throw result.error;
+      }
+
+      const reservation = reservationResult.data;
+      const person = personResult.data;
+      if (!reservation?.id || reservation.status !== "disponivel" || !reservation.available_copy_id) {
+        return NextResponse.json(
+          { error: "Esta reserva ainda não está pronta para retirada ou já foi encerrada." },
+          { status: 409 },
+        );
+      }
+
+      if (reservation.hold_until && new Date(reservation.hold_until).getTime() <= Date.now()) {
+        await reconcileExpiredAcervoReservations(context.organizationId);
+        return NextResponse.json(
+          { error: "O prazo desta reserva terminou. Atualize Meus livros para verificar a disponibilidade atual." },
+          { status: 409 },
+        );
+      }
+
+      if (!person?.id || !text(person.full_name) || !text(person.whatsapp) || !realEmail(person.email)) {
+        return NextResponse.json(
+          { error: "Para confirmar o empréstimo, mantenha no cadastro seu nome, WhatsApp e um e-mail válido." },
+          { status: 409 },
+        );
+      }
+
+      if ((activeLoansResult.data ?? []).length >= Number(settings.max_active_loans ?? 3)) {
+        return NextResponse.json({ error: "Você atingiu o limite de empréstimos ativos." }, { status: 409 });
+      }
+
+      if (
+        settings.block_new_loans_with_overdue !== false &&
+        (activeLoansResult.data ?? []).some(
+          (loan) => loan.status === "atrasado" || new Date(loan.due_at).getTime() < Date.now(),
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Existe empréstimo em atraso. Regularize a situação antes de retirar outro livro." },
+          { status: 409 },
+        );
+      }
+
+      if (settings.block_new_loans_with_pending_fee !== false && (pendingFeesResult.count ?? 0) > 0) {
+        return NextResponse.json(
+          { error: "Existe uma pendência de empréstimo. Procure o responsável pela Biblioteca." },
+          { status: 409 },
+        );
+      }
+
+      const activeCopyIds = (activeLoansResult.data ?? []).map((loan) => loan.copy_id).filter(Boolean);
+      if (activeCopyIds.length) {
+        const activeCopies = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("title_id")
+          .eq("organization_id", context.organizationId)
+          .in("id", activeCopyIds);
+        if (activeCopies.error) throw activeCopies.error;
+        if ((activeCopies.data ?? []).some((item) => item.title_id === reservation.title_id)) {
+          return NextResponse.json(
+            { error: "Você já possui um exemplar deste título em empréstimo." },
+            { status: 409 },
+          );
+        }
+      }
+
+      const { data: reservedCopy, error: reservedCopyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,title_id,asset_code,status,active")
+        .eq("organization_id", context.organizationId)
+        .eq("id", reservation.available_copy_id)
+        .eq("active", true)
+        .maybeSingle();
+      if (reservedCopyError) throw reservedCopyError;
+      if (!reservedCopy?.id || reservedCopy.status !== "reservado") {
+        return NextResponse.json(
+          { error: "O exemplar desta reserva não está mais separado. Atualize Meus livros e tente novamente." },
+          { status: 409 },
+        );
+      }
+
+      const loanedAt = new Date();
+      const dueAt = new Date(loanedAt.getTime() + Number(settings.loan_days ?? 30) * DAY_MS);
+
+      const { data: claimedCopy, error: claimError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({ status: "emprestado", updated_at: loanedAt.toISOString() })
+        .eq("organization_id", context.organizationId)
+        .eq("id", reservedCopy.id)
+        .eq("status", "reservado")
+        .select("id")
+        .maybeSingle();
+      if (claimError) throw claimError;
+      if (!claimedCopy?.id) {
+        return NextResponse.json(
+          { error: "O exemplar reservado não pôde ser confirmado para empréstimo. Atualize Meus livros." },
+          { status: 409 },
+        );
+      }
+
+      const metadata = record(settings.metadata);
+      const { data: loan, error: loanError } = await supabaseAdmin
+        .from("oh_acervo_loans")
+        .insert({
+          organization_id: context.organizationId,
+          copy_id: reservedCopy.id,
+          person_id: context.personId,
+          loaned_at: loanedAt.toISOString(),
+          due_at: dueAt.toISOString(),
+          status: "ativo",
+          created_by_person_id: context.personId,
+          metadata: {
+            source: "acervo-vivo-reserva-confirmada-em-meus-livros",
+            reservation_id: reservation.id,
+            pickup_location: text(metadata.pickup_location) || "Tucxa 1",
+          },
+        })
+        .select("id")
+        .single();
+
+      if (loanError) {
+        await supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ status: "reservado", updated_at: new Date().toISOString() })
+          .eq("organization_id", context.organizationId)
+          .eq("id", reservedCopy.id)
+          .eq("status", "emprestado");
+        throw loanError;
+      }
+
+      const { data: fulfilledReservation, error: reservationUpdateError } = await supabaseAdmin
+        .from("oh_acervo_reservations")
+        .update({
+          status: "atendida",
+          fulfilled_at: loanedAt.toISOString(),
+          updated_at: loanedAt.toISOString(),
+          metadata: {
+            ...record(reservation.metadata),
+            confirmed_from_my_books: true,
+            loan_id: loan.id,
+          },
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", reservation.id)
+        .eq("person_id", context.personId)
+        .eq("status", "disponivel")
+        .select("id")
+        .maybeSingle();
+
+      if (reservationUpdateError || !fulfilledReservation?.id) {
+        await supabaseAdmin.from("oh_acervo_loans").delete().eq("organization_id", context.organizationId).eq("id", loan.id);
+        await supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ status: "reservado", updated_at: new Date().toISOString() })
+          .eq("organization_id", context.organizationId)
+          .eq("id", reservedCopy.id)
+          .eq("status", "emprestado");
+        if (reservationUpdateError) throw reservationUpdateError;
+        return NextResponse.json(
+          { error: "A reserva mudou de estado durante a confirmação. Atualize Meus livros e tente novamente." },
+          { status: 409 },
+        );
+      }
+
+      await audit(context, "reserva_confirmada_em_emprestimo", "loan", loan.id, {
+        reservationId: reservation.id,
+        copyId: reservedCopy.id,
+        titleId: reservation.title_id,
+        dueAt: dueAt.toISOString(),
+      });
+
+      await sendAcervoMovementNotifications({
+        organizationId: context.organizationId,
+        personId: context.personId,
+        titleId: reservation.title_id,
+        copyId: reservedCopy.id,
+        kind: "emprestimo",
+        dueAt: dueAt.toISOString(),
+      }).catch(() => undefined);
+
+      return NextResponse.json({
+        ok: true,
+        loanId: loan.id,
+        dueAt: dueAt.toISOString(),
+        reservationId: reservation.id,
+      });
+    }
+
     if (action === "borrow-now") {
       if (settings.member_loans_enabled === false) {
         return NextResponse.json({ error: "As retiradas pelo leitor estão temporariamente desabilitadas." }, { status: 409 });
@@ -805,6 +1179,7 @@ export async function handleAcervoReaderPost(
 
       let readyForPickup = false;
       let holdUntil: string | null = null;
+      let reservedCopyId: string | null = null;
 
       if (availableCopy?.id) {
         const claimedAt = new Date();
@@ -833,6 +1208,7 @@ export async function handleAcervoReaderPost(
             .eq("id", reservation.id);
           if (readyError) throw readyError;
           readyForPickup = true;
+          reservedCopyId = claimedCopy.id;
         }
       }
 
@@ -845,11 +1221,11 @@ export async function handleAcervoReaderPost(
         organizationId: context.organizationId,
         personId: context.personId,
         titleId,
-        copyId: availableCopy?.id || null,
+        copyId: reservedCopyId,
         kind: readyForPickup ? "reserva" : "fila",
         holdUntil,
       }).catch(() => undefined);
-      return NextResponse.json({ ok: true, readyForPickup, holdUntil });
+      return NextResponse.json({ ok: true, reservationId: reservation.id, readyForPickup, holdUntil });
     }
 
     if (action === "return-book") {
@@ -991,6 +1367,14 @@ export async function handleAcervoReaderPost(
       }
 
       await audit(context, "reserva_cancelada", "reservation", reservation.id);
+      await sendAcervoMovementNotifications({
+        organizationId: context.organizationId,
+        personId: context.personId,
+        titleId: reservation.title_id,
+        copyId: reservation.available_copy_id,
+        kind: "reserva_cancelada",
+      }).catch(() => undefined);
+
       return NextResponse.json({ ok: true });
     }
 

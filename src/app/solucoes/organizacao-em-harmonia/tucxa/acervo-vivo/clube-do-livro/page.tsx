@@ -102,7 +102,7 @@ function ClubModal({
 const actions = [
   { label: "Início", href: "#inicio", variant: "primary" as const },
   { label: "Voltar", href: ACERVO, variant: "secondary" as const },
-  { label: "Ajuda", href: "#ajuda", variant: "secondary" as const, action: "supportWhatsapp" as const },
+  { label: "Ajuda", href: `${ACERVO}#apoio-acervo`, variant: "secondary" as const },
 ];
 
 export default function ClubeDoLivroPage() {

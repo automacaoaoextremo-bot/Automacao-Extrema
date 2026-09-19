@@ -8,7 +8,7 @@ const base = "/solucoes/organizacao-em-harmonia/tucxa";
 const actions = [
   { label: "Início", href: "#inicio", variant: "primary" as const },
   { label: "Voltar", href: `${base}/atendimento-em-harmonia?abrir=acessos`, variant: "secondary" as const },
-  { label: "Ajuda", href: "#duvidas", variant: "secondary" as const, action: "supportWhatsapp" as const },
+  { label: "Ajuda", href: "#apoio-acervo", variant: "secondary" as const },
   { label: "Sair", href: "#sair", variant: "secondary" as const, action: "signOutTucxa" as const },
 ];
 

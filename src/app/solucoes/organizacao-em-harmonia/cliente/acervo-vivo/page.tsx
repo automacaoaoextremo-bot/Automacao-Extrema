@@ -3,6 +3,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import {
+  AcervoVivoHomologacaoManager,
+  type AcervoHomologationRecord,
+} from "@/components/organizacao-em-harmonia/acervo-vivo-homologacao-manager";
 
 const API = "/api/organizacao-em-harmonia/cliente/acervo-vivo";
 
@@ -40,12 +44,22 @@ type CopyRow = {
   shelf_position?: string | null;
   condition: string;
   status: string;
+  acquisition_type?: string | null;
+  donor_person_id?: string | null;
+  acquired_at?: string | null;
+  notes?: string | null;
   active?: boolean;
+  created_at?: string | null;
   metadata?: {
     last_inventory_at?: string | null;
     last_inventory_by_person_id?: string | null;
     last_inventory_observed_shelf?: string | null;
     inventory_status?: string | null;
+    inventory_previous_copy_status?: string | null;
+    inventory_not_found_at?: string | null;
+    inventory_not_found_by_person_id?: string | null;
+    last_inventory_session_id?: string | null;
+    inventory_added_during_session_id?: string | null;
     qr_label_confirmed_at?: string | null;
   } | null;
 };
@@ -83,7 +97,27 @@ type TrailItem = { id: string; trail_id: string; item_type: "title" | "resource"
 type Course = { id: string; name: string };
 type Lesson = { id: string; course_id: string; title: string; starts_at?: string | null };
 type AgendaEvent = { id: string; title: string; starts_at?: string | null };
-type InventorySession = { id: string; name: string; scope: string; status: string; started_at: string; closed_at?: string | null; metadata?: { expected?: number; scanned?: number; missing?: number } | null };
+type InventorySession = {
+  id: string;
+  name: string;
+  scope: string;
+  status: string;
+  started_at: string;
+  closed_at?: string | null;
+  notes?: string | null;
+  metadata?: {
+    expected?: number;
+    scanned?: number;
+    missing?: number;
+    not_found?: number;
+    pending?: number;
+    added_during_inventory?: number;
+    expected_copy_ids?: string[];
+    not_found_copy_ids?: string[];
+    baseline_at?: string;
+    baseline_rule?: string;
+  } | null;
+};
 type InventoryScan = { id: string; session_id: string; copy_id: string; scanned_at: string; observed_shelf?: string | null };
 type CoverCandidate = {
   externalId: string;
@@ -134,6 +168,7 @@ type Payload = {
     metadata?: {
       pickup_location?: string;
       self_service_enabled?: boolean;
+      post_loan_homologation_enabled?: boolean;
       notification_emails?: string[];
       loan_reminder_days_before_due?: number;
     } | null;
@@ -153,6 +188,8 @@ type Payload = {
   inventorySessions?: InventorySession[];
   inventoryScans?: InventoryScan[];
   folhaYears?: FolhaYear[];
+  homologations?: AcervoHomologationRecord[];
+  homologationWarning?: string | null;
   integrationsWarning?: string | null;
   metrics?: {
     titles?: number;
@@ -166,7 +203,7 @@ type Payload = {
   };
 };
 
-type Tab = "visao" | "acervo" | "circulacao" | "inventario" | "conteudos" | "trilhas";
+type Tab = "visao" | "acervo" | "circulacao" | "inventario" | "conteudos" | "trilhas" | "homologacao";
 
 type PanelView =
   | ""
@@ -186,8 +223,11 @@ type PanelView =
   | "circulacao-direto"
   | "inventario-categoria"
   | "inventario-iniciar"
+  | "inventario-selecionar"
   | "inventario-codigo"
+  | "inventario-revisar"
   | "inventario-historico"
+  | "inventario-excluir"
   | "conteudos-lista"
   | "conteudos-cadastrar"
   | "conteudos-folha"
@@ -374,6 +414,41 @@ function ManagementModal({
   );
 }
 
+function InventoryEditModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[270] flex items-end justify-center bg-[#10251C]/80 p-2 backdrop-blur-sm sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-[1.5rem] bg-white p-4 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Inventário • atualização do cadastro</p>
+            <h3 className="mt-1 text-lg font-black text-[#00334E]">{title}</h3>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#00334E] px-3 py-2 text-xs font-black text-white">
+            Fechar
+          </button>
+        </div>
+        <div className="mt-3">{children}</div>
+      </section>
+    </div>
+  );
+}
+
 function parseSemicolonCsv(textValue: string) {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -450,6 +525,7 @@ export default function AcervoVivoGestaoPage() {
   const [blockPendingFee, setBlockPendingFee] = useState(true);
   const [pickupLocation, setPickupLocation] = useState("Tucxa 1");
   const [selfServiceEnabled, setSelfServiceEnabled] = useState(true);
+  const [postLoanHomologationEnabled, setPostLoanHomologationEnabled] = useState(false);
   const [notificationEmails, setNotificationEmails] = useState("");
   const [loanReminderDays, setLoanReminderDays] = useState(3);
 
@@ -482,11 +558,13 @@ export default function AcervoVivoGestaoPage() {
   const [copyLegacyCode, setCopyLegacyCode] = useState("");
   const [copyShelf, setCopyShelf] = useState("");
   const [copyPosition, setCopyPosition] = useState("");
+  const [copyInventorySessionId, setCopyInventorySessionId] = useState("");
 
   const [loanCopyId, setLoanCopyId] = useState("");
   const [loanPersonId, setLoanPersonId] = useState("");
 
   const [inventoryName, setInventoryName] = useState("");
+  const [inventoryNotes, setInventoryNotes] = useState("");
   const [inventorySessionId, setInventorySessionId] = useState("");
   const [inventoryCode, setInventoryCode] = useState("");
   const [inventoryShelf, setInventoryShelf] = useState("");
@@ -495,6 +573,23 @@ export default function AcervoVivoGestaoPage() {
   const [inventoryObservedShelf, setInventoryObservedShelf] = useState("");
   const [inventoryQrConfirmed, setInventoryQrConfirmed] = useState(false);
   const [inventoryDateIso, setInventoryDateIso] = useState("");
+  const [inventoryEditSection, setInventoryEditSection] = useState<"" | "localizacao" | "estado" | "identificacao" | "livro">("");
+  const [inventoryEditShelf, setInventoryEditShelf] = useState("");
+  const [inventoryEditPosition, setInventoryEditPosition] = useState("");
+  const [inventoryEditCondition, setInventoryEditCondition] = useState("bom");
+  const [inventoryEditLegacyCode, setInventoryEditLegacyCode] = useState("");
+  const [inventoryEditAssetCode, setInventoryEditAssetCode] = useState("");
+  const [inventoryEditAcquisitionType, setInventoryEditAcquisitionType] = useState("acervo_historico");
+  const [inventoryEditAcquiredAt, setInventoryEditAcquiredAt] = useState("");
+  const [inventoryEditNotes, setInventoryEditNotes] = useState("");
+  const [inventoryEditActive, setInventoryEditActive] = useState(true);
+  const [inventoryEditTitleName, setInventoryEditTitleName] = useState("");
+  const [inventoryEditAuthors, setInventoryEditAuthors] = useState("");
+  const [inventoryEditPublisher, setInventoryEditPublisher] = useState("");
+  const [inventoryEditYear, setInventoryEditYear] = useState("");
+  const [inventoryEditIsbn, setInventoryEditIsbn] = useState("");
+  const [inventoryEditSubjects, setInventoryEditSubjects] = useState("");
+  const [inventoryEditDescription, setInventoryEditDescription] = useState("");
   const [qrCategory, setQrCategory] = useState("");
   const [printingCategory, setPrintingCategory] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -552,6 +647,7 @@ export default function AcervoVivoGestaoPage() {
     setBlockPendingFee(next.settings?.block_new_loans_with_pending_fee !== false);
     setPickupLocation(next.settings?.metadata?.pickup_location || "Tucxa 1");
     setSelfServiceEnabled(next.settings?.metadata?.self_service_enabled !== false);
+    setPostLoanHomologationEnabled(next.settings?.metadata?.post_loan_homologation_enabled === true);
     setNotificationEmails((next.settings?.metadata?.notification_emails ?? []).join("; "));
     setLoanReminderDays(Number(next.settings?.metadata?.loan_reminder_days_before_due ?? 3));
   }, []);
@@ -587,6 +683,7 @@ export default function AcervoVivoGestaoPage() {
   const versions = useMemo(() => payload.resourceVersions ?? [], [payload.resourceVersions]);
   const trails = useMemo(() => payload.trails ?? [], [payload.trails]);
   const trailItems = useMemo(() => payload.trailItems ?? [], [payload.trailItems]);
+  const homologations = useMemo(() => payload.homologations ?? [], [payload.homologations]);
   const titleMap = useMemo(() => new Map(titles.map((item) => [item.id, item])), [titles]);
   const activeLoans = useMemo(() => loans.filter((item) => !item.returned_at && ["ativo", "atrasado"].includes(item.status)), [loans]);
   const activeReservations = useMemo(() => reservations.filter((item) => ["aguardando", "disponivel"].includes(item.status)), [reservations]);
@@ -594,6 +691,56 @@ export default function AcervoVivoGestaoPage() {
   const inventorySessions = useMemo(() => payload.inventorySessions ?? [], [payload.inventorySessions]);
   const inventoryScans = useMemo(() => payload.inventoryScans ?? [], [payload.inventoryScans]);
   const openInventories = useMemo(() => inventorySessions.filter((item) => item.status === "aberto"), [inventorySessions]);
+  const selectedInventorySession = useMemo(
+    () => inventorySessions.find((item) => item.id === inventorySessionId) ?? null,
+    [inventorySessionId, inventorySessions],
+  );
+  const selectedInventoryScans = useMemo(
+    () => inventoryScans.filter((item) => item.session_id === inventorySessionId),
+    [inventoryScans, inventorySessionId],
+  );
+  const selectedInventoryExpectedIds = useMemo(
+    () => new Set(selectedInventorySession?.metadata?.expected_copy_ids ?? []),
+    [selectedInventorySession],
+  );
+  const selectedInventoryExpectedCount = useMemo(() => {
+    if (typeof selectedInventorySession?.metadata?.expected === "number") {
+      return selectedInventorySession.metadata.expected;
+    }
+    if (selectedInventoryExpectedIds.size) return selectedInventoryExpectedIds.size;
+    const startedAt = selectedInventorySession?.started_at ? new Date(selectedInventorySession.started_at).getTime() : Number.POSITIVE_INFINITY;
+    return copies.filter((copy) => {
+      const createdAt = copy.created_at ? new Date(copy.created_at).getTime() : 0;
+      return copy.active !== false && copy.status !== "baixado" && createdAt <= startedAt;
+    }).length;
+  }, [copies, selectedInventoryExpectedIds, selectedInventorySession]);
+  const selectedInventoryBaselineScanned = useMemo(() => {
+    if (selectedInventoryExpectedIds.size) {
+      return selectedInventoryScans.filter((scan) => selectedInventoryExpectedIds.has(scan.copy_id)).length;
+    }
+    const startedAt = selectedInventorySession?.started_at ? new Date(selectedInventorySession.started_at).getTime() : Number.POSITIVE_INFINITY;
+    return selectedInventoryScans.filter((scan) => {
+      const copy = copies.find((item) => item.id === scan.copy_id);
+      const createdAt = copy?.created_at ? new Date(copy.created_at).getTime() : 0;
+      return createdAt <= startedAt;
+    }).length;
+  }, [copies, selectedInventoryExpectedIds, selectedInventoryScans, selectedInventorySession]);
+  const selectedInventoryAddedDuring = useMemo(() => {
+    if (selectedInventoryExpectedIds.size) {
+      return selectedInventoryScans.filter((scan) => !selectedInventoryExpectedIds.has(scan.copy_id)).length;
+    }
+    const startedAt = selectedInventorySession?.started_at ? new Date(selectedInventorySession.started_at).getTime() : Number.POSITIVE_INFINITY;
+    return selectedInventoryScans.filter((scan) => {
+      const copy = copies.find((item) => item.id === scan.copy_id);
+      const createdAt = copy?.created_at ? new Date(copy.created_at).getTime() : 0;
+      return createdAt > startedAt;
+    }).length;
+  }, [copies, selectedInventoryExpectedIds, selectedInventoryScans, selectedInventorySession]);
+  const selectedInventoryNotFoundCount = selectedInventorySession?.metadata?.not_found_copy_ids?.length ?? 0;
+  const selectedInventoryPendingCount = Math.max(
+    0,
+    selectedInventoryExpectedCount - selectedInventoryBaselineScanned - selectedInventoryNotFoundCount,
+  );
 
   const activeTitlesForCompletion = useMemo(() => titles.filter((item) => item.active !== false), [titles]);
   const completionStats = useMemo(() => {
@@ -732,6 +879,7 @@ export default function AcervoVivoGestaoPage() {
       ["inventario", "Inventário", canManageLibrary],
       ["conteudos", "Conteúdos", canManageLibrary || canManageFolhaVerde],
       ["trilhas", "Trilhas + Integrações", canManageLibrary || canManageFolhaVerde || canManageGrupoEstudos || canManageClubeLivro],
+      ["homologacao", "Homologação", canManageRules],
     ];
     return items.filter((item) => item[2]).map(([value, label]) => [value, label]);
   }, [
@@ -740,6 +888,7 @@ export default function AcervoVivoGestaoPage() {
     canManageFolhaVerde,
     canManageGrupoEstudos,
     canManageLibrary,
+    canManageRules,
     receptionOnly,
   ]);
 
@@ -764,7 +913,10 @@ export default function AcervoVivoGestaoPage() {
       qrDataUrl?: string;
       assetCode?: string;
       id?: string;
-      summary?: { expected?: number; scanned?: number; missing?: number };
+      name?: string;
+      startedAt?: string;
+      expected?: number;
+      summary?: { expected?: number; scanned?: number; missing?: number; notFound?: number; pending?: number; addedDuringInventory?: number };
       copy?: CopyRow;
       labels?: BatchQrLabel[];
       updated?: number;
@@ -782,8 +934,8 @@ export default function AcervoVivoGestaoPage() {
     return result;
   }
 
-  async function run(body: Record<string, unknown>, message: string) {
-    if (!token || saving) return;
+  async function run(body: Record<string, unknown>, message: string): Promise<boolean> {
+    if (!token || saving) return false;
     setSaving(true);
     setError("");
     setSuccess("");
@@ -791,8 +943,10 @@ export default function AcervoVivoGestaoPage() {
       await post(body);
       setSuccess(message);
       await load(token);
+      return true;
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Erro ao salvar.");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -980,6 +1134,7 @@ export default function AcervoVivoGestaoPage() {
       blockNewLoansWithPendingFee: blockPendingFee,
       pickupLocation,
       selfServiceEnabled,
+      postLoanHomologationEnabled,
       notificationEmails,
       loanReminderDaysBeforeDue: loanReminderDays,
     }, "Regras do Acervo Vivo atualizadas.");
@@ -1059,8 +1214,23 @@ export default function AcervoVivoGestaoPage() {
 
   async function createCopy(event: FormEvent) {
     event.preventDefault();
-    await run({ action: "create-copy", titleId: copyTitleId, legacyCode: copyLegacyCode, shelf: copyShelf, shelfPosition: copyPosition, condition: "bom", status: "disponivel", acquisitionType: "acervo_historico" }, "Exemplar cadastrado com código patrimonial e QR token.");
-    setCopyLegacyCode(""); setCopyShelf(""); setCopyPosition("");
+    const ok = await run({
+      action: "create-copy",
+      titleId: copyTitleId,
+      legacyCode: copyLegacyCode,
+      shelf: copyShelf,
+      shelfPosition: copyPosition,
+      condition: "bom",
+      status: "disponivel",
+      acquisitionType: "acervo_historico",
+      inventorySessionId: copyInventorySessionId || undefined,
+    }, copyInventorySessionId
+      ? "Exemplar cadastrado e associado ao inventário em andamento como item adicionado durante a contagem."
+      : "Exemplar cadastrado com código patrimonial e QR token.");
+    if (!ok) return;
+    setCopyLegacyCode("");
+    setCopyShelf("");
+    setCopyPosition("");
   }
 
   async function createLoan(event: FormEvent) {
@@ -1237,6 +1407,7 @@ export default function AcervoVivoGestaoPage() {
     setInventoryObservedShelf(copy.shelf ?? "");
     setInventoryQrConfirmed(copy.metadata?.inventory_status === "inventariado");
     setInventoryDateIso(new Date().toISOString());
+    setInventoryEditSection("");
   }
 
   function clearInventoryCopy() {
@@ -1244,20 +1415,118 @@ export default function AcervoVivoGestaoPage() {
     setInventoryObservedShelf("");
     setInventoryQrConfirmed(false);
     setInventoryDateIso("");
+    setInventoryEditSection("");
   }
 
   async function confirmInventoryCopy() {
     if (!selectedInventoryCopy || !inventoryQrConfirmed || saving) return;
-    await run(
+    if (!inventorySessionId) {
+      setError("Selecione primeiro um inventário em andamento para registrar esta conferência.");
+      return;
+    }
+    const ok = await run(
       {
         action: "inventory-copy",
         copyId: selectedInventoryCopy.id,
+        sessionId: inventorySessionId,
         observedShelf: inventoryObservedShelf,
         qrConfirmed: true,
       },
-      `Exemplar ${selectedInventoryCopy.asset_code} inventariado e QR Code confirmado.`,
+      `Exemplar ${selectedInventoryCopy.asset_code} inventariado e associado ao inventário atual.`,
     );
-    clearInventoryCopy();
+    if (ok) clearInventoryCopy();
+  }
+
+  async function markInventoryCopyNotFound() {
+    if (!selectedInventoryCopy || saving) return;
+
+    const code = selectedInventoryCopy.legacy_code || selectedInventoryCopy.asset_code;
+    const confirmed = window.confirm(
+      `Marcar o exemplar ${code} como "Não encontrado"?\n\nEle continuará cadastrado no Acervo Vivo, mas deixará de ser oferecido como disponível até ser localizado e inventariado novamente.`,
+    );
+    if (!confirmed) return;
+
+    if (!inventorySessionId) {
+      setError("Selecione primeiro um inventário em andamento para registrar o item como Não encontrado.");
+      return;
+    }
+
+    const result = await run(
+      {
+        action: "inventory-copy-not-found",
+        copyId: selectedInventoryCopy.id,
+        sessionId: inventorySessionId,
+      },
+      `Exemplar ${code} marcado como Não encontrado no inventário atual.`,
+    );
+
+    if (result) clearInventoryCopy();
+  }
+
+  function openInventoryEdit(section: "localizacao" | "estado" | "identificacao" | "livro") {
+    if (!selectedInventoryCopy) return;
+    setInventoryEditShelf(selectedInventoryCopy.shelf ?? "");
+    setInventoryEditPosition(selectedInventoryCopy.shelf_position ?? "");
+    setInventoryEditCondition(selectedInventoryCopy.condition || "bom");
+    setInventoryEditLegacyCode(selectedInventoryCopy.legacy_code ?? "");
+    setInventoryEditAssetCode(selectedInventoryCopy.asset_code ?? "");
+    setInventoryEditAcquisitionType(selectedInventoryCopy.acquisition_type || "acervo_historico");
+    setInventoryEditAcquiredAt(selectedInventoryCopy.acquired_at ?? "");
+    setInventoryEditNotes(selectedInventoryCopy.notes ?? "");
+    setInventoryEditActive(selectedInventoryCopy.active !== false);
+
+    if (selectedInventoryTitle) {
+      setInventoryEditTitleName(selectedInventoryTitle.title);
+      setInventoryEditAuthors((selectedInventoryTitle.authors ?? []).join("; "));
+      setInventoryEditPublisher(selectedInventoryTitle.publisher ?? "");
+      setInventoryEditYear(selectedInventoryTitle.publication_year ? String(selectedInventoryTitle.publication_year) : "");
+      setInventoryEditIsbn(selectedInventoryTitle.isbn13 ?? "");
+      setInventoryEditSubjects((selectedInventoryTitle.subjects ?? []).join("; "));
+      setInventoryEditDescription(selectedInventoryTitle.description ?? "");
+    }
+    setInventoryEditSection(section);
+  }
+
+  async function saveInventoryCopyEdit() {
+    if (!selectedInventoryCopy || !inventoryEditSection || inventoryEditSection === "livro") return;
+
+    const body: Record<string, unknown> = {
+      action: "update-copy",
+      copyId: selectedInventoryCopy.id,
+    };
+
+    if (inventoryEditSection === "localizacao") {
+      body.shelf = inventoryEditShelf;
+      body.shelfPosition = inventoryEditPosition;
+    } else if (inventoryEditSection === "estado") {
+      body.condition = inventoryEditCondition;
+    } else if (inventoryEditSection === "identificacao") {
+      body.legacyCode = inventoryEditLegacyCode;
+      body.assetCode = inventoryEditAssetCode;
+      body.acquisitionType = inventoryEditAcquisitionType;
+      body.acquiredAt = inventoryEditAcquiredAt;
+      body.notes = inventoryEditNotes;
+      body.active = inventoryEditActive;
+    }
+
+    const ok = await run(body, "Dados do exemplar atualizados.");
+    if (ok) setInventoryEditSection("");
+  }
+
+  async function saveInventoryTitleEdit() {
+    if (!selectedInventoryTitle) return;
+    const ok = await run({
+      action: "update-title",
+      titleId: selectedInventoryTitle.id,
+      title: inventoryEditTitleName,
+      authors: inventoryEditAuthors,
+      publisher: inventoryEditPublisher,
+      publicationYear: inventoryEditYear,
+      isbn13: inventoryEditIsbn,
+      subjects: inventoryEditSubjects,
+      description: inventoryEditDescription,
+    }, "Dados bibliográficos atualizados.");
+    if (ok) setInventoryEditSection("");
   }
 
   function exportPendingCoversCsv() {
@@ -1353,39 +1622,101 @@ export default function AcervoVivoGestaoPage() {
     if (!token || saving) return;
     setSaving(true); setError(""); setSuccess("");
     try {
-      const result = await post({ action: "create-inventory-session", name: inventoryName, scope: "todo_acervo" });
+      const result = await post({
+        action: "create-inventory-session",
+        name: inventoryName,
+        notes: inventoryNotes,
+        scope: "todo_acervo",
+      });
       setInventoryName("");
+      setInventoryNotes("");
       if (result.id) setInventorySessionId(result.id);
-      setSuccess("Sessão de inventário iniciada. Leia os códigos patrimoniais ou QR Codes dos exemplares encontrados.");
+      setSuccess(
+        `Inventário criado${result.expected !== undefined ? ` com ${result.expected} exemplar(es) na base inicial` : ""}. As conferências agora ficarão associadas a este inventário.`,
+      );
+      setPanelView("");
       await load(token);
-    } catch (currentError) { setError(currentError instanceof Error ? currentError.message : "Erro ao iniciar inventário."); }
-    finally { setSaving(false); }
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao criar inventário.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function scanInventory(event: FormEvent) {
     event.preventDefault();
     if (!token || saving) return;
+    if (!inventorySessionId) {
+      setError("Selecione um inventário em andamento antes de conferir um exemplar.");
+      return;
+    }
     setSaving(true); setError(""); setSuccess("");
     try {
-      const result = await post({ action: "inventory-scan", sessionId: inventorySessionId, code: inventoryCode, observedShelf: inventoryShelf });
-      setSuccess(`Exemplar ${result.copy?.asset_code ?? inventoryCode} conferido no inventário.`);
+      const result = await post({
+        action: "inventory-scan",
+        sessionId: inventorySessionId,
+        code: inventoryCode,
+        observedShelf: inventoryShelf,
+      });
+      setSuccess(`Exemplar ${result.copy?.asset_code ?? inventoryCode} conferido e associado ao inventário atual.`);
       setInventoryCode("");
       await load(token);
-    } catch (currentError) { setError(currentError instanceof Error ? currentError.message : "Erro ao conferir exemplar."); }
-    finally { setSaving(false); }
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao conferir exemplar.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function closeInventory(sessionId: string) {
     if (!token || saving) return;
+    const session = inventorySessions.find((item) => item.id === sessionId);
+    if (!window.confirm(`Concluir o inventário "${session?.name || "selecionado"}"? Depois disso, novas conferências não poderão ser incluídas nesta sessão.`)) return;
+
     setSaving(true); setError(""); setSuccess("");
     try {
       const result = await post({ action: "close-inventory-session", sessionId });
       const summary = result.summary ?? {};
-      setSuccess(`Inventário concluído: ${summary.scanned ?? 0} encontrados de ${summary.expected ?? 0}; ${summary.missing ?? 0} não conferidos.`);
+      setSuccess(
+        `Inventário concluído: ${summary.scanned ?? 0}/${summary.expected ?? 0} item(ns) da base conferidos; ${summary.missing ?? 0} pendente(s), ${summary.notFound ?? 0} marcado(s) como Não encontrado e ${summary.addedDuringInventory ?? 0} novo(s) item(ns) registrado(s) durante a contagem.`,
+      );
       if (inventorySessionId === sessionId) setInventorySessionId("");
+      setPanelView("inventario-historico");
       await load(token);
-    } catch (currentError) { setError(currentError instanceof Error ? currentError.message : "Erro ao concluir inventário."); }
-    finally { setSaving(false); }
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao concluir inventário.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteInventory(sessionId: string) {
+    if (!token || saving) return;
+    const session = inventorySessions.find((item) => item.id === sessionId);
+    const scans = inventoryScans.filter((item) => item.session_id === sessionId).length;
+    const confirmed = window.confirm(
+      `Excluir permanentemente o inventário "${session?.name || "selecionado"}"?\n\n` +
+      `Status: ${session?.status || "—"}\n` +
+      `Conferências vinculadas: ${scans}\n\n` +
+      "Esta ação exclui a sessão e suas conferências de inventário. Os livros e exemplares do Acervo Vivo não serão excluídos e eventuais alterações já aplicadas aos exemplares não serão desfeitas.",
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await post({ action: "delete-inventory-session", sessionId });
+      if (inventorySessionId === sessionId) setInventorySessionId("");
+      setSuccess(`Inventário "${session?.name || "selecionado"}" excluído.`);
+      setPanelView("inventario-excluir");
+      clearInventoryCopy();
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao excluir inventário.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function createResource(event: FormEvent) {
@@ -1465,10 +1796,13 @@ export default function AcervoVivoGestaoPage() {
     "circulacao-reservas": "Reservas e retiradas",
     "circulacao-emprestimos": "Empréstimos ativos",
     "circulacao-direto": "Empréstimo direto",
-    "inventario-categoria": "Inventariar por categoria",
-    "inventario-iniciar": "Iniciar inventário",
-    "inventario-codigo": "Conferir por código",
+    "inventario-categoria": "Conferir por categoria",
+    "inventario-iniciar": "Criar novo inventário",
+    "inventario-selecionar": "Selecionar inventário",
+    "inventario-codigo": "Conferir por código / QR",
+    "inventario-revisar": "Revisar e concluir inventário",
     "inventario-historico": "Histórico de inventários",
+    "inventario-excluir": "Excluir inventário",
     "conteudos-lista": "Conteúdos cadastrados",
     "conteudos-cadastrar": "Cadastrar conteúdo",
     "conteudos-folha": "Folha Verde por ano",
@@ -1528,6 +1862,17 @@ export default function AcervoVivoGestaoPage() {
     closeCatalogCompletionList();
   }
 
+  function closeManagementModal() {
+    if (tab === "inventario" && panelView.startsWith("inventario-")) {
+      setPanelView("");
+      clearInventoryCopy();
+      setInventoryCategory("");
+      setInventoryCopyPage(0);
+      return;
+    }
+    closePanel();
+  }
+
   return (
     <OrganizacaoClientShell
       title="Acervo Vivo"
@@ -1550,6 +1895,11 @@ export default function AcervoVivoGestaoPage() {
       {payload.catalogWarning && (
         <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-800 ring-1 ring-red-200">
           {payload.catalogWarning}
+        </div>
+      )}
+      {payload.homologationWarning && canManageRules && (
+        <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-5 text-amber-900 ring-1 ring-amber-200">
+          {payload.homologationWarning}
         </div>
       )}
 
@@ -1601,7 +1951,7 @@ export default function AcervoVivoGestaoPage() {
       {panelOpen && (
         <ManagementModal
           title={panelTitle}
-          onClose={closePanel}
+          onClose={closeManagementModal}
           onBack={panelView && panelView !== "acervo-finalizar" ? () => {
             if (panelView === "inventario-categoria" && inventoryCopyId) {
               clearInventoryCopy();
@@ -1658,10 +2008,46 @@ export default function AcervoVivoGestaoPage() {
 
               {tab === "inventario" && (
                 <>
-                  <ActionTile title="Inventariar por categoria" note="Categoria → código crescente → exemplar" onClick={() => { setInventoryCategory(""); clearInventoryCopy(); setInventoryCategoryPage(0); setInventoryCopyPage(0); setPanelView("inventario-categoria"); }} />
-                  <ActionTile title="Iniciar sessão" onClick={() => setPanelView("inventario-iniciar")} />
-                  <ActionTile title="Conferir por código" note="QR ou código patrimonial" onClick={() => setPanelView("inventario-codigo")} />
-                  <ActionTile title="Histórico" note={`${inventorySessions.length} sessão(ões)`} onClick={() => setPanelView("inventario-historico")} />
+                  <div className="col-span-2 sm:col-span-3 rounded-2xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10">
+                    <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Fluxo recomendado</p>
+                    {selectedInventorySession?.status === "aberto" ? (
+                      <>
+                        <p className="mt-1 text-sm font-black text-[#00334E]">{selectedInventorySession.name}</p>
+                        <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">
+                          Iniciado em {formatDate(selectedInventorySession.started_at)} • {selectedInventoryBaselineScanned}/{selectedInventoryExpectedCount} item(ns) da base conferidos
+                          {selectedInventoryAddedDuring ? ` • ${selectedInventoryAddedDuring} novo(s) durante a contagem` : ""}
+                          {selectedInventoryNotFoundCount ? ` • ${selectedInventoryNotFoundCount} não encontrado(s)` : ""}.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-600">
+                        Comece criando um inventário identificado. Depois selecione-o e faça todas as conferências dentro dele.
+                      </p>
+                    )}
+                  </div>
+
+                  <ActionTile title="1. Criar novo inventário" note="Nome + data + base inicial de exemplares" onClick={() => setPanelView("inventario-iniciar")} />
+                  <ActionTile title="2. Selecionar / continuar" note={`${openInventories.length} inventário(s) em andamento`} onClick={() => setPanelView("inventario-selecionar")} />
+                  <ActionTile
+                    title="3. Conferir por categoria"
+                    note={inventorySessionId ? "Categoria → código → exemplar" : "Selecione um inventário primeiro"}
+                    disabled={!inventorySessionId}
+                    onClick={() => { setInventoryCategory(""); clearInventoryCopy(); setInventoryCategoryPage(0); setInventoryCopyPage(0); setPanelView("inventario-categoria"); }}
+                  />
+                  <ActionTile
+                    title="4. Conferir por código / QR"
+                    note={inventorySessionId ? "Leitura rápida dentro do inventário atual" : "Selecione um inventário primeiro"}
+                    disabled={!inventorySessionId}
+                    onClick={() => setPanelView("inventario-codigo")}
+                  />
+                  <ActionTile
+                    title="5. Revisar / concluir"
+                    note={inventorySessionId ? "Progresso, pendências e encerramento" : "Selecione um inventário primeiro"}
+                    disabled={!inventorySessionId}
+                    onClick={() => setPanelView("inventario-revisar")}
+                  />
+                  <ActionTile title="6. Histórico" note={`${inventorySessions.filter((item) => item.status !== "aberto").length} concluído(s)/cancelado(s)`} onClick={() => setPanelView("inventario-historico")} />
+                  <ActionTile title="7. Excluir inventário" note={`${inventorySessions.length} inventário(s) registrado(s)`} onClick={() => setPanelView("inventario-excluir")} />
                 </>
               )}
 
@@ -1681,6 +2067,19 @@ export default function AcervoVivoGestaoPage() {
                   {canManageLibrary && <ActionTile title="Adicionar livro/conteúdo" onClick={() => setPanelView("trilhas-item")} />}
                   <ActionTile title="Criar integração" note="Clube, Grupo, Curso, Aula ou destaque" onClick={() => setPanelView("trilhas-integracao")} />
                 </>
+              )}
+
+              {tab === "homologacao" && canManageRules && (
+                <div className="col-span-2 sm:col-span-3">
+                  <AcervoVivoHomologacaoManager
+                    api={API}
+                    token={token}
+                    people={people}
+                    homologations={homologations}
+                    postLoanHomologationEnabled={postLoanHomologationEnabled}
+                    onSaved={() => load(token)}
+                  />
+                </div>
               )}
             </div>
           ) : panelView === "visao-resumo" ? (
@@ -1716,6 +2115,13 @@ export default function AcervoVivoGestaoPage() {
                 <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberReservations} onChange={(e) => setMemberReservations(e.target.checked)} />Permitir reservas</label>
                 <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] px-3 py-2"><input type="checkbox" checked={memberRenewals} onChange={(e) => setMemberRenewals(e.target.checked)} />Permitir renovações</label>
                 <label className="flex items-center gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2"><input type="checkbox" checked={selfServiceEnabled} onChange={(e) => setSelfServiceEnabled(e.target.checked)} />Permitir autoempréstimo pelo QR</label>
+                <label className="flex items-start gap-2 rounded-xl bg-[#E7F2FF] px-3 py-2">
+                  <input type="checkbox" checked={postLoanHomologationEnabled} onChange={(e) => setPostLoanHomologationEnabled(e.target.checked)} className="mt-0.5" />
+                  <span>
+                    <span className="block">Oferecer teste de uso após o empréstimo</span>
+                    <span className="mt-0.5 block text-[9px] font-semibold leading-4 text-slate-600">Quando habilitado, a pessoa poderá responder as mesmas questões estruturadas logo após concluir um empréstimo. A participação é opcional e entra nos Resultados da Homologação.</span>
+                  </span>
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-2 py-2"><input type="checkbox" checked={blockOverdue} onChange={(e) => setBlockOverdue(e.target.checked)} />Bloquear atraso</label>
                   <label className="flex items-center gap-2 rounded-xl bg-amber-50 px-2 py-2"><input type="checkbox" checked={blockPendingFee} onChange={(e) => setBlockPendingFee(e.target.checked)} />Bloquear taxa</label>
@@ -1802,6 +2208,22 @@ export default function AcervoVivoGestaoPage() {
                 <input value={copyShelf} onChange={(e) => setCopyShelf(e.target.value)} className="min-w-0 rounded-xl border border-slate-200 px-2 py-2" placeholder="Armário / estante" />
               </div>
               <input value={copyPosition} onChange={(e) => setCopyPosition(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Prateleira / posição" />
+
+              {openInventories.length > 0 && (
+                <div className="mt-3 rounded-2xl bg-[#F4FBF7] p-3 ring-1 ring-[#123D2C]/10">
+                  <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                    Inventário em andamento (opcional)
+                    <select value={copyInventorySessionId} onChange={(e) => setCopyInventorySessionId(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <option value="">Não associar a um inventário</option>
+                      {openInventories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                  </label>
+                  <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-600">
+                    Um exemplar novo não altera a base esperada de um inventário já iniciado. Se você associá-lo aqui, ele será registrado separadamente como <strong>adicionado durante o inventário</strong>.
+                  </p>
+                </div>
+              )}
+
               <button disabled={saving} className="mt-3 w-full rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Adicionar exemplar</button>
             </form>
           ) : panelView === "acervo-capas" ? (
@@ -2005,10 +2427,21 @@ export default function AcervoVivoGestaoPage() {
             </form>
           ) : panelView === "inventario-categoria" ? (
             <div>
-              {!inventoryCategory ? (
+              {!selectedInventorySession || selectedInventorySession.status !== "aberto" ? (
+                <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                  <p className="text-sm font-black text-[#00334E]">Selecione um inventário em andamento</p>
+                  <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+                    Toda conferência por categoria deve ficar associada a um inventário identificado.
+                  </p>
+                  <button type="button" onClick={() => setPanelView("inventario-selecionar")} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white">
+                    Selecionar inventário
+                  </button>
+                </section>
+              ) : !inventoryCategory ? (
                 <>
                   <div className="rounded-2xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#00334E]">
-                    Escolha a categoria exatamente como o armário está organizado. Na próxima tela, os exemplares aparecem pelo código crescente.
+                    <strong>{selectedInventorySession.name}</strong><br />
+                    Agora escolha a categoria exatamente como o armário está organizado. Cada exemplar confirmado ficará ligado a este inventário.
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {inventoryCategoryItems.map((category) => {
@@ -2022,22 +2455,27 @@ export default function AcervoVivoGestaoPage() {
                 </>
               ) : !selectedInventoryCopy ? (
                 <>
-                  <div className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-[#123D2C]/10">
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Categoria</p>
+                  <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-[#123D2C]/10">
+                    <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{selectedInventorySession.name}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
                       <p className="text-sm font-black text-[#00334E]">{inventoryCategory}</p>
+                      <span className="text-[10px] font-bold text-slate-500">{inventoryCopies.length} exemplar(es)</span>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-500">{inventoryCopies.length} exemplar(es)</span>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {inventoryCopyItems.map((copy) => {
                       const title = titleMap.get(copy.title_id);
-                      const inventoried = copy.metadata?.inventory_status === "inventariado";
+                      const inventoryStatus = copy.metadata?.inventory_status || "";
+                      const inventoried = inventoryStatus === "inventariado";
+                      const notFound = inventoryStatus === "nao_encontrado";
+                      const scannedInCurrentSession = selectedInventoryScans.some((scan) => scan.copy_id === copy.id);
                       return (
                         <button key={copy.id} type="button" onClick={() => selectInventoryCopy(copy)} className="rounded-2xl bg-white p-3 text-left shadow-sm ring-1 ring-[#123D2C]/10">
                           <span className="block text-sm font-black text-[#00334E]">{copy.legacy_code || copy.asset_code}</span>
                           <span className="mt-1 block line-clamp-2 text-[10px] font-semibold leading-4 text-slate-600">{title?.title || "Livro"}</span>
-                          <span className="mt-1 block text-[9px] font-black uppercase text-[#2F6B43]">{inventoried ? "✓ INVENTARIADO" : "TOQUE PARA INVENTARIAR"}</span>
+                          <span className={`mt-1 block text-[9px] font-black uppercase ${notFound ? "text-red-700" : scannedInCurrentSession || inventoried ? "text-emerald-700" : "text-[#2F6B43]"}`}>
+                            {notFound ? "NÃO ENCONTRADO" : scannedInCurrentSession ? "✓ CONFERIDO NESTE INVENTÁRIO" : inventoried ? "INVENTARIADO ANTERIORMENTE" : "TOQUE PARA INVENTARIAR"}
+                          </span>
                         </button>
                       );
                     })}
@@ -2045,57 +2483,159 @@ export default function AcervoVivoGestaoPage() {
                   <CompactPager page={inventoryCopyPage} total={inventoryCopies.length} pageSize={inventoryCopyPageSize} onChange={setInventoryCopyPage} />
                 </>
               ) : (
-                <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
-                  <div className="flex items-start justify-between gap-3">
+                <section className="rounded-3xl bg-white p-3 shadow ring-1 ring-slate-100">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Inventário físico • {inventoryDateIso ? formatDate(inventoryDateIso) : "Hoje"}</p>
-                      <h3 className="mt-1 line-clamp-2 text-lg font-black text-[#00334E]">{selectedInventoryTitle?.title || "Livro"}</h3>
+                      <p className="text-[8px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">{selectedInventorySession.name} • {inventoryDateIso ? formatDate(inventoryDateIso) : "Hoje"}</p>
+                      <h3 className="mt-1 line-clamp-1 text-base font-black text-[#00334E]">{selectedInventoryTitle?.title || "Livro"}</h3>
                     </div>
                     <span className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-[10px] font-black text-[#00334E]">{selectedInventoryCopy.legacy_code || selectedInventoryCopy.asset_code}</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10px]">
-                    {[
-                      ["Código patrimonial", selectedInventoryCopy.asset_code],
-                      ["Código antigo", selectedInventoryCopy.legacy_code || "—"],
-                      ["Armário / estante", selectedInventoryCopy.shelf || "—"],
-                      ["Prateleira / posição", selectedInventoryCopy.shelf_position || "—"],
-                      ["Condição", selectedInventoryCopy.condition || "—"],
-                      ["Status", selectedInventoryCopy.status || "—"],
-                      ["Autor", (selectedInventoryTitle?.authors ?? []).join(", ") || "—"],
-                      ["Editora / ano", `${selectedInventoryTitle?.publisher || "—"}${selectedInventoryTitle?.publication_year ? ` • ${selectedInventoryTitle.publication_year}` : ""}`],
-                      ["ISBN", selectedInventoryTitle?.isbn13 || selectedInventoryTitle?.isbn10 || "—"],
-                      ["Categoria", selectedInventoryTitle?.subjects?.[0] || inventoryCategory],
-                    ].map(([label, value]) => (
-                      <div key={label} className="rounded-xl bg-[#F9FBF7] px-2 py-1.5 ring-1 ring-[#123D2C]/10">
-                        <span className="block text-[8px] font-black uppercase text-[#2F6B43]">{label}</span>
-                        <span className="mt-0.5 block line-clamp-2 font-bold text-[#00334E]">{value}</span>
-                      </div>
-                    ))}
+
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 text-[9px]">
+                    <div className="rounded-xl bg-[#F9FBF7] px-2 py-1.5 ring-1 ring-[#123D2C]/10">
+                      <span className="block text-[7px] font-black uppercase text-[#2F6B43]">Localização</span>
+                      <span className="mt-0.5 block font-bold text-[#00334E]">{selectedInventoryCopy.shelf || "—"}{selectedInventoryCopy.shelf_position ? ` • ${selectedInventoryCopy.shelf_position}` : ""}</span>
+                    </div>
+                    <div className="rounded-xl bg-[#F9FBF7] px-2 py-1.5 ring-1 ring-[#123D2C]/10">
+                      <span className="block text-[7px] font-black uppercase text-[#2F6B43]">Estado físico</span>
+                      <span className="mt-0.5 block font-bold text-[#00334E]">{selectedInventoryCopy.condition || "—"}</span>
+                    </div>
+                    <div className="rounded-xl bg-[#F9FBF7] px-2 py-1.5 ring-1 ring-[#123D2C]/10">
+                      <span className="block text-[7px] font-black uppercase text-[#2F6B43]">Circulação</span>
+                      <span className="mt-0.5 block font-bold text-[#00334E]">{selectedInventoryCopy.status || "—"}</span>
+                    </div>
+                    <div className="rounded-xl bg-[#F9FBF7] px-2 py-1.5 ring-1 ring-[#123D2C]/10">
+                      <span className="block text-[7px] font-black uppercase text-[#2F6B43]">Inventário</span>
+                      <span className="mt-0.5 block font-bold text-[#00334E]">{selectedInventoryCopy.metadata?.inventory_status === "nao_encontrado" ? "Não encontrado" : selectedInventoryCopy.metadata?.inventory_status || "Pendente"}</span>
+                    </div>
                   </div>
-                  <input value={inventoryObservedShelf} onChange={(e) => setInventoryObservedShelf(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Estante observada" />
+
+                  <p className="mt-2 text-[9px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">Atualizar dados</p>
+                  <div className="mt-1 grid grid-cols-2 gap-1.5">
+                    <button type="button" onClick={() => openInventoryEdit("localizacao")} className="rounded-xl bg-[#F4FBF7] px-2 py-2 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10">Localização</button>
+                    <button type="button" onClick={() => openInventoryEdit("estado")} className="rounded-xl bg-[#F4FBF7] px-2 py-2 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10">Estado físico</button>
+                    <button type="button" onClick={() => openInventoryEdit("identificacao")} className="rounded-xl bg-[#F4FBF7] px-2 py-2 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10">Dados do exemplar</button>
+                    <button type="button" onClick={() => openInventoryEdit("livro")} className="rounded-xl bg-[#F4FBF7] px-2 py-2 text-[9px] font-black text-[#00334E] ring-1 ring-[#123D2C]/10">Dados do livro</button>
+                  </div>
+
+                  <input value={inventoryObservedShelf} onChange={(e) => setInventoryObservedShelf(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" placeholder="Estante observada nesta conferência" />
+
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button type="button" disabled={saving} onClick={() => void showQr(selectedInventoryCopy.id)} className="rounded-xl bg-white px-3 py-2.5 text-[10px] font-black text-[#00334E] ring-1 ring-[#00334E]/20">Ver / imprimir QR</button>
-                    <label className="flex items-center justify-center gap-2 rounded-xl bg-[#E9F2E7] px-2 py-2.5 text-[10px] font-black text-[#00334E]"><input type="checkbox" checked={inventoryQrConfirmed} onChange={(e) => setInventoryQrConfirmed(e.target.checked)} />QR correto colado/conferido</label>
+                    <label className="flex items-center justify-center gap-2 rounded-xl bg-[#E9F2E7] px-2 py-2.5 text-[9px] font-black text-[#00334E]"><input type="checkbox" checked={inventoryQrConfirmed} onChange={(e) => setInventoryQrConfirmed(e.target.checked)} />QR correto / conferido</label>
                   </div>
-                  <button type="button" disabled={saving || !inventoryQrConfirmed} onClick={() => void confirmInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Confirmar e marcar como inventariado</button>
+
+                  {selectedInventoryCopy.metadata?.inventory_status === "nao_encontrado" && (
+                    <p className="mt-2 rounded-xl bg-red-50 p-2 text-[9px] font-bold leading-4 text-red-800 ring-1 ring-red-200">
+                      Marcado como Não encontrado. Se foi localizado agora, confira o QR e confirme o inventário para restaurar sua situação anterior.
+                    </p>
+                  )}
+
+                  <button type="button" disabled={saving || !inventoryQrConfirmed} onClick={() => void confirmInventoryCopy()} className="mt-2 w-full rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Confirmar neste inventário</button>
+                  <button
+                    type="button"
+                    disabled={saving || ["emprestado", "reservado"].includes(selectedInventoryCopy.status)}
+                    onClick={() => void markInventoryCopyNotFound()}
+                    className="mt-2 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-black text-red-700 ring-1 ring-red-200 disabled:opacity-40"
+                  >
+                    Marcar como Não encontrado
+                  </button>
+                  {["emprestado", "reservado"].includes(selectedInventoryCopy.status) && (
+                    <p className="mt-2 text-[9px] font-semibold leading-4 text-slate-500">
+                      Exemplares emprestados ou reservados não podem ser marcados como Não encontrado, pois estão em circulação.
+                    </p>
+                  )}
                 </section>
               )}
             </div>
           ) : panelView === "inventario-iniciar" ? (
             <form onSubmit={createInventory} className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <input value={inventoryName} onChange={(e) => setInventoryName(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Ex.: Inventário geral Agosto/2026" />
-              <button disabled={saving} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Iniciar inventário</button>
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Etapa 1 • Criar o inventário</p>
+              <h3 className="mt-1 text-lg font-black text-[#00334E]">Identifique esta contagem antes de começar</h3>
+              <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+                Ao criar o inventário, o sistema registra uma fotografia da base atual de exemplares. Tudo que for conferido depois ficará associado a este cadastro.
+              </p>
+              <label className="mt-3 grid gap-1 text-[10px] font-black text-[#00334E]">
+                Nome do inventário
+                <input required value={inventoryName} onChange={(e) => setInventoryName(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Ex.: Inventário Geral — Setembro/2026" />
+              </label>
+              <label className="mt-2 grid gap-1 text-[10px] font-black text-[#00334E]">
+                Observações (opcional)
+                <textarea value={inventoryNotes} onChange={(e) => setInventoryNotes(e.target.value)} rows={3} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Ex.: contagem do salão principal e armários da biblioteca." />
+              </label>
+              <div className="mt-3 rounded-xl bg-[#FFF8E7] p-3 text-[10px] font-semibold leading-4 text-amber-950 ring-1 ring-amber-200">
+                <strong>Exemplares novos:</strong> livros cadastrados depois do início não aumentam a base esperada desta contagem. Se forem associados ao inventário, aparecerão separadamente como “adicionados durante o inventário”.
+              </div>
+              <button disabled={saving} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Criar inventário e começar</button>
             </form>
+          ) : panelView === "inventario-selecionar" ? (
+            <div>
+              <div className="rounded-2xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#00334E]">
+                Escolha qual inventário receberá as próximas conferências. Isso evita misturar contagens diferentes.
+              </div>
+              <div className="mt-3 grid gap-2">
+                {openInventories.map((session) => {
+                  const scans = inventoryScans.filter((item) => item.session_id === session.id);
+                  const expectedIds = new Set(session.metadata?.expected_copy_ids ?? []);
+                  const baselineScanned = scans.filter((scan) => expectedIds.has(scan.copy_id)).length;
+                  const added = scans.filter((scan) => !expectedIds.has(scan.copy_id)).length;
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => { setInventorySessionId(session.id); setPanelView(""); clearInventoryCopy(); }}
+                      className={`rounded-2xl p-3 text-left shadow-sm ring-1 ${inventorySessionId === session.id ? "bg-[#E9F2E7] ring-[#2F6B43]" : "bg-white ring-[#123D2C]/10"}`}
+                    >
+                      <span className="block text-sm font-black text-[#00334E]">{session.name}</span>
+                      <span className="mt-1 block text-[10px] font-semibold text-slate-500">
+                        Iniciado em {formatDate(session.started_at)} • {baselineScanned}/{session.metadata?.expected ?? expectedIds.size} da base conferidos{added ? ` • ${added} novo(s)` : ""}
+                      </span>
+                      <span className="mt-1 block text-[8px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">TOQUE PARA USAR ESTE INVENTÁRIO</span>
+                    </button>
+                  );
+                })}
+                {!openInventories.length && (
+                  <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Não há inventário em andamento. Crie um novo inventário antes de iniciar a conferência.</p>
+                )}
+              </div>
+              {!openInventories.length && <button type="button" onClick={() => setPanelView("inventario-iniciar")} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white">Criar novo inventário</button>}
+            </div>
           ) : panelView === "inventario-codigo" ? (
             <form onSubmit={scanInventory} className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
-              <select required value={inventorySessionId} onChange={(e) => setInventorySessionId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2">
-                <option value="">Sessão aberta</option>
-                {openInventories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-              <input required value={inventoryCode} onChange={(e) => setInventoryCode(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Leia o QR ou digite ACV-..." />
+              {selectedInventorySession ? (
+                <div className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold text-[#00334E]">
+                  <strong>{selectedInventorySession.name}</strong><br />
+                  Cada leitura será registrada neste inventário.
+                </div>
+              ) : (
+                <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">Selecione um inventário antes de conferir por código.</p>
+              )}
+              <input required value={inventoryCode} onChange={(e) => setInventoryCode(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Leia o QR ou digite ACV-..." />
               <input value={inventoryShelf} onChange={(e) => setInventoryShelf(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Estante observada" />
-              <button disabled={saving || !inventorySessionId} className="mt-3 w-full rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Conferir exemplar</button>
+              <button disabled={saving || !inventorySessionId} className="mt-3 w-full rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Conferir neste inventário</button>
             </form>
+          ) : panelView === "inventario-revisar" ? (
+            selectedInventorySession ? (
+              <section className="rounded-3xl bg-white p-4 shadow ring-1 ring-slate-100">
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Etapa 5 • Revisar antes de concluir</p>
+                <h3 className="mt-1 text-lg font-black text-[#00334E]">{selectedInventorySession.name}</h3>
+                <p className="mt-1 text-[10px] font-semibold text-slate-500">Iniciado em {formatDate(selectedInventorySession.started_at)}</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-xl font-black text-[#00334E]">{selectedInventoryExpectedCount}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">base esperada</p></div>
+                  <div className="rounded-xl bg-[#F4FBF7] p-2"><p className="text-xl font-black text-[#00334E]">{selectedInventoryBaselineScanned}</p><p className="text-[8px] font-black uppercase text-[#2F6B43]">conferidos da base</p></div>
+                  <div className="rounded-xl bg-amber-50 p-2"><p className="text-xl font-black text-amber-900">{selectedInventoryPendingCount}</p><p className="text-[8px] font-black uppercase text-amber-700">a conferir</p></div>
+                  <div className="rounded-xl bg-red-50 p-2"><p className="text-xl font-black text-red-800">{selectedInventoryNotFoundCount}</p><p className="text-[8px] font-black uppercase text-red-700">não encontrados</p></div>
+                  <div className="rounded-xl bg-sky-50 p-2"><p className="text-xl font-black text-sky-900">{selectedInventoryAddedDuring}</p><p className="text-[8px] font-black uppercase text-sky-700">novos durante contagem</p></div>
+                </div>
+                <p className="mt-3 rounded-xl bg-[#FFF8E7] p-3 text-[10px] font-semibold leading-4 text-amber-950 ring-1 ring-amber-200">
+                  A base esperada fica congelada na criação do inventário. Exemplares novos associados durante a contagem são rastreados separadamente e não distorcem os faltantes.
+                </p>
+                <button type="button" disabled={saving} onClick={() => void closeInventory(selectedInventorySession.id)} className="mt-3 w-full rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Concluir inventário</button>
+              </section>
+            ) : (
+              <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Selecione um inventário em andamento para revisar.</p>
+            )
           ) : panelView === "inventario-historico" ? (
             <div>
               <div className="grid gap-2">
@@ -2106,17 +2646,59 @@ export default function AcervoVivoGestaoPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-black text-[#00334E]">{session.name}</p>
-                          <p className="mt-1 text-[10px] font-semibold text-slate-500">{formatDate(session.started_at)} • {session.status === "aberto" ? `${scanned} conferidos` : `${session.metadata?.scanned ?? scanned}/${session.metadata?.expected ?? "—"}`}</p>
+                          <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                            {formatDate(session.started_at)} • {session.status === "aberto"
+                              ? `${scanned} conferência(s)`
+                              : `${session.metadata?.scanned ?? scanned}/${session.metadata?.expected ?? "—"} da base • ${session.metadata?.missing ?? 0} pendente(s) • ${session.metadata?.added_during_inventory ?? 0} novo(s)`}
+                          </p>
                         </div>
                         <span className={`rounded-full px-2 py-1 text-[9px] font-black ${session.status === "aberto" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{session.status}</span>
                       </div>
-                      {session.status === "aberto" && <button type="button" disabled={saving} onClick={() => void closeInventory(session.id)} className="mt-2 rounded-xl bg-[#00334E] px-3 py-2 text-[10px] font-black text-white">Concluir</button>}
+                      {session.status === "aberto" && (
+                        <button type="button" onClick={() => { setInventorySessionId(session.id); setPanelView("inventario-revisar"); }} className="mt-2 rounded-xl bg-[#E9F2E7] px-3 py-2 text-[10px] font-black text-[#00334E]">
+                          Continuar / revisar
+                        </button>
+                      )}
                     </article>
                   );
                 })}
-                {!inventoryHistoryItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum inventário iniciado.</p>}
+                {!inventoryHistoryItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum inventário registrado.</p>}
               </div>
               <CompactPager page={inventoryHistoryPage} total={inventorySessions.length} pageSize={inventoryHistoryPageSize} onChange={setInventoryHistoryPage} />
+            </div>
+          ) : panelView === "inventario-excluir" ? (
+            <div>
+              <p className="rounded-2xl bg-red-50 p-3 text-xs font-bold leading-5 text-red-800 ring-1 ring-red-200">
+                A exclusão é permanente para a sessão de inventário e suas conferências. Livros, títulos e exemplares do Acervo Vivo não são excluídos, e alterações já aplicadas aos exemplares não são desfeitas.
+              </p>
+              <div className="mt-3 grid gap-2">
+                {inventorySessions.map((session) => {
+                  const scans = inventoryScans.filter((item) => item.session_id === session.id).length;
+                  return (
+                    <article key={session.id} className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-[#123D2C]/10">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-[#00334E]">{session.name}</p>
+                          <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                            {formatDate(session.started_at)} • {session.status} • {scans} conferência(s)
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void deleteInventory(session.id)}
+                          className="shrink-0 rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!inventorySessions.length && (
+                  <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum inventário registrado para excluir.</p>
+                )}
+              </div>
             </div>
           ) : panelView === "conteudos-lista" ? (
             <div>
@@ -2217,6 +2799,103 @@ export default function AcervoVivoGestaoPage() {
             </form>
           ) : null}
         </ManagementModal>
+      )}
+
+      {inventoryEditSection && selectedInventoryCopy && (
+        <InventoryEditModal
+          title={
+            inventoryEditSection === "localizacao"
+              ? "Localização do exemplar"
+              : inventoryEditSection === "estado"
+                ? "Estado físico"
+                : inventoryEditSection === "identificacao"
+                  ? "Dados do exemplar"
+                  : "Dados do livro"
+          }
+          onClose={() => setInventoryEditSection("")}
+        >
+          {inventoryEditSection === "localizacao" ? (
+            <div className="grid gap-2">
+              <label className="grid gap-1 text-xs font-black text-[#00334E]">
+                Armário / estante
+                <input value={inventoryEditShelf} onChange={(e) => setInventoryEditShelf(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" />
+              </label>
+              <label className="grid gap-1 text-xs font-black text-[#00334E]">
+                Prateleira / posição
+                <input value={inventoryEditPosition} onChange={(e) => setInventoryEditPosition(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" />
+              </label>
+              <button type="button" disabled={saving} onClick={() => void saveInventoryCopyEdit()} className="mt-1 rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Salvar localização</button>
+            </div>
+          ) : inventoryEditSection === "estado" ? (
+            <div className="grid gap-2">
+              <label className="grid gap-1 text-xs font-black text-[#00334E]">
+                Estado físico
+                <select value={inventoryEditCondition} onChange={(e) => setInventoryEditCondition(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold">
+                  <option value="novo">Novo</option>
+                  <option value="otimo">Ótimo</option>
+                  <option value="bom">Bom</option>
+                  <option value="regular">Regular</option>
+                  <option value="danificado">Danificado</option>
+                  <option value="em_restauro">Em restauro</option>
+                </select>
+              </label>
+              <p className="rounded-xl bg-[#F4FBF7] p-3 text-[10px] font-semibold leading-4 text-slate-600">
+                O status de circulação ({selectedInventoryCopy.status}) não é editado manualmente aqui. Ele é controlado pelos fluxos de reserva, empréstimo, manutenção e inventário.
+              </p>
+              <button type="button" disabled={saving} onClick={() => void saveInventoryCopyEdit()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Salvar estado físico</button>
+            </div>
+          ) : inventoryEditSection === "identificacao" ? (
+            <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                  Código da lombada / antigo
+                  <input value={inventoryEditLegacyCode} onChange={(e) => setInventoryEditLegacyCode(e.target.value)} className="min-w-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold" />
+                </label>
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                  Código patrimonial
+                  <input required value={inventoryEditAssetCode} onChange={(e) => setInventoryEditAssetCode(e.target.value)} className="min-w-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold" />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                  Origem
+                  <select value={inventoryEditAcquisitionType} onChange={(e) => setInventoryEditAcquisitionType(e.target.value)} className="rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold">
+                    <option value="acervo_historico">Acervo histórico</option>
+                    <option value="compra">Compra</option>
+                    <option value="doacao">Doação</option>
+                    <option value="outro">Outro</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                  Data de aquisição
+                  <input type="date" value={inventoryEditAcquiredAt} onChange={(e) => setInventoryEditAcquiredAt(e.target.value)} className="rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold" />
+                </label>
+              </div>
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">
+                Observações do exemplar
+                <textarea value={inventoryEditNotes} onChange={(e) => setInventoryEditNotes(e.target.value)} rows={3} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" />
+              </label>
+              <label className="flex items-center gap-2 rounded-xl bg-[#F4FBF7] p-3 text-xs font-black text-[#00334E]">
+                <input type="checkbox" checked={inventoryEditActive} onChange={(e) => setInventoryEditActive(e.target.checked)} />
+                Exemplar ativo no Acervo Vivo
+              </label>
+              <button type="button" disabled={saving || !inventoryEditAssetCode.trim()} onClick={() => void saveInventoryCopyEdit()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Salvar dados do exemplar</button>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Título<input required value={inventoryEditTitleName} onChange={(e) => setInventoryEditTitleName(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></label>
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Autores<input value={inventoryEditAuthors} onChange={(e) => setInventoryEditAuthors(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" placeholder="Separe por ;" /></label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Editora<input value={inventoryEditPublisher} onChange={(e) => setInventoryEditPublisher(e.target.value)} className="rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold" /></label>
+                <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Ano<input type="number" value={inventoryEditYear} onChange={(e) => setInventoryEditYear(e.target.value)} className="rounded-xl border border-slate-200 px-2 py-2.5 text-sm font-semibold" /></label>
+              </div>
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">ISBN-13<input value={inventoryEditIsbn} onChange={(e) => setInventoryEditIsbn(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></label>
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Categorias / temas<input value={inventoryEditSubjects} onChange={(e) => setInventoryEditSubjects(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" placeholder="Separe por ;" /></label>
+              <label className="grid gap-1 text-[10px] font-black text-[#00334E]">Resumo<textarea rows={4} value={inventoryEditDescription} onChange={(e) => setInventoryEditDescription(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></label>
+              <button type="button" disabled={saving || !inventoryEditTitleName.trim()} onClick={() => void saveInventoryTitleEdit()} className="rounded-xl bg-[#00334E] px-4 py-3 text-sm font-black text-white disabled:opacity-50">Salvar dados do livro</button>
+            </div>
+          )}
+        </InventoryEditModal>
       )}
 
       {panelOpen && panelView === "acervo-finalizar" && completionListOpen && (
