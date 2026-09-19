@@ -2,22 +2,47 @@ import Link from "next/link";
 
 type PublicHeaderProps = {
   showAccessLinks?: boolean;
+  brandName?: string | null;
+  brandLogoUrl?: string | null;
 };
 
-export function PublicHeader({ showAccessLinks = true }: PublicHeaderProps) {
+export function PublicHeader({
+  showAccessLinks = true,
+  brandName,
+  brandLogoUrl,
+}: PublicHeaderProps) {
+  const resolvedBrandName = brandName?.trim() || "Impacto no Controle";
+
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-white/95 backdrop-blur">
       <div className="container-page public-header py-2">
         <div className="public-header-main">
-          <Link href="/solucoes/impacto-no-controle" className="brand-link font-extrabold text-[var(--brand-dark)]" aria-label="Ir para a página inicial do Impacto no Controle">
-            <span className="brand-mark">IC</span>
-            <span className="brand-title">Impacto no Controle</span>
+          <Link
+            href="/solucoes/impacto-no-controle"
+            className="brand-link font-extrabold text-[var(--brand-dark)]"
+            aria-label={`Ir para a página inicial do ${resolvedBrandName}`}
+          >
+            {brandLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- logo configurado dinamicamente por cliente/campanha.
+              <img
+                src={brandLogoUrl}
+                alt={resolvedBrandName}
+                className="brand-client-logo"
+              />
+            ) : (
+              <span className="brand-mark">IC</span>
+            )}
+            <span className="brand-title">{resolvedBrandName}</span>
           </Link>
 
           {showAccessLinks ? (
             <nav className="header-access-nav" aria-label="Acessos">
-              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/cliente/login">Cliente</Link>
-              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/gestao/login">Gestão</Link>
+              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/cliente/login">
+                Cliente
+              </Link>
+              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/gestao/login">
+                Gestão
+              </Link>
             </nav>
           ) : null}
         </div>

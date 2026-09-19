@@ -125,3 +125,488 @@
   .impacto-no-controle .header-access-button { padding: 7px 7px !important; font-size: 12px; }
   .impacto-no-controle .brand-mark { width: 40px; height: 40px; }
 }
+
+/* -------------------------------------------------------------------------- */
+/* InC-02: cabeçalho de cliente, popup compacto, galeria e guia de informações */
+/* -------------------------------------------------------------------------- */
+
+.impacto-no-controle .brand-client-logo {
+  height: 42px;
+  width: 42px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+  object-fit: contain;
+  padding: 3px;
+}
+
+.impacto-intro-overlay,
+.impacto-guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.impacto-intro-card {
+  width: min(100%, 620px);
+  max-height: min(92vh, 720px);
+  overflow: auto;
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(15, 35, 20, 0.28);
+}
+
+.impacto-intro-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.impacto-intro-title {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: clamp(1.55rem, 5vw, 2.2rem);
+  font-weight: 900;
+  line-height: 1.06;
+}
+
+.impacto-intro-number-info {
+  margin-top: 8px;
+  color: var(--brand-dark);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.impacto-intro-close,
+.impacto-guide-close {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff8e8;
+  color: var(--brand-dark);
+  padding: 9px 13px;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.impacto-intro-steps {
+  display: grid;
+  gap: 8px;
+  padding: 14px 20px;
+}
+
+.impacto-intro-step {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  padding: 10px 12px;
+}
+
+.impacto-intro-step strong {
+  color: var(--brand-dark);
+  font-size: 0.9rem;
+}
+
+.impacto-intro-step span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.impacto-intro-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 20px 10px;
+}
+
+.impacto-intro-remember {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px 20px 16px;
+  color: var(--brand-dark);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.impacto-gallery-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: white;
+}
+
+.impacto-gallery-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #e8efe5;
+}
+
+.impacto-gallery-main-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #f4f6f1;
+}
+
+.impacto-gallery-arrow {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  height: 42px;
+  width: 42px;
+  transform: translateY(-50%);
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  background: rgba(20, 47, 28, 0.78);
+  color: white;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.impacto-gallery-arrow-left { left: 10px; }
+.impacto-gallery-arrow-right { right: 10px; }
+
+.impacto-gallery-footer {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.impacto-gallery-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.impacto-gallery-dots button {
+  height: 9px;
+  width: 9px;
+  border: 0;
+  border-radius: 999px;
+  background: #d4d7cf;
+  cursor: pointer;
+}
+
+.impacto-gallery-dots button.active {
+  width: 22px;
+  background: var(--brand);
+}
+
+.impacto-gallery-empty {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #eef5ec;
+  color: var(--brand-dark);
+  text-align: center;
+}
+
+.impacto-gallery-empty span { font-size: 3rem; }
+
+.impacto-info-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.impacto-info-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  padding: 12px 14px;
+  color: var(--brand-dark);
+  cursor: pointer;
+  text-align: left;
+}
+
+.impacto-info-button.destaque {
+  border-color: color-mix(in srgb, var(--brand) 48%, white);
+  background: #eef5ec;
+}
+
+.impacto-info-button span {
+  font-weight: 900;
+}
+
+.impacto-info-button small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.impacto-info-button::after {
+  content: "›";
+  color: var(--brand);
+  font-size: 1.5rem;
+  font-weight: 900;
+}
+
+.impacto-guide-card {
+  width: min(100%, 620px);
+  max-height: 90vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(15, 35, 20, 0.28);
+}
+
+.impacto-guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding: 18px 20px;
+}
+
+.impacto-guide-kicker {
+  margin: 0 0 4px;
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.impacto-guide-header h2 {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.impacto-guide-body {
+  padding: 18px 20px;
+}
+
+.impacto-guide-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-bottom: 18px;
+}
+
+.impacto-guide-progress span {
+  height: 6px;
+  border-radius: 999px;
+  background: #e5e1d7;
+}
+
+.impacto-guide-progress span.active {
+  background: var(--brand);
+}
+
+.impacto-guide-step {
+  text-align: center;
+}
+
+.impacto-guide-step-number {
+  display: grid;
+  height: 52px;
+  width: 52px;
+  margin: 0 auto 12px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef5ec;
+  color: var(--brand-dark);
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.impacto-guide-step h3,
+.impacto-guide-copy h3 {
+  color: var(--brand-dark);
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.impacto-guide-step p,
+.impacto-guide-copy p {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.impacto-guide-copy p + p {
+  margin-top: 14px;
+}
+
+.impacto-guide-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 14px 20px 18px;
+}
+
+@media (max-width: 640px) {
+  .impacto-no-controle .brand-client-logo {
+    height: 42px;
+    width: 42px;
+  }
+
+  .impacto-intro-overlay,
+  .impacto-guide-overlay {
+    padding: 8px;
+  }
+
+  .impacto-intro-card {
+    max-height: calc(100dvh - 16px);
+    border-radius: 22px;
+  }
+
+  .impacto-intro-header {
+    padding: 14px 14px 10px;
+  }
+
+  .impacto-intro-title {
+    font-size: clamp(1.35rem, 7vw, 1.75rem);
+  }
+
+  .impacto-intro-number-info {
+    margin-top: 5px;
+    font-size: 0.8rem;
+  }
+
+  .impacto-intro-close {
+    padding: 8px 10px;
+    font-size: 0.7rem;
+  }
+
+  .impacto-intro-steps {
+    gap: 6px;
+    padding: 10px 14px;
+  }
+
+  .impacto-intro-step {
+    grid-template-columns: 88px 1fr;
+    padding: 8px 10px;
+  }
+
+  .impacto-intro-step strong {
+    font-size: 0.8rem;
+  }
+
+  .impacto-intro-step span {
+    font-size: 0.74rem;
+  }
+
+  .impacto-intro-actions {
+    gap: 6px;
+    padding: 0 14px 7px;
+  }
+
+  .impacto-intro-actions .btn-primary,
+  .impacto-intro-actions .btn-secondary {
+    width: 100%;
+    padding: 10px 8px;
+    font-size: 0.78rem;
+  }
+
+  .impacto-intro-remember {
+    padding: 2px 14px 11px;
+    font-size: 0.7rem;
+  }
+
+  .impacto-gallery-stage {
+    aspect-ratio: 1.18 / 1;
+  }
+
+  .impacto-gallery-arrow {
+    height: 38px;
+    width: 38px;
+  }
+
+  .impacto-gallery-footer {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .impacto-info-button {
+    padding: 11px 12px;
+  }
+
+  .impacto-info-button small {
+    display: none;
+  }
+
+  .impacto-guide-card {
+    max-height: calc(100dvh - 16px);
+    border-radius: 22px;
+  }
+
+  .impacto-guide-header,
+  .impacto-guide-body,
+  .impacto-guide-footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .impacto-guide-footer .btn-primary,
+  .impacto-guide-footer .btn-secondary {
+    width: 100%;
+    padding: 10px 8px;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-height: 620px) and (max-width: 640px) {
+  .impacto-intro-card {
+    max-height: calc(100dvh - 8px);
+  }
+
+  .impacto-intro-title {
+    font-size: 1.2rem;
+  }
+
+  .impacto-intro-step {
+    padding-block: 6px;
+  }
+
+  .impacto-intro-step span {
+    line-height: 1.2;
+  }
+
+  .impacto-intro-actions .btn-primary,
+  .impacto-intro-actions .btn-secondary {
+    padding-block: 8px;
+  }
+}
+

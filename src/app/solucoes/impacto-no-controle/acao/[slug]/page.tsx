@@ -6,6 +6,8 @@ import { createSupabasePublicClient } from "@/lib/impacto-no-controle/supabase/p
 import { formatMoneyFromCents } from "@/lib/impacto-no-controle/format";
 import { CampaignParticipation } from "@/components/impacto-no-controle/CampaignParticipation";
 import { CampaignIntroModal } from "@/components/impacto-no-controle/CampaignIntroModal";
+import { CampaignGallery } from "@/components/impacto-no-controle/CampaignGallery";
+import { CampaignInfoGuide } from "@/components/impacto-no-controle/CampaignInfoGuide";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -101,6 +103,13 @@ export default async function CampaignPage({ params }: PageProps) {
   const galleryImages = Array.isArray(campaign.gallery_images)
     ? campaign.gallery_images.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const campaignImages = Array.from(
+    new Set(
+      [campaign.main_image_url, ...galleryImages]
+        .filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim()),
+    ),
+  );
   const supportMessage = encodeURIComponent(`Olá, Suporte! Tenho dúvidas sobre a campanha ${campaign.title}.`);
   const supportHref = `https://wa.me/5519989848246?text=${supportMessage}`;
   const regulation = publicRegulationText(campaign);
@@ -114,15 +123,17 @@ export default async function CampaignPage({ params }: PageProps) {
 
   return (
     <>
-      <PublicHeader />
+      <PublicHeader
+        showAccessLinks={false}
+        brandName={campaign.client_name}
+        brandLogoUrl={campaign.client_logo_url}
+      />
       <main className="container-page pb-6 pt-3 md:pb-10 md:pt-4" style={campaignTheme}>
         <CampaignIntroModal
           campaignSlug={campaign.slug}
           campaignTitle={campaign.title}
-          clientName={campaign.client_name}
           enabled={Boolean(campaign.intro_modal_enabled)}
           title={campaign.intro_modal_title}
-          body={campaign.intro_modal_body}
           numberCount={campaign.number_count}
           numberPriceCents={campaign.number_price_cents}
         />
@@ -145,65 +156,51 @@ export default async function CampaignPage({ params }: PageProps) {
         <section className="grid gap-6 md:grid-cols-[0.9fr_1.1fr] md:items-start">
           <div className="card overflow-hidden">
             <div className="p-5">
-              <div className="campaign-client-row">
-                {campaign.client_logo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={campaign.client_logo_url} alt={campaign.client_name} className="h-12 w-12 rounded-2xl border border-[var(--border)] bg-white object-contain p-1 md:h-14 md:w-14" />
-                ) : null}
-                <span className="badge">{campaign.client_name}</span>
+              <h1 className="text-3xl font-black leading-tight text-[var(--brand-dark)] md:text-4xl">
+                {campaign.title}
+              </h1>
+              {campaign.subtitle ? (
+                <p className="mt-2 text-base font-bold leading-7 text-[var(--muted)] md:text-lg">
+                  {campaign.subtitle}
+                </p>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="badge">
+                  {campaign.number_count} números
+                </span>
+                <span className="badge">
+                  {formatMoneyFromCents(campaign.number_price_cents)} cada
+                </span>
               </div>
-              <h1 className="mt-4 text-3xl font-black leading-tight text-[var(--brand-dark)] md:text-4xl">{campaign.title}</h1>
-              {campaign.subtitle ? <p className="mt-2 text-base font-bold leading-7 text-[var(--muted)] md:text-lg">{campaign.subtitle}</p> : null}
+            </div>
+
+            <div className="px-4 pb-2 sm:px-5">
+              <CampaignGallery
+                images={campaignImages}
+                altBase={campaign.prize_title || campaign.title}
+              />
+            </div>
+
+            <div className="p-5 pt-3">
+              <CampaignInfoGuide
+                story={campaign.story}
+                prizeTitle={campaign.prize_title}
+                prizeDescription={campaign.prize_description}
+                regulation={regulation}
+                supportHref={supportHref}
+              />
+
               {canParticipate ? (
                 <a
-                  className="btn-primary mt-4 !w-auto"
+                  className="btn-secondary mt-4 !w-full"
                   href={supportHref}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <MessageCircle className="h-4 w-4" /> Dúvidas: fale com o Suporte no WhatsApp
+                  <MessageCircle className="h-4 w-4" /> Dúvidas? Fale com o Suporte
                 </a>
               ) : null}
-            </div>
-
-            <div className="aspect-[4/3] bg-[#dfe8dd]">
-              {campaign.main_image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={campaign.main_image_url} alt={campaign.title} className="h-full w-full object-cover" />
-              ) : (
-                <div className="grid h-full place-items-center p-8 text-center text-[var(--brand-dark)]">
-                  <div>
-                    <p className="text-5xl">🎯</p>
-                    <p className="mt-3 font-extrabold">Imagem da campanha</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-5">
-              {galleryImages.length > 1 ? (
-                <section className="mb-5" aria-label="Fotos do prêmio">
-                  <p className="mb-2 text-sm font-black text-[var(--brand-dark)]">Fotos do prêmio</p>
-                  <div className="impacto-gallery">
-                    {galleryImages.map((imageUrl: string, index: number) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={`${imageUrl}-${index}`} src={imageUrl} alt={`${campaign.prize_title || campaign.title} — foto ${index + 1}`} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-              <p className="leading-7 text-[var(--muted)]">{campaign.story}</p>
-              {regulation ? (
-                <details open className="mt-4 rounded-2xl border border-[var(--border)] bg-white p-4 text-sm leading-6 text-[var(--muted)]">
-                  <summary className="cursor-pointer font-extrabold text-[var(--brand-dark)]">Regras e observações da ação</summary>
-                  <p className="mt-2 whitespace-pre-line">{regulation}</p>
-                </details>
-              ) : null}
-              <div className="mt-5 rounded-2xl bg-[#f7f2e4] p-4">
-                <p className="text-sm font-bold text-[var(--brand-dark)]">Prêmio / reconhecimento da ação</p>
-                <p className="mt-1 font-extrabold">{campaign.prize_title}</p>
-                <p className="mt-1 text-sm text-[var(--muted)]">{campaign.prize_description}</p>
-              </div>
             </div>
           </div>
 
@@ -228,7 +225,9 @@ export default async function CampaignPage({ params }: PageProps) {
             </div>
 
             {canParticipate ? (
-              <CampaignParticipation campaign={campaign} numbers={numbers || []} quotas={quotas || []} />
+              <section id="participar" className="scroll-mt-28">
+                <CampaignParticipation campaign={campaign} numbers={numbers || []} quotas={quotas || []} />
+              </section>
             ) : (
               <div className="card p-5">
                 <h2 className="text-2xl font-black text-[var(--brand-dark)]">Participações indisponíveis</h2>
