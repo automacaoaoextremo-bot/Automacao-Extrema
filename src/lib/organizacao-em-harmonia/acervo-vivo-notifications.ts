@@ -68,6 +68,18 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
+function whatsappUrl(value: unknown) {
+  let digits = text(value).replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  return `https://wa.me/${digits}`;
+}
+
+function contactButton(href: string, label: string) {
+  if (!href) return "";
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin:4px 8px 4px 0;padding:10px 14px;border-radius:10px;background:#123D2C;color:#ffffff;text-decoration:none;font-weight:700">${escapeHtml(label)}</a>`;
+}
+
 function emailHtml(lines: Array<string | false | null | undefined>) {
   return lines
     .filter((line): line is string => Boolean(line))
@@ -399,9 +411,10 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       authors ? `Autor(es): ${authors}.` : "",
       copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
       cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByEmail ? `E-mail para contato: ${cancelledByEmail}.` : "",
       cancelledByWhatsapp ? `WhatsApp para contato: ${cancelledByWhatsapp}.` : "",
       "",
-      cancelledByLabel || cancelledByWhatsapp
+      cancelledByLabel || cancelledByWhatsapp || cancelledByEmail
         ? "Se desejar entender o motivo do cancelamento, entre em contato com o responsável acima."
         : "",
       "Se desejar esse livro novamente, acesse o Acervo Vivo e faça uma nova reserva quando houver interesse.",
@@ -410,15 +423,21 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       "Tucxa em Harmonia — Acervo Vivo",
     ].filter(Boolean).join("\n");
 
+    const cancelledByWhatsappUrl = whatsappUrl(cancelledByWhatsapp);
+    const cancelledByEmailUrl = cancelledByEmail ? `mailto:${cancelledByEmail}` : "";
     const personalHtml = emailHtml([
       `Olá, ${escapeHtml(personName)}.`,
       `Sua reserva do livro <strong>"${escapeHtml(titleName)}"</strong> foi cancelada.`,
       authors ? `Autor(es): ${escapeHtml(authors)}.` : "",
       copyCode ? `Exemplar que estava separado: ${escapeHtml(copyCode)}.` : "",
       cancelledByLabel ? `<strong>Cancelamento realizado por:</strong> ${escapeHtml(cancelledByLabel)}.` : "",
-      cancelledByWhatsapp ? `<strong>WhatsApp para contato:</strong> ${escapeHtml(cancelledByWhatsapp)}.` : "",
-      cancelledByLabel || cancelledByWhatsapp
-        ? "Se desejar entender o motivo do cancelamento, entre em contato com o responsável acima."
+      cancelledByEmail ? `<strong>E-mail:</strong> <a href="${escapeHtml(cancelledByEmailUrl)}" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByEmail)}</a>` : "",
+      cancelledByWhatsapp ? `<strong>WhatsApp:</strong> <a href="${escapeHtml(cancelledByWhatsappUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByWhatsapp)}</a>` : "",
+      cancelledByEmailUrl || cancelledByWhatsappUrl
+        ? `${contactButton(cancelledByEmailUrl, "Enviar e-mail")}${contactButton(cancelledByWhatsappUrl, "Falar pelo WhatsApp")}`
+        : "",
+      cancelledByLabel || cancelledByWhatsapp || cancelledByEmail
+        ? "Se desejar entender o motivo do cancelamento, use um dos contatos acima."
         : "",
       `Se desejar esse livro novamente, <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">acesse o Acervo Vivo</a> e faça uma nova reserva quando houver interesse.`,
       "Tucxa em Harmonia — Acervo Vivo",
@@ -429,6 +448,7 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       authors ? `Autor(es): ${authors}.` : "",
       copyCode ? `Exemplar que estava separado: ${copyCode}.` : "",
       cancelledByLabel ? `Cancelamento realizado por: ${cancelledByLabel}.` : "",
+      cancelledByEmail ? `E-mail do responsável: ${cancelledByEmail}.` : "",
       cancelledByWhatsapp ? `WhatsApp do responsável: ${cancelledByWhatsapp}.` : "",
       "",
       copyCode

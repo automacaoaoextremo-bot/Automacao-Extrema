@@ -1569,47 +1569,172 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-copy" || action === "update-copy") {
-      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar exemplares.");
-      const titleId = text(body.titleId);
-      if (!titleId) return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
-      let assetCode = text(body.assetCode);
-      if (!assetCode) {
-        const { count, error: countError } = await supabaseAdmin
-          .from("oh_acervo_copies")
-          .select("id", { count: "exact", head: true })
-          .eq("organization_id", organizationId);
-        if (countError) throw countError;
-        assetCode = `ACV-${String((count ?? 0) + 1).padStart(6, "0")}`;
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode cadastrar ou atualizar exemplares.");
       }
-      const payload = {
-        organization_id: organizationId,
-        title_id: titleId,
-        legacy_code: text(body.legacyCode) || null,
-        asset_code: assetCode,
-        shelf: text(body.shelf) || null,
-        shelf_position: text(body.shelfPosition) || null,
-        condition: text(body.condition) || "bom",
-        status: text(body.status) || "disponivel",
-        acquisition_type: text(body.acquisitionType) || "acervo_historico",
-        donor_person_id: text(body.donorPersonId) || null,
-        acquired_at: dateOnly(body.acquiredAt),
-        notes: text(body.notes) || null,
-        active: body.active === undefined ? true : boolValue(body.active, true),
-        updated_at: nowIso(),
-      };
 
       if (action === "create-copy") {
-        const { data, error } = await supabaseAdmin.from("oh_acervo_copies").insert(payload).select("id,asset_code,qr_token").single();
+        const titleId = text(body.titleId);
+        if (!titleId) {
+          return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
+        }
+
+        const inventorySessionId = text(body.inventorySessionId);
+        let inventorySession:
+          | { id: string; status: string; started_at?: string | null; metadata?: unknown }
+          | null = null;
+
+        if (inventorySessionId) {
+          const { data: session, error: sessionError } = await supabaseAdmin
+            .from("oh_acervo_inventory_sessions")
+            .select("id,status,started_at,metadata")
+            .eq("organization_id", organizationId)
+            .eq("id", inventorySessionId)
+            .maybeSingle();
+          if (sessionError) throw sessionError;
+          if (!session?.id || session.status !== "aberto") {
+            return NextResponse.json(
+              { error: "O inventário selecionado não está mais aberto." },
+              { status: 409 },
+            );
+          }
+          inventorySession = session;
+        }
+
+        let assetCode = text(body.assetCode);
+        if (!assetCode) {
+          const { count, error: countError } = await supabaseAdmin
+            .from("oh_acervo_copies")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId);
+          if (countError) throw countError;
+          assetCode = `ACV-${String((count ?? 0) + 1).padStart(6, "0")}`;
+        }
+
+        const createdAt = nowIso();
+        const metadata = inventorySession
+          ? {
+              inventory_status: "inventariado",
+              last_inventory_at: createdAt,
+              last_inventory_by_person_id: actorPersonId || null,
+              last_inventory_session_id: inventorySession.id,
+              inventory_added_during_session_id: inventorySession.id,
+            }
+          : {};
+
+        const payload = {
+          organization_id: organizationId,
+          title_id: titleId,
+          legacy_code: text(body.legacyCode) || null,
+          asset_code: assetCode,
+          shelf: text(body.shelf) || null,
+          shelf_position: text(body.shelfPosition) || null,
+          condition: text(body.condition) || "bom",
+          status: text(body.status) || "disponivel",
+          acquisition_type: text(body.acquisitionType) || "acervo_historico",
+          donor_person_id: text(body.donorPersonId) || null,
+          acquired_at: dateOnly(body.acquiredAt),
+          notes: text(body.notes) || null,
+          active: body.active === undefined ? true : boolValue(body.active, true),
+          metadata,
+          created_at: createdAt,
+          updated_at: createdAt,
+        };
+
+        const { data, error } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .insert(payload)
+          .select("id,title_id,asset_code,legacy_code,qr_token,shelf,shelf_position,status,metadata,created_at")
+          .single();
         if (error) throw error;
-        await audit(organizationId, actorPersonId, "exemplar_criado", "copy", data.id, { assetCode: data.asset_code });
-        return NextResponse.json({ ok: true, copy: data });
+
+        if (inventorySession) {
+          const { error: scanError } = await supabaseAdmin
+            .from("oh_acervo_inventory_scans")
+            .upsert(
+              {
+                organization_id: organizationId,
+                session_id: inventorySession.id,
+                copy_id: data.id,
+                scanned_by_person_id: actorPersonId || null,
+                scanned_at: createdAt,
+                observed_shelf: text(body.shelf) || null,
+                note: "Exemplar cadastrado durante o inventário.",
+              },
+              { onConflict: "session_id,copy_id" },
+            );
+          if (scanError) throw scanError;
+        }
+
+        await audit(organizationId, actorPersonId, "exemplar_criado", "copy", data.id, {
+          assetCode: data.asset_code,
+          inventorySessionId: inventorySession?.id || null,
+          addedDuringInventory: Boolean(inventorySession),
+        });
+        return NextResponse.json({
+          ok: true,
+          copy: data,
+          inventoryAssociation: inventorySession
+            ? {
+                sessionId: inventorySession.id,
+                classification: "adicionado_durante_inventario",
+              }
+            : null,
+        });
       }
 
       const copyId = text(body.copyId);
-      const { error } = await supabaseAdmin.from("oh_acervo_copies").update(payload).eq("organization_id", organizationId).eq("id", copyId);
+      if (!copyId) {
+        return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      const { data: currentCopy, error: currentCopyError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .maybeSingle();
+      if (currentCopyError) throw currentCopyError;
+      if (!currentCopy?.id) {
+        return NextResponse.json({ error: "Exemplar não localizado." }, { status: 404 });
+      }
+
+      const updates: Record<string, unknown> = { updated_at: nowIso() };
+      if (body.titleId !== undefined) {
+        const titleId = text(body.titleId);
+        if (!titleId) return NextResponse.json({ error: "Selecione uma obra para o exemplar." }, { status: 400 });
+        updates.title_id = titleId;
+      }
+      if (body.legacyCode !== undefined) updates.legacy_code = text(body.legacyCode) || null;
+      if (body.assetCode !== undefined) {
+        const assetCode = text(body.assetCode);
+        if (!assetCode) return NextResponse.json({ error: "O código patrimonial não pode ficar vazio." }, { status: 400 });
+        updates.asset_code = assetCode;
+      }
+      if (body.shelf !== undefined) updates.shelf = text(body.shelf) || null;
+      if (body.shelfPosition !== undefined) updates.shelf_position = text(body.shelfPosition) || null;
+      if (body.condition !== undefined) updates.condition = text(body.condition) || text(currentCopy.condition) || "bom";
+      if (body.status !== undefined) updates.status = text(body.status) || text(currentCopy.status) || "disponivel";
+      if (body.acquisitionType !== undefined) updates.acquisition_type = text(body.acquisitionType) || text(currentCopy.acquisition_type) || "acervo_historico";
+      if (body.donorPersonId !== undefined) updates.donor_person_id = text(body.donorPersonId) || null;
+      if (body.acquiredAt !== undefined) updates.acquired_at = dateOnly(body.acquiredAt);
+      if (body.notes !== undefined) updates.notes = text(body.notes) || null;
+      if (body.active !== undefined) updates.active = boolValue(body.active, Boolean(currentCopy.active));
+
+      const { data: updatedCopy, error } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update(updates)
+        .eq("organization_id", organizationId)
+        .eq("id", copyId)
+        .select("*")
+        .single();
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "exemplar_atualizado", "copy", copyId, { assetCode });
-      return NextResponse.json({ ok: true });
+
+      await audit(organizationId, actorPersonId, "exemplar_atualizado", "copy", copyId, {
+        fields: Object.keys(updates).filter((key) => key !== "updated_at"),
+        assetCode: updatedCopy.asset_code,
+      });
+      return NextResponse.json({ ok: true, copy: updatedCopy });
     }
 
     if (action === "confirm-reservation-loan") {
@@ -2120,8 +2245,24 @@ export async function POST(request: Request) {
       }
 
       const copyId = text(body.copyId);
+      const sessionId = text(body.sessionId);
       if (!copyId) {
         return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      let sessionMetadata: Record<string, unknown> | null = null;
+      if (sessionId) {
+        const { data: session, error: sessionError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .select("id,status,metadata")
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (sessionError) throw sessionError;
+        if (!session?.id || session.status !== "aberto") {
+          return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+        }
+        sessionMetadata = record(session.metadata);
       }
 
       const { data: copy, error: copyError } = await supabaseAdmin
@@ -2154,6 +2295,7 @@ export async function POST(request: Request) {
         ...currentMetadata,
         last_inventory_at: inventoryAt,
         last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId || text(currentMetadata.last_inventory_session_id) || null,
         last_inventory_observed_shelf: null,
         inventory_status: "nao_encontrado",
         inventory_previous_copy_status: previousCopyStatus || null,
@@ -2175,6 +2317,26 @@ export async function POST(request: Request) {
 
       if (updateError) throw updateError;
 
+      if (sessionId && sessionMetadata) {
+        const currentIds = Array.isArray(sessionMetadata.not_found_copy_ids)
+          ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+          : [];
+        const nextIds = Array.from(new Set([...currentIds, copy.id]));
+        const { error: sessionUpdateError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .update({
+            metadata: {
+              ...sessionMetadata,
+              not_found_copy_ids: nextIds,
+            },
+            updated_at: inventoryAt,
+          })
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .eq("status", "aberto");
+        if (sessionUpdateError) throw sessionUpdateError;
+      }
+
       await audit(
         organizationId,
         actorPersonId,
@@ -2189,6 +2351,7 @@ export async function POST(request: Request) {
           copyStatus: nextCopyStatus,
           inventoryAt,
           inventoryStatus: "nao_encontrado",
+          sessionId: sessionId || null,
         },
       );
 
@@ -2209,8 +2372,24 @@ export async function POST(request: Request) {
       }
 
       const copyId = text(body.copyId);
+      const sessionId = text(body.sessionId);
       if (!copyId) {
         return NextResponse.json({ error: "Exemplar não informado." }, { status: 400 });
+      }
+
+      let sessionMetadata: Record<string, unknown> | null = null;
+      if (sessionId) {
+        const { data: session, error: sessionError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .select("id,status,metadata")
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (sessionError) throw sessionError;
+        if (!session?.id || session.status !== "aberto") {
+          return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+        }
+        sessionMetadata = record(session.metadata);
       }
 
       const { data: copy, error: copyError } = await supabaseAdmin
@@ -2241,6 +2420,7 @@ export async function POST(request: Request) {
         ...currentMetadata,
         last_inventory_at: inventoryAt,
         last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId || text(currentMetadata.last_inventory_session_id) || null,
         last_inventory_observed_shelf: observedShelf || null,
         inventory_status: qrConfirmed ? "inventariado" : "conferido",
         inventory_previous_copy_status: null,
@@ -2256,6 +2436,43 @@ export async function POST(request: Request) {
         .eq("id", copy.id);
 
       if (updateError) throw updateError;
+
+      if (sessionId) {
+        const { error: scanError } = await supabaseAdmin
+          .from("oh_acervo_inventory_scans")
+          .upsert(
+            {
+              organization_id: organizationId,
+              session_id: sessionId,
+              copy_id: copy.id,
+              scanned_by_person_id: actorPersonId || null,
+              scanned_at: inventoryAt,
+              observed_shelf: observedShelf || null,
+              note: text(body.note) || null,
+            },
+            { onConflict: "session_id,copy_id" },
+          );
+        if (scanError) throw scanError;
+
+        if (sessionMetadata) {
+          const currentNotFound = Array.isArray(sessionMetadata.not_found_copy_ids)
+            ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+            : [];
+          const nextNotFound = currentNotFound.filter((id) => id !== copy.id);
+          if (nextNotFound.length !== currentNotFound.length) {
+            const { error: sessionUpdateError } = await supabaseAdmin
+              .from("oh_acervo_inventory_sessions")
+              .update({
+                metadata: { ...sessionMetadata, not_found_copy_ids: nextNotFound },
+                updated_at: inventoryAt,
+              })
+              .eq("organization_id", organizationId)
+              .eq("id", sessionId)
+              .eq("status", "aberto");
+            if (sessionUpdateError) throw sessionUpdateError;
+          }
+        }
+      }
 
       await audit(
         organizationId,
@@ -2275,6 +2492,7 @@ export async function POST(request: Request) {
           inventoryAt,
           qrConfirmed,
           inventoryStatus: metadata.inventory_status,
+          sessionId: sessionId || null,
         },
       );
 
@@ -2291,18 +2509,56 @@ export async function POST(request: Request) {
     }
 
     if (action === "create-inventory-session") {
-      if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode iniciar inventários.");
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode criar inventários.");
+      }
+
       const name = text(body.name) || `Inventário ${new Date().toLocaleDateString("pt-BR")}`;
-      const { data, error } = await supabaseAdmin.from("oh_acervo_inventory_sessions").insert({
-        organization_id: organizationId,
-        name,
-        scope: text(body.scope) || "todo_acervo",
-        started_by_person_id: actorPersonId || null,
-        notes: text(body.notes) || null,
-      }).select("id").single();
+      const startedAt = nowIso();
+      const { data: expectedCopies, error: expectedError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("active", true)
+        .neq("status", "baixado");
+      if (expectedError) throw expectedError;
+
+      const expectedCopyIds = (expectedCopies ?? []).map((copy) => text(copy.id)).filter(Boolean);
+      const sessionMetadata = {
+        expected: expectedCopyIds.length,
+        expected_copy_ids: expectedCopyIds,
+        not_found_copy_ids: [],
+        baseline_at: startedAt,
+        baseline_rule: "Exemplares ativos existentes no momento da criação do inventário. Novos exemplares não alteram esta base.",
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .insert({
+          organization_id: organizationId,
+          name,
+          scope: text(body.scope) || "todo_acervo",
+          started_by_person_id: actorPersonId || null,
+          started_at: startedAt,
+          notes: text(body.notes) || null,
+          metadata: sessionMetadata,
+        })
+        .select("id,name,started_at,metadata")
+        .single();
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "inventario_iniciado", "inventory_session", data.id, { name });
-      return NextResponse.json({ ok: true, id: data.id });
+
+      await audit(organizationId, actorPersonId, "inventario_iniciado", "inventory_session", data.id, {
+        name,
+        expected: expectedCopyIds.length,
+        baselineAt: startedAt,
+      });
+      return NextResponse.json({
+        ok: true,
+        id: data.id,
+        name: data.name,
+        startedAt: data.started_at,
+        expected: expectedCopyIds.length,
+      });
     }
 
     if (action === "inventory-scan") {
@@ -2310,23 +2566,37 @@ export async function POST(request: Request) {
       const sessionId = text(body.sessionId);
       let code = text(body.code);
       if (code.toLowerCase().startsWith("acervo-vivo:")) code = code.slice("acervo-vivo:".length);
-      if (!sessionId || !code) return NextResponse.json({ error: "Informe a sessão e o código/QR do exemplar." }, { status: 400 });
+      if (!sessionId || !code) {
+        return NextResponse.json({ error: "Informe o inventário e o código/QR do exemplar." }, { status: 400 });
+      }
 
       const { data: session, error: sessionError } = await supabaseAdmin
         .from("oh_acervo_inventory_sessions")
-        .select("id,status")
+        .select("id,status,metadata")
         .eq("organization_id", organizationId)
         .eq("id", sessionId)
         .maybeSingle();
       if (sessionError) throw sessionError;
-      if (!session?.id || session.status !== "aberto") return NextResponse.json({ error: "A sessão de inventário não está aberta." }, { status: 409 });
+      if (!session?.id || session.status !== "aberto") {
+        return NextResponse.json({ error: "O inventário selecionado não está aberto." }, { status: 409 });
+      }
 
       const fields = ["asset_code", "legacy_code", "qr_token"] as const;
-      let copy: { id: string; asset_code: string; legacy_code?: string | null; title_id: string; shelf?: string | null; shelf_position?: string | null; status: string } | null = null;
+      let copy: {
+        id: string;
+        asset_code: string;
+        legacy_code?: string | null;
+        title_id: string;
+        shelf?: string | null;
+        shelf_position?: string | null;
+        status: string;
+        metadata?: unknown;
+      } | null = null;
+
       for (const field of fields) {
         const result = await supabaseAdmin
           .from("oh_acervo_copies")
-          .select("id,asset_code,legacy_code,title_id,shelf,shelf_position,status")
+          .select("id,asset_code,legacy_code,title_id,shelf,shelf_position,status,metadata")
           .eq("organization_id", organizationId)
           .eq(field, code)
           .limit(2);
@@ -2339,39 +2609,187 @@ export async function POST(request: Request) {
           break;
         }
       }
-      if (!copy?.id) return NextResponse.json({ error: `Nenhum exemplar localizado para o código ${code}.` }, { status: 404 });
 
-      const { error } = await supabaseAdmin.from("oh_acervo_inventory_scans").upsert({
-        organization_id: organizationId,
-        session_id: sessionId,
-        copy_id: copy.id,
-        scanned_by_person_id: actorPersonId || null,
-        scanned_at: nowIso(),
-        observed_shelf: text(body.observedShelf) || null,
-        note: text(body.note) || null,
-      }, { onConflict: "session_id,copy_id" });
+      if (!copy?.id) {
+        return NextResponse.json({ error: `Nenhum exemplar localizado para o código ${code}.` }, { status: 404 });
+      }
+
+      const scannedAt = nowIso();
+      const observedShelf = text(body.observedShelf) || text(copy.shelf);
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .upsert(
+          {
+            organization_id: organizationId,
+            session_id: sessionId,
+            copy_id: copy.id,
+            scanned_by_person_id: actorPersonId || null,
+            scanned_at: scannedAt,
+            observed_shelf: observedShelf || null,
+            note: text(body.note) || null,
+          },
+          { onConflict: "session_id,copy_id" },
+        );
       if (error) throw error;
-      await audit(organizationId, actorPersonId, "inventario_exemplar_lido", "copy", copy.id, { sessionId, code });
-      return NextResponse.json({ ok: true, copy });
+
+      const currentMetadata = record(copy.metadata);
+      const previousCopyStatus = text(currentMetadata.inventory_previous_copy_status);
+      const restoredCopyStatus =
+        text(currentMetadata.inventory_status) === "nao_encontrado" &&
+        text(copy.status) === "perdido" &&
+        ["disponivel", "manutencao"].includes(previousCopyStatus)
+          ? previousCopyStatus
+          : text(copy.status);
+
+      const copyMetadata = {
+        ...currentMetadata,
+        last_inventory_at: scannedAt,
+        last_inventory_by_person_id: actorPersonId || null,
+        last_inventory_session_id: sessionId,
+        last_inventory_observed_shelf: observedShelf || null,
+        inventory_status: "conferido",
+        inventory_previous_copy_status: null,
+        inventory_not_found_at: null,
+        inventory_not_found_by_person_id: null,
+      };
+
+      const { error: copyUpdateError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .update({
+          status: restoredCopyStatus,
+          metadata: copyMetadata,
+          updated_at: scannedAt,
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", copy.id);
+      if (copyUpdateError) throw copyUpdateError;
+
+      const sessionMetadata = record(session.metadata);
+      const currentNotFound = Array.isArray(sessionMetadata.not_found_copy_ids)
+        ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+      if (currentNotFound.includes(copy.id)) {
+        const { error: sessionUpdateError } = await supabaseAdmin
+          .from("oh_acervo_inventory_sessions")
+          .update({
+            metadata: {
+              ...sessionMetadata,
+              not_found_copy_ids: currentNotFound.filter((id) => id !== copy.id),
+            },
+            updated_at: scannedAt,
+          })
+          .eq("organization_id", organizationId)
+          .eq("id", sessionId)
+          .eq("status", "aberto");
+        if (sessionUpdateError) throw sessionUpdateError;
+      }
+
+      await audit(organizationId, actorPersonId, "inventario_exemplar_lido", "copy", copy.id, {
+        sessionId,
+        code,
+        observedShelf: observedShelf || null,
+      });
+      return NextResponse.json({
+        ok: true,
+        copy: {
+          ...copy,
+          status: restoredCopyStatus,
+          metadata: copyMetadata,
+        },
+      });
     }
 
     if (action === "close-inventory-session") {
       if (!permissions.library) return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode concluir inventários.");
       const sessionId = text(body.sessionId);
-      const [{ count: expected, error: expectedError }, { count: scanned, error: scannedError }] = await Promise.all([
-        supabaseAdmin.from("oh_acervo_copies").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("active", true).neq("status", "baixado"),
-        supabaseAdmin.from("oh_acervo_inventory_scans").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("session_id", sessionId),
-      ]);
-      if (expectedError || scannedError) throw expectedError || scannedError;
-      const { error } = await supabaseAdmin.from("oh_acervo_inventory_sessions").update({
-        status: "concluido",
-        closed_by_person_id: actorPersonId || null,
-        closed_at: nowIso(),
-        updated_at: nowIso(),
-        metadata: { expected: expected ?? 0, scanned: scanned ?? 0, missing: Math.max(0, (expected ?? 0) - (scanned ?? 0)) },
-      }).eq("organization_id", organizationId).eq("id", sessionId).eq("status", "aberto");
+      if (!sessionId) {
+        return NextResponse.json({ error: "Inventário não informado." }, { status: 400 });
+      }
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .select("id,status,started_at,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session?.id || session.status !== "aberto") {
+        return NextResponse.json({ error: "O inventário não está aberto." }, { status: 409 });
+      }
+
+      const sessionMetadata = record(session.metadata);
+      let expectedCopyIds = Array.isArray(sessionMetadata.expected_copy_ids)
+        ? sessionMetadata.expected_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+
+      if (!expectedCopyIds.length) {
+        const baselineQuery = supabaseAdmin
+          .from("oh_acervo_copies")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("active", true)
+          .neq("status", "baixado");
+        const { data: baselineCopies, error: baselineError } = session.started_at
+          ? await baselineQuery.lte("created_at", session.started_at)
+          : await baselineQuery;
+        if (baselineError) throw baselineError;
+        expectedCopyIds = (baselineCopies ?? []).map((copy) => text(copy.id)).filter(Boolean);
+      }
+
+      const { data: scanRows, error: scansError } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .select("copy_id")
+        .eq("organization_id", organizationId)
+        .eq("session_id", sessionId);
+      if (scansError) throw scansError;
+
+      const expectedSet = new Set(expectedCopyIds);
+      const scannedIds = Array.from(
+        new Set((scanRows ?? []).map((scan) => text(scan.copy_id)).filter(Boolean)),
+      );
+      const scannedExpected = scannedIds.filter((id) => expectedSet.has(id));
+      const addedDuringInventory = scannedIds.filter((id) => !expectedSet.has(id));
+      const missingIds = expectedCopyIds.filter((id) => !scannedExpected.includes(id));
+      const notFoundIds = Array.isArray(sessionMetadata.not_found_copy_ids)
+        ? sessionMetadata.not_found_copy_ids.map((item) => text(item)).filter(Boolean)
+        : [];
+      const explicitNotFound = missingIds.filter((id) => notFoundIds.includes(id));
+      const pendingMissing = missingIds.filter((id) => !notFoundIds.includes(id));
+
+      const summary = {
+        expected: expectedCopyIds.length,
+        scanned: scannedExpected.length,
+        missing: missingIds.length,
+        notFound: explicitNotFound.length,
+        pending: pendingMissing.length,
+        addedDuringInventory: addedDuringInventory.length,
+      };
+      const closedAt = nowIso();
+
+      const { error } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .update({
+          status: "concluido",
+          closed_by_person_id: actorPersonId || null,
+          closed_at: closedAt,
+          updated_at: closedAt,
+          metadata: {
+            ...sessionMetadata,
+            expected: summary.expected,
+            scanned: summary.scanned,
+            missing: summary.missing,
+            not_found: summary.notFound,
+            pending: summary.pending,
+            added_during_inventory: summary.addedDuringInventory,
+            added_during_inventory_copy_ids: addedDuringInventory,
+            closed_at: closedAt,
+          },
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .eq("status", "aberto");
       if (error) throw error;
-      const summary = { expected: expected ?? 0, scanned: scanned ?? 0, missing: Math.max(0, (expected ?? 0) - (scanned ?? 0)) };
+
       await audit(organizationId, actorPersonId, "inventario_concluido", "inventory_session", sessionId, summary);
       return NextResponse.json({ ok: true, summary });
     }
