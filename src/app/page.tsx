@@ -66,10 +66,10 @@ const examples = [
   },
   {
     name: "Impacto no Controle",
-    url: "https://impacto-no-controle.vercel.app/acao/sao-francisco-em-racao",
+    url: "/solucoes/impacto-no-controle",
     label: "Campanha e ação solidária",
     description:
-      "Solução disponível para campanhas com reserva, Pix, comprovantes, acompanhamento público e prestação de contas.",
+      "Solução integrada para campanhas com reserva, Pix, comprovantes, acompanhamento público e prestação de contas. Piloto atual: Sementinha.",
     transformation: "Transforma campanha solidária em uma jornada mais simples, transparente e confiável.",
   },
   {

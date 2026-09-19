@@ -1,0 +1,127 @@
+.impacto-no-controle {
+  --background: #f7f6ef;
+  --foreground: #1d2a1f;
+  --brand: #2f7d46;
+  --brand-dark: #1f5c34;
+  --accent: #8bb73e;
+  --muted: #6b746b;
+  --card: #fffdf7;
+  --border: #ded8c8;
+  min-height: 100vh;
+  color: var(--foreground);
+  background: radial-gradient(circle at top left, #fffdf0 0, #f7f6ef 32%, #edf6eb 100%);
+  font-family: Arial, Helvetica, sans-serif;
+}
+.impacto-no-controle * { box-sizing: border-box; }
+.impacto-no-controle a { color: inherit; text-decoration: none; }
+.impacto-no-controle button,
+.impacto-no-controle input,
+.impacto-no-controle textarea,
+.impacto-no-controle select { font: inherit; }
+.impacto-no-controle .container-page {
+  width: min(1120px, calc(100% - 32px));
+  margin-inline: auto;
+}
+.impacto-no-controle .card {
+  background: rgba(255, 253, 247, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 14px 40px rgba(34, 52, 38, 0.08);
+}
+.impacto-no-controle .btn-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 999px; padding: 12px 18px;
+  background: var(--brand); color: white; font-weight: 700; cursor: pointer;
+}
+.impacto-no-controle .btn-primary:hover { background: var(--brand-dark); }
+.impacto-no-controle .btn-secondary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 12px 18px;
+  background: white; color: var(--brand-dark); font-weight: 700; cursor: pointer;
+}
+.impacto-no-controle .input {
+  width: 100%; border: 1px solid var(--border); border-radius: 16px;
+  padding: 12px 14px; background: white; color: var(--foreground);
+}
+.impacto-no-controle .label {
+  display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; color: var(--brand-dark);
+}
+.impacto-no-controle .badge {
+  display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px;
+  font-size: 12px; font-weight: 700; background: #eef5ec; color: var(--brand-dark);
+}
+.impacto-no-controle .number-button {
+  aspect-ratio: 1; border-radius: 14px; border: 1px solid var(--border);
+  background: white; color: var(--foreground); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; font-weight: 800; cursor: pointer; min-height: 54px;
+}
+.impacto-no-controle .number-button small {
+  display: block; font-size: 9px; max-width: 100%; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-weight: 600; color: var(--muted);
+}
+.impacto-no-controle .number-button.selected { outline: 3px solid var(--accent); background: #f3f8df; }
+.impacto-no-controle .number-button.unavailable { opacity: 1; cursor: not-allowed; }
+.impacto-no-controle .number-button.confirmed { background: #17251a; border-color: #0b140e; color: #fff; }
+.impacto-no-controle .number-button.pending { background: #4b3a1e; border-color: #2f2412; color: #fff; }
+.impacto-no-controle .number-button.unavailable small { color: rgba(255,255,255,.82); }
+.impacto-no-controle .progressbar {
+  height: 14px; width: 100%; border-radius: 999px; background: #e6e1d4; overflow: hidden;
+}
+.impacto-no-controle .progressbar > span {
+  display: block; height: 100%; background: linear-gradient(90deg, var(--brand), var(--accent)); border-radius: inherit;
+}
+.impacto-no-controle .table-wrap { overflow-x: auto; }
+.impacto-no-controle table { border-collapse: collapse; width: 100%; }
+.impacto-no-controle th,
+.impacto-no-controle td { border-bottom: 1px solid var(--border); padding: 12px; text-align: left; vertical-align: top; }
+.impacto-no-controle th { color: var(--brand-dark); font-size: 13px; }
+.impacto-no-controle .public-header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px;
+}
+.impacto-no-controle .public-header-main {
+  display: flex; min-width: 0; flex: 1 1 520px; align-items: center; justify-content: space-between; gap: 10px;
+}
+.impacto-no-controle .brand-link { display: inline-flex; min-width: 0; align-items: center; gap: 12px; }
+.impacto-no-controle .brand-mark {
+  display: grid; height: 40px; width: 40px; flex-shrink: 0; place-items: center;
+  border-radius: 16px; background: var(--brand); color: white;
+}
+.impacto-no-controle .brand-title { display: inline-block; white-space: nowrap; font-size: 18px; line-height: 1.1; }
+.impacto-no-controle .header-access-nav { display: flex; flex-shrink: 0; align-items: center; gap: 8px; white-space: nowrap; }
+.impacto-no-controle .header-access-button { width: auto !important; padding: 8px 14px !important; font-size: 14px; }
+.impacto-no-controle .campaign-client-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.impacto-no-controle .ae-header-badge {
+  display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border);
+  border-radius: 18px; background: #fffdf7; padding: 6px 8px; font-size: 12px;
+  font-weight: 800; color: var(--brand-dark); white-space: nowrap;
+}
+.impacto-no-controle .ae-header-badge img { height: 28px; width: auto; border-radius: 8px; background: #0c3554; }
+.impacto-no-controle .ae-click-hint { color: var(--muted); font-weight: 700; }
+.impacto-gallery {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+}
+.impacto-gallery img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; border: 1px solid var(--border); background: white;
+}
+@media (max-width: 640px) {
+  .impacto-no-controle .container-page { width: min(100% - 20px, 1120px); }
+  .impacto-no-controle .card { border-radius: 18px; }
+  .impacto-no-controle .btn-primary,
+  .impacto-no-controle .btn-secondary { width: 100%; }
+  .impacto-no-controle .public-header { align-items: stretch; gap: 8px; }
+  .impacto-no-controle .public-header-main { width: 100%; flex-basis: 100%; gap: 6px; }
+  .impacto-no-controle .brand-link { gap: 8px; flex: 1 1 auto; }
+  .impacto-no-controle .brand-mark { width: 42px; height: 42px; border-radius: 16px; }
+  .impacto-no-controle .brand-title { font-size: 15px; letter-spacing: -0.2px; }
+  .impacto-no-controle .header-access-nav { gap: 5px; }
+  .impacto-no-controle .header-access-button { width: auto !important; padding: 8px 9px !important; font-size: 12.5px; }
+  .impacto-no-controle .ae-header-badge { width: 100%; justify-content: flex-start; gap: 7px; padding: 6px 8px; }
+  .impacto-no-controle .ae-header-badge img { height: 24px; }
+  .impacto-no-controle .ae-click-hint { font-size: 11px; white-space: normal; line-height: 1.15; }
+  .impacto-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 374px) {
+  .impacto-no-controle .brand-title { font-size: 13.5px; }
+  .impacto-no-controle .header-access-button { padding: 7px 7px !important; font-size: 12px; }
+  .impacto-no-controle .brand-mark { width: 40px; height: 40px; }
+}
