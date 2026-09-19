@@ -2794,6 +2794,93 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, summary });
     }
 
+    if (action === "delete-inventory-session") {
+      if (!permissions.library) {
+        return forbiddenCapability("Somente o Gestor Acervo Vivo - Biblioteca pode excluir inventários.");
+      }
+
+      const sessionId = text(body.sessionId);
+      if (!sessionId) {
+        return NextResponse.json({ error: "Inventário não informado." }, { status: 400 });
+      }
+
+      const { data: session, error: sessionError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .select("id,name,status,started_at,closed_at,metadata")
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session?.id) {
+        return NextResponse.json({ error: "Inventário não localizado." }, { status: 404 });
+      }
+
+      const { data: scans, error: scansError } = await supabaseAdmin
+        .from("oh_acervo_inventory_scans")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("session_id", sessionId);
+      if (scansError) throw scansError;
+
+      const { data: linkedCopies, error: linkedCopiesError } = await supabaseAdmin
+        .from("oh_acervo_copies")
+        .select("id,metadata")
+        .eq("organization_id", organizationId);
+      if (linkedCopiesError) throw linkedCopiesError;
+
+      const copyMetadataUpdates = (linkedCopies ?? [])
+        .map((copy) => {
+          const metadata = record(copy.metadata);
+          const lastSessionId = text(metadata.last_inventory_session_id);
+          const addedDuringSessionId = text(metadata.inventory_added_during_session_id);
+          if (lastSessionId !== sessionId && addedDuringSessionId !== sessionId) return null;
+
+          return {
+            id: text(copy.id),
+            metadata: {
+              ...metadata,
+              ...(lastSessionId === sessionId ? { last_inventory_session_id: null } : {}),
+              ...(addedDuringSessionId === sessionId ? { inventory_added_during_session_id: null } : {}),
+            },
+          };
+        })
+        .filter((item): item is { id: string; metadata: Record<string, unknown> } => Boolean(item?.id));
+
+      for (const item of copyMetadataUpdates) {
+        const { error: copyMetadataError } = await supabaseAdmin
+          .from("oh_acervo_copies")
+          .update({ metadata: item.metadata, updated_at: nowIso() })
+          .eq("organization_id", organizationId)
+          .eq("id", item.id);
+        if (copyMetadataError) throw copyMetadataError;
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("oh_acervo_inventory_sessions")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("id", sessionId);
+      if (deleteError) throw deleteError;
+
+      await audit(
+        organizationId,
+        actorPersonId,
+        "inventario_excluido",
+        "inventory_session",
+        sessionId,
+        {
+          name: text(session.name),
+          status: text(session.status),
+          startedAt: text(session.started_at),
+          closedAt: text(session.closed_at) || null,
+          scanCount: (scans ?? []).length,
+          metadata: record(session.metadata),
+        },
+      );
+
+      return NextResponse.json({ ok: true, id: sessionId });
+    }
+
     if (action === "save-folha-year") {
       if (!(permissions.folhaVerde || permissions.library)) return forbiddenCapability("Somente a gestão do Folha Verde ou da Biblioteca pode atualizar a memória anual.");
       const year = Math.trunc(numberValue(body.year, 0));

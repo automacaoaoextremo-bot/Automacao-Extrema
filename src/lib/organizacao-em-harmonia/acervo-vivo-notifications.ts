@@ -342,7 +342,7 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       holdText ? `Retire até: <strong>${escapeHtml(holdText)}</strong>.` : "",
       `Local de retirada: <strong>${escapeHtml(pickup.label)}</strong>.`,
       `📍 ${escapeHtml(pickup.address)}`,
-      `<a href="${escapeHtml(pickup.mapsUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">Abrir no Google Maps</a>`,
+      contactButton(pickup.mapsUrl, "Abrir no Google Maps"),
       "<strong>Para confirmar o empréstimo quando estiver com o exemplar em mãos:</strong>",
       `1. <a href="${escapeHtml(acervoUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">Acesse o Acervo Vivo</a> e esteja logado.<br/>2. Toque em <strong>Meus livros</strong>.<br/>3. Abra <strong>Reservas</strong>.<br/>4. Na reserva pronta para retirada, toque em <strong>Confirmar empréstimo</strong>.`,
       "O prazo de devolução começa somente depois dessa confirmação.",
@@ -433,8 +433,8 @@ export async function sendAcervoMovementNotifications(input: NotificationInput) 
       cancelledByLabel ? `<strong>Cancelamento realizado por:</strong> ${escapeHtml(cancelledByLabel)}.` : "",
       cancelledByEmail ? `<strong>E-mail:</strong> <a href="${escapeHtml(cancelledByEmailUrl)}" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByEmail)}</a>` : "",
       cancelledByWhatsapp ? `<strong>WhatsApp:</strong> <a href="${escapeHtml(cancelledByWhatsappUrl)}" target="_blank" rel="noopener noreferrer" style="color:#123D2C;font-weight:700">${escapeHtml(cancelledByWhatsapp)}</a>` : "",
-      cancelledByEmailUrl || cancelledByWhatsappUrl
-        ? `${contactButton(cancelledByEmailUrl, "Enviar e-mail")}${contactButton(cancelledByWhatsappUrl, "Falar pelo WhatsApp")}`
+      cancelledByEmailUrl || cancelledByWhatsappUrl || acervoUrl
+        ? `${contactButton(cancelledByEmailUrl, "Enviar e-mail")}${contactButton(cancelledByWhatsappUrl, "Falar pelo WhatsApp")}${contactButton(acervoUrl, "Acessar o Acervo Vivo")}`
         : "",
       cancelledByLabel || cancelledByWhatsapp || cancelledByEmail
         ? "Se desejar entender o motivo do cancelamento, use um dos contatos acima."

@@ -227,6 +227,7 @@ type PanelView =
   | "inventario-codigo"
   | "inventario-revisar"
   | "inventario-historico"
+  | "inventario-excluir"
   | "conteudos-lista"
   | "conteudos-cadastrar"
   | "conteudos-folha"
@@ -1689,6 +1690,35 @@ export default function AcervoVivoGestaoPage() {
     }
   }
 
+  async function deleteInventory(sessionId: string) {
+    if (!token || saving) return;
+    const session = inventorySessions.find((item) => item.id === sessionId);
+    const scans = inventoryScans.filter((item) => item.session_id === sessionId).length;
+    const confirmed = window.confirm(
+      `Excluir permanentemente o inventário "${session?.name || "selecionado"}"?\n\n` +
+      `Status: ${session?.status || "—"}\n` +
+      `Conferências vinculadas: ${scans}\n\n` +
+      "Esta ação exclui a sessão e suas conferências de inventário. Os livros e exemplares do Acervo Vivo não serão excluídos e eventuais alterações já aplicadas aos exemplares não serão desfeitas.",
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await post({ action: "delete-inventory-session", sessionId });
+      if (inventorySessionId === sessionId) setInventorySessionId("");
+      setSuccess(`Inventário "${session?.name || "selecionado"}" excluído.`);
+      setPanelView("inventario-excluir");
+      clearInventoryCopy();
+      await load(token);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro ao excluir inventário.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createResource(event: FormEvent) {
     event.preventDefault();
     await run({ action: "create-resource", resourceType, title: resourceTitle, description: resourceDescription, subjects: resourceSubjects, governanceStatus: resourceGovernance }, "Conteúdo cadastrado no Acervo Vivo.");
@@ -1772,6 +1802,7 @@ export default function AcervoVivoGestaoPage() {
     "inventario-codigo": "Conferir por código / QR",
     "inventario-revisar": "Revisar e concluir inventário",
     "inventario-historico": "Histórico de inventários",
+    "inventario-excluir": "Excluir inventário",
     "conteudos-lista": "Conteúdos cadastrados",
     "conteudos-cadastrar": "Cadastrar conteúdo",
     "conteudos-folha": "Folha Verde por ano",
@@ -1829,6 +1860,17 @@ export default function AcervoVivoGestaoPage() {
     setInventoryCategory("");
     setQrCategory("");
     closeCatalogCompletionList();
+  }
+
+  function closeManagementModal() {
+    if (tab === "inventario" && panelView.startsWith("inventario-")) {
+      setPanelView("");
+      clearInventoryCopy();
+      setInventoryCategory("");
+      setInventoryCopyPage(0);
+      return;
+    }
+    closePanel();
   }
 
   return (
@@ -1909,7 +1951,7 @@ export default function AcervoVivoGestaoPage() {
       {panelOpen && (
         <ManagementModal
           title={panelTitle}
-          onClose={closePanel}
+          onClose={closeManagementModal}
           onBack={panelView && panelView !== "acervo-finalizar" ? () => {
             if (panelView === "inventario-categoria" && inventoryCopyId) {
               clearInventoryCopy();
@@ -2005,6 +2047,7 @@ export default function AcervoVivoGestaoPage() {
                     onClick={() => setPanelView("inventario-revisar")}
                   />
                   <ActionTile title="6. Histórico" note={`${inventorySessions.filter((item) => item.status !== "aberto").length} concluído(s)/cancelado(s)`} onClick={() => setPanelView("inventario-historico")} />
+                  <ActionTile title="7. Excluir inventário" note={`${inventorySessions.length} inventário(s) registrado(s)`} onClick={() => setPanelView("inventario-excluir")} />
                 </>
               )}
 
@@ -2622,6 +2665,40 @@ export default function AcervoVivoGestaoPage() {
                 {!inventoryHistoryItems.length && <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum inventário registrado.</p>}
               </div>
               <CompactPager page={inventoryHistoryPage} total={inventorySessions.length} pageSize={inventoryHistoryPageSize} onChange={setInventoryHistoryPage} />
+            </div>
+          ) : panelView === "inventario-excluir" ? (
+            <div>
+              <p className="rounded-2xl bg-red-50 p-3 text-xs font-bold leading-5 text-red-800 ring-1 ring-red-200">
+                A exclusão é permanente para a sessão de inventário e suas conferências. Livros, títulos e exemplares do Acervo Vivo não são excluídos, e alterações já aplicadas aos exemplares não são desfeitas.
+              </p>
+              <div className="mt-3 grid gap-2">
+                {inventorySessions.map((session) => {
+                  const scans = inventoryScans.filter((item) => item.session_id === session.id).length;
+                  return (
+                    <article key={session.id} className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-[#123D2C]/10">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-[#00334E]">{session.name}</p>
+                          <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                            {formatDate(session.started_at)} • {session.status} • {scans} conferência(s)
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void deleteInventory(session.id)}
+                          className="shrink-0 rounded-xl bg-red-50 px-3 py-2 text-[10px] font-black text-red-700 ring-1 ring-red-200 disabled:opacity-50"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!inventorySessions.length && (
+                  <p className="rounded-2xl bg-white p-4 text-sm font-semibold text-slate-500">Nenhum inventário registrado para excluir.</p>
+                )}
+              </div>
             </div>
           ) : panelView === "conteudos-lista" ? (
             <div>

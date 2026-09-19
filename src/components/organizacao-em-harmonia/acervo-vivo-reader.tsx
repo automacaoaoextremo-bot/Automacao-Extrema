@@ -213,6 +213,14 @@ function displayCopyCode(copy: Pick<CopyRow, "asset_code" | "legacy_code">) {
   return copy.legacy_code?.trim() || copy.asset_code?.trim() || "";
 }
 
+function reservationDisplayCode(reservationId: string) {
+  const compact = reservationId.replace(/[^a-fA-F0-9]/g, "").toUpperCase();
+  if (!compact) return "—";
+  const first = compact.slice(0, 8);
+  const last = compact.slice(-4);
+  return last && last !== first ? `RSV-${first}-${last}` : `RSV-${first}`;
+}
+
 function looksLikeCopyCode(value: string) {
   const normalized = normalizeCopyCode(value);
   return /[A-Z]/.test(normalized) && /[0-9]/.test(normalized);
@@ -1411,6 +1419,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               return (
                 <article key={reservation.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                   <p className="truncate text-sm font-black text-[#123D2C]">{reservation.title?.title || "Livro reservado"}</p>
+                  <p className="mt-1 text-[10px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">
+                    Código da reserva: {reservationDisplayCode(reservation.id)}
+                  </p>
                   <p className="mt-1 text-xs font-semibold text-slate-600">
                     {reservation.status === "disponivel"
                       ? `Separado para retirada em ${pickupLocation}${reservation.hold_until ? ` até ${formatDate(reservation.hold_until)}` : ""}${reservation.copy?.asset_code ? ` • ${reservation.copy.asset_code}` : ""}.`
@@ -1662,6 +1673,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
               </>
             ) : (
               <>
+                <p className="mt-2 rounded-xl bg-white p-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  Código da reserva: <span className="font-semibold">será gerado automaticamente após a confirmação.</span>
+                </p>
                 {(selectedTitle.availableCopies ?? 0) > 0 ? (
                   <p className="mt-2">Ao confirmar a reserva, o exemplar disponível ficará reservado por <strong>{payload.settings?.reservation_hold_days ?? 3} dias</strong> para retirada em <strong>{pickupLocation}</strong>.</p>
                 ) : (
@@ -1690,6 +1704,9 @@ export function AcervoVivoReader({ api, header, audienceLabel }: Props) {
           onClose={() => setReservationThankYou(null)}
         >
           <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">
+            <p className="mb-2 rounded-xl bg-white p-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+              Código da reserva: <strong>{reservationDisplayCode(reservationThankYou.reservationId)}</strong>
+            </p>
             {reservationThankYou.readyForPickup ? (
               <>
                 <p>A reserva do livro <strong>{reservationThankYou.title}</strong> foi confirmada.</p>
