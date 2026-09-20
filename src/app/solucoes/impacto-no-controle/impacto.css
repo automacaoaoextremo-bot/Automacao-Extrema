@@ -1114,3 +1114,480 @@
   }
 }
 
+
+
+/* -------------------------------------------------------------------------- */
+/* InC-06 — lista pública, fluxo guiado e telas mobile compactas              */
+/* -------------------------------------------------------------------------- */
+
+.impacto-no-controle .number-button.selected {
+  outline: 2px solid #d97706;
+  border-color: #f59e0b;
+  background: #fde68a;
+  color: #3f2a00;
+}
+
+.impacto-no-controle .number-button.pending {
+  border-color: #eab308;
+  background: #fde68a;
+  color: #3f2a00;
+}
+
+.impacto-no-controle .number-button.confirmed {
+  border-color: #1f6a38;
+  background: #2f7d46;
+  color: #fff;
+}
+
+.impacto-no-controle .number-button.pending small {
+  color: #5f4300;
+}
+
+.impacto-participation-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.impacto-participation-total-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.75fr) minmax(0, 1.25fr);
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.impacto-participation-total-row .impacto-participation-total {
+  margin-top: 0;
+}
+
+.impacto-participation-inline-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.impacto-no-controle .impacto-participation-inline-actions .btn-primary,
+.impacto-no-controle .impacto-participation-inline-actions .btn-secondary {
+  width: 100%;
+  min-height: 100%;
+  padding: 8px 6px;
+  font-size: 0.68rem;
+  line-height: 1.12;
+  text-align: center;
+}
+
+.impacto-progress-list-link {
+  display: inline-flex;
+  margin-top: 4px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--brand-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.impacto-participant-list-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.impacto-participant-list-card {
+  display: flex;
+  width: min(100%, 640px);
+  max-height: min(94dvh, 760px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(15, 35, 20, 0.32);
+}
+
+.impacto-participant-list-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px 12px;
+}
+
+.impacto-participant-list-header h2 {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.impacto-participant-list-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.impacto-participant-list-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 8px;
+}
+
+.impacto-participant-list-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--brand-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.impacto-participant-list-legend {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.impacto-list-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.impacto-list-status.reserved {
+  background: #fde68a;
+  color: #5f4300;
+}
+
+.impacto-list-status.confirmed {
+  background: #2f7d46;
+  color: #fff;
+}
+
+.impacto-participant-list-results {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.impacto-participant-list-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 8px 10px;
+}
+
+.impacto-participant-list-row.reserved {
+  border-color: #f3cf58;
+  background: #fff8cf;
+}
+
+.impacto-participant-list-row.confirmed {
+  border-color: #9cc8a8;
+  background: #edf8ef;
+}
+
+.impacto-participant-list-row > strong {
+  color: var(--brand-dark);
+  font-size: 0.95rem;
+}
+
+.impacto-participant-list-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.impacto-participant-list-row > small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.impacto-participant-list-empty {
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.impacto-participant-list-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  flex: 0 0 auto;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 10px 16px 12px;
+}
+
+.impacto-no-controle .impacto-participant-list-footer .btn-primary,
+.impacto-no-controle .impacto-participant-list-footer .btn-secondary {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+}
+
+.impacto-reservation-compact {
+  padding: 18px;
+}
+
+.impacto-reservation-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.impacto-reservation-summary-grid > div {
+  border-radius: 14px;
+  background: var(--campaign-card);
+  padding: 9px 10px;
+}
+
+.impacto-reservation-summary-grid p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.impacto-reservation-summary-grid strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--campaign-primary);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.impacto-support-strong {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: var(--campaign-primary);
+  padding: 10px 14px;
+  color: #fff !important;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: none !important;
+}
+
+.impacto-reservation-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.impacto-reservation-share-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.impacto-reservation-share-card {
+  width: min(100%, 560px);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: #fffdf7;
+  padding: 16px;
+  box-shadow: 0 24px 70px rgba(15, 35, 20, 0.3);
+}
+
+.impacto-compact-page-card {
+  padding: 16px;
+}
+
+.impacto-compact-primary {
+  display: grid;
+  gap: 10px;
+}
+
+.impacto-compact-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.impacto-compact-metrics > div {
+  border-radius: 14px;
+  background: var(--campaign-card);
+  padding: 10px;
+}
+
+.impacto-compact-details {
+  margin-top: 10px;
+  border: 1px solid var(--campaign-border);
+  border-radius: 14px;
+  background: #fff;
+  padding: 9px 11px;
+}
+
+.impacto-compact-details summary {
+  cursor: pointer;
+  color: var(--campaign-primary);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+@media (max-width: 640px) {
+  .impacto-participation-header-actions {
+    gap: 4px;
+  }
+
+  .impacto-participation-header-actions .impacto-guide-close {
+    padding: 6px 8px;
+    font-size: 0.64rem;
+  }
+
+  .impacto-participation-total-row {
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .impacto-participation-total-row .impacto-participation-total {
+    padding: 7px 8px;
+  }
+
+  .impacto-participation-total-row .impacto-participation-total strong {
+    font-size: 1rem;
+  }
+
+  .impacto-participation-total-row .impacto-participation-total span {
+    font-size: 0.62rem;
+  }
+
+  .impacto-participation-inline-actions {
+    gap: 4px;
+  }
+
+  .impacto-no-controle .impacto-participation-inline-actions .btn-primary,
+  .impacto-no-controle .impacto-participation-inline-actions .btn-secondary {
+    min-height: 100%;
+    padding: 6px 3px;
+    font-size: 0.56rem;
+    letter-spacing: -0.02em;
+  }
+
+  .impacto-participant-list-overlay {
+    padding: 5px;
+  }
+
+  .impacto-participant-list-card {
+    max-height: calc(100dvh - 10px);
+    border-radius: 19px;
+  }
+
+  .impacto-participant-list-header {
+    padding: 10px 11px 8px;
+  }
+
+  .impacto-participant-list-header h2 {
+    font-size: 1.05rem;
+  }
+
+  .impacto-participant-list-body {
+    padding: 8px 10px;
+  }
+
+  .impacto-participant-list-controls {
+    grid-template-columns: 1fr 124px;
+    gap: 5px;
+  }
+
+  .impacto-participant-list-controls .input {
+    padding: 8px 9px;
+    font-size: 0.72rem;
+  }
+
+  .impacto-participant-list-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 5px;
+    padding: 6px 7px;
+  }
+
+  .impacto-participant-list-row > span {
+    font-size: 0.72rem;
+  }
+
+  .impacto-participant-list-row > small {
+    max-width: 88px;
+    font-size: 0.56rem;
+  }
+
+  .impacto-participant-list-footer {
+    padding: 7px 10px 9px;
+  }
+
+  .impacto-reservation-compact {
+    padding: 14px;
+  }
+
+  .impacto-reservation-summary-grid {
+    gap: 5px;
+  }
+
+  .impacto-reservation-summary-grid > div {
+    padding: 7px 8px;
+  }
+
+  .impacto-reservation-summary-grid p {
+    font-size: 0.6rem;
+  }
+
+  .impacto-reservation-summary-grid strong {
+    font-size: 0.72rem;
+  }
+
+  .impacto-reservation-actions .btn-primary,
+  .impacto-reservation-actions .btn-secondary {
+    width: 100%;
+    padding: 9px 7px;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .impacto-participant-list-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .impacto-reservation-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .impacto-reservation-summary-grid > div:last-child {
+    grid-column: 1 / -1;
+  }
+}

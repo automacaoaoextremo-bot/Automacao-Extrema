@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle } from "@/components/impacto-no-controle/icons";
+import { CampaignParticipantList } from "@/components/impacto-no-controle/CampaignParticipantList";
 import { formatMoneyFromCents, normalizePhone } from "@/lib/impacto-no-controle/format";
 
 type Campaign = {
@@ -269,6 +270,20 @@ export function CampaignParticipation({
     setOpen(false);
   }
 
+  function goBack() {
+    if (loading) return;
+    setError(null);
+
+    if (step === "details") {
+      setStep("numbers");
+      return;
+    }
+
+    if (step === "numbers") {
+      setStep("rules");
+    }
+  }
+
   function continueToNumbers() {
     setError(null);
     setStep("numbers");
@@ -393,18 +408,33 @@ export function CampaignParticipation({
           <div className="impacto-participation-card">
             <div className="impacto-participation-header">
               <div>
-                <p className="impacto-guide-kicker">GUIA DA RIFA</p>
+                <p className="impacto-guide-kicker">
+                  {step === "rules" ? "ETAPA1" : step === "numbers" ? "ETAPA2" : "ETAPA3"}
+                </p>
                 <h2 id="impacto-participation-title">{modalTitle}</h2>
               </div>
 
-              <button
-                type="button"
-                className="impacto-guide-close"
-                onClick={closeWizard}
-                disabled={loading}
-              >
-                FECHAR
-              </button>
+              <div className="impacto-participation-header-actions">
+                {step !== "rules" ? (
+                  <button
+                    type="button"
+                    className="impacto-guide-close"
+                    onClick={goBack}
+                    disabled={loading}
+                  >
+                    VOLTAR
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="impacto-guide-close"
+                  onClick={closeWizard}
+                  disabled={loading}
+                >
+                  FECHAR
+                </button>
+              </div>
             </div>
 
             <div className="impacto-participation-body">
@@ -436,8 +466,7 @@ export function CampaignParticipation({
                       <strong>
                         {formatMoneyFromCents(campaign.number_price_cents)}
                       </strong>
-                      . Números claros estão disponíveis; números escuros já estão
-                      reservados ou confirmados.
+                      . Branco = disponível; amarelo = selecionado/reservado; verde = aprovado.
                     </span>
                   </div>
 
@@ -508,15 +537,43 @@ export function CampaignParticipation({
                     </div>
                   ) : null}
 
-                  <div className="impacto-participation-total">
-                    <p>Total da participação</p>
-                    <strong>{formatMoneyFromCents(totalCents)}</strong>
-                    <span>
-                      Números:{" "}
-                      {selectedNumbers.length
-                        ? selectedNumbers.join(", ")
-                        : "nenhum"}
-                    </span>
+                  <div className="impacto-participation-total-row">
+                    <div className="impacto-participation-total">
+                      <p>Total da participação</p>
+                      <strong>{formatMoneyFromCents(totalCents)}</strong>
+                      <span>
+                        Números:{" "}
+                        {selectedNumbers.length
+                          ? selectedNumbers.join(", ")
+                          : "nenhum"}
+                      </span>
+                    </div>
+
+                    <div className="impacto-participation-inline-actions">
+                      <a
+                        className="btn-secondary"
+                        href={supportHref}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        TIRAR DÚVIDA
+                      </a>
+
+                      <CampaignParticipantList
+                        numbers={numbers}
+                        supportHref={supportHref}
+                        className="btn-secondary"
+                        label="Ver lista"
+                      />
+
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={continueToDetails}
+                      >
+                        CONTINUAR
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : null}
@@ -606,49 +663,41 @@ export function CampaignParticipation({
               ) : null}
             </div>
 
-            <div className="impacto-participation-footer">
-              <a
-                className="btn-secondary"
-                href={supportHref}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <MessageCircle className="h-4 w-4" /> TIRAR DÚVIDA
-              </a>
-
-              {step === "rules" ? (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={continueToNumbers}
+            {step !== "numbers" ? (
+              <div className="impacto-participation-footer">
+                <a
+                  className="btn-secondary"
+                  href={supportHref}
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  CONTINUAR
-                </button>
-              ) : null}
+                  <MessageCircle className="h-4 w-4" /> TIRAR DÚVIDA
+                </a>
 
-              {step === "numbers" ? (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={continueToDetails}
-                >
-                  CONTINUAR
-                </button>
-              ) : null}
+                {step === "rules" ? (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={continueToNumbers}
+                  >
+                    CONTINUAR
+                  </button>
+                ) : null}
 
-              {step === "details" ? (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={loading || !isOpen}
-                  onClick={reserveNumbers}
-                >
-                  {loading
-                    ? "Reservando..."
-                    : "Reservar números e escolher pagamento"}
-                </button>
-              ) : null}
-            </div>
+                {step === "details" ? (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={loading || !isOpen}
+                    onClick={reserveNumbers}
+                  >
+                    {loading
+                      ? "Reservando..."
+                      : "Reservar números e escolher pagamento"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

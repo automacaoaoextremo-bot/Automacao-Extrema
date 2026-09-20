@@ -1,6 +1,5 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HelpCircle, MessageCircle, TimerReset } from "@/components/impacto-no-controle/icons";
@@ -33,11 +32,12 @@ type ReservationPaymentProps = {
 };
 
 function formatCountdown(ms: number) {
-  if (ms <= 0) return "00:00";
+  if (ms <= 0) return "00:00:00";
   const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatDeadline(value: string) {
@@ -92,7 +92,7 @@ export function ReservationPayment({ reservation }: ReservationPaymentProps) {
     text: string;
     tone: "success" | "error";
   } | null>(null);
-  const [showWhatsAppBox, setShowWhatsAppBox] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [reservationLinkFeedback, setReservationLinkFeedback] = useState<string | null>(null);
   const [proof, setProof] = useState<File | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
@@ -166,17 +166,6 @@ ${reservationUrl}`;
     const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    const justCreated = window.sessionStorage.getItem(
-      `impacto-reserva-criada-${reservation.token}`,
-    );
-
-    if (justCreated) {
-      setShowWhatsAppBox(true);
-      window.sessionStorage.removeItem(`impacto-reserva-criada-${reservation.token}`);
-    }
-  }, [reservation.token]);
 
   useEffect(() => {
     if (!pixPayload) return;
@@ -336,7 +325,7 @@ ${reservationUrl}`;
   return (
     <div className="mx-auto max-w-3xl">
       <div
-        className="card overflow-hidden p-6 md:p-8"
+        className="card impacto-reservation-compact overflow-hidden"
         style={{
           borderColor: "var(--campaign-border)",
           background:
@@ -344,135 +333,175 @@ ${reservationUrl}`;
         }}
       >
         <h1
-          className="text-3xl font-black leading-tight md:text-4xl"
+          className="text-2xl font-black leading-tight md:text-3xl"
           style={{ color: "var(--campaign-primary)" }}
         >
-          Reserva criada. Escolha como pagar.
+          Reserva criada.
         </h1>
 
-        <p className="mt-3 leading-7 text-[var(--muted)]">
-          Seus números ficam reservados temporariamente até{" "}
-          <strong>{deadlineText}</strong>. Faça o Pix ou{" "}
-          <a
-            className="font-extrabold underline"
-            style={{ color: "var(--campaign-primary)" }}
-            href={supportHref}
-            target="_blank"
-            rel="noreferrer"
-          >
-            fale com o Suporte
-          </a>{" "}
-          para combinar outra forma de pagamento. Depois, envie o comprovante
-          nesta página para finalizar sua participação.
+        <p className="mt-1 text-sm leading-5 text-[var(--muted)]">
+          Seus números ficam reservados até <strong>{deadlineText}</strong>.
+          Escolha Pix ou combine outra forma de pagamento com o Suporte e envie
+          o comprovante para confirmar a participação.
         </p>
 
-        <div
-          className={`mt-5 rounded-2xl border-2 p-4 ${
-            showWhatsAppBox ? "border-[#f59e0b] bg-[#fff1a8]" : "bg-white"
-          }`}
-          style={
-            showWhatsAppBox
-              ? undefined
-              : { borderColor: "var(--campaign-border)" }
-          }
-        >
-          <p
-            className="font-black"
-            style={{ color: "var(--campaign-primary)" }}
-          >
-            Guarde este link antes de sair desta página
-          </p>
-
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            O link permite voltar depois do pagamento para enviar o
-            comprovante. Salve-o no WhatsApp ou copie a mensagem abaixo.
-          </p>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {reservationWhatsAppUrl ? (
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ background: "var(--campaign-primary)" }}
-                onClick={openReservationWhatsApp}
-              >
-                <MessageCircle className="h-4 w-4" /> Abrir WhatsApp com o link
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={copyReservationMessage}
-            >
-              Copiar mensagem da reserva
-            </button>
-
-            <button
-              type="button"
-              className="btn-secondary sm:col-span-2"
-              onClick={copyReservationLink}
-            >
-              Copiar somente o link da reserva
-            </button>
+        <div className="impacto-reservation-summary-grid">
+          <div>
+            <p>Números</p>
+            <strong>
+              {reservation.selectedNumbers.length
+                ? reservation.selectedNumbers
+                    .map((n) => String(n).padStart(2, "0"))
+                    .join(", ")
+                : "—"}
+            </strong>
           </div>
-
-          {reservationLinkFeedback ? (
-            <div
-              className="mt-3 rounded-2xl border-2 border-[#f59e0b] bg-[#fff1a8] p-4 text-sm font-black leading-6 text-[#3f2a00]"
-              role="status"
-              aria-live="polite"
-            >
-              {reservationLinkFeedback}
-            </div>
-          ) : null}
+          <div>
+            <p>Valor</p>
+            <strong>{formatMoneyFromCents(reservation.amountCents)}</strong>
+          </div>
+          <div>
+            <p>Reserva válida até</p>
+            <strong>{deadlineText}</strong>
+          </div>
         </div>
 
+        <a
+          className="impacto-support-strong"
+          href={supportHref}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <MessageCircle className="h-4 w-4" /> FALE COM O SUPORTE
+        </a>
+
         <div
-          className="mt-5 rounded-2xl border-2 bg-white p-4"
+          className="mt-3 rounded-2xl border-2 bg-white px-3 py-2"
           style={{ borderColor: "var(--campaign-primary)" }}
         >
           <div className="flex items-center gap-3">
             <TimerReset
-              className="h-6 w-6"
+              className="h-5 w-5 shrink-0"
               style={{ color: "var(--campaign-primary)" }}
             />
-            <div>
-              <p className="text-sm font-bold text-[var(--muted)]">
-                Tempo restante da reserva
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-[var(--muted)]">
+                Tempo restante
               </p>
               <p
-                className="text-2xl font-black"
+                className="text-xl font-black leading-tight"
                 style={{ color: "var(--campaign-primary)" }}
               >
                 {remainingMs === null
                   ? "Calculando..."
                   : formatCountdown(remainingMs)}
               </p>
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                Reserva válida até {deadlineText}.
-              </p>
             </div>
           </div>
 
           {expired ? (
-            <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+            <p className="mt-2 rounded-xl bg-red-50 p-2 text-xs font-bold text-red-700">
               Sua reserva expirou. Volte para a campanha e escolha seus números
               novamente.
             </p>
           ) : null}
         </div>
 
-        <button
-          type="button"
-          className="btn-primary mt-4"
-          style={{ background: "var(--campaign-primary)" }}
-          onClick={openPaymentGuide}
-          disabled={expired}
-        >
-          PIX / COMPROVANTE
-        </button>
+        <div className="impacto-reservation-actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShareOpen(true)}
+          >
+            GUARDAR LINK
+          </button>
+
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ background: "var(--campaign-primary)" }}
+            onClick={openPaymentGuide}
+            disabled={expired}
+          >
+            PIX / COMPROVANTE
+          </button>
+        </div>
       </div>
+
+      {shareOpen ? (
+        <div
+          className="impacto-reservation-share-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="impacto-reservation-share-title"
+        >
+          <div className="impacto-reservation-share-card">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="impacto-guide-kicker">LINK DA RESERVA</p>
+                <h2
+                  id="impacto-reservation-share-title"
+                  className="text-xl font-black"
+                  style={{ color: "var(--campaign-primary)" }}
+                >
+                  Guarde este link
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="impacto-guide-close"
+                onClick={() => setShareOpen(false)}
+              >
+                FECHAR
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+              Use o link para voltar depois do pagamento e enviar ou consultar o
+              comprovante.
+            </p>
+
+            <div className="mt-4 grid gap-2">
+              {reservationWhatsAppUrl ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ background: "var(--campaign-primary)" }}
+                  onClick={openReservationWhatsApp}
+                >
+                  <MessageCircle className="h-4 w-4" /> Abrir WhatsApp com o link
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={copyReservationMessage}
+              >
+                Copiar mensagem da reserva
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={copyReservationLink}
+              >
+                Copiar somente o link
+              </button>
+            </div>
+
+            {reservationLinkFeedback ? (
+              <div
+                className="mt-3 rounded-2xl border-2 border-[#f59e0b] bg-[#fff1a8] p-3 text-xs font-black leading-5 text-[#3f2a00]"
+                role="status"
+                aria-live="polite"
+              >
+                {reservationLinkFeedback}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {paymentGuideStep !== null ? (
         <div

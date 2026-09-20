@@ -304,11 +304,11 @@ export function CampaignDetailClient({ id }: { id: string }) {
       : "sem números";
 
     const confirmed = window.confirm(
-      `Excluir a reserva de ${contribution.participant_name}?\n\n` +
-        `Status: ${contributionStatusLabel[contribution.status] || contribution.status}\n` +
+      `Excluir definitivamente o pagamento/participação de ${contribution.participant_name}?\n\n` +
+        `Status atual: ${contributionStatusLabel[contribution.status] || contribution.status}\n` +
         `Valor: ${formatMoneyFromCents(contribution.amount_cents)}\n` +
         `Números: ${numbers}\n\n` +
-        "Os números serão liberados novamente. Esta ação é permitida apenas para reservas aguardando pagamento/comprovante.",
+        "Os números vinculados serão liberados, o comprovante será removido do armazenamento quando existir e um registro de auditoria será mantido. Esta ação não pode ser desfeita.",
     );
 
     if (!confirmed) return;
@@ -324,8 +324,12 @@ export function CampaignDetailClient({ id }: { id: string }) {
     const json = await res.json();
 
     if (!res.ok) {
-      alert(json.error || "Erro ao excluir reserva.");
+      alert(json.error || "Erro ao excluir pagamento/participação.");
       return;
+    }
+
+    if (json.storage_cleanup_warning) {
+      alert(json.storage_cleanup_warning);
     }
 
     await load();
@@ -466,11 +470,12 @@ export function CampaignDetailClient({ id }: { id: string }) {
                             {c.proof_file_path ? "Substituir comprovante" : "Registrar comprovante"}
                           </button>
                         ) : null}
-                        {c.status === "awaiting_payment" ? (
-                          <button className="btn-secondary !w-auto !py-2 !border-red-300 !text-red-700" onClick={() => deleteReservation(c)}>
-                            Excluir reserva
-                          </button>
-                        ) : null}
+                        <button
+                          className="btn-secondary !w-auto !py-2 !border-red-300 !text-red-700"
+                          onClick={() => deleteReservation(c)}
+                        >
+                          Excluir participação
+                        </button>
                         {c.status === "pending_approval" ? <button className="btn-primary !w-auto !py-2" onClick={() => approve(c.id)}>Aprovar</button> : null}
                         {c.status === "pending_approval" ? <button className="btn-secondary !w-auto !py-2" onClick={() => reject(c.id)}>Rejeitar</button> : null}
                       </td>

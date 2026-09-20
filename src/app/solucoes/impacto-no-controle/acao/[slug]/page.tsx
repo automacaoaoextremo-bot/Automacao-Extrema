@@ -7,6 +7,7 @@ import { formatMoneyFromCents } from "@/lib/impacto-no-controle/format";
 import { CampaignParticipation } from "@/components/impacto-no-controle/CampaignParticipation";
 import { CampaignIntroModal } from "@/components/impacto-no-controle/CampaignIntroModal";
 import { CampaignGallery } from "@/components/impacto-no-controle/CampaignGallery";
+import { CampaignParticipantList } from "@/components/impacto-no-controle/CampaignParticipantList";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -224,6 +225,12 @@ export default async function CampaignPage({ params }: PageProps) {
                 <p className="mt-1 text-2xl font-black text-[var(--brand-dark)]">
                   {impactQuantity} {impactUnit}
                 </p>
+                <CampaignParticipantList
+                  numbers={numbers || []}
+                  supportHref={supportHref}
+                  className="impacto-progress-list-link"
+                  label="Ver lista"
+                />
               </div>
             </div>
 

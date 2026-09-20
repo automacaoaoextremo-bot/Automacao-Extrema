@@ -149,7 +149,7 @@ export async function POST(request: Request) {
 
     if (participantError) throw participantError;
 
-    const reservationMinutes = Math.max(5, Number(campaign.reservation_minutes || 30));
+    const reservationMinutes = Math.max(5, Number(campaign.reservation_minutes ?? 1440));
     const reservationExpiresAt = new Date(Date.now() + reservationMinutes * 60 * 1000).toISOString();
     const contributionType = uniqueNumbers.length && quotaArray.length ? "mixed" : uniqueNumbers.length ? "numbers" : "quota";
 

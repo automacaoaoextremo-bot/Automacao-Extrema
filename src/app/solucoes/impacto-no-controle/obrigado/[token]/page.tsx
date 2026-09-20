@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, Home, MessageCircle, Star } from "@/components/impacto-no-controle/icons";
+import { CheckCircle2, MessageCircle } from "@/components/impacto-no-controle/icons";
 import { PublicHeader } from "@/components/impacto-no-controle/PublicHeader";
 import { createSupabaseAdminClient } from "@/lib/impacto-no-controle/supabase/admin";
 import { formatMoneyFromCents } from "@/lib/impacto-no-controle/format";
@@ -50,8 +50,24 @@ function buildTrackingWhatsAppUrl(input: {
 }) {
   const phone = whatsappPhoneLink(input.phone);
   if (!phone) return "";
-  const numbers = input.selectedNumbers.length ? input.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ") : "sem números";
-  const message = `Olá, ${input.name}! Sua participação na ação ${input.campaignTitle} foi registrada.\n\nNúmeros: ${numbers}\nValor: ${formatMoneyFromCents(input.amountCents)}\n\nPágina de obrigado:\n${input.thankYouUrl}\n\nAcompanhe a aprovação por este link:\n${input.trackUrl}`;
+
+  const numbers = input.selectedNumbers.length
+    ? input.selectedNumbers
+        .map((n) => String(n).padStart(2, "0"))
+        .join(", ")
+    : "sem números";
+
+  const message = `Olá, ${input.name}! Sua participação na ação ${input.campaignTitle} foi registrada.
+
+Números: ${numbers}
+Valor: ${formatMoneyFromCents(input.amountCents)}
+
+Página de obrigado:
+${input.thankYouUrl}
+
+Acompanhe a aprovação por este link:
+${input.trackUrl}`;
+
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
@@ -80,13 +96,17 @@ export default async function ThankYouPage({ params }: PageProps) {
     .maybeSingle();
 
   const data = rawData as TrackingData | null;
-
   if (error || !data) notFound();
 
-  const selectedQuotas = Array.isArray(data.selected_quotas) ? data.selected_quotas : [];
+  const selectedQuotas = Array.isArray(data.selected_quotas)
+    ? data.selected_quotas
+    : [];
   const quotaIds = selectedQuotas.map((item) => item.quota_id).filter(Boolean);
   const { data: quotaRows } = quotaIds.length
-    ? await supabase.from("inc_campaign_quotas").select("id,title,amount_cents").in("id", quotaIds)
+    ? await supabase
+        .from("inc_campaign_quotas")
+        .select("id,title,amount_cents")
+        .in("id", quotaIds)
     : { data: [] as any[] };
 
   const quotaMap = new Map((quotaRows || []).map((q: any) => [q.id, q]));
@@ -98,17 +118,30 @@ export default async function ThankYouPage({ params }: PageProps) {
     })
     .filter(Boolean);
 
-  const primaryColor = normalizeColor(data.client_primary_color, "#2F7D46");
-  const secondaryColor = normalizeColor(data.client_secondary_color, "#8BB73E");
+  const primaryColor = normalizeColor(
+    data.client_primary_color,
+    "#2F7D46",
+  );
+  const secondaryColor = normalizeColor(
+    data.client_secondary_color,
+    "#8BB73E",
+  );
   const softBg = hexToRgba(secondaryColor, 0.11);
   const cardBg = hexToRgba(primaryColor, 0.07);
   const borderColor = hexToRgba(primaryColor, 0.18);
-  const logoUrl = data.client_logo_url || null;
 
-  const selectedNumbers = Array.isArray(data.selected_numbers) ? data.selected_numbers : [];
+  const selectedNumbers = Array.isArray(data.selected_numbers)
+    ? data.selected_numbers
+    : [];
   const appUrl = impactoSiteUrl();
   const thankYouUrl = `${appUrl}/solucoes/impacto-no-controle/obrigado/${token}`;
   const trackUrl = `${appUrl}/solucoes/impacto-no-controle/acompanhar/${token}`;
+  const campaignHref = `/solucoes/impacto-no-controle/acao/${data.campaign_slug}`;
+  const campaignStartHref = `${campaignHref}?inicio=1`;
+  const supportHref = `https://wa.me/5519989848246?text=${encodeURIComponent(
+    `Olá, Suporte! Preciso de ajuda com minha participação na campanha ${data.campaign_title}.`,
+  )}`;
+
   const whatsappTrackUrl = buildTrackingWhatsAppUrl({
     phone: data.participant_phone,
     name: data.participant_name,
@@ -118,9 +151,10 @@ export default async function ThankYouPage({ params }: PageProps) {
     selectedNumbers,
     amountCents: data.amount_cents,
   });
+
   const statusLabel: Record<string, string> = {
-    awaiting_payment: "Aguardando pagamento e envio do comprovante",
-    pending_approval: "Aguardando conferência do pagamento",
+    awaiting_payment: "Aguardando pagamento/comprovante",
+    pending_approval: "Aguardando conferência",
     approved: "Pagamento aprovado",
     rejected: "Pagamento não aprovado",
     canceled: "Cancelado",
@@ -128,85 +162,102 @@ export default async function ThankYouPage({ params }: PageProps) {
 
   return (
     <>
-      <PublicHeader showAccessLinks={false} />
+      <PublicHeader
+        showAccessLinks={false}
+        brandName={data.client_name}
+        brandLogoUrl={data.client_logo_url}
+        brandHref={campaignHref}
+        helpHref={supportHref}
+        homeHref={campaignStartHref}
+      />
+
       <main
-        className="container-page py-4 md:py-6"
-        style={{
-          "--campaign-primary": primaryColor,
-          "--campaign-secondary": secondaryColor,
-          "--campaign-soft": softBg,
-          "--campaign-card": cardBg,
-          "--campaign-border": borderColor,
-        } as CSSProperties}
+        className="container-page py-3 md:py-5"
+        style={
+          {
+            "--campaign-primary": primaryColor,
+            "--campaign-secondary": secondaryColor,
+            "--campaign-soft": softBg,
+            "--campaign-card": cardBg,
+            "--campaign-border": borderColor,
+            "--brand": primaryColor,
+            "--brand-dark": primaryColor,
+            "--accent": secondaryColor,
+          } as CSSProperties
+        }
       >
-        <div className="mx-auto max-w-3xl">
-          <div
-            className="card overflow-hidden p-6 text-center md:p-8"
-            style={{ borderColor: "var(--campaign-border)", background: "linear-gradient(180deg, #fffdf7 0%, var(--campaign-soft) 100%)" }}
+        <div className="mx-auto max-w-2xl">
+          <section
+            className="card impacto-compact-page-card"
+            style={{
+              borderColor,
+              background:
+                "linear-gradient(180deg, #fffdf7 0%, var(--campaign-soft) 100%)",
+            }}
           >
-            <div className="mx-auto flex w-fit items-center gap-3 rounded-full bg-white px-4 py-2 shadow-sm" style={{ border: "1px solid var(--campaign-border)" }}>
-              {logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- URL dinâmica do logo do cliente; não deve passar pelo otimizador do Next.
-                <img src={logoUrl} alt={data.client_name} className="h-10 w-10 rounded-2xl object-cover" />
-              ) : null}
-              <span className="text-sm font-black" style={{ color: primaryColor }}>{data.client_name}</span>
-            </div>
-
-            <div
-              className="mx-auto mt-5 grid h-16 w-16 place-items-center rounded-full border-4 bg-white"
-              style={{ borderColor: primaryColor, color: primaryColor }}
-            >
-              <CheckCircle2 className="h-9 w-9" />
-            </div>
-
-            <span className="mt-4 inline-flex rounded-full px-4 py-2 text-sm font-black" style={{ background: softBg, color: primaryColor }}>
-              Obrigado pela participação
-            </span>
-
-            <h1 className="mt-4 text-3xl font-black md:text-4xl" style={{ color: primaryColor }}>
-              Sua participação foi registrada.
-            </h1>
-            <p className="mx-auto mt-3 max-w-xl leading-7 text-[var(--muted)]">
-              A organização da {data.client_name} irá conferir o pagamento/comprovante e confirmar a participação. Salve esta página para acompanhar tudo com facilidade.
-            </p>
-          </div>
-
-          <div className="card mt-5 p-6" style={{ borderColor: "var(--campaign-border)" }}>
-            <h2 className="text-2xl font-black" style={{ color: primaryColor }}>Resumo da aquisição</h2>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl p-4" style={{ background: cardBg }}>
-                <p className="text-sm font-bold text-[var(--muted)]">Campanha</p>
-                <p className="mt-1 font-extrabold" style={{ color: primaryColor }}>{data.campaign_title}</p>
+            <div className="impacto-compact-primary text-center">
+              <div
+                className="mx-auto grid h-12 w-12 place-items-center rounded-full border-4 bg-white"
+                style={{ borderColor: primaryColor, color: primaryColor }}
+              >
+                <CheckCircle2 className="h-7 w-7" />
               </div>
-              <div className="rounded-2xl p-4" style={{ background: cardBg }}>
-                <p className="text-sm font-bold text-[var(--muted)]">Participante</p>
-                <p className="mt-1 font-extrabold" style={{ color: primaryColor }}>{data.participant_name}</p>
-              </div>
-              <div className="rounded-2xl p-4" style={{ background: cardBg }}>
-                <p className="text-sm font-bold text-[var(--muted)]">Valor</p>
-                <p className="mt-1 font-extrabold" style={{ color: primaryColor }}>{formatMoneyFromCents(data.amount_cents)}</p>
-              </div>
-              <div className="rounded-2xl p-4" style={{ background: cardBg }}>
-                <p className="text-sm font-bold text-[var(--muted)]">Status</p>
-                <p className="mt-1 font-extrabold" style={{ color: primaryColor }}>{statusLabel[data.status] || data.status}</p>
+
+              <div>
+                <span
+                  className="inline-flex rounded-full px-3 py-1 text-xs font-black"
+                  style={{ background: softBg, color: primaryColor }}
+                >
+                  Obrigado pela participação
+                </span>
+                <h1
+                  className="mt-2 text-2xl font-black leading-tight md:text-3xl"
+                  style={{ color: primaryColor }}
+                >
+                  Sua participação foi registrada.
+                </h1>
+                <p className="mt-1 text-sm leading-5 text-[var(--muted)]">
+                  A organização irá conferir o pagamento/comprovante. Guarde o
+                  acompanhamento para consultar a confirmação.
+                </p>
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border bg-white p-4" style={{ borderColor: borderColor }}>
-              <p className="font-bold" style={{ color: primaryColor }}>Números escolhidos</p>
-              <p className="mt-2 text-[var(--muted)]">
-                {selectedNumbers.length ? selectedNumbers.map((n: number) => String(n).padStart(2, "0")).join(", ") : "Nenhum número escolhido."}
+            <div className="impacto-compact-metrics mt-3">
+              <div>
+                <p className="text-xs font-bold text-[var(--muted)]">Status</p>
+                <p
+                  className="mt-1 text-sm font-extrabold"
+                  style={{ color: primaryColor }}
+                >
+                  {statusLabel[data.status] || data.status}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-[var(--muted)]">Valor</p>
+                <p
+                  className="mt-1 text-sm font-extrabold"
+                  style={{ color: primaryColor }}
+                >
+                  {formatMoneyFromCents(data.amount_cents)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-2 rounded-2xl border bg-white px-3 py-2" style={{ borderColor }}>
+              <p className="text-xs font-bold" style={{ color: primaryColor }}>
+                Números escolhidos
+              </p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {selectedNumbers.length
+                  ? selectedNumbers
+                      .map((n: number) => String(n).padStart(2, "0"))
+                      .join(", ")
+                  : "Nenhum número escolhido."}
               </p>
             </div>
 
-            {quotasText.length ? (
-              <div className="mt-4 rounded-2xl border bg-white p-4" style={{ borderColor: borderColor }}>
-                <p className="font-bold" style={{ color: primaryColor }}>Cotas escolhidas</p>
-                <p className="mt-2 text-[var(--muted)]">{quotasText.join("; ")}</p>
-              </div>
-            ) : null}
-
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <Link
                 className="btn-primary"
                 href={`/solucoes/impacto-no-controle/acompanhar/${token}`}
@@ -214,32 +265,52 @@ export default async function ThankYouPage({ params }: PageProps) {
               >
                 Acompanhar participação
               </Link>
+
               {whatsappTrackUrl ? (
-                <a className="btn-primary" href={whatsappTrackUrl} target="_blank" rel="noreferrer" style={{ background: primaryColor }}>
-                  <MessageCircle className="h-4 w-4" /> Enviar acompanhamento para meu WhatsApp
+                <a
+                  className="btn-secondary"
+                  href={whatsappTrackUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageCircle className="h-4 w-4" /> Enviar para WhatsApp
                 </a>
               ) : null}
-              <Link className="btn-secondary" href={`/solucoes/impacto-no-controle/acao/${data.campaign_slug}`}>Voltar para a campanha</Link>
             </div>
-          </div>
 
-          <div className="card mt-5 p-6" style={{ borderColor: "var(--campaign-border)" }}>
-            <div className="flex gap-3">
-              <Star className="mt-1 h-6 w-6 shrink-0" style={{ color: secondaryColor }} />
-              <div>
-                <h2 className="text-xl font-black" style={{ color: primaryColor }}>Salve esta página</h2>
-                <p className="mt-2 leading-7 text-[var(--muted)]">
-                  Para não perder o acompanhamento, salve esta página nos favoritos do navegador. No celular, você também pode tocar no menu do navegador e escolher “Adicionar à tela inicial” ou “Adicionar aos favoritos”.
+            <details className="impacto-compact-details">
+              <summary>Ver resumo completo</summary>
+              <div className="mt-3 grid gap-2 text-sm text-[var(--muted)]">
+                <p>
+                  <strong>Campanha:</strong> {data.campaign_title}
                 </p>
+                <p>
+                  <strong>Participante:</strong> {data.participant_name}
+                </p>
+                {quotasText.length ? (
+                  <p>
+                    <strong>Cotas:</strong> {quotasText.join("; ")}
+                  </p>
+                ) : null}
               </div>
-            </div>
-            <div className="mt-4 flex gap-3 rounded-2xl p-4 text-sm leading-6" style={{ background: softBg, color: primaryColor }}>
-              <Home className="mt-1 h-5 w-5 shrink-0" />
-              <p>
-                O link de acompanhamento mostra se o pagamento ainda está em conferência, aprovado ou se a organização precisa de algum ajuste no comprovante.
+            </details>
+
+            <details className="impacto-compact-details">
+              <summary>Como acompanhar depois</summary>
+              <p className="mt-2 text-sm leading-5 text-[var(--muted)]">
+                Salve a página de acompanhamento nos favoritos ou envie o link
+                para seu WhatsApp. Ela mostra se o pagamento está em conferência,
+                aprovado ou se a organização precisa de algum ajuste.
               </p>
-            </div>
-          </div>
+            </details>
+
+            <Link
+              className="btn-secondary mt-3"
+              href={campaignHref}
+            >
+              Voltar para a campanha
+            </Link>
+          </section>
         </div>
       </main>
     </>
