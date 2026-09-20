@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 type PublicHeaderProps = {
@@ -7,6 +9,7 @@ type PublicHeaderProps = {
   brandHref?: string;
   helpHref?: string | null;
   homeHref?: string | null;
+  tutorialHref?: string | null;
 };
 
 export function PublicHeader({
@@ -16,8 +19,41 @@ export function PublicHeader({
   brandHref = "/solucoes/impacto-no-controle",
   helpHref,
   homeHref,
+  tutorialHref,
 }: PublicHeaderProps) {
   const resolvedBrandName = brandName?.trim() || "Impacto no Controle";
+
+  function resolveHomeHref() {
+    if (!homeHref) return null;
+
+    try {
+      const url = new URL(homeHref, "https://www.automacaoextrema.com");
+      url.searchParams.delete("inicio");
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return homeHref.replace(/[?&]inicio=1(?:&)?/, "").replace(/[?&]$/, "");
+    }
+  }
+
+  function markIntroToOpen() {
+    if (!homeHref || typeof window === "undefined") return;
+
+    try {
+      const url = new URL(homeHref, window.location.origin);
+      const match = url.pathname.match(/\/solucoes\/impacto-no-controle\/acao\/([^/]+)/);
+      const slug = match?.[1];
+      if (!slug) return;
+
+      window.sessionStorage.setItem(
+        `impacto-intro-modal-force-open-${decodeURIComponent(slug)}`,
+        "true",
+      );
+    } catch {
+      // Nao bloqueia a navegacao caso o navegador nao permita sessionStorage.
+    }
+  }
+
+  const cleanHomeHref = resolveHomeHref();
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-white/95 backdrop-blur">
@@ -41,7 +77,7 @@ export function PublicHeader({
             <span className="brand-title">{resolvedBrandName}</span>
           </Link>
 
-          {helpHref || homeHref || showAccessLinks ? (
+          {helpHref || cleanHomeHref || tutorialHref || showAccessLinks ? (
             <nav className="header-access-nav" aria-label="Acessos">
               {helpHref ? (
                 <a
@@ -54,8 +90,23 @@ export function PublicHeader({
                 </a>
               ) : null}
 
-              {homeHref ? (
-                <Link className="btn-secondary header-access-button" href={homeHref}>
+              {tutorialHref ? (
+                <a
+                  className="btn-secondary header-access-button"
+                  href={tutorialHref}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  VÍDEO
+                </a>
+              ) : null}
+
+              {cleanHomeHref ? (
+                <Link
+                  className="btn-secondary header-access-button"
+                  href={cleanHomeHref}
+                  onClick={markIntroToOpen}
+                >
                   INÍCIO
                 </Link>
               ) : null}

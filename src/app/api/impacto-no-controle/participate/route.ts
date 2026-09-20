@@ -21,10 +21,6 @@ function numbersText(numbers: number[]) {
   return numbers.length ? numbers.map((n) => String(n).padStart(2, "0")).join(", ") : "Nenhum número escolhido";
 }
 
-function quotasText(quotas: string[]) {
-  return quotas.length ? quotas.join("; ") : "Nenhuma cota escolhida";
-}
-
 function normalizeText(value: unknown) {
   return String(value || "")
     .normalize("NFD")
@@ -146,13 +142,12 @@ function buildAcquisitionEmailContent(input: {
   isAdmin: boolean;
 }) {
   const nText = numbersText(input.numbers);
-  const qText = quotasText(input.quotas);
   const statusText = "aguardando conferência do pagamento/comprovante pela organização";
 
   const subject = input.isAdmin ? `Nova aquisição registrada - ${input.campaignTitle}` : `Participação registrada - ${input.campaignTitle}`;
   const intro = input.isAdmin ? `Uma nova aquisição foi registrada na campanha ${input.campaignTitle}.` : `Sua participação foi registrada na campanha ${input.campaignTitle}.`;
 
-  const text = `${intro}\n\nCliente: ${input.clientName}\nParticipante: ${input.participantName}\nCelular: ${input.participantPhone}\nE-mail: ${input.participantEmail || "não informado"}\nValor: ${formatMoneyFromCents(input.amountCents)}\nNúmeros: ${nText}\nCotas: ${qText}\nStatus: ${statusText}\n\nPágina de obrigado: ${input.thanksUrl}\nAcompanhamento: ${input.trackUrl}\n${input.isAdmin ? `Sistema/Gestão: ${input.systemUrl}\n` : ""}\nSalve o link de acompanhamento nos favoritos do navegador ou crie um atalho na tela inicial do celular.`;
+  const text = `${intro}\n\nCliente: ${input.clientName}\nParticipante: ${input.participantName}\nCelular: ${input.participantPhone}\nE-mail: ${input.participantEmail || "não informado"}\nValor: ${formatMoneyFromCents(input.amountCents)}\nNúmeros: ${nText}\nStatus: ${statusText}\n\nPágina de obrigado: ${input.thanksUrl}\nAcompanhamento: ${input.trackUrl}\n${input.isAdmin ? `Sistema/Gestão: ${input.systemUrl}\n` : ""}\nSalve o link de acompanhamento nos favoritos do navegador ou crie um atalho na tela inicial do celular.`;
 
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.55;color:#1d2a1f">
@@ -165,7 +160,6 @@ function buildAcquisitionEmailContent(input: {
         <li><strong>E-mail:</strong> ${escapeHtml(input.participantEmail || "não informado")}</li>
         <li><strong>Valor:</strong> ${escapeHtml(formatMoneyFromCents(input.amountCents))}</li>
         <li><strong>Números:</strong> ${escapeHtml(nText)}</li>
-        <li><strong>Cotas:</strong> ${escapeHtml(qText)}</li>
         <li><strong>Status:</strong> ${escapeHtml(statusText)}</li>
       </ul>
       <p><a href="${escapeHtml(input.thanksUrl)}">Abrir página de obrigado</a></p>

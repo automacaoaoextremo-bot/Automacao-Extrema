@@ -460,7 +460,7 @@ export function CampaignParticipation({
               {step === "numbers" ? (
                 <>
                   <div className="impacto-participation-step-heading">
-                    <strong>1. Escolha seus números para o sorteio da campanha</strong>
+                    <strong>Escolha seus números para o sorteio da campanha</strong>
                     <span>
                       Cada número custa{" "}
                       <strong>
@@ -551,24 +551,24 @@ export function CampaignParticipation({
 
                     <div className="impacto-participation-inline-actions">
                       <a
-                        className="btn-secondary"
+                        className="btn-secondary impacto-inline-pill"
                         href={supportHref}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        TIRAR DÚVIDA
+                        DÚVIDA
                       </a>
 
                       <CampaignParticipantList
                         numbers={numbers}
                         supportHref={supportHref}
-                        className="btn-secondary"
-                        label="Ver lista"
+                        className="btn-secondary impacto-inline-pill"
+                        label="VER LISTA"
                       />
 
                       <button
                         type="button"
-                        className="btn-primary"
+                        className="btn-primary impacto-inline-continue"
                         onClick={continueToDetails}
                       >
                         CONTINUAR

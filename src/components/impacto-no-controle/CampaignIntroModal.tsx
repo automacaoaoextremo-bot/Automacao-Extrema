@@ -13,6 +13,7 @@ type CampaignIntroModalProps = {
   body?: string | null;
   numberCount?: number | null;
   numberPriceCents?: number | null;
+  tutorialHref?: string | null;
 };
 
 const SUPPORT_HREF =
@@ -26,6 +27,7 @@ export function CampaignIntroModal({
   body,
   numberCount,
   numberPriceCents,
+  tutorialHref,
 }: CampaignIntroModalProps) {
   const storageKey = useMemo(
     () => `impacto-intro-modal-hidden-${campaignSlug}`,
@@ -35,21 +37,30 @@ export function CampaignIntroModal({
     () => `impacto-intro-modal-skip-once-${campaignSlug}`,
     [campaignSlug],
   );
+  const forceOpenKey = useMemo(
+    () => `impacto-intro-modal-force-open-${campaignSlug}`,
+    [campaignSlug],
+  );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
 
     const currentUrl = new URL(window.location.href);
-    const forceOpen = currentUrl.searchParams.get("inicio") === "1";
+    const forceOpenFromUrl = currentUrl.searchParams.get("inicio") === "1";
+    const forceOpenFromSession = window.sessionStorage.getItem(forceOpenKey) === "true";
 
-    if (forceOpen) {
+    if (forceOpenFromUrl || forceOpenFromSession) {
       window.sessionStorage.removeItem(skipOnceKey);
+      window.sessionStorage.removeItem(forceOpenKey);
       setOpen(true);
 
-      currentUrl.searchParams.delete("inicio");
-      const cleanUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
-      window.history.replaceState(null, "", cleanUrl);
+      if (forceOpenFromUrl) {
+        currentUrl.searchParams.delete("inicio");
+        const cleanUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+        window.history.replaceState(null, "", cleanUrl);
+      }
+
       return;
     }
 
@@ -61,7 +72,7 @@ export function CampaignIntroModal({
 
     const hidden = window.localStorage.getItem(storageKey) === "true";
     if (!hidden) setOpen(true);
-  }, [enabled, skipOnceKey, storageKey]);
+  }, [enabled, forceOpenKey, skipOnceKey, storageKey]);
 
   if (!enabled || !open) return null;
 
@@ -158,6 +169,17 @@ export function CampaignIntroModal({
           <button className="btn-primary" type="button" onClick={startParticipation}>
             COMEÇAR
           </button>
+
+          {tutorialHref ? (
+            <a
+              className="btn-secondary"
+              href={tutorialHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Como participar
+            </a>
+          ) : null}
 
           <a
             className="btn-secondary"

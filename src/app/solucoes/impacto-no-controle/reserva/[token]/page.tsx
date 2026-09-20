@@ -80,7 +80,7 @@ export default async function ReservationPage({ params }: PageProps) {
   const selectedNumbers = Array.isArray(data.selected_numbers) ? data.selected_numbers : [];
   const pixDefaults = impactoPixDefaults();
   const campaignHref = `/solucoes/impacto-no-controle/acao/${campaign.slug}`;
-  const campaignStartHref = `${campaignHref}?inicio=1`;
+  const campaignStartHref = campaignHref;
   const supportMessage = encodeURIComponent(
     `Olá, Suporte! Preciso de ajuda com a reserva da campanha ${campaign.title}.`,
   );
@@ -96,6 +96,7 @@ export default async function ReservationPage({ params }: PageProps) {
           brandHref={campaignHref}
           helpHref={supportHref}
           homeHref={campaignStartHref}
+          tutorialHref="/impacto-no-controle/sementinha/tutorial/passo-a-passo-participar-sementinha.mp4"
         />
         <main className="container-page py-4 md:py-6" style={theme}>
           <div className="card mx-auto max-w-2xl p-6 text-center" style={{ borderColor }}>
@@ -118,6 +119,7 @@ export default async function ReservationPage({ params }: PageProps) {
           brandHref={campaignHref}
           helpHref={supportHref}
           homeHref={campaignStartHref}
+          tutorialHref="/impacto-no-controle/sementinha/tutorial/passo-a-passo-participar-sementinha.mp4"
         />
         <main className="container-page py-4 md:py-6" style={theme}>
           <div className="card mx-auto max-w-2xl p-6 text-center" style={{ borderColor }}>
@@ -139,6 +141,7 @@ export default async function ReservationPage({ params }: PageProps) {
         brandHref={campaignHref}
         helpHref={supportHref}
         homeHref={campaignStartHref}
+        tutorialHref="/impacto-no-controle/sementinha/tutorial/passo-a-passo-participar-sementinha.mp4"
       />
       <main className="container-page py-4 md:py-6" style={theme}>
         <ReservationPayment

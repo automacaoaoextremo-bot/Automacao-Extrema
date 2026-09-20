@@ -137,7 +137,7 @@ export default async function ThankYouPage({ params }: PageProps) {
   const thankYouUrl = `${appUrl}/solucoes/impacto-no-controle/obrigado/${token}`;
   const trackUrl = `${appUrl}/solucoes/impacto-no-controle/acompanhar/${token}`;
   const campaignHref = `/solucoes/impacto-no-controle/acao/${data.campaign_slug}`;
-  const campaignStartHref = `${campaignHref}?inicio=1`;
+  const campaignStartHref = campaignHref;
   const supportHref = `https://wa.me/5519989848246?text=${encodeURIComponent(
     `Olá, Suporte! Preciso de ajuda com minha participação na campanha ${data.campaign_title}.`,
   )}`;
@@ -169,6 +169,7 @@ export default async function ThankYouPage({ params }: PageProps) {
         brandHref={campaignHref}
         helpHref={supportHref}
         homeHref={campaignStartHref}
+        tutorialHref="/impacto-no-controle/sementinha/tutorial/passo-a-passo-participar-sementinha.mp4"
       />
 
       <main

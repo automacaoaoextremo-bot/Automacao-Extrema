@@ -122,6 +122,8 @@ export default async function CampaignPage({ params }: PageProps) {
   const regulation = publicRegulationText(campaign);
   const statusNotice = campaignStatusNotice(normalizedStatus);
   const canParticipate = normalizedStatus === "active";
+  const tutorialHref = "/impacto-no-controle/sementinha/tutorial/passo-a-passo-participar-sementinha.mp4";
+
   const campaignTheme = {
     "--brand": campaign.client_primary_color || "#A91583",
     "--brand-dark": campaign.client_primary_color || "#8A0F6B",
@@ -136,7 +138,8 @@ export default async function CampaignPage({ params }: PageProps) {
         brandLogoUrl={campaign.client_logo_url}
         brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
         helpHref={supportHref}
-        homeHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}?inicio=1`}
+        homeHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
+        tutorialHref={tutorialHref}
       />
       <main className="container-page pb-6 pt-3 md:pb-10 md:pt-4" style={campaignTheme}>
         <CampaignIntroModal
@@ -147,6 +150,7 @@ export default async function CampaignPage({ params }: PageProps) {
           body={campaign.intro_modal_body}
           numberCount={campaign.number_count}
           numberPriceCents={campaign.number_price_cents}
+          tutorialHref={tutorialHref}
         />
         {statusNotice ? (
           <section className="mb-5 rounded-3xl border border-[var(--border)] bg-[#fff8e8] p-5 shadow-sm">

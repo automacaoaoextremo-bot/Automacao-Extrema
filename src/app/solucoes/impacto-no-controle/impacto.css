@@ -1591,3 +1591,98 @@
     grid-column: 1 / -1;
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* InC-07 — tutorial, INICIO com URL limpa e botoes da ETAPA2                 */
+/* -------------------------------------------------------------------------- */
+
+.impacto-no-controle .header-access-nav {
+  gap: 6px;
+}
+
+.impacto-no-controle .header-access-button {
+  min-height: 38px;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.impacto-no-controle .impacto-intro-actions {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.impacto-participation-step-heading > strong {
+  font-size: 1.08rem;
+}
+
+.impacto-participation-total-row {
+  grid-template-columns: minmax(130px, 0.86fr) minmax(0, 1.14fr);
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, white);
+  border-radius: 22px;
+  background: linear-gradient(135deg, #f7fbf4, #fffdf7);
+  padding: 8px;
+}
+
+.impacto-participation-total-row .impacto-participation-total {
+  border: 0;
+  background: color-mix(in srgb, var(--brand) 9%, white);
+  box-shadow: none;
+}
+
+.impacto-participation-inline-actions {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.95fr) minmax(0, 1.22fr);
+  align-items: stretch;
+}
+
+.impacto-no-controle .impacto-participation-inline-actions .btn-primary,
+.impacto-no-controle .impacto-participation-inline-actions .btn-secondary {
+  border-radius: 18px;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.01em;
+}
+
+.impacto-no-controle .impacto-participation-inline-actions .impacto-inline-pill {
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, white);
+  background: #fffef8;
+  color: var(--brand-dark);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.impacto-no-controle .impacto-participation-inline-actions .impacto-inline-continue {
+  box-shadow: 0 10px 24px rgba(47, 125, 70, 0.22);
+}
+
+@media (max-width: 640px) {
+  .impacto-no-controle .header-access-nav {
+    gap: 4px;
+  }
+
+  .impacto-no-controle .header-access-button {
+    min-height: 34px;
+    padding-inline: 8px;
+    font-size: 0.68rem;
+  }
+
+  .impacto-no-controle .impacto-intro-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .impacto-participation-total-row {
+    grid-template-columns: 92px minmax(0, 1fr);
+    border-radius: 18px;
+    padding: 5px;
+  }
+
+  .impacto-participation-inline-actions {
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.98fr) minmax(0, 1.2fr);
+  }
+
+  .impacto-no-controle .impacto-participation-inline-actions .btn-primary,
+  .impacto-no-controle .impacto-participation-inline-actions .btn-secondary {
+    min-height: 48px;
+    border-radius: 16px;
+    font-size: 0.58rem;
+    line-height: 1.05;
+  }
+}
