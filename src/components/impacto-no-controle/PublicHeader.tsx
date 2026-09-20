@@ -35,22 +35,27 @@ export function PublicHeader({
     }
   }
 
-  function markIntroToOpen() {
-    if (!homeHref || typeof window === "undefined") return;
+  function openHomeWithIntro() {
+    if (!cleanHomeHref || typeof window === "undefined") return;
 
     try {
-      const url = new URL(homeHref, window.location.origin);
+      const url = new URL(cleanHomeHref, window.location.origin);
       const match = url.pathname.match(/\/solucoes\/impacto-no-controle\/acao\/([^/]+)/);
       const slug = match?.[1];
-      if (!slug) return;
 
-      window.sessionStorage.setItem(
-        `impacto-intro-modal-force-open-${decodeURIComponent(slug)}`,
-        "true",
-      );
+      if (slug) {
+        window.sessionStorage.setItem(
+          `impacto-intro-modal-force-open-${decodeURIComponent(slug)}`,
+          "true",
+        );
+      }
     } catch {
-      // Nao bloqueia a navegacao caso o navegador nao permita sessionStorage.
+      // Mesmo se o sessionStorage estiver indisponível, a navegação deve continuar.
     }
+
+    // Full navigation is intentional: clicking INÍCIO from the same campaign page
+    // must remount CampaignIntroModal and consume the one-time session flag.
+    window.location.assign(cleanHomeHref);
   }
 
   const cleanHomeHref = resolveHomeHref();
@@ -102,13 +107,13 @@ export function PublicHeader({
               ) : null}
 
               {cleanHomeHref ? (
-                <Link
+                <button
+                  type="button"
                   className="btn-secondary header-access-button"
-                  href={cleanHomeHref}
-                  onClick={markIntroToOpen}
+                  onClick={openHomeWithIntro}
                 >
                   INÍCIO
-                </Link>
+                </button>
               ) : null}
 
               {showAccessLinks ? (

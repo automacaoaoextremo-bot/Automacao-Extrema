@@ -333,6 +333,7 @@ export async function POST(request: Request) {
         status: "pending_approval",
         proof_file_path: filePath,
         proof_file_hash: fileHash,
+        payment_method: paymentMethod,
         note: paymentMethod === "other"
           ? "Comprovante enviado para pagamento por outra forma combinada com o Suporte; seguir para conferência manual."
           : proofValidation.manualReview

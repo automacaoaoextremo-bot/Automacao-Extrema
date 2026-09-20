@@ -38,6 +38,16 @@ function toIsoOrNull(value: string) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function formatDateTimeLabel(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function publicStatusLabel(status: string) {
   const labels: Record<string, string> = {
     draft: "Rascunho",
@@ -95,6 +105,12 @@ export function CampaignDetailClient({ id }: { id: string }) {
   const [proofPaymentMethod, setProofPaymentMethod] = useState<"pix" | "other">("pix");
   const [proofNote, setProofNote] = useState("");
   const [proofSaving, setProofSaving] = useState(false);
+  const [approvalTarget, setApprovalTarget] = useState<any | null>(null);
+  const [approvalPaymentAt, setApprovalPaymentAt] = useState("");
+  const [approvalPayerMatches, setApprovalPayerMatches] = useState<"yes" | "no">("yes");
+  const [approvalPayerName, setApprovalPayerName] = useState("");
+  const [approvalSaving, setApprovalSaving] = useState(false);
+  const [reportDownloading, setReportDownloading] = useState<"xlsx" | "pdf" | null>(null);
 
   const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -222,12 +238,123 @@ export function CampaignDetailClient({ id }: { id: string }) {
     setSaving(false);
   }
 
-  async function approve(contributionId: string) {
-    const accessToken = await token();
-    const res = await fetch(`/api/impacto-no-controle/admin/contributions/${contributionId}/approve`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
-    const json = await res.json();
-    if (!res.ok) alert(json.error || "Erro ao aprovar.");
-    await load();
+  function openApproval(contribution: any) {
+    setApprovalTarget(contribution);
+    setApprovalPaymentAt("");
+    setApprovalPayerMatches("yes");
+    setApprovalPayerName("");
+  }
+
+  function closeApproval() {
+    if (approvalSaving) return;
+    setApprovalTarget(null);
+    setApprovalPaymentAt("");
+    setApprovalPayerMatches("yes");
+    setApprovalPayerName("");
+  }
+
+  async function submitApproval() {
+    if (!approvalTarget) return;
+    if (!approvalPaymentAt) {
+      alert("Informe a data e o horário que constam no comprovante.");
+      return;
+    }
+
+    if (approvalPayerMatches === "no" && !approvalPayerName.trim()) {
+      alert("Informe o nome que consta no comprovante.");
+      return;
+    }
+
+    const parsedPaymentAt = new Date(approvalPaymentAt);
+    if (Number.isNaN(parsedPaymentAt.getTime())) {
+      alert("Data e horário do comprovante inválidos.");
+      return;
+    }
+
+    setApprovalSaving(true);
+
+    try {
+      const accessToken = await token();
+      const res = await fetch(
+        `/api/impacto-no-controle/admin/contributions/${approvalTarget.id}/approve`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            payment_occurred_at: parsedPaymentAt.toISOString(),
+            payer_matches_participant: approvalPayerMatches === "yes",
+            payer_name:
+              approvalPayerMatches === "yes"
+                ? approvalTarget.participant_name
+                : approvalPayerName.trim(),
+          }),
+        },
+      );
+      const json = await res.json();
+
+      if (!res.ok) {
+        alert(json.error || "Erro ao aprovar.");
+        return;
+      }
+
+      setApprovalTarget(null);
+      setApprovalPaymentAt("");
+      setApprovalPayerMatches("yes");
+      setApprovalPayerName("");
+      await load();
+    } catch (currentError) {
+      alert(
+        currentError instanceof Error
+          ? currentError.message
+          : "Erro inesperado ao aprovar o comprovante.",
+      );
+    } finally {
+      setApprovalSaving(false);
+    }
+  }
+
+  async function downloadContributionReport(format: "xlsx" | "pdf") {
+    setReportDownloading(format);
+
+    try {
+      const accessToken = await token();
+      const res = await fetch(
+        `/api/impacto-no-controle/admin/campaigns/${id}/contributions-report?format=${format}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        alert(json?.error || "Erro ao gerar relatório.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename =
+        match?.[1] || `relatorio-contribuicoes.${format === "pdf" ? "pdf" : "xlsx"}`;
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (currentError) {
+      alert(
+        currentError instanceof Error
+          ? currentError.message
+          : "Erro inesperado ao gerar relatório.",
+      );
+    } finally {
+      setReportDownloading(null);
+    }
   }
 
   async function reject(contributionId: string) {
@@ -451,7 +578,32 @@ export function CampaignDetailClient({ id }: { id: string }) {
           </section>
 
           <section className="card mt-6 p-5">
-            <h2 className="text-2xl font-black text-[var(--brand-dark)]">Pagamentos e participações</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-black text-[var(--brand-dark)]">Pagamentos e participações</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  O relatório inclui os dados registrados na conferência do comprovante.
+                </p>
+              </div>
+              <div className="impacto-report-actions">
+                <button
+                  type="button"
+                  className="btn-secondary !w-auto !py-2"
+                  onClick={() => downloadContributionReport("xlsx")}
+                  disabled={reportDownloading !== null}
+                >
+                  {reportDownloading === "xlsx" ? "Gerando..." : "Exportar XLSX"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary !w-auto !py-2"
+                  onClick={() => downloadContributionReport("pdf")}
+                  disabled={reportDownloading !== null}
+                >
+                  {reportDownloading === "pdf" ? "Gerando..." : "Exportar PDF"}
+                </button>
+              </div>
+            </div>
             <div className="table-wrap mt-4">
               <table>
                 <thead><tr><th>Participante</th><th>Status</th><th>Valor</th><th>Números</th><th>Comprovante</th><th>Ações</th></tr></thead>
@@ -459,7 +611,21 @@ export function CampaignDetailClient({ id }: { id: string }) {
                   {detail.contributions.map((c) => (
                     <tr key={c.id}>
                       <td><strong>{c.participant_name}</strong><br /><small>{c.phone} {c.email ? `• ${c.email}` : ""}</small></td>
-                      <td>{contributionStatusLabel[c.status] || c.status}</td>
+                      <td>
+                        {contributionStatusLabel[c.status] || c.status}
+                        {c.payment_occurred_at ? (
+                          <>
+                            <br />
+                            <small>Pagamento: {formatDateTimeLabel(c.payment_occurred_at)}</small>
+                          </>
+                        ) : null}
+                        {c.payer_name ? (
+                          <>
+                            <br />
+                            <small>Pagador: {c.payer_name}</small>
+                          </>
+                        ) : null}
+                      </td>
                       <td>{formatMoneyFromCents(c.amount_cents)}</td>
                       <td>{c.selected_numbers?.join(", ") || "-"}</td>
                       <td>{c.proof_file_path ? <button className="btn-secondary !w-auto !py-2" onClick={() => openProof(c.proof_file_path)}>Abrir</button> : "-"}</td>
@@ -476,7 +642,11 @@ export function CampaignDetailClient({ id }: { id: string }) {
                         >
                           Excluir participação
                         </button>
-                        {c.status === "pending_approval" ? <button className="btn-primary !w-auto !py-2" onClick={() => approve(c.id)}>Aprovar</button> : null}
+                        {c.status === "pending_approval" ? (
+                          <button className="btn-primary !w-auto !py-2" onClick={() => openApproval(c)}>
+                            Aprovar
+                          </button>
+                        ) : null}
                         {c.status === "pending_approval" ? <button className="btn-secondary !w-auto !py-2" onClick={() => reject(c.id)}>Rejeitar</button> : null}
                       </td>
                     </tr>
@@ -513,6 +683,102 @@ export function CampaignDetailClient({ id }: { id: string }) {
               })}
             </div>
           </section>
+        </div>
+      ) : null}
+
+      {approvalTarget ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-3" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[#fffdf7] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-[var(--brand)]">Conferência</p>
+                <h2 className="mt-1 text-2xl font-black text-[var(--brand-dark)]">Aprovar comprovante</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {approvalTarget.participant_name} • {formatMoneyFromCents(approvalTarget.amount_cents)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary !w-auto !py-2"
+                onClick={closeApproval}
+                disabled={approvalSaving}
+              >
+                FECHAR
+              </button>
+            </div>
+
+            <div className="impacto-approval-grid mt-5">
+              <div>
+                <label className="label">Data e horário que constam no comprovante *</label>
+                <input
+                  className="input"
+                  type="datetime-local"
+                  value={approvalPaymentAt}
+                  onChange={(event) => setApprovalPaymentAt(event.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="label">Forma de pagamento registrada</label>
+                <div className="rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-sm font-bold text-[var(--brand-dark)]">
+                  {approvalTarget.payment_method === "other"
+                    ? "Outra forma combinada com o Suporte"
+                    : approvalTarget.payment_method === "pix"
+                      ? "Pix"
+                      : "Não informada"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <p className="label">O nome do pagador no comprovante é o mesmo do participante?</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--border)] bg-white p-4 font-bold text-[var(--brand-dark)]">
+                  <input
+                    type="radio"
+                    name="payer-match"
+                    checked={approvalPayerMatches === "yes"}
+                    onChange={() => setApprovalPayerMatches("yes")}
+                  />
+                  Sim — {approvalTarget.participant_name}
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--border)] bg-white p-4 font-bold text-[var(--brand-dark)]">
+                  <input
+                    type="radio"
+                    name="payer-match"
+                    checked={approvalPayerMatches === "no"}
+                    onChange={() => setApprovalPayerMatches("no")}
+                  />
+                  Não — outro pagador
+                </label>
+              </div>
+            </div>
+
+            {approvalPayerMatches === "no" ? (
+              <div className="mt-4">
+                <label className="label">Nome que consta no comprovante *</label>
+                <input
+                  className="input"
+                  value={approvalPayerName}
+                  onChange={(event) => setApprovalPayerName(event.target.value)}
+                  placeholder="Nome completo do pagador"
+                />
+              </div>
+            ) : null}
+
+            <p className="mt-4 rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4 text-sm leading-6 text-[var(--muted)]">
+              Confira os dados diretamente no comprovante. Essas informações serão armazenadas para auditoria e para o relatório de contribuições.
+            </p>
+
+            <button
+              type="button"
+              className="btn-primary mt-5"
+              onClick={submitApproval}
+              disabled={approvalSaving}
+            >
+              {approvalSaving ? "Aprovando..." : "Aprovar pagamento"}
+            </button>
+          </div>
         </div>
       ) : null}
 

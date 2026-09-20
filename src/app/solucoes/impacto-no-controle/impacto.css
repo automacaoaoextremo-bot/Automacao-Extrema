@@ -1686,3 +1686,47 @@
     line-height: 1.05;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* InC-08 — envio direto de comprovante e relatório de contribuições          */
+/* -------------------------------------------------------------------------- */
+
+.impacto-reservation-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.impacto-reservation-actions .impacto-payment-full-button {
+  grid-column: 1 / -1;
+}
+
+.impacto-reservation-actions .impacto-proof-only-button {
+  border-color: color-mix(in srgb, var(--campaign-primary) 45%, white);
+  color: var(--campaign-primary);
+  font-weight: 900;
+}
+
+.impacto-approval-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.impacto-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .impacto-reservation-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .impacto-reservation-actions .impacto-payment-full-button {
+    grid-column: auto;
+  }
+
+  .impacto-approval-grid {
+    grid-template-columns: 1fr;
+  }
+}

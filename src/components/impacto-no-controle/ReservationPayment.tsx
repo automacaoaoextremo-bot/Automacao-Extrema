@@ -316,6 +316,12 @@ ${reservationUrl}`;
     setPaymentGuideStep(0);
   }
 
+  function openProofOnly() {
+    setError(null);
+    setPaymentMethod("pix");
+    setPaymentGuideStep(2);
+  }
+
   function closePaymentGuide() {
     if (loading) return;
     setError(null);
@@ -418,7 +424,16 @@ ${reservationUrl}`;
 
           <button
             type="button"
-            className="btn-primary"
+            className="btn-secondary impacto-proof-only-button"
+            onClick={openProofOnly}
+            disabled={expired}
+          >
+            JÁ FIZ O PIX — ENVIAR COMPROVANTE
+          </button>
+
+          <button
+            type="button"
+            className="btn-primary impacto-payment-full-button"
             style={{ background: "var(--campaign-primary)" }}
             onClick={openPaymentGuide}
             disabled={expired}
