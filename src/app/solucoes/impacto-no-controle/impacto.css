@@ -610,3 +610,467 @@
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* InC-03: campanha compacta, carrossel sem vazios e participação em popup    */
+/* -------------------------------------------------------------------------- */
+
+.impacto-no-controle .impacto-campaign-summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px 14px;
+  margin-top: 8px;
+}
+
+.impacto-no-controle .impacto-campaign-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.impacto-no-controle .impacto-campaign-meta-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.impacto-no-controle .impacto-campaign-meta-inline .badge {
+  white-space: nowrap;
+}
+
+.impacto-no-controle .impacto-gallery-stage {
+  aspect-ratio: 20 / 9;
+  background: #f4f6f1;
+}
+
+.impacto-no-controle .impacto-gallery-main-image {
+  object-fit: contain;
+}
+
+.impacto-no-controle .impacto-gallery-footer {
+  min-height: 38px;
+  padding: 6px 10px;
+}
+
+.impacto-no-controle .impacto-participation-root {
+  width: 100%;
+}
+
+.impacto-no-controle .impacto-participate-trigger {
+  width: 100%;
+  min-height: 48px;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.impacto-no-controle .impacto-participation-closed {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.impacto-participation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(6px);
+}
+
+.impacto-participation-card {
+  display: flex;
+  width: min(100%, 680px);
+  max-height: min(94dvh, 820px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(15, 35, 20, 0.3);
+}
+
+.impacto-participation-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 18px 14px;
+  background: #fffdf7;
+}
+
+.impacto-participation-header h2 {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.impacto-participation-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px;
+}
+
+.impacto-participation-rules {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.impacto-participation-step-heading {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+  color: var(--brand-dark);
+}
+
+.impacto-participation-step-heading > strong {
+  font-size: 0.95rem;
+}
+
+.impacto-participation-step-heading > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.impacto-participation-number-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.impacto-no-controle .impacto-participation-number-grid .number-button {
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+}
+
+.impacto-participation-total {
+  display: grid;
+  gap: 2px;
+  margin-top: 14px;
+  border-radius: 16px;
+  background: #eef5ec;
+  padding: 12px 14px;
+}
+
+.impacto-participation-total p,
+.impacto-participation-total span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.impacto-participation-total strong {
+  color: var(--brand-dark);
+  font-size: 1.65rem;
+  line-height: 1.1;
+}
+
+.impacto-participation-draft {
+  margin-bottom: 12px;
+  border: 2px solid #f59e0b;
+  border-radius: 14px;
+  background: #fff1a8;
+  padding: 10px 12px;
+  color: #3f2a00;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.impacto-participation-draft button {
+  margin-top: 6px;
+  border: 0;
+  background: transparent;
+  color: #7c2d12;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.impacto-participation-quotas {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.impacto-participation-quotas > strong {
+  color: var(--brand-dark);
+}
+
+.impacto-participation-quotas > p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.impacto-participation-quota-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.impacto-participation-quota-list label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+  padding: 9px 10px;
+}
+
+.impacto-participation-quota-list label > span {
+  display: grid;
+}
+
+.impacto-participation-quota-list small {
+  color: var(--muted);
+}
+
+.impacto-participation-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.impacto-participation-email {
+  grid-column: 1 / -1;
+}
+
+.impacto-participation-consent {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.impacto-participation-consent input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.impacto-participation-next {
+  margin-top: 12px;
+  border: 2px solid var(--brand);
+  border-radius: 16px;
+  background: white;
+  padding: 12px;
+}
+
+.impacto-participation-next strong {
+  color: var(--brand-dark);
+  font-size: 0.8rem;
+}
+
+.impacto-participation-next p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.impacto-participation-error {
+  margin-top: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  background: #fef2f2;
+  padding: 10px 12px;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.impacto-participation-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  flex: 0 0 auto;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 12px 18px 14px;
+  background: #fffdf7;
+}
+
+.impacto-no-controle .impacto-participation-footer .btn-primary,
+.impacto-no-controle .impacto-participation-footer .btn-secondary {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  font-size: 0.78rem;
+}
+
+.impacto-no-controle .impacto-progress-card {
+  box-shadow: 0 10px 26px rgba(34, 52, 38, 0.07);
+}
+
+@media (max-width: 640px) {
+  .impacto-no-controle .impacto-campaign-summary-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .impacto-no-controle .impacto-campaign-subtitle {
+    font-size: 0.86rem;
+    line-height: 1.4;
+  }
+
+  .impacto-no-controle .impacto-campaign-meta-inline {
+    display: grid;
+    gap: 4px;
+  }
+
+  .impacto-no-controle .impacto-campaign-meta-inline .badge {
+    justify-content: center;
+    padding: 5px 7px;
+    font-size: 0.68rem;
+  }
+
+  .impacto-no-controle .impacto-gallery-stage {
+    aspect-ratio: 20 / 9;
+  }
+
+  .impacto-no-controle .impacto-gallery-footer {
+    min-height: 34px;
+    padding: 5px 8px;
+  }
+
+  .impacto-no-controle .impacto-gallery-dots {
+    gap: 4px;
+  }
+
+  .impacto-no-controle .impacto-gallery-dots button {
+    height: 7px;
+    width: 7px;
+  }
+
+  .impacto-no-controle .impacto-gallery-dots button.active {
+    width: 18px;
+  }
+
+  .impacto-participation-overlay {
+    padding: 6px;
+  }
+
+  .impacto-participation-card {
+    max-height: calc(100dvh - 12px);
+    border-radius: 20px;
+  }
+
+  .impacto-participation-header {
+    padding: 11px 12px 9px;
+  }
+
+  .impacto-participation-header h2 {
+    font-size: 1.12rem;
+  }
+
+  .impacto-participation-body {
+    padding: 10px 12px;
+  }
+
+  .impacto-participation-rules {
+    font-size: 0.8rem;
+    line-height: 1.48;
+  }
+
+  .impacto-participation-number-grid {
+    gap: 3px;
+  }
+
+  .impacto-no-controle .impacto-participation-number-grid .number-button {
+    min-height: 31px;
+    border-radius: 8px;
+    font-size: 0.68rem;
+  }
+
+  .impacto-participation-total {
+    margin-top: 9px;
+    padding: 9px 11px;
+  }
+
+  .impacto-participation-total strong {
+    font-size: 1.35rem;
+  }
+
+  .impacto-participation-fields {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .impacto-participation-fields .input {
+    padding: 10px 11px;
+    font-size: 0.82rem;
+  }
+
+  .impacto-participation-fields .label {
+    margin-bottom: 4px;
+    font-size: 0.76rem;
+  }
+
+  .impacto-participation-consent {
+    margin-top: 8px;
+    padding: 9px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .impacto-participation-next {
+    margin-top: 8px;
+    padding: 9px;
+  }
+
+  .impacto-participation-footer {
+    padding: 8px 12px 10px;
+  }
+
+  .impacto-no-controle .impacto-participation-footer .btn-primary,
+  .impacto-no-controle .impacto-participation-footer .btn-secondary {
+    min-height: 38px;
+    padding: 8px 6px;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .impacto-no-controle .impacto-campaign-summary-row {
+    grid-template-columns: 1fr;
+  }
+
+  .impacto-no-controle .impacto-campaign-meta-inline {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .impacto-participation-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .impacto-participation-email {
+    grid-column: auto;
+  }
+}
+

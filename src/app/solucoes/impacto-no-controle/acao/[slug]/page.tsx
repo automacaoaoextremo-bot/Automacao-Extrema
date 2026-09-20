@@ -92,20 +92,27 @@ export default async function CampaignPage({ params }: PageProps) {
     supabase.from("inc_campaign_stats_public").select("*").eq("campaign_id", campaign.id).maybeSingle(),
   ]);
 
-  const raised = stats?.confirmed_amount_cents || 0;
-  const target = campaign.target_amount_cents || 1;
-  const progress = Math.min(100, Math.round((raised / target) * 100));
+  const raised = Number(stats?.confirmed_amount_cents || 0);
+  const confirmedCount = Number(stats?.confirmed_count || 0);
+  const target = Number(campaign.target_amount_cents || 0);
+  const extendedTarget = Number(campaign.extended_amount_cents || 0);
+  const progress = target > 0
+    ? Math.min(100, Math.round((raised / target) * 100))
+    : 0;
   const impactValueCents = Number(campaign.impact_value_cents || 0);
   const impactQuantity = impactValueCents > 0
     ? Math.floor((raised / impactValueCents) * 10) / 10
-    : null;
+    : confirmedCount;
   const impactUnit = String(campaign.impact_unit || "participações");
   const galleryImages = Array.isArray(campaign.gallery_images)
     ? campaign.gallery_images.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const preferredFirstImage = campaign.slug === "rifa-bike-seminova-sementinha"
+    ? "/impacto-no-controle/sementinha/bike-03.jpeg"
+    : campaign.main_image_url;
   const campaignImages = Array.from(
     new Set(
-      [campaign.main_image_url, ...galleryImages]
+      [preferredFirstImage, campaign.main_image_url, ...galleryImages]
         .filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
         .map((item) => item.trim()),
     ),
@@ -153,25 +160,26 @@ export default async function CampaignPage({ params }: PageProps) {
           </section>
         ) : null}
 
-        <section className="grid gap-6 md:grid-cols-[0.9fr_1.1fr] md:items-start">
+        <section className="mx-auto grid max-w-3xl gap-4">
           <div className="card overflow-hidden">
-            <div className="p-5">
+            <div className="p-5 pb-3">
               <h1 className="text-3xl font-black leading-tight text-[var(--brand-dark)] md:text-4xl">
                 {campaign.title}
               </h1>
-              {campaign.subtitle ? (
-                <p className="mt-2 text-base font-bold leading-7 text-[var(--muted)] md:text-lg">
-                  {campaign.subtitle}
-                </p>
-              ) : null}
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="badge">
-                  {campaign.number_count} números
-                </span>
-                <span className="badge">
-                  {formatMoneyFromCents(campaign.number_price_cents)} cada
-                </span>
+              <div className="impacto-campaign-summary-row">
+                {campaign.subtitle ? (
+                  <p className="impacto-campaign-subtitle">
+                    {campaign.subtitle}
+                  </p>
+                ) : <span />}
+
+                <div className="impacto-campaign-meta-inline" aria-label="Informações da rifa">
+                  <span className="badge">{campaign.number_count} números</span>
+                  <span className="badge">
+                    {formatMoneyFromCents(campaign.number_price_cents)} cada
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -182,59 +190,89 @@ export default async function CampaignPage({ params }: PageProps) {
               />
             </div>
 
-            <div className="p-5 pt-3">
-              <CampaignInfoGuide
-                story={campaign.story}
-                prizeTitle={campaign.prize_title}
-                prizeDescription={campaign.prize_description}
-                regulation={regulation}
-                supportHref={supportHref}
-              />
-
-              {canParticipate ? (
-                <a
-                  className="btn-secondary mt-4 !w-full"
-                  href={supportHref}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <MessageCircle className="h-4 w-4" /> Dúvidas? Fale com o Suporte
-                </a>
-              ) : null}
-            </div>
+            {canParticipate ? (
+              <div className="px-4 pb-4 pt-1 sm:px-5">
+                <CampaignParticipation
+                  campaign={campaign}
+                  numbers={numbers || []}
+                  quotas={quotas || []}
+                  regulation={regulation}
+                  supportHref={supportHref}
+                />
+              </div>
+            ) : null}
           </div>
 
-          <div className="space-y-5">
-            <div className="card p-5">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <p className="text-sm font-bold text-[var(--muted)]">Andamento da arrecadação</p>
-                  <p className="mt-1 text-3xl font-black text-[var(--brand-dark)]">{formatMoneyFromCents(raised)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-[var(--muted)]">{impactQuantity !== null ? "Impacto estimado" : "Participações confirmadas"}</p>
-                  <p className="mt-1 text-2xl font-black text-[var(--brand-dark)]">
-                    {impactQuantity !== null ? `${impactQuantity} ${impactUnit}` : Number(stats?.confirmed_count || 0)}
-                  </p>
-                </div>
+          <div className="card impacto-progress-card p-5">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-[var(--muted)]">
+                  Andamento da arrecadação
+                </p>
+                <p className="mt-1 text-3xl font-black text-[var(--brand-dark)]">
+                  {formatMoneyFromCents(raised)}
+                </p>
               </div>
-              <div className="mt-4 progressbar"><span style={{ width: `${progress}%` }} /></div>
-              <p className="mt-2 text-sm text-[var(--muted)]">
-                Meta ideal: {formatMoneyFromCents(campaign.target_amount_cents)} • Meta estendida: {formatMoneyFromCents(campaign.extended_amount_cents)}
-              </p>
+
+              <div className="text-right">
+                <p className="text-sm font-bold text-[var(--muted)]">
+                  Impacto estimado
+                </p>
+                <p className="mt-1 text-2xl font-black text-[var(--brand-dark)]">
+                  {impactQuantity} {impactUnit}
+                </p>
+              </div>
             </div>
+
+            <div className="mt-4 progressbar" aria-label={`Progresso da meta: ${progress}%`}>
+              <span style={{ width: `${progress}%` }} />
+            </div>
+
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              {target > 0 ? (
+                <>Meta ideal: {formatMoneyFromCents(target)}</>
+              ) : (
+                <>Meta ideal ainda não configurada</>
+              )}
+              {extendedTarget > 0 ? (
+                <> • Meta estendida: {formatMoneyFromCents(extendedTarget)}</>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="card p-4 sm:p-5">
+            <CampaignInfoGuide
+              story={campaign.story}
+              prizeTitle={campaign.prize_title}
+              prizeDescription={campaign.prize_description}
+              regulation={regulation}
+              supportHref={supportHref}
+              showParticipationSteps={false}
+            />
 
             {canParticipate ? (
-              <section id="participar" className="scroll-mt-28">
-                <CampaignParticipation campaign={campaign} numbers={numbers || []} quotas={quotas || []} />
-              </section>
-            ) : (
-              <div className="card p-5">
-                <h2 className="text-2xl font-black text-[var(--brand-dark)]">Participações indisponíveis</h2>
-                <p className="mt-2 leading-7 text-[var(--muted)]">No momento, esta campanha não está recebendo novas aquisições de números. Para mais informações, use o botão de WhatsApp acima e fale com o Suporte.</p>
-              </div>
-            )}
+              <a
+                className="btn-secondary mt-4 !w-full"
+                href={supportHref}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MessageCircle className="h-4 w-4" /> Dúvidas? Fale com o Suporte
+              </a>
+            ) : null}
           </div>
+
+          {!canParticipate ? (
+            <div className="card p-5">
+              <h2 className="text-2xl font-black text-[var(--brand-dark)]">
+                Participações indisponíveis
+              </h2>
+              <p className="mt-2 leading-7 text-[var(--muted)]">
+                No momento, esta campanha não está recebendo novas aquisições de números.
+                Para mais informações, use o botão de WhatsApp e fale com o Suporte.
+              </p>
+            </div>
+          ) : null}
         </section>
       </main>
     </>

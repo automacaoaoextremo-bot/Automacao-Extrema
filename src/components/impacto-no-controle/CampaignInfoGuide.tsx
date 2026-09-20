@@ -11,6 +11,7 @@ type CampaignInfoGuideProps = {
   prizeDescription?: string | null;
   regulation?: string | null;
   supportHref: string;
+  showParticipationSteps?: boolean;
 };
 
 const participationSteps = [
@@ -38,6 +39,7 @@ export function CampaignInfoGuide({
   prizeDescription,
   regulation,
   supportHref,
+  showParticipationSteps = true,
 }: CampaignInfoGuideProps) {
   const [mode, setMode] = useState<GuideMode>(null);
   const [step, setStep] = useState(0);
@@ -72,10 +74,12 @@ export function CampaignInfoGuide({
   return (
     <>
       <div className="impacto-info-actions">
-        <button type="button" className="impacto-info-button destaque" onClick={openSteps}>
-          <span>Como participar</span>
-          <small>Veja o passo a passo</small>
-        </button>
+        {showParticipationSteps ? (
+          <button type="button" className="impacto-info-button destaque" onClick={openSteps}>
+            <span>Como participar</span>
+            <small>Veja o passo a passo</small>
+          </button>
+        ) : null}
 
         {hasPrizeInfo ? (
           <button type="button" className="impacto-info-button" onClick={() => setMode("prize")}>

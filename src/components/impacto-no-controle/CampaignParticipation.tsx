@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { HelpCircle, MessageCircle } from "@/components/impacto-no-controle/icons";
+import { MessageCircle } from "@/components/impacto-no-controle/icons";
 import { formatMoneyFromCents, normalizePhone } from "@/lib/impacto-no-controle/format";
 
 type Campaign = {
@@ -18,8 +18,19 @@ type Campaign = {
   ends_at?: string | null;
 };
 
-type NumberItem = { number: number; status: string; buyer_display_name: string | null };
-type Quota = { id: string; title: string; description: string | null; amount_cents: number; impact_qty: number | null };
+type NumberItem = {
+  number: number;
+  status: string;
+  buyer_display_name: string | null;
+};
+
+type Quota = {
+  id: string;
+  title: string;
+  description: string | null;
+  amount_cents: number;
+  impact_qty: number | null;
+};
 
 type ParticipationDraft = {
   selectedNumbers?: number[];
@@ -31,8 +42,26 @@ type ParticipationDraft = {
   updatedAt?: string;
 };
 
-export function CampaignParticipation({ campaign, numbers, quotas }: { campaign: Campaign; numbers: NumberItem[]; quotas: Quota[] }) {
+type WizardStep = "rules" | "numbers" | "details";
+
+type CampaignParticipationProps = {
+  campaign: Campaign;
+  numbers: NumberItem[];
+  quotas: Quota[];
+  regulation: string;
+  supportHref: string;
+};
+
+export function CampaignParticipation({
+  campaign,
+  numbers,
+  quotas,
+  regulation,
+  supportHref,
+}: CampaignParticipationProps) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<WizardStep>("rules");
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([]);
   const [selectedQuotas, setSelectedQuotas] = useState<Record<string, number>>({});
   const [name, setName] = useState("");
@@ -47,12 +76,20 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
   const draftRestoredRef = useRef(false);
 
   const quotasEnabled = quotas.length > 0;
-  const draftKey = useMemo(() => `impacto-participacao-rascunho-${campaign.slug}`, [campaign.slug]);
+  const draftKey = useMemo(
+    () => `impacto-participacao-rascunho-${campaign.slug}`,
+    [campaign.slug],
+  );
 
   const isOpen = useMemo(() => {
     if (campaign.status && campaign.status !== "active") return false;
-    const starts = campaign.starts_at ? new Date(campaign.starts_at).getTime() : null;
-    const ends = campaign.ends_at ? new Date(campaign.ends_at).getTime() : null;
+
+    const starts = campaign.starts_at
+      ? new Date(campaign.starts_at).getTime()
+      : null;
+    const ends = campaign.ends_at
+      ? new Date(campaign.ends_at).getTime()
+      : null;
 
     if (!starts && !ends) return true;
     if (currentTime === null) return false;
@@ -63,6 +100,7 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
   useEffect(() => {
     const updateClock = () => setCurrentTime(Date.now());
     updateClock();
+
     const timer = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -79,11 +117,22 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
       }
 
       const draft = JSON.parse(raw) as ParticipationDraft;
-      const availableNumbers = new Set(numbers.filter((item) => item.status === "available").map((item) => item.number));
-      const requestedNumbers = Array.isArray(draft.selectedNumbers) ? draft.selectedNumbers.filter((n) => Number.isFinite(n)) : [];
-      const restoredNumbers = requestedNumbers.filter((n) => availableNumbers.has(n)).sort((a, b) => a - b);
+      const availableNumbers = new Set(
+        numbers
+          .filter((item) => item.status === "available")
+          .map((item) => item.number),
+      );
+      const requestedNumbers = Array.isArray(draft.selectedNumbers)
+        ? draft.selectedNumbers.filter((number) => Number.isFinite(number))
+        : [];
+      const restoredNumbers = requestedNumbers
+        .filter((number) => availableNumbers.has(number))
+        .sort((left, right) => left - right);
       const unavailableCount = requestedNumbers.length - restoredNumbers.length;
-      const restoredQuotas = draft.selectedQuotas && typeof draft.selectedQuotas === "object" ? draft.selectedQuotas : {};
+      const restoredQuotas =
+        draft.selectedQuotas && typeof draft.selectedQuotas === "object"
+          ? draft.selectedQuotas
+          : {};
 
       setSelectedNumbers(restoredNumbers);
       setSelectedQuotas(quotasEnabled ? restoredQuotas : {});
@@ -92,13 +141,18 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
       setEmail(draft.email || "");
       setConsent(Boolean(draft.consent));
 
-      const hasDraft = restoredNumbers.length > 0 || Object.keys(restoredQuotas).length > 0 || Boolean(draft.name) || Boolean(draft.phone) || Boolean(draft.email);
+      const hasDraft =
+        restoredNumbers.length > 0 ||
+        Object.keys(restoredQuotas).length > 0 ||
+        Boolean(draft.name) ||
+        Boolean(draft.phone) ||
+        Boolean(draft.email);
 
       if (hasDraft) {
         setDraftNotice(
           unavailableCount > 0
-            ? "Restauramos sua seleção, mas alguns números escolhidos anteriormente não estão mais disponíveis. Confira os números atuais antes de reservar."
-            : "Restauramos sua seleção. Confira seus dados e toque em ‘Reservar números e gerar Pix’ para continuar."
+            ? "Restauramos sua seleção, mas alguns números escolhidos anteriormente não estão mais disponíveis. Confira os números atuais antes de continuar."
+            : "Restauramos sua seleção anterior. Confira os números e seus dados antes de reservar.",
         );
       }
     } catch {
@@ -111,7 +165,13 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
   useEffect(() => {
     if (!draftReady) return;
 
-    const hasDraftData = selectedNumbers.length > 0 || Object.keys(selectedQuotas).length > 0 || name.trim() || phone.trim() || email.trim() || consent;
+    const hasDraftData =
+      selectedNumbers.length > 0 ||
+      Object.keys(selectedQuotas).length > 0 ||
+      Boolean(name.trim()) ||
+      Boolean(phone.trim()) ||
+      Boolean(email.trim()) ||
+      consent;
 
     if (!hasDraftData) {
       window.localStorage.removeItem(draftKey);
@@ -129,29 +189,58 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
     };
 
     window.localStorage.setItem(draftKey, JSON.stringify(draft));
-  }, [consent, draftKey, draftReady, email, name, phone, quotasEnabled, selectedNumbers, selectedQuotas]);
+  }, [
+    consent,
+    draftKey,
+    draftReady,
+    email,
+    name,
+    phone,
+    quotasEnabled,
+    selectedNumbers,
+    selectedQuotas,
+  ]);
 
   const totalCents = useMemo(() => {
-    const numberAmount = selectedNumbers.length * campaign.number_price_cents;
+    const numberAmount =
+      selectedNumbers.length * campaign.number_price_cents;
     const quotaAmount = quotasEnabled
-      ? Object.entries(selectedQuotas).reduce((sum, [id, qty]) => {
-          const quota = quotas.find((q) => q.id === id);
-          return sum + (quota?.amount_cents || 0) * qty;
+      ? Object.entries(selectedQuotas).reduce((sum, [id, quantity]) => {
+          const quota = quotas.find((item) => item.id === id);
+          return sum + (quota?.amount_cents || 0) * quantity;
         }, 0)
       : 0;
+
     return numberAmount + quotaAmount;
-  }, [campaign.number_price_cents, quotas, quotasEnabled, selectedNumbers.length, selectedQuotas]);
+  }, [
+    campaign.number_price_cents,
+    quotas,
+    quotasEnabled,
+    selectedNumbers.length,
+    selectedQuotas,
+  ]);
 
   function toggleNumber(item: NumberItem) {
     if (item.status !== "available") return;
-    setSelectedNumbers((current) => current.includes(item.number) ? current.filter((n) => n !== item.number) : [...current, item.number].sort((a, b) => a - b));
+
+    setError(null);
+    setSelectedNumbers((current) =>
+      current.includes(item.number)
+        ? current.filter((number) => number !== item.number)
+        : [...current, item.number].sort((left, right) => left - right),
+    );
   }
 
-  function updateQuota(id: string, qty: number) {
+  function updateQuota(id: string, quantity: number) {
     setSelectedQuotas((current) => {
       const next = { ...current };
-      if (qty <= 0) delete next[id];
-      else next[id] = qty;
+
+      if (quantity <= 0) {
+        delete next[id];
+      } else {
+        next[id] = quantity;
+      }
+
       return next;
     });
   }
@@ -164,19 +253,73 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
     setEmail("");
     setConsent(false);
     setDraftNotice(null);
+    setError(null);
     window.localStorage.removeItem(draftKey);
+  }
+
+  function openWizard() {
+    setError(null);
+    setStep("rules");
+    setOpen(true);
+  }
+
+  function closeWizard() {
+    if (loading) return;
+    setError(null);
+    setOpen(false);
+  }
+
+  function continueToNumbers() {
+    setError(null);
+    setStep("numbers");
+  }
+
+  function continueToDetails() {
+    setError(null);
+
+    if (totalCents <= 0) {
+      setError(
+        quotasEnabled
+          ? "Escolha pelo menos um número ou uma cota solidária para continuar."
+          : "Escolha pelo menos um número para continuar.",
+      );
+      return;
+    }
+
+    setStep("details");
   }
 
   async function reserveNumbers() {
     setError(null);
 
-    if (!isOpen) return setError("Esta campanha ainda não está aberta ou já foi encerrada.");
-    if (totalCents <= 0) return setError(quotasEnabled ? "Escolha pelo menos um número ou uma cota solidária." : "Escolha pelo menos um número para participar do sorteio.");
-    if (!name.trim()) return setError("Informe seu nome.");
-    if (normalizePhone(phone).length < 10) return setError("Informe um celular válido com DDD.");
-    if (!consent) return setError("Confirme o aviso de uso dos dados para continuar.");
+    if (!isOpen) {
+      setError("Esta campanha ainda não está aberta ou já foi encerrada.");
+      return;
+    }
+    if (totalCents <= 0) {
+      setError(
+        quotasEnabled
+          ? "Escolha pelo menos um número ou uma cota solidária."
+          : "Escolha pelo menos um número para participar do sorteio.",
+      );
+      setStep("numbers");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Informe seu nome.");
+      return;
+    }
+    if (normalizePhone(phone).length < 10) {
+      setError("Informe um celular válido com DDD.");
+      return;
+    }
+    if (!consent) {
+      setError("Confirme o aviso de uso dos dados para continuar.");
+      return;
+    }
 
     setLoading(true);
+
     try {
       const response = await fetch("/api/impacto-no-controle/reservations", {
         method: "POST",
@@ -191,137 +334,324 @@ export function CampaignParticipation({ campaign, numbers, quotas }: { campaign:
         }),
       });
       const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Não foi possível reservar seus números.");
+
+      if (!response.ok) {
+        throw new Error(
+          json.error || "Não foi possível reservar seus números.",
+        );
+      }
 
       window.localStorage.removeItem(draftKey);
-      window.sessionStorage.setItem(`impacto-reserva-criada-${json.token}`, "1");
-      router.push(`/solucoes/impacto-no-controle/reserva/${json.token}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado.");
+      window.sessionStorage.setItem(
+        `impacto-reserva-criada-${json.token}`,
+        "1",
+      );
+      router.push(
+        `/solucoes/impacto-no-controle/reserva/${json.token}`,
+      );
+    } catch (currentError) {
+      setError(
+        currentError instanceof Error
+          ? currentError.message
+          : "Erro inesperado.",
+      );
       setLoading(false);
     }
   }
 
+  const modalTitle =
+    step === "rules"
+      ? "Regras da ação"
+      : step === "numbers"
+        ? "Escolha seus números"
+        : "Seus dados";
+
   return (
-    <div className="card p-5">
-      <h2 className="text-2xl font-black text-[var(--brand-dark)]">Participe da ação</h2>
-      <p className="mt-2 text-[var(--muted)]">
-        {quotasEnabled
-          ? "Escolha seu número para o sorteio da campanha. Depois, se desejar, aumente sua colaboração com cotas extras."
-          : "Escolha um ou mais números disponíveis para participar do sorteio da campanha."}
-      </p>
-
-      <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4 text-sm leading-6 text-[var(--brand-dark)]">
-        <div className="flex gap-3">
-          <HelpCircle className="mt-1 h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-extrabold">Como funciona</p>
-            <p className="mt-1">
-              1) Escolha seus números. 2) Informe seus dados. 3) Toque em Reservar números e gerar Pix. 4) Na próxima tela, salve o link da reserva no WhatsApp. 5) Faça o Pix e salve o comprovante. 6) Volte pelo link da reserva e envie o comprovante. A organização irá conferir o pagamento e confirmar sua participação.
-            </p>
-            <a className="mt-3 inline-flex items-center gap-2 font-extrabold underline" href="https://wa.me/5519989848246?text=Ol%C3%A1%21%20Estou%20com%20d%C3%BAvida%20para%20participar%20de%20uma%20a%C3%A7%C3%A3o%20no%20Impacto%20no%20Controle.%20Gostaria%20de%20falar%20com%20o%20Suporte." target="_blank" rel="noreferrer">
-              <MessageCircle className="h-4 w-4" /> Preciso falar com o Suporte no WhatsApp
-            </a>
-          </div>
-        </div>
-      </div>
-
-      {draftNotice ? (
-        <div className="mt-4 rounded-2xl border-2 border-[#f59e0b] bg-[#fff1a8] p-4 text-sm font-extrabold leading-6 text-[#3f2a00]" role="status" aria-live="polite">
-          <p>{draftNotice}</p>
-          <button type="button" className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-black text-[#7c2d12] shadow-sm" onClick={clearDraft}>
-            Limpar seleção e começar novamente
-          </button>
-        </div>
-      ) : null}
+    <div id="participar" className="impacto-participation-root scroll-mt-28">
+      <button
+        type="button"
+        className="btn-primary impacto-participate-trigger"
+        onClick={openWizard}
+        disabled={!isOpen}
+      >
+        PARTICIPE
+      </button>
 
       {!isOpen ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Esta campanha não está aberta para novas aquisições neste momento.
-        </div>
+        <p className="impacto-participation-closed">
+          Esta campanha não está aberta para novas participações neste momento.
+        </p>
       ) : null}
 
-      <div className="mt-6">
-        <h3 className="font-extrabold text-[var(--brand-dark)]">1. Escolha seus números para o sorteio da campanha</h3>
-        <p className="mt-1 text-sm text-[var(--muted)]">Cada número custa <strong>{formatMoneyFromCents(campaign.number_price_cents)}</strong>. Números claros estão disponíveis; números escuros já estão reservados ou confirmados.</p>
-        <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10">
-          {numbers.map((item) => (
-            <button
-              key={item.number}
-              type="button"
-              onClick={() => toggleNumber(item)}
-              className={`number-button ${selectedNumbers.includes(item.number) ? "selected" : ""} ${item.status === "confirmed" ? "confirmed unavailable" : ""} ${item.status !== "available" && item.status !== "confirmed" ? "pending unavailable" : ""}`}
-              disabled={!isOpen || item.status !== "available"}
-              title={item.buyer_display_name || undefined}
-            >
-              {item.number.toString().padStart(2, "0")}
-              {item.buyer_display_name ? <small>{item.buyer_display_name}</small> : null}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {quotasEnabled ? (
-        <div className="mt-7 border-t border-[var(--border)] pt-6">
-          <span className="badge">Colaboração extra opcional</span>
-          <h3 className="mt-3 font-extrabold text-[var(--brand-dark)]">2. Quer aumentar sua colaboração?</h3>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            A participação no sorteio da campanha é feita pelos números de <strong>{formatMoneyFromCents(campaign.number_price_cents)}</strong>.
-            As cotas abaixo são opcionais e servem para ampliar o impacto da ação.
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {quotas.map((quota) => (
-              <div key={quota.id} className="rounded-2xl border border-[var(--border)] bg-white p-4">
-                <p className="font-extrabold">{quota.title}</p>
-                <p className="mt-1 text-sm text-[var(--muted)]">{quota.description}</p>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <strong>{formatMoneyFromCents(quota.amount_cents)}</strong>
-                  <select className="input max-w-24" disabled={!isOpen} value={selectedQuotas[quota.id] || 0} onChange={(e) => updateQuota(quota.id, Number(e.target.value))}>
-                    {[0, 1, 2, 3, 4, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
+      {open ? (
+        <div
+          className="impacto-participation-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="impacto-participation-title"
+        >
+          <div className="impacto-participation-card">
+            <div className="impacto-participation-header">
+              <div>
+                <p className="impacto-guide-kicker">GUIA DA RIFA</p>
+                <h2 id="impacto-participation-title">{modalTitle}</h2>
               </div>
-            ))}
+
+              <button
+                type="button"
+                className="impacto-guide-close"
+                onClick={closeWizard}
+                disabled={loading}
+              >
+                FECHAR
+              </button>
+            </div>
+
+            <div className="impacto-participation-body">
+              {draftNotice && step !== "rules" ? (
+                <div
+                  className="impacto-participation-draft"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <p>{draftNotice}</p>
+                  <button type="button" onClick={clearDraft}>
+                    Limpar seleção e começar novamente
+                  </button>
+                </div>
+              ) : null}
+
+              {step === "rules" ? (
+                <div className="impacto-participation-rules">
+                  <p className="whitespace-pre-line">{regulation}</p>
+                </div>
+              ) : null}
+
+              {step === "numbers" ? (
+                <>
+                  <div className="impacto-participation-step-heading">
+                    <strong>1. Escolha seus números para o sorteio da campanha</strong>
+                    <span>
+                      Cada número custa{" "}
+                      <strong>
+                        {formatMoneyFromCents(campaign.number_price_cents)}
+                      </strong>
+                      . Números claros estão disponíveis; números escuros já estão
+                      reservados ou confirmados.
+                    </span>
+                  </div>
+
+                  <div className="impacto-participation-number-grid">
+                    {numbers.map((item) => (
+                      <button
+                        key={item.number}
+                        type="button"
+                        onClick={() => toggleNumber(item)}
+                        className={`number-button ${
+                          selectedNumbers.includes(item.number)
+                            ? "selected"
+                            : ""
+                        } ${
+                          item.status === "confirmed"
+                            ? "confirmed unavailable"
+                            : ""
+                        } ${
+                          item.status !== "available" &&
+                          item.status !== "confirmed"
+                            ? "pending unavailable"
+                            : ""
+                        }`}
+                        disabled={!isOpen || item.status !== "available"}
+                        title={item.buyer_display_name || undefined}
+                      >
+                        {item.number.toString().padStart(2, "0")}
+                      </button>
+                    ))}
+                  </div>
+
+                  {quotasEnabled ? (
+                    <div className="impacto-participation-quotas">
+                      <strong>Colaboração extra opcional</strong>
+                      <p>
+                        Se desejar, você também pode ampliar sua colaboração
+                        com cotas extras.
+                      </p>
+                      <div className="impacto-participation-quota-list">
+                        {quotas.map((quota) => (
+                          <label key={quota.id}>
+                            <span>
+                              <strong>{quota.title}</strong>
+                              <small>
+                                {formatMoneyFromCents(quota.amount_cents)}
+                              </small>
+                            </span>
+                            <select
+                              className="input"
+                              disabled={!isOpen}
+                              value={selectedQuotas[quota.id] || 0}
+                              onChange={(event) =>
+                                updateQuota(
+                                  quota.id,
+                                  Number(event.target.value),
+                                )
+                              }
+                            >
+                              {[0, 1, 2, 3, 4, 5, 10].map((quantity) => (
+                                <option key={quantity} value={quantity}>
+                                  {quantity}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="impacto-participation-total">
+                    <p>Total da participação</p>
+                    <strong>{formatMoneyFromCents(totalCents)}</strong>
+                    <span>
+                      Números:{" "}
+                      {selectedNumbers.length
+                        ? selectedNumbers.join(", ")
+                        : "nenhum"}
+                    </span>
+                  </div>
+                </>
+              ) : null}
+
+              {step === "details" ? (
+                <>
+                  <div className="impacto-participation-fields">
+                    <div>
+                      <label className="label" htmlFor="impacto-participant-name">
+                        Nome *
+                      </label>
+                      <input
+                        id="impacto-participant-name"
+                        className="input"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="Seu nome"
+                        autoComplete="name"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        className="label"
+                        htmlFor="impacto-participant-phone"
+                      >
+                        Celular com DDD *
+                      </label>
+                      <input
+                        id="impacto-participant-phone"
+                        className="input"
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                        placeholder="(19) 99999-9999"
+                        inputMode="tel"
+                        autoComplete="tel"
+                      />
+                    </div>
+
+                    <div className="impacto-participation-email">
+                      <label
+                        className="label"
+                        htmlFor="impacto-participant-email"
+                      >
+                        E-mail opcional
+                      </label>
+                      <input
+                        id="impacto-participant-email"
+                        className="input"
+                        type="email"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="seuemail@exemplo.com"
+                        autoComplete="email"
+                      />
+                    </div>
+                  </div>
+
+                  <label className="impacto-participation-consent">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={(event) => setConsent(event.target.checked)}
+                    />
+                    <span>{campaign.data_consent_text}</span>
+                  </label>
+
+                  <div className="impacto-participation-next">
+                    <strong>Próximo passo</strong>
+                    <p>
+                      Ao reservar, seus números ficam indisponíveis
+                      temporariamente para outras pessoas. Na próxima tela você
+                      verá o QR Code, o Pix copia e cola e o envio do
+                      comprovante.
+                    </p>
+                  </div>
+                </>
+              ) : null}
+
+              {error ? (
+                <div
+                  className="impacto-participation-error"
+                  role="alert"
+                >
+                  {error}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="impacto-participation-footer">
+              <a
+                className="btn-secondary"
+                href={supportHref}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MessageCircle className="h-4 w-4" /> TIRAR DÚVIDA
+              </a>
+
+              {step === "rules" ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={continueToNumbers}
+                >
+                  CONTINUAR
+                </button>
+              ) : null}
+
+              {step === "numbers" ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={continueToDetails}
+                >
+                  CONTINUAR
+                </button>
+              ) : null}
+
+              {step === "details" ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={loading || !isOpen}
+                  onClick={reserveNumbers}
+                >
+                  {loading
+                    ? "Reservando..."
+                    : "Reservar números e gerar Pix"}
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
-
-      <div className="mt-7 rounded-2xl bg-[#eef5ec] p-4">
-        <p className="text-sm font-bold text-[var(--muted)]">Total da participação</p>
-        <p className="mt-1 text-3xl font-black text-[var(--brand-dark)]">{formatMoneyFromCents(totalCents)}</p>
-        <p className="mt-1 text-sm text-[var(--muted)]">Números: {selectedNumbers.length ? selectedNumbers.join(", ") : "nenhum"}</p>
-      </div>
-
-      <div className="mt-7 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label">Nome *</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" />
-        </div>
-        <div>
-          <label className="label">Celular com DDD *</label>
-          <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(19) 99999-9999" />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">E-mail opcional</label>
-          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" />
-        </div>
-      </div>
-
-      <label className="mt-4 flex gap-3 rounded-2xl border border-[var(--border)] bg-white p-4 text-sm leading-6 text-[var(--muted)]">
-        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-1" />
-        <span>{campaign.data_consent_text}</span>
-      </label>
-
-      <div className="mt-6 rounded-2xl border-2 border-[var(--brand)] bg-white p-4">
-        <p className="text-sm font-extrabold text-[var(--brand-dark)]">Próximo passo</p>
-        <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-          Ao reservar, seus números ficam indisponíveis temporariamente para outras pessoas. Na próxima tela você verá o QR Code, o Pix copia e cola e o envio do comprovante.
-        </p>
-        {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-        <button className="btn-primary mt-4" disabled={loading || !isOpen} onClick={reserveNumbers}>
-          {loading ? "Reservando..." : "Reservar números e gerar Pix"}
-        </button>
-      </div>
     </div>
   );
 }
