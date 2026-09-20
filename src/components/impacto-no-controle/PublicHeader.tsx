@@ -4,12 +4,14 @@ type PublicHeaderProps = {
   showAccessLinks?: boolean;
   brandName?: string | null;
   brandLogoUrl?: string | null;
+  brandHref?: string;
 };
 
 export function PublicHeader({
   showAccessLinks = true,
   brandName,
   brandLogoUrl,
+  brandHref = "/solucoes/impacto-no-controle",
 }: PublicHeaderProps) {
   const resolvedBrandName = brandName?.trim() || "Impacto no Controle";
 
@@ -18,7 +20,7 @@ export function PublicHeader({
       <div className="container-page public-header py-2">
         <div className="public-header-main">
           <Link
-            href="/solucoes/impacto-no-controle"
+            href={brandHref}
             className="brand-link font-extrabold text-[var(--brand-dark)]"
             aria-label={`Ir para a página inicial do ${resolvedBrandName}`}
           >

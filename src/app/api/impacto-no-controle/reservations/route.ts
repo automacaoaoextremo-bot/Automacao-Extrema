@@ -164,7 +164,7 @@ export async function POST(request: Request) {
         selected_numbers: uniqueNumbers,
         selected_quotas: quotaArray,
         reservation_expires_at: reservationExpiresAt,
-        note: "Reserva criada. Aguardando envio do comprovante do Pix.",
+        note: "Reserva criada. Aguardando pagamento e envio do comprovante. O pagamento pode ser por Pix ou por outra forma combinada com o Suporte.",
       })
       .select("id, acompanhamento_token")
       .single();

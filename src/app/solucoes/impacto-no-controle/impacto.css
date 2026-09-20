@@ -201,6 +201,15 @@
   cursor: pointer;
 }
 
+.impacto-intro-purpose {
+  margin: 0;
+  padding: 12px 20px 0;
+  color: var(--brand-dark);
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .impacto-intro-steps {
   display: grid;
   gap: 8px;
@@ -510,6 +519,12 @@
     font-size: 0.7rem;
   }
 
+  .impacto-intro-purpose {
+    padding: 8px 14px 0;
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+
   .impacto-intro-steps {
     gap: 6px;
     padding: 10px 14px;
@@ -584,6 +599,20 @@
     width: 100%;
     padding: 10px 8px;
     font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .impacto-no-controle .impacto-progress-summary {
+    gap: 10px;
+  }
+
+  .impacto-no-controle .impacto-progress-summary p.text-3xl {
+    font-size: 1.65rem;
+  }
+
+  .impacto-no-controle .impacto-progress-summary p.text-2xl {
+    font-size: 1.35rem;
   }
 }
 
@@ -921,6 +950,17 @@
   min-height: 42px;
   padding: 9px 12px;
   font-size: 0.78rem;
+}
+
+.impacto-no-controle .impacto-progress-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.impacto-no-controle .impacto-progress-summary > div:last-child {
+  text-align: right;
 }
 
 .impacto-no-controle .impacto-progress-card {

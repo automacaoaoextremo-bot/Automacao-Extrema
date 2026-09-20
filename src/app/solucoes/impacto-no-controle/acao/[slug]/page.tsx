@@ -7,7 +7,6 @@ import { formatMoneyFromCents } from "@/lib/impacto-no-controle/format";
 import { CampaignParticipation } from "@/components/impacto-no-controle/CampaignParticipation";
 import { CampaignIntroModal } from "@/components/impacto-no-controle/CampaignIntroModal";
 import { CampaignGallery } from "@/components/impacto-no-controle/CampaignGallery";
-import { CampaignInfoGuide } from "@/components/impacto-no-controle/CampaignInfoGuide";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -23,11 +22,11 @@ function publicRegulationText(campaign: CampaignPublicData) {
   const numberCount = Number(campaign.number_count || 0);
   const numberPrice = Number(campaign.number_price_cents || 0);
   const dynamicRule = numberCount > 0 && numberPrice > 0
-    ? `Ação solidária com ${numberCount} números a ${formatMoneyFromCents(numberPrice)} cada. A participação só será confirmada após conferência do Pix pela organização. Caso algum número não seja aprovado, ele poderá voltar a ficar disponível.`
-    : "A participação só será confirmada após conferência do Pix pela organização.";
+    ? `Ação solidária com ${numberCount} números a ${formatMoneyFromCents(numberPrice)} cada. A participação só será confirmada após conferência do pagamento/comprovante pela organização. O pagamento pode ser feito por Pix ou por outra forma combinada com o Suporte. Caso algum número não seja aprovado, ele poderá voltar a ficar disponível.`
+    : "A participação só será confirmada após conferência do pagamento/comprovante pela organização. O pagamento pode ser feito por Pix ou por outra forma combinada com o Suporte.";
 
   const extra = String(campaign.regulation_text || "")
-    .replace(/Ação solidária com\s+\d+\s+números\s+a\s+R\$\s*[\d.,]+\s+cada\.\s*A participação só será confirmada após conferência do Pix pela organização\.\s*Caso algum número não seja aprovado, ele poderá voltar a ficar disponível\.?/gi, "")
+    .replace(/Ação solidária com\s+\d+\s+números\s+a\s+R\$\s*[\d.,]+\s+cada\.\s*A participação só será confirmada após conferência (?:do Pix|do pagamento\/comprovante) pela organização\.(?:\s*O pagamento pode ser feito por Pix ou por outra forma combinada com o Suporte\.)?\s*Caso algum número não seja aprovado, ele poderá voltar a ficar disponível\.?/gi, "")
     .replace(/A campanha encerra-se em\s*\d{2}\/\d{2}\/\d{4}\.\s*O sorteio será feito em\s*\d{2}\/\d{2}\/\d{4}[^\n.]*(?:\.|$)/gi, "")
     .replace(/\s*Para ações públicas ou de maior alcance, recomenda-se validar as regras aplicáveis a sorteios, promoções e arrecadações\.?/gi, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -134,6 +133,7 @@ export default async function CampaignPage({ params }: PageProps) {
         showAccessLinks={false}
         brandName={campaign.client_name}
         brandLogoUrl={campaign.client_logo_url}
+        brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
       />
       <main className="container-page pb-6 pt-3 md:pb-10 md:pt-4" style={campaignTheme}>
         <CampaignIntroModal
@@ -141,6 +141,7 @@ export default async function CampaignPage({ params }: PageProps) {
           campaignTitle={campaign.title}
           enabled={Boolean(campaign.intro_modal_enabled)}
           title={campaign.intro_modal_title}
+          body={campaign.intro_modal_body}
           numberCount={campaign.number_count}
           numberPriceCents={campaign.number_price_cents}
         />
@@ -204,7 +205,7 @@ export default async function CampaignPage({ params }: PageProps) {
           </div>
 
           <div className="card impacto-progress-card p-5">
-            <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="impacto-progress-summary">
               <div>
                 <p className="text-sm font-bold text-[var(--muted)]">
                   Andamento da arrecadação
@@ -240,27 +241,21 @@ export default async function CampaignPage({ params }: PageProps) {
             </p>
           </div>
 
-          <div className="card p-4 sm:p-5">
-            <CampaignInfoGuide
-              story={campaign.story}
-              prizeTitle={campaign.prize_title}
-              prizeDescription={campaign.prize_description}
-              regulation={regulation}
-              supportHref={supportHref}
-              showParticipationSteps={false}
-            />
-
-            {canParticipate ? (
+          {canParticipate ? (
+            <div className="card p-4 sm:p-5">
+              <p className="text-center text-sm leading-6 text-[var(--muted)]">
+                Precisa de ajuda com a participação, pagamento por Pix ou quer combinar outra forma de pagamento?
+              </p>
               <a
-                className="btn-secondary mt-4 !w-full"
+                className="btn-secondary mt-3 !w-full"
                 href={supportHref}
                 target="_blank"
                 rel="noreferrer"
               >
                 <MessageCircle className="h-4 w-4" /> Dúvidas? Fale com o Suporte
               </a>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {!canParticipate ? (
             <div className="card p-5">

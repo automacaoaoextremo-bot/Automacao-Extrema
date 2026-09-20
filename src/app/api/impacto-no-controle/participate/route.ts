@@ -147,7 +147,7 @@ function buildAcquisitionEmailContent(input: {
 }) {
   const nText = numbersText(input.numbers);
   const qText = quotasText(input.quotas);
-  const statusText = "aguardando conferência do Pix pela organização";
+  const statusText = "aguardando conferência do pagamento/comprovante pela organização";
 
   const subject = input.isAdmin ? `Nova aquisição registrada - ${input.campaignTitle}` : `Participação registrada - ${input.campaignTitle}`;
   const intro = input.isAdmin ? `Uma nova aquisição foi registrada na campanha ${input.campaignTitle}.` : `Sua participação foi registrada na campanha ${input.campaignTitle}.`;
@@ -243,6 +243,9 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const reservationToken = String(formData.get("reservation_token") || "").trim();
     const proof = formData.get("proof");
+    const paymentMethod = String(formData.get("payment_method") || "pix").trim().toLowerCase() === "other"
+      ? "other"
+      : "pix";
 
     if (!reservationToken) {
       return NextResponse.json({ error: "Fluxo atualizado: primeiro reserve os números e depois envie o comprovante pela página da reserva." }, { status: 400 });
@@ -305,14 +308,20 @@ export async function POST(request: Request) {
     const pixDefaults = impactoPixDefaults();
     const expectedPixKey = campaign?.pix_key || client?.pix_key || pixDefaults.key;
     const expectedReceiver = campaign?.pix_receiver_name || client?.pix_receiver_name || pixDefaults.receiverName || client?.name || "";
-    const proofValidation = validateProofFile({
-      buffer: proofBuffer,
-      fileName: proof.name,
-      mimeType: proof.type || "application/octet-stream",
-      expectedAmountCents: contribution.amount_cents,
-      expectedPixKey,
-      expectedReceiver,
-    });
+    const proofValidation = paymentMethod === "other"
+      ? {
+          ok: true,
+          manualReview: true,
+          warning: "Pagamento realizado por outra forma combinada com o Suporte. O comprovante seguirá para conferência manual da organização.",
+        }
+      : validateProofFile({
+          buffer: proofBuffer,
+          fileName: proof.name,
+          mimeType: proof.type || "application/octet-stream",
+          expectedAmountCents: contribution.amount_cents,
+          expectedPixKey,
+          expectedReceiver,
+        });
 
     if (!proofValidation.ok) {
       return NextResponse.json({ error: proofValidation.warning }, { status: 400 });
@@ -330,9 +339,11 @@ export async function POST(request: Request) {
         status: "pending_approval",
         proof_file_path: filePath,
         proof_file_hash: fileHash,
-        note: proofValidation.manualReview
-          ? "Comprovante enviado. Validação automática inconclusiva; seguir para conferência manual."
-          : "Comprovante enviado e passou pela validação automática inicial.",
+        note: paymentMethod === "other"
+          ? "Comprovante enviado para pagamento por outra forma combinada com o Suporte; seguir para conferência manual."
+          : proofValidation.manualReview
+            ? "Comprovante enviado. Validação automática inconclusiva; seguir para conferência manual."
+            : "Comprovante enviado e passou pela validação automática inicial.",
       })
       .eq("id", contribution.id);
 
@@ -378,9 +389,10 @@ export async function POST(request: Request) {
       token: contribution.acompanhamento_token,
       email: emailStatus,
       proof_validation: proofValidation.manualReview ? "manual_review" : "validated",
+      payment_method: paymentMethod,
       message: proofValidation.manualReview
         ? "Comprovante enviado. Ele seguirá para conferência manual da organização."
-        : "Comprovante enviado. Ele passou pela validação inicial e a organização irá conferir o Pix.",
+        : "Comprovante enviado. Ele passou pela validação inicial e a organização irá conferir o pagamento.",
     });
   } catch (error) {
     console.error(error);

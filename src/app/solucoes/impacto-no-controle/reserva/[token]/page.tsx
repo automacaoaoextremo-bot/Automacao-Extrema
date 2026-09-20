@@ -83,7 +83,12 @@ export default async function ReservationPage({ params }: PageProps) {
   if (data.status === "pending_approval" || data.status === "approved") {
     return (
       <>
-        <PublicHeader showAccessLinks={false} />
+        <PublicHeader
+          showAccessLinks={false}
+          brandName={client.name}
+          brandLogoUrl={client.logo_url}
+          brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
+        />
         <main className="container-page py-4 md:py-6" style={theme}>
           <div className="card mx-auto max-w-2xl p-6 text-center" style={{ borderColor }}>
             <h1 className="text-3xl font-black" style={{ color: primaryColor }}>Comprovante já enviado</h1>
@@ -98,7 +103,12 @@ export default async function ReservationPage({ params }: PageProps) {
   if (data.status !== "awaiting_payment") {
     return (
       <>
-        <PublicHeader showAccessLinks={false} />
+        <PublicHeader
+          showAccessLinks={false}
+          brandName={client.name}
+          brandLogoUrl={client.logo_url}
+          brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
+        />
         <main className="container-page py-4 md:py-6" style={theme}>
           <div className="card mx-auto max-w-2xl p-6 text-center" style={{ borderColor }}>
             <h1 className="text-3xl font-black" style={{ color: primaryColor }}>Reserva expirada ou indisponível</h1>
@@ -112,7 +122,12 @@ export default async function ReservationPage({ params }: PageProps) {
 
   return (
     <>
-      <PublicHeader showAccessLinks={false} />
+      <PublicHeader
+        showAccessLinks={false}
+        brandName={client.name}
+        brandLogoUrl={client.logo_url}
+        brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
+      />
       <main className="container-page py-4 md:py-6" style={theme}>
         <ReservationPayment
           reservation={{

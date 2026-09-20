@@ -56,7 +56,7 @@ function campaignPublicUrl(slug: string) {
 
 const contributionStatusLabel: Record<string, string> = {
   awaiting_payment: "aguardando pagamento/comprovante",
-  pending_approval: "aguardando conferência do Pix",
+  pending_approval: "aguardando conferência do pagamento",
   approved: "pagamento aprovado",
   rejected: "pagamento não aprovado",
   canceled: "cancelado",
@@ -90,6 +90,11 @@ export function CampaignDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentTime, setCurrentTime] = useState<number | null>(null);
+  const [proofTarget, setProofTarget] = useState<any | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPaymentMethod, setProofPaymentMethod] = useState<"pix" | "other">("pix");
+  const [proofNote, setProofNote] = useState("");
+  const [proofSaving, setProofSaving] = useState(false);
 
   const token = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -238,6 +243,94 @@ export function CampaignDetailClient({ id }: { id: string }) {
     await load();
   }
 
+  function openProofRegistration(contribution: any) {
+    setProofTarget(contribution);
+    setProofFile(null);
+    setProofPaymentMethod("pix");
+    setProofNote("");
+  }
+
+  function closeProofRegistration() {
+    if (proofSaving) return;
+    setProofTarget(null);
+    setProofFile(null);
+    setProofNote("");
+  }
+
+  async function registerProof() {
+    if (!proofTarget) return;
+    if (!proofFile) {
+      alert("Selecione o comprovante que será registrado.");
+      return;
+    }
+
+    setProofSaving(true);
+
+    try {
+      const accessToken = await token();
+      const body = new FormData();
+      body.append("proof", proofFile);
+      body.append("payment_method", proofPaymentMethod);
+      body.append("note", proofNote);
+
+      const res = await fetch(
+        `/api/impacto-no-controle/admin/contributions/${proofTarget.id}/proof`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body,
+        },
+      );
+      const json = await res.json();
+
+      if (!res.ok) {
+        alert(json.error || "Erro ao registrar comprovante.");
+        return;
+      }
+
+      setProofTarget(null);
+      setProofFile(null);
+      setProofPaymentMethod("pix");
+      setProofNote("");
+      await load();
+    } finally {
+      setProofSaving(false);
+    }
+  }
+
+  async function deleteReservation(contribution: any) {
+    const numbers = contribution.selected_numbers?.length
+      ? contribution.selected_numbers.map((n: number) => String(n).padStart(2, "0")).join(", ")
+      : "sem números";
+
+    const confirmed = window.confirm(
+      `Excluir a reserva de ${contribution.participant_name}?\n\n` +
+        `Status: ${contributionStatusLabel[contribution.status] || contribution.status}\n` +
+        `Valor: ${formatMoneyFromCents(contribution.amount_cents)}\n` +
+        `Números: ${numbers}\n\n` +
+        "Os números serão liberados novamente. Esta ação é permitida apenas para reservas aguardando pagamento/comprovante.",
+    );
+
+    if (!confirmed) return;
+
+    const accessToken = await token();
+    const res = await fetch(
+      `/api/impacto-no-controle/admin/contributions/${contribution.id}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+    const json = await res.json();
+
+    if (!res.ok) {
+      alert(json.error || "Erro ao excluir reserva.");
+      return;
+    }
+
+    await load();
+  }
+
   async function openProof(path: string) {
     const accessToken = await token();
     const res = await fetch(`/api/impacto-no-controle/admin/proof-url?path=${encodeURIComponent(path)}`, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -368,6 +461,16 @@ export function CampaignDetailClient({ id }: { id: string }) {
                       <td>{c.proof_file_path ? <button className="btn-secondary !w-auto !py-2" onClick={() => openProof(c.proof_file_path)}>Abrir</button> : "-"}</td>
                       <td className="flex flex-wrap gap-2">
                         <button className="btn-secondary !w-auto !py-2" onClick={() => copyAcquisitionWhatsApp(c)}>Copiar WhatsApp</button>
+                        {["awaiting_payment", "pending_approval"].includes(c.status) ? (
+                          <button className="btn-secondary !w-auto !py-2" onClick={() => openProofRegistration(c)}>
+                            {c.proof_file_path ? "Substituir comprovante" : "Registrar comprovante"}
+                          </button>
+                        ) : null}
+                        {c.status === "awaiting_payment" ? (
+                          <button className="btn-secondary !w-auto !py-2 !border-red-300 !text-red-700" onClick={() => deleteReservation(c)}>
+                            Excluir reserva
+                          </button>
+                        ) : null}
                         {c.status === "pending_approval" ? <button className="btn-primary !w-auto !py-2" onClick={() => approve(c.id)}>Aprovar</button> : null}
                         {c.status === "pending_approval" ? <button className="btn-secondary !w-auto !py-2" onClick={() => reject(c.id)}>Rejeitar</button> : null}
                       </td>
@@ -405,6 +508,67 @@ export function CampaignDetailClient({ id }: { id: string }) {
               })}
             </div>
           </section>
+        </div>
+      ) : null}
+
+      {proofTarget ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-3" role="dialog" aria-modal="true">
+          <div className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[#fffdf7] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-[var(--brand)]">Gestão</p>
+                <h2 className="mt-1 text-2xl font-black text-[var(--brand-dark)]">Registrar comprovante</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {proofTarget.participant_name} • {formatMoneyFromCents(proofTarget.amount_cents)}
+                </p>
+              </div>
+              <button type="button" className="btn-secondary !w-auto !py-2" onClick={closeProofRegistration} disabled={proofSaving}>
+                FECHAR
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="label">Forma de pagamento</label>
+                <select
+                  className="input"
+                  value={proofPaymentMethod}
+                  onChange={(event) => setProofPaymentMethod(event.target.value === "other" ? "other" : "pix")}
+                >
+                  <option value="pix">Pix</option>
+                  <option value="other">Outra forma combinada com o Suporte</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Comprovante *</label>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  onChange={(event) => setProofFile(event.target.files?.[0] || null)}
+                />
+              </div>
+
+              <div>
+                <label className="label">Observação da Gestão (opcional)</label>
+                <textarea
+                  className="input min-h-24"
+                  value={proofNote}
+                  onChange={(event) => setProofNote(event.target.value)}
+                  placeholder="Ex.: pagamento em dinheiro combinado com o Suporte."
+                />
+              </div>
+
+              <p className="rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4 text-sm leading-6 text-[var(--muted)]">
+                Ao registrar o comprovante, a participação passa para <strong>aguardando conferência do pagamento</strong>. Os números permanecem reservados para a conferência da organização.
+              </p>
+            </div>
+
+            <button type="button" className="btn-primary mt-5" onClick={registerProof} disabled={proofSaving}>
+              {proofSaving ? "Registrando..." : "Registrar comprovante"}
+            </button>
+          </div>
         </div>
       ) : null}
     </AdminShell>

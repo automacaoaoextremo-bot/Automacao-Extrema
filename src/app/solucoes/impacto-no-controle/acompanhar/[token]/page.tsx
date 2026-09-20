@@ -85,7 +85,7 @@ export default async function TrackPage({ params }: PageProps) {
 
   const statusLabel: Record<string, string> = {
     awaiting_payment: "Aguardando pagamento e envio do comprovante",
-    pending_approval: "Aguardando conferência do Pix",
+    pending_approval: "Aguardando conferência do pagamento",
     approved: "Pagamento aprovado",
     rejected: "Pagamento não aprovado",
     canceled: "Cancelado",
@@ -138,7 +138,7 @@ export default async function TrackPage({ params }: PageProps) {
               {data.campaign_title}
             </h1>
             <p className="mt-3 max-w-2xl leading-7 text-[var(--muted)]">
-              Olá, {data.participant_name}. Aqui você acompanha sua participação, o status do Pix e os números escolhidos.
+              Olá, {data.participant_name}. Aqui você acompanha sua participação, o status do pagamento/comprovante e os números escolhidos.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">

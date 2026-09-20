@@ -120,7 +120,7 @@ export default async function ThankYouPage({ params }: PageProps) {
   });
   const statusLabel: Record<string, string> = {
     awaiting_payment: "Aguardando pagamento e envio do comprovante",
-    pending_approval: "Aguardando conferência do Pix",
+    pending_approval: "Aguardando conferência do pagamento",
     approved: "Pagamento aprovado",
     rejected: "Pagamento não aprovado",
     canceled: "Cancelado",
@@ -167,7 +167,7 @@ export default async function ThankYouPage({ params }: PageProps) {
               Sua participação foi registrada.
             </h1>
             <p className="mx-auto mt-3 max-w-xl leading-7 text-[var(--muted)]">
-              A organização da {data.client_name} irá conferir o Pix e confirmar o pagamento. Salve esta página para acompanhar tudo com facilidade.
+              A organização da {data.client_name} irá conferir o pagamento/comprovante e confirmar a participação. Salve esta página para acompanhar tudo com facilidade.
             </p>
           </div>
 

@@ -4,10 +4,10 @@ import { PublicHeader } from "@/components/impacto-no-controle/PublicHeader";
 import { InterestSelector } from "@/components/impacto-no-controle/landing/InterestSelector";
 
 const actionTypes: Array<[LucideIcon, string, string, string]> = [
-  [Trophy, "Rifa / ação com números", "A pessoa escolhe números disponíveis, envia Pix e comprovante.", "Dá velocidade, meta previsível e fácil divulgação por WhatsApp."],
+  [Trophy, "Rifa / ação com números", "A pessoa escolhe números disponíveis, paga por Pix ou por outra forma combinada com o Suporte e envia o comprovante.", "Dá velocidade, meta previsível e fácil divulgação por WhatsApp."],
   [HeartHandshake, "Cotas solidárias", "Cotas como “1 kg de amor”, “5 kg de amor” ou valor livre.", "Transforma dinheiro em impacto concreto e emociona mais do que apenas pedir doação."],
   [PiggyBank, "Vaquinha", "Campanha com meta aberta, cotas sugeridas e barra de progresso.", "Boa para causas sem prêmio, com transparência e prestação de contas."],
-  [MessageCircle, "Leilão beneficente", "Lances com horário final, incremento mínimo e confirmação por Pix.", "Valoriza itens simbólicos e aumenta engajamento no grupo."],
+  [MessageCircle, "Leilão beneficente", "Lances com horário final, incremento mínimo e confirmação do pagamento.", "Valoriza itens simbólicos e aumenta engajamento no grupo."],
   [ShieldCheck, "Repasse fixo ou percentual", "Parte de uma venda, evento ou serviço é destinada à causa.", "Permite parcerias com empresas, bazares e ações recorrentes."],
   [Smartphone, "Compra direta de itens", "Participante registra doação de ração, cesta, fralda ou outro item.", "Inclui quem prefere doar produto em vez de dinheiro."],
 ];
@@ -23,7 +23,7 @@ export default function Home() {
               Transforme boas intenções em impacto organizado e transparente.
             </h1>
             <p className="mt-5 text-lg leading-8 text-[var(--muted)]">
-              Plataforma para ONGs, centros, grupos voluntários e empresas criarem ações com números, cotas, vaquinhas, Pix, comprovantes, gestão, mensagens prontas e prestação de contas.
+              Plataforma para ONGs, centros, grupos voluntários e empresas criarem ações com números, cotas, vaquinhas, pagamentos, comprovantes, gestão, mensagens prontas e prestação de contas.
             </p>
             <p className="mt-4 leading-7 text-[var(--muted)]">
               O diferencial não é apenas arrecadar: é dar confiança, mostrar o avanço da meta e provar que cada participação virou resultado real.
@@ -33,7 +33,7 @@ export default function Home() {
           <div className="card p-6">
             <h2 className="text-2xl font-black text-[var(--brand-dark)]">O que torna o Impacto no Controle diferente?</h2>
             <p className="mt-3 leading-7 text-[var(--muted)]">
-              Em vez de ser só mais uma página de Pix, rifa ou vaquinha, o Impacto no Controle organiza a ação completa: história da causa, escolha do formato, pagamento, comprovante, aprovação, acompanhamento e prestação de contas. Assim, a pessoa entende o impacto, confia no processo e participa com mais segurança.
+              Em vez de ser só mais uma página de pagamento, rifa ou vaquinha, o Impacto no Controle organiza a ação completa: história da causa, escolha do formato, pagamento, comprovante, aprovação, acompanhamento e prestação de contas. Assim, a pessoa entende o impacto, confia no processo e participa com mais segurança.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {[
@@ -88,7 +88,7 @@ export default function Home() {
                 O Sementinha será o primeiro cliente desta versão integrada. A campanha já está preparada com as fotos da bicicleta e ficará em rascunho até a equipe definir quantidade de números, valor por número, datas e regulamento final.
               </p>
               <div className="mt-4 rounded-2xl bg-[#eef5ec] p-4 text-sm font-bold leading-6 text-[var(--brand-dark)]">
-                A campanha usa reserva temporária, Pix, envio de comprovante, aprovação pela gestão e acompanhamento pelo participante.
+                A campanha usa reserva temporária, pagamento por Pix ou por outra forma combinada com o Suporte, envio de comprovante, aprovação pela gestão e acompanhamento pelo participante.
               </div>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                 <Link className="btn-secondary" href="/solucoes/impacto-no-controle/acoes/sementinha">Ver ações do Sementinha</Link>

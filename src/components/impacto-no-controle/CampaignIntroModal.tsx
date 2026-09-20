@@ -10,26 +10,45 @@ type CampaignIntroModalProps = {
   campaignTitle: string;
   enabled?: boolean | null;
   title?: string | null;
+  body?: string | null;
   numberCount?: number | null;
   numberPriceCents?: number | null;
 };
+
+const SUPPORT_HREF =
+  "https://wa.me/5519989848246?text=Ol%C3%A1%21%20Estou%20com%20d%C3%BAvida%20para%20participar%20da%20rifa%20do%20Sementinha.%20Gostaria%20de%20falar%20com%20o%20Suporte.";
 
 export function CampaignIntroModal({
   campaignSlug,
   campaignTitle,
   enabled,
   title,
+  body,
   numberCount,
   numberPriceCents,
 }: CampaignIntroModalProps) {
-  const storageKey = useMemo(() => `impacto-intro-modal-hidden-${campaignSlug}`, [campaignSlug]);
+  const storageKey = useMemo(
+    () => `impacto-intro-modal-hidden-${campaignSlug}`,
+    [campaignSlug],
+  );
+  const skipOnceKey = useMemo(
+    () => `impacto-intro-modal-skip-once-${campaignSlug}`,
+    [campaignSlug],
+  );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
+
+    const skipOnce = window.sessionStorage.getItem(skipOnceKey) === "true";
+    if (skipOnce) {
+      window.sessionStorage.removeItem(skipOnceKey);
+      return;
+    }
+
     const hidden = window.localStorage.getItem(storageKey) === "true";
     if (!hidden) setOpen(true);
-  }, [enabled, storageKey]);
+  }, [enabled, skipOnceKey, storageKey]);
 
   if (!enabled || !open) return null;
 
@@ -43,16 +62,21 @@ export function CampaignIntroModal({
   }
 
   function startParticipation() {
-    setOpen(false);
-    window.setTimeout(() => {
-      document.getElementById("participar")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    window.sessionStorage.setItem(skipOnceKey, "true");
+    window.location.assign(
+      `/solucoes/impacto-no-controle/acao/${encodeURIComponent(campaignSlug)}`,
+    );
   }
 
   const headline = title || `Bem-vindo à ação ${campaignTitle}`;
-  const numberInfo = numberCount && numberPriceCents
-    ? `${numberCount} números • ${formatMoneyFromCents(numberPriceCents)} cada`
-    : "Escolha seus números e faça sua reserva pelo celular.";
+  const numberInfo =
+    numberCount && numberPriceCents
+      ? `${numberCount} números • ${formatMoneyFromCents(numberPriceCents)} cada`
+      : "Escolha seus números e faça sua reserva pelo celular.";
+
+  const purposeText =
+    body?.trim() ||
+    "Ao escolher um número, você ajuda o Sementinha a arrecadar recursos para as ações do Dia das Crianças e ainda concorre à bicicleta seminova.";
 
   return (
     <div
@@ -80,18 +104,40 @@ export function CampaignIntroModal({
           </button>
         </div>
 
+        <p className="impacto-intro-purpose">{purposeText}</p>
+
         <div className="impacto-intro-steps">
           <div className="impacto-intro-step">
-            <strong>1. Reserve</strong>
-            <span>Escolha os números e informe seus dados.</span>
+            <strong>1. Participe</strong>
+            <span>
+              Sua participação ajuda a fortalecer a arrecadação para as ações do
+              Dia das Crianças.
+            </span>
           </div>
+
           <div className="impacto-intro-step">
-            <strong>2. Faça o Pix</strong>
-            <span>Salve o link da reserva e efetue o pagamento.</span>
+            <strong>2. Reserve e pague</strong>
+            <span>
+              Escolha seus números. O pagamento pode ser por Pix ou por outra
+              forma combinada com o Suporte.
+            </span>
           </div>
+
           <div className="impacto-intro-step">
             <strong>3. Comprove</strong>
-            <span>Envie o comprovante e acompanhe a confirmação.</span>
+            <span>
+              Envie o comprovante para a organização conferir e confirmar sua
+              participação.
+            </span>
+          </div>
+
+          <div className="impacto-intro-step">
+            <strong>4. Acompanhe</strong>
+            <span>
+              O sorteio será em data a confirmar e terá gravação em vídeo com a
+              evidência do número ganhador. O vídeo será disponibilizado junto
+              da prestação de contas da ação.
+            </span>
           </div>
         </div>
 
@@ -99,9 +145,10 @@ export function CampaignIntroModal({
           <button className="btn-primary" type="button" onClick={startParticipation}>
             COMEÇAR
           </button>
+
           <a
             className="btn-secondary"
-            href="https://wa.me/5519989848246?text=Ol%C3%A1%21%20Estou%20com%20d%C3%BAvida%20para%20participar%20de%20uma%20a%C3%A7%C3%A3o%20no%20Impacto%20no%20Controle.%20Gostaria%20de%20falar%20com%20o%20Suporte."
+            href={SUPPORT_HREF}
             target="_blank"
             rel="noreferrer"
           >

@@ -25,7 +25,7 @@ export function InterestSelector() {
 
   const href = useMemo(() => {
     const chosen = selected.length ? selected.join(", ") : "quero entender qual modelo faz mais sentido";
-    const message = `Olá! Tenho interesse no Impacto no Controle. Quero conversar sobre: ${chosen}. Podemos avaliar uma ação solidária mobile, com Pix, comprovantes, gestão e prestação de contas?`;
+    const message = `Olá! Tenho interesse no Impacto no Controle. Quero conversar sobre: ${chosen}. Podemos avaliar uma ação solidária mobile, com pagamentos, comprovantes, gestão e prestação de contas?`;
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   }, [selected]);
 

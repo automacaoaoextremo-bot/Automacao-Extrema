@@ -589,8 +589,8 @@ export function CampaignParticipation({
                     <p>
                       Ao reservar, seus números ficam indisponíveis
                       temporariamente para outras pessoas. Na próxima tela você
-                      verá o QR Code, o Pix copia e cola e o envio do
-                      comprovante.
+                      poderá pagar por Pix ou combinar outra forma de pagamento
+                      com o Suporte e depois enviar o comprovante.
                     </p>
                   </div>
                 </>
@@ -645,7 +645,7 @@ export function CampaignParticipation({
                 >
                   {loading
                     ? "Reservando..."
-                    : "Reservar números e gerar Pix"}
+                    : "Reservar números e escolher pagamento"}
                 </button>
               ) : null}
             </div>

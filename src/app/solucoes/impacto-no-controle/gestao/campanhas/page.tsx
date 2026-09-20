@@ -50,7 +50,7 @@ export default function CampaignsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-black text-[var(--brand-dark)]">Campanhas</h1>
-          <p className="mt-2 text-[var(--muted)]">Acompanhe arrecadação, Pix pendentes e impacto estimado.</p>
+          <p className="mt-2 text-[var(--muted)]">Acompanhe arrecadação, pagamentos pendentes e impacto estimado.</p>
         </div>
         <Link className="btn-primary !w-auto" href="/solucoes/impacto-no-controle" target="_blank">Abrir Impacto no Controle</Link>
       </div>

@@ -24,12 +24,12 @@ const participationSteps = [
     text: "Preencha nome e celular. O e-mail é opcional, mas ajuda no acompanhamento.",
   },
   {
-    title: "Reserve e faça o Pix",
-    text: "Toque em Reservar números e gerar Pix. Salve o link da reserva antes de abrir o banco.",
+    title: "Reserve e escolha o pagamento",
+    text: "Faça a reserva e salve o link. O pagamento pode ser por Pix ou por outra forma combinada com o Suporte.",
   },
   {
     title: "Envie o comprovante",
-    text: "Volte pelo link salvo, envie o comprovante e acompanhe a confirmação da organização.",
+    text: "Depois do pagamento, volte pelo link salvo, envie o comprovante e acompanhe a conferência da organização.",
   },
 ];
 

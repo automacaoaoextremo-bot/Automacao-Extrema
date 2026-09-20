@@ -8,6 +8,9 @@ import QRCode from "qrcode";
 import { buildPixPayload } from "@/lib/impacto-no-controle/pix";
 import { formatMoneyFromCents } from "@/lib/impacto-no-controle/format";
 
+type PaymentMethod = "pix" | "other";
+type PaymentGuideStep = 0 | 1 | 2;
+
 type ReservationPaymentProps = {
   reservation: {
     token: string;
@@ -37,6 +40,16 @@ function formatCountdown(ms: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDeadline(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "o prazo indicado na reserva";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function whatsappPhoneLink(phone?: string | null) {
   const digits = String(phone || "").replace(/\D/g, "").slice(0, 14);
   if (!digits) return "";
@@ -53,34 +66,62 @@ function buildReservationWhatsAppUrl(input: {
 }) {
   const phone = whatsappPhoneLink(input.phone);
   if (!phone) return "";
-  const numbers = input.selectedNumbers.length ? input.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ") : "sem números";
+
+  const numbers = input.selectedNumbers.length
+    ? input.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ")
+    : "sem números";
+
   const message = `Olá${input.name ? `, ${input.name}` : ""}! Sua reserva na ação ${input.campaignTitle} foi criada.
 
 Números reservados: ${numbers}
 Valor: ${formatMoneyFromCents(input.amountCents)}
 
-Acesse este link para fazer o Pix, enviar o comprovante e acompanhar sua participação:
+Acesse este link para concluir o pagamento e enviar o comprovante:
 ${input.reservationUrl}
 
-Depois de pagar no app do banco, volte por este mesmo link e envie o comprovante.`;
+O pagamento pode ser feito por Pix ou por outra forma combinada com o Suporte. Depois do pagamento, volte por este mesmo link e envie o comprovante.`;
+
   return `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
 }
 
 export function ReservationPayment({ reservation }: ReservationPaymentProps) {
   const router = useRouter();
   const [qrCode, setQrCode] = useState<string | null>(null);
-  const [copyFeedback, setCopyFeedback] = useState<{ target: "pix" | "key"; text: string; tone: "success" | "error" } | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    target: "pix" | "key";
+    text: string;
+    tone: "success" | "error";
+  } | null>(null);
   const [showWhatsAppBox, setShowWhatsAppBox] = useState(false);
   const [reservationLinkFeedback, setReservationLinkFeedback] = useState<string | null>(null);
   const [proof, setProof] = useState<File | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
+  const [paymentGuideStep, setPaymentGuideStep] = useState<PaymentGuideStep | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState<number | null>(null);
 
-  const expiresAt = useMemo(() => new Date(reservation.reservationExpiresAt).getTime(), [reservation.reservationExpiresAt]);
+  const expiresAt = useMemo(
+    () => new Date(reservation.reservationExpiresAt).getTime(),
+    [reservation.reservationExpiresAt],
+  );
   const remainingMs = now === null ? null : Math.max(0, expiresAt - now);
   const expired = remainingMs !== null && remainingMs <= 0;
-  const reservationUrl = typeof window !== "undefined" ? `${window.location.origin}/solucoes/impacto-no-controle/reserva/${reservation.token}` : `/solucoes/impacto-no-controle/reserva/${reservation.token}`;
+  const deadlineText = useMemo(
+    () => formatDeadline(reservation.reservationExpiresAt),
+    [reservation.reservationExpiresAt],
+  );
+
+  const reservationUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/solucoes/impacto-no-controle/reserva/${reservation.token}`
+      : `/solucoes/impacto-no-controle/reserva/${reservation.token}`;
+
+  const supportText = encodeURIComponent(
+    `Olá! Preciso de ajuda com a reserva da campanha ${reservation.campaignTitle}. Quero tirar uma dúvida sobre pagamento por Pix ou combinar outra forma de pagamento. Reserva: ${reservationUrl}`,
+  );
+  const supportHref = `https://wa.me/5519989848246?text=${supportText}`;
+
   const reservationWhatsAppUrl = buildReservationWhatsAppUrl({
     phone: reservation.participantPhone,
     name: reservation.participantName,
@@ -89,15 +130,25 @@ export function ReservationPayment({ reservation }: ReservationPaymentProps) {
     selectedNumbers: reservation.selectedNumbers,
     amountCents: reservation.amountCents,
   });
+
   const reservationWhatsAppMessage = `Reserva da ação ${reservation.campaignTitle}
 
-Números: ${reservation.selectedNumbers.length ? reservation.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ") : "sem números"}
+Números: ${
+    reservation.selectedNumbers.length
+      ? reservation.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ")
+      : "sem números"
+  }
 Valor: ${formatMoneyFromCents(reservation.amountCents)}
+Reservada até: ${deadlineText}
 
-Depois de fazer o Pix no banco, volte neste link para enviar o comprovante:
+O pagamento pode ser feito por Pix ou por outra forma combinada com o Suporte.
+
+Depois do pagamento, volte neste link para enviar o comprovante:
 ${reservationUrl}`;
+
   const pixPayload = useMemo(() => {
     if (reservation.amountCents <= 0) return "";
+
     return buildPixPayload({
       key: reservation.pixKey,
       merchantName: reservation.pixReceiverName || reservation.clientName,
@@ -111,12 +162,16 @@ ${reservationUrl}`;
   useEffect(() => {
     const updateClock = () => setNow(Date.now());
     updateClock();
+
     const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
-    const justCreated = window.sessionStorage.getItem(`impacto-reserva-criada-${reservation.token}`);
+    const justCreated = window.sessionStorage.getItem(
+      `impacto-reserva-criada-${reservation.token}`,
+    );
+
     if (justCreated) {
       setShowWhatsAppBox(true);
       window.sessionStorage.removeItem(`impacto-reserva-criada-${reservation.token}`);
@@ -125,7 +180,10 @@ ${reservationUrl}`;
 
   useEffect(() => {
     if (!pixPayload) return;
-    QRCode.toDataURL(pixPayload, { margin: 1, width: 260 }).then(setQrCode).catch(() => setQrCode(null));
+
+    QRCode.toDataURL(pixPayload, { margin: 1, width: 260 })
+      .then(setQrCode)
+      .catch(() => setQrCode(null));
   }, [pixPayload]);
 
   async function writeToClipboard(text: string) {
@@ -151,7 +209,7 @@ ${reservationUrl}`;
       setCopyFeedback({
         target: "pix",
         tone: "success",
-        text: "✅ Pix copia e cola copiado! Agora abra o app do seu banco, escolha Pix Copia e Cola e cole o código para pagar. Depois volte para esta página e envie o comprovante.",
+        text: "✅ Pix copia e cola copiado! Faça o pagamento no app do banco e depois avance para enviar o comprovante.",
       });
     } catch {
       setCopyFeedback({
@@ -165,36 +223,56 @@ ${reservationUrl}`;
   async function copyPixKey() {
     try {
       await writeToClipboard(reservation.pixKey.trim());
-      setCopyFeedback({ target: "key", tone: "success", text: "✅ Chave Pix copiada! Cole a chave no app do banco para pagar." });
+      setCopyFeedback({
+        target: "key",
+        tone: "success",
+        text: "✅ Chave Pix copiada! Cole a chave no app do banco para pagar.",
+      });
     } catch {
-      setCopyFeedback({ target: "key", tone: "error", text: "Não foi possível copiar automaticamente. Copie manualmente a chave Pix exibida." });
+      setCopyFeedback({
+        target: "key",
+        tone: "error",
+        text: "Não foi possível copiar automaticamente. Copie manualmente a chave Pix exibida.",
+      });
     }
   }
 
   async function copyReservationLink() {
     try {
       await writeToClipboard(reservationUrl);
-      setReservationLinkFeedback("✅ Link da reserva copiado. Você pode colar em uma conversa do WhatsApp para voltar depois do Pix.");
+      setReservationLinkFeedback(
+        "✅ Link da reserva copiado. Guarde-o para voltar depois do pagamento e enviar o comprovante.",
+      );
     } catch {
-      setReservationLinkFeedback("Não foi possível copiar automaticamente. Copie o link da barra do navegador.");
+      setReservationLinkFeedback(
+        "Não foi possível copiar automaticamente. Copie o link da barra do navegador.",
+      );
     }
   }
 
   async function copyReservationMessage() {
     try {
       await writeToClipboard(reservationWhatsAppMessage);
-      setReservationLinkFeedback("✅ Mensagem copiada. Abra o WhatsApp e cole em uma conversa para guardar o link da reserva.");
+      setReservationLinkFeedback(
+        "✅ Mensagem copiada. Abra o WhatsApp e cole em uma conversa para guardar o link da reserva.",
+      );
     } catch {
-      setReservationLinkFeedback("Não foi possível copiar automaticamente. Use o botão de abrir WhatsApp ou copie o link da barra do navegador.");
+      setReservationLinkFeedback(
+        "Não foi possível copiar automaticamente. Use o botão de abrir WhatsApp ou copie o link da barra do navegador.",
+      );
     }
   }
 
   async function openReservationWhatsApp() {
     try {
       await writeToClipboard(reservationWhatsAppMessage);
-      setReservationLinkFeedback("✅ Mensagem copiada. Se o WhatsApp não abrir automaticamente, abra o app e cole a mensagem em uma conversa.");
+      setReservationLinkFeedback(
+        "✅ Mensagem copiada. Se o WhatsApp não abrir automaticamente, abra o app e cole a mensagem em uma conversa.",
+      );
     } catch {
-      setReservationLinkFeedback("Se o WhatsApp não abrir automaticamente, copie o link da reserva pela barra do navegador.");
+      setReservationLinkFeedback(
+        "Se o WhatsApp não abrir automaticamente, copie o link da reserva pela barra do navegador.",
+      );
     }
 
     if (reservationWhatsAppUrl) {
@@ -204,144 +282,552 @@ ${reservationUrl}`;
 
   async function submitProof() {
     setError(null);
-    if (expired) return setError("A reserva expirou. Volte para a campanha e escolha seus números novamente.");
-    if (!proof) return setError("Inclua o comprovante do Pix para finalizar sua participação.");
+
+    if (expired) {
+      setError("A reserva expirou. Volte para a campanha e escolha seus números novamente.");
+      return;
+    }
+
+    if (!proof) {
+      setError("Inclua o comprovante do pagamento para finalizar sua participação.");
+      return;
+    }
 
     setLoading(true);
+
     try {
       const formData = new FormData();
       formData.append("reservation_token", reservation.token);
       formData.append("proof", proof);
+      formData.append("payment_method", paymentMethod);
 
-      const response = await fetch("/api/impacto-no-controle/participate", { method: "POST", body: formData });
+      const response = await fetch("/api/impacto-no-controle/participate", {
+        method: "POST",
+        body: formData,
+      });
       const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Não foi possível enviar o comprovante.");
+
+      if (!response.ok) {
+        throw new Error(json.error || "Não foi possível enviar o comprovante.");
+      }
+
       router.push(`/solucoes/impacto-no-controle/obrigado/${json.token}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado.");
+    } catch (currentError) {
+      setError(
+        currentError instanceof Error
+          ? currentError.message
+          : "Erro inesperado.",
+      );
       setLoading(false);
     }
   }
 
+  function openPaymentGuide() {
+    setError(null);
+    setPaymentGuideStep(0);
+  }
+
+  function closePaymentGuide() {
+    if (loading) return;
+    setError(null);
+    setPaymentGuideStep(null);
+  }
+
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="card overflow-hidden p-6 md:p-8" style={{ borderColor: "var(--campaign-border)", background: "linear-gradient(180deg, #fffdf7 0%, var(--campaign-soft) 100%)" }}>
+      <div
+        className="card overflow-hidden p-6 md:p-8"
+        style={{
+          borderColor: "var(--campaign-border)",
+          background:
+            "linear-gradient(180deg, #fffdf7 0%, var(--campaign-soft) 100%)",
+        }}
+      >
         <div className="flex flex-wrap items-center gap-3">
           {reservation.clientLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- URL dinâmica do logo do cliente.
-            <img src={reservation.clientLogoUrl} alt={reservation.clientName} className="h-12 w-12 rounded-2xl border border-[var(--border)] bg-white object-cover p-1" />
+            <img
+              src={reservation.clientLogoUrl}
+              alt={reservation.clientName}
+              className="h-12 w-12 rounded-2xl border border-[var(--border)] bg-white object-cover p-1"
+            />
           ) : null}
-          <span className="rounded-full px-4 py-2 text-sm font-black" style={{ background: "var(--campaign-soft)", color: "var(--campaign-primary)" }}>{reservation.clientName}</span>
+
+          <span
+            className="rounded-full px-4 py-2 text-sm font-black"
+            style={{
+              background: "var(--campaign-soft)",
+              color: "var(--campaign-primary)",
+            }}
+          >
+            {reservation.clientName}
+          </span>
         </div>
 
-        <h1 className="mt-5 text-3xl font-black leading-tight md:text-4xl" style={{ color: "var(--campaign-primary)" }}>Reserva criada. Agora faça o Pix.</h1>
+        <h1
+          className="mt-5 text-3xl font-black leading-tight md:text-4xl"
+          style={{ color: "var(--campaign-primary)" }}
+        >
+          Reserva criada. Escolha como pagar.
+        </h1>
+
         <p className="mt-3 leading-7 text-[var(--muted)]">
-          Seus números ficam reservados temporariamente. Faça o Pix e envie o comprovante nesta página para finalizar sua participação.
+          Seus números ficam reservados temporariamente até{" "}
+          <strong>{deadlineText}</strong>. Faça o Pix ou{" "}
+          <a
+            className="font-extrabold underline"
+            style={{ color: "var(--campaign-primary)" }}
+            href={supportHref}
+            target="_blank"
+            rel="noreferrer"
+          >
+            fale com o Suporte
+          </a>{" "}
+          para combinar outra forma de pagamento. Depois, envie o comprovante
+          nesta página para finalizar sua participação.
         </p>
 
-        <div className={`mt-5 rounded-2xl border-2 p-4 ${showWhatsAppBox ? "border-[#f59e0b] bg-[#fff1a8]" : "bg-white"}`} style={showWhatsAppBox ? undefined : { borderColor: "var(--campaign-border)" }}>
-          <p className="font-black" style={{ color: "var(--campaign-primary)" }}>Guarde este link antes de ir ao banco</p>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            O link desta página permite voltar depois do Pix para enviar o comprovante. Para evitar perder a reserva ao abrir o app do banco, salve este link no WhatsApp ou copie a mensagem abaixo.
+        <div
+          className={`mt-5 rounded-2xl border-2 p-4 ${
+            showWhatsAppBox ? "border-[#f59e0b] bg-[#fff1a8]" : "bg-white"
+          }`}
+          style={
+            showWhatsAppBox
+              ? undefined
+              : { borderColor: "var(--campaign-border)" }
+          }
+        >
+          <p
+            className="font-black"
+            style={{ color: "var(--campaign-primary)" }}
+          >
+            Guarde este link antes de sair desta página
           </p>
+
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+            O link permite voltar depois do pagamento para enviar o
+            comprovante. Salve-o no WhatsApp ou copie a mensagem abaixo.
+          </p>
+
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {reservationWhatsAppUrl ? (
-              <button type="button" className="btn-primary" style={{ background: "var(--campaign-primary)" }} onClick={openReservationWhatsApp}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ background: "var(--campaign-primary)" }}
+                onClick={openReservationWhatsApp}
+              >
                 <MessageCircle className="h-4 w-4" /> Abrir WhatsApp com o link
               </button>
             ) : null}
-            <button type="button" className="btn-secondary" onClick={copyReservationMessage}>Copiar mensagem da reserva</button>
-            <button type="button" className="btn-secondary sm:col-span-2" onClick={copyReservationLink}>Copiar somente o link da reserva</button>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={copyReservationMessage}
+            >
+              Copiar mensagem da reserva
+            </button>
+
+            <button
+              type="button"
+              className="btn-secondary sm:col-span-2"
+              onClick={copyReservationLink}
+            >
+              Copiar somente o link da reserva
+            </button>
           </div>
+
           {reservationLinkFeedback ? (
-            <div className="mt-3 rounded-2xl border-2 border-[#f59e0b] bg-[#fff1a8] p-4 text-sm font-black leading-6 text-[#3f2a00]" role="status" aria-live="polite">
+            <div
+              className="mt-3 rounded-2xl border-2 border-[#f59e0b] bg-[#fff1a8] p-4 text-sm font-black leading-6 text-[#3f2a00]"
+              role="status"
+              aria-live="polite"
+            >
               {reservationLinkFeedback}
             </div>
           ) : null}
         </div>
 
-        <div className="mt-5 rounded-2xl border-2 bg-white p-4" style={{ borderColor: "var(--campaign-primary)" }}>
+        <div
+          className="mt-5 rounded-2xl border-2 bg-white p-4"
+          style={{ borderColor: "var(--campaign-primary)" }}
+        >
           <div className="flex items-center gap-3">
-            <TimerReset className="h-6 w-6" style={{ color: "var(--campaign-primary)" }} />
+            <TimerReset
+              className="h-6 w-6"
+              style={{ color: "var(--campaign-primary)" }}
+            />
             <div>
-              <p className="text-sm font-bold text-[var(--muted)]">Tempo restante da reserva</p>
-              <p className="text-2xl font-black" style={{ color: "var(--campaign-primary)" }}>
-                {remainingMs === null ? "Calculando..." : formatCountdown(remainingMs)}
+              <p className="text-sm font-bold text-[var(--muted)]">
+                Tempo restante da reserva
+              </p>
+              <p
+                className="text-2xl font-black"
+                style={{ color: "var(--campaign-primary)" }}
+              >
+                {remainingMs === null
+                  ? "Calculando..."
+                  : formatCountdown(remainingMs)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Reserva válida até {deadlineText}.
               </p>
             </div>
           </div>
-          {expired ? <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">Sua reserva expirou. Volte para a campanha e escolha seus números novamente.</p> : null}
-        </div>
-      </div>
 
-      <div className="card mt-5 p-5" style={{ borderColor: "var(--campaign-border)" }}>
-        <h2 className="text-2xl font-black" style={{ color: "var(--campaign-primary)" }}>Resumo da reserva</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl p-4" style={{ background: "var(--campaign-card)" }}>
-            <p className="text-sm font-bold text-[var(--muted)]">Campanha</p>
-            <p className="mt-1 font-extrabold" style={{ color: "var(--campaign-primary)" }}>{reservation.campaignTitle}</p>
-          </div>
-          <div className="rounded-2xl p-4" style={{ background: "var(--campaign-card)" }}>
-            <p className="text-sm font-bold text-[var(--muted)]">Valor</p>
-            <p className="mt-1 font-extrabold" style={{ color: "var(--campaign-primary)" }}>{formatMoneyFromCents(reservation.amountCents)}</p>
-          </div>
-        </div>
-        <div className="mt-4 rounded-2xl border bg-white p-4" style={{ borderColor: "var(--campaign-border)" }}>
-          <p className="font-bold" style={{ color: "var(--campaign-primary)" }}>Números reservados</p>
-          <p className="mt-2 text-[var(--muted)]">{reservation.selectedNumbers.length ? reservation.selectedNumbers.map((n) => String(n).padStart(2, "0")).join(", ") : "Nenhum número escolhido."}</p>
-        </div>
-      </div>
-
-      <div className="card mt-5 p-5" style={{ borderColor: "var(--campaign-border)" }}>
-        <h2 className="text-2xl font-black" style={{ color: "var(--campaign-primary)" }}>1. Faça o Pix</h2>
-        <p className="mt-2 text-sm text-[var(--muted)]">Chave Pix: <strong>{reservation.pixKey}</strong></p>
-        <div className="mt-4 grid gap-3">
-          <button className="btn-primary" style={{ background: "var(--campaign-primary)" }} onClick={copyPix} disabled={expired || !pixPayload}>Copiar Pix copia e cola</button>
-          {copyFeedback?.target === "pix" ? (
-            <div className={`rounded-2xl border-2 p-4 text-sm font-black leading-6 ${copyFeedback.tone === "success" ? "border-[#f59e0b] bg-[#fff1a8] text-[#3f2a00]" : "border-red-200 bg-red-50 text-red-700"}`} role="status" aria-live="polite">
-              {copyFeedback.text}
-            </div>
-          ) : null}
-          <button className="btn-secondary" onClick={copyPixKey} disabled={expired}>Copiar chave Pix</button>
-          {copyFeedback?.target === "key" ? (
-            <div className={`rounded-2xl border-2 p-4 text-sm font-black leading-6 ${copyFeedback.tone === "success" ? "border-[#f59e0b] bg-[#fff1a8] text-[#3f2a00]" : "border-red-200 bg-red-50 text-red-700"}`} role="status" aria-live="polite">
-              {copyFeedback.text}
-            </div>
-          ) : null}
-          <details className="rounded-2xl border border-[var(--border)] bg-white p-4 text-sm">
-            <summary className="cursor-pointer font-extrabold" style={{ color: "var(--campaign-primary)" }}>Ver código Pix copia e cola</summary>
-            <textarea className="input mt-3 min-h-28 text-xs" readOnly value={pixPayload} />
-          </details>
-          {qrCode ? (
-            // eslint-disable-next-line @next/next/no-img-element -- QR Code gerado em data URL no cliente.
-            <img src={qrCode} alt="QR Code Pix" className="mx-auto mt-2 rounded-2xl border border-[var(--border)] bg-white p-3" />
+          {expired ? (
+            <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              Sua reserva expirou. Volte para a campanha e escolha seus números
+              novamente.
+            </p>
           ) : null}
         </div>
-      </div>
 
-      <div className="card mt-5 p-5" style={{ borderColor: "var(--campaign-border)" }}>
-        <h2 className="text-2xl font-black" style={{ color: "var(--campaign-primary)" }}>2. Envie o comprovante</h2>
-        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Depois de pagar no app do banco, volte para esta página e anexe o comprovante para finalizar sua participação.</p>
-        <a className="mt-3 inline-flex items-center gap-2 font-extrabold underline" style={{ color: "var(--campaign-primary)" }} href="https://wa.me/5519989848246?text=Ol%C3%A1%21%20Estou%20com%20d%C3%BAvida%20para%20enviar%20o%20comprovante%20no%20Impacto%20no%20Controle.%20Gostaria%20de%20falar%20com%20o%20Suporte." target="_blank" rel="noreferrer">
-          <MessageCircle className="h-4 w-4" /> Preciso falar com o Suporte no WhatsApp
-        </a>
-        <div className="mt-4">
-          <label className="label">Comprovante do Pix *</label>
-          <input className="input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" disabled={expired} onChange={(e) => setProof(e.target.files?.[0] || null)} />
-          <p className="mt-2 text-sm text-[var(--muted)]">O sistema bloqueia comprovantes já usados em outra participação. Quando o arquivo tiver texto legível, também tentará conferir valor, Pix/favorecido e status efetivado. Prints e imagens podem seguir para conferência manual da organização.</p>
-        </div>
-        {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-        <button className="btn-primary mt-4" style={{ background: "var(--campaign-primary)" }} disabled={loading || expired} onClick={submitProof}>
-          {loading ? "Enviando..." : "Enviar comprovante e finalizar"}
+        <button
+          type="button"
+          className="btn-primary mt-4"
+          style={{ background: "var(--campaign-primary)" }}
+          onClick={openPaymentGuide}
+          disabled={expired}
+        >
+          PIX / COMPROVANTE
         </button>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4 text-sm leading-6 text-[var(--brand-dark)]">
-        <div className="flex gap-3">
-          <HelpCircle className="mt-1 h-5 w-5 shrink-0" />
-          <p><strong>Dica:</strong> salve esta página ou mantenha a aba aberta até finalizar. Se o navegador fechar ao abrir o app do banco, volte pelo mesmo link da reserva.</p>
+      {paymentGuideStep !== null ? (
+        <div
+          className="impacto-guide-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="impacto-payment-guide-title"
+        >
+          <div className="impacto-guide-card">
+            <div className="impacto-guide-header">
+              <div>
+                <p className="impacto-guide-kicker">
+                  PAGAMENTO • PASSO {paymentGuideStep + 1} DE 3
+                </p>
+                <h2 id="impacto-payment-guide-title">
+                  {paymentGuideStep === 0
+                    ? "Resumo da reserva"
+                    : paymentGuideStep === 1
+                      ? "Faça o pagamento"
+                      : "Envie o comprovante"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="impacto-guide-close"
+                onClick={closePaymentGuide}
+                disabled={loading}
+              >
+                FECHAR
+              </button>
+            </div>
+
+            <div className="impacto-guide-body">
+              {paymentGuideStep === 0 ? (
+                <div className="grid gap-3">
+                  <div
+                    className="rounded-2xl p-4"
+                    style={{ background: "var(--campaign-card)" }}
+                  >
+                    <p className="text-sm font-bold text-[var(--muted)]">
+                      Campanha
+                    </p>
+                    <p
+                      className="mt-1 font-extrabold"
+                      style={{ color: "var(--campaign-primary)" }}
+                    >
+                      {reservation.campaignTitle}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div
+                      className="rounded-2xl p-4"
+                      style={{ background: "var(--campaign-card)" }}
+                    >
+                      <p className="text-sm font-bold text-[var(--muted)]">
+                        Valor
+                      </p>
+                      <p
+                        className="mt-1 font-extrabold"
+                        style={{ color: "var(--campaign-primary)" }}
+                      >
+                        {formatMoneyFromCents(reservation.amountCents)}
+                      </p>
+                    </div>
+
+                    <div
+                      className="rounded-2xl p-4"
+                      style={{ background: "var(--campaign-card)" }}
+                    >
+                      <p className="text-sm font-bold text-[var(--muted)]">
+                        Reservada até
+                      </p>
+                      <p
+                        className="mt-1 font-extrabold"
+                        style={{ color: "var(--campaign-primary)" }}
+                      >
+                        {deadlineText}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className="rounded-2xl border bg-white p-4"
+                    style={{ borderColor: "var(--campaign-border)" }}
+                  >
+                    <p
+                      className="font-bold"
+                      style={{ color: "var(--campaign-primary)" }}
+                    >
+                      Números reservados
+                    </p>
+                    <p className="mt-2 text-[var(--muted)]">
+                      {reservation.selectedNumbers.length
+                        ? reservation.selectedNumbers
+                            .map((n) => String(n).padStart(2, "0"))
+                            .join(", ")
+                        : "Nenhum número escolhido."}
+                    </p>
+                  </div>
+
+                  <p className="text-sm leading-6 text-[var(--muted)]">
+                    O pagamento pode ser feito por Pix ou por outra forma
+                    combinada diretamente com o Suporte. Em qualquer opção,
+                    guarde e envie o comprovante para a organização confirmar
+                    sua participação.
+                  </p>
+                </div>
+              ) : null}
+
+              {paymentGuideStep === 1 ? (
+                <div className="grid gap-4">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label
+                      className={`cursor-pointer rounded-2xl border-2 p-4 ${
+                        paymentMethod === "pix"
+                          ? "border-[var(--campaign-primary)] bg-[var(--campaign-soft)]"
+                          : "border-[var(--border)] bg-white"
+                      }`}
+                    >
+                      <input
+                        className="mr-2"
+                        type="radio"
+                        name="payment-method"
+                        checked={paymentMethod === "pix"}
+                        onChange={() => setPaymentMethod("pix")}
+                      />
+                      <strong>Pix</strong>
+                    </label>
+
+                    <label
+                      className={`cursor-pointer rounded-2xl border-2 p-4 ${
+                        paymentMethod === "other"
+                          ? "border-[var(--campaign-primary)] bg-[var(--campaign-soft)]"
+                          : "border-[var(--border)] bg-white"
+                      }`}
+                    >
+                      <input
+                        className="mr-2"
+                        type="radio"
+                        name="payment-method"
+                        checked={paymentMethod === "other"}
+                        onChange={() => setPaymentMethod("other")}
+                      />
+                      <strong>Outra forma com o Suporte</strong>
+                    </label>
+                  </div>
+
+                  {paymentMethod === "pix" ? (
+                    <>
+                      <p className="text-sm text-[var(--muted)]">
+                        Chave Pix: <strong>{reservation.pixKey}</strong>
+                      </p>
+
+                      <button
+                        className="btn-primary"
+                        style={{ background: "var(--campaign-primary)" }}
+                        onClick={copyPix}
+                        disabled={expired || !pixPayload}
+                      >
+                        Copiar Pix copia e cola
+                      </button>
+
+                      {copyFeedback?.target === "pix" ? (
+                        <div
+                          className={`rounded-2xl border-2 p-4 text-sm font-black leading-6 ${
+                            copyFeedback.tone === "success"
+                              ? "border-[#f59e0b] bg-[#fff1a8] text-[#3f2a00]"
+                              : "border-red-200 bg-red-50 text-red-700"
+                          }`}
+                          role="status"
+                          aria-live="polite"
+                        >
+                          {copyFeedback.text}
+                        </div>
+                      ) : null}
+
+                      <button
+                        className="btn-secondary"
+                        onClick={copyPixKey}
+                        disabled={expired}
+                      >
+                        Copiar chave Pix
+                      </button>
+
+                      {copyFeedback?.target === "key" ? (
+                        <div
+                          className={`rounded-2xl border-2 p-4 text-sm font-black leading-6 ${
+                            copyFeedback.tone === "success"
+                              ? "border-[#f59e0b] bg-[#fff1a8] text-[#3f2a00]"
+                              : "border-red-200 bg-red-50 text-red-700"
+                          }`}
+                          role="status"
+                          aria-live="polite"
+                        >
+                          {copyFeedback.text}
+                        </div>
+                      ) : null}
+
+                      <details className="rounded-2xl border border-[var(--border)] bg-white p-4 text-sm">
+                        <summary
+                          className="cursor-pointer font-extrabold"
+                          style={{ color: "var(--campaign-primary)" }}
+                        >
+                          Ver código Pix copia e cola
+                        </summary>
+                        <textarea
+                          className="input mt-3 min-h-28 text-xs"
+                          readOnly
+                          value={pixPayload}
+                        />
+                      </details>
+
+                      {qrCode ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- QR Code gerado em data URL no cliente.
+                        <img
+                          src={qrCode}
+                          alt="QR Code Pix"
+                          className="mx-auto mt-2 rounded-2xl border border-[var(--border)] bg-white p-3"
+                        />
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4">
+                      <p
+                        className="font-black"
+                        style={{ color: "var(--campaign-primary)" }}
+                      >
+                        Combine a forma de pagamento com o Suporte
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                        Fale com a equipe antes de pagar. Depois, volte aqui e
+                        envie o comprovante da forma de pagamento combinada.
+                      </p>
+                      <a
+                        className="btn-primary mt-3"
+                        style={{ background: "var(--campaign-primary)" }}
+                        href={supportHref}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <MessageCircle className="h-4 w-4" /> Falar com o Suporte
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {paymentGuideStep === 2 ? (
+                <div className="grid gap-4">
+                  <p className="text-sm leading-6 text-[var(--muted)]">
+                    Anexe o comprovante do pagamento realizado por{" "}
+                    <strong>
+                      {paymentMethod === "pix"
+                        ? "Pix"
+                        : "outra forma combinada com o Suporte"}
+                    </strong>
+                    . A organização fará a conferência antes da confirmação.
+                  </p>
+
+                  <div>
+                    <label className="label">Comprovante do pagamento *</label>
+                    <input
+                      className="input"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      disabled={expired}
+                      onChange={(event) =>
+                        setProof(event.target.files?.[0] || null)
+                      }
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-[var(--border)] bg-[#fff8e8] p-4 text-sm leading-6 text-[var(--brand-dark)]">
+                    <div className="flex gap-3">
+                      <HelpCircle className="mt-1 h-5 w-5 shrink-0" />
+                      <p>
+                        <strong>Dica:</strong> envie um arquivo legível e que
+                        mostre claramente o pagamento. Se a forma escolhida não
+                        for Pix, a conferência será feita manualmente pela
+                        organização.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {error ? (
+                <div
+                  className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                  role="alert"
+                >
+                  {error}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="impacto-guide-footer">
+              <a
+                className="btn-secondary"
+                href={supportHref}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MessageCircle className="h-4 w-4" /> TIRAR DÚVIDA
+              </a>
+
+              {paymentGuideStep < 2 ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() =>
+                    setPaymentGuideStep(
+                      (paymentGuideStep + 1) as PaymentGuideStep,
+                    )
+                  }
+                >
+                  CONTINUAR
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={loading || expired}
+                  onClick={submitProof}
+                >
+                  {loading ? "Enviando..." : "ENVIAR COMPROVANTE"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
