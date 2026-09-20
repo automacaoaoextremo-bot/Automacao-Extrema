@@ -343,29 +343,8 @@ ${reservationUrl}`;
             "linear-gradient(180deg, #fffdf7 0%, var(--campaign-soft) 100%)",
         }}
       >
-        <div className="flex flex-wrap items-center gap-3">
-          {reservation.clientLogoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- URL dinâmica do logo do cliente.
-            <img
-              src={reservation.clientLogoUrl}
-              alt={reservation.clientName}
-              className="h-12 w-12 rounded-2xl border border-[var(--border)] bg-white object-cover p-1"
-            />
-          ) : null}
-
-          <span
-            className="rounded-full px-4 py-2 text-sm font-black"
-            style={{
-              background: "var(--campaign-soft)",
-              color: "var(--campaign-primary)",
-            }}
-          >
-            {reservation.clientName}
-          </span>
-        </div>
-
         <h1
-          className="mt-5 text-3xl font-black leading-tight md:text-4xl"
+          className="text-3xl font-black leading-tight md:text-4xl"
           style={{ color: "var(--campaign-primary)" }}
         >
           Reserva criada. Escolha como pagar.

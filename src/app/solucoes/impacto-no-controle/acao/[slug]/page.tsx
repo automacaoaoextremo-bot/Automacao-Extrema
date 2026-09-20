@@ -134,6 +134,8 @@ export default async function CampaignPage({ params }: PageProps) {
         brandName={campaign.client_name}
         brandLogoUrl={campaign.client_logo_url}
         brandHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}`}
+        helpHref={supportHref}
+        homeHref={`/solucoes/impacto-no-controle/acao/${campaign.slug}?inicio=1`}
       />
       <main className="container-page pb-6 pt-3 md:pb-10 md:pt-4" style={campaignTheme}>
         <CampaignIntroModal

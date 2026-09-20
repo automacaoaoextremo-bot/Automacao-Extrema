@@ -5,6 +5,8 @@ type PublicHeaderProps = {
   brandName?: string | null;
   brandLogoUrl?: string | null;
   brandHref?: string;
+  helpHref?: string | null;
+  homeHref?: string | null;
 };
 
 export function PublicHeader({
@@ -12,6 +14,8 @@ export function PublicHeader({
   brandName,
   brandLogoUrl,
   brandHref = "/solucoes/impacto-no-controle",
+  helpHref,
+  homeHref,
 }: PublicHeaderProps) {
   const resolvedBrandName = brandName?.trim() || "Impacto no Controle";
 
@@ -37,14 +41,41 @@ export function PublicHeader({
             <span className="brand-title">{resolvedBrandName}</span>
           </Link>
 
-          {showAccessLinks ? (
+          {helpHref || homeHref || showAccessLinks ? (
             <nav className="header-access-nav" aria-label="Acessos">
-              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/cliente/login">
-                Cliente
-              </Link>
-              <Link className="btn-secondary header-access-button" href="/solucoes/impacto-no-controle/gestao/login">
-                Gestão
-              </Link>
+              {helpHref ? (
+                <a
+                  className="btn-secondary header-access-button"
+                  href={helpHref}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  AJUDA?
+                </a>
+              ) : null}
+
+              {homeHref ? (
+                <Link className="btn-secondary header-access-button" href={homeHref}>
+                  INÍCIO
+                </Link>
+              ) : null}
+
+              {showAccessLinks ? (
+                <>
+                  <Link
+                    className="btn-secondary header-access-button"
+                    href="/solucoes/impacto-no-controle/cliente/login"
+                  >
+                    Cliente
+                  </Link>
+                  <Link
+                    className="btn-secondary header-access-button"
+                    href="/solucoes/impacto-no-controle/gestao/login"
+                  >
+                    Gestão
+                  </Link>
+                </>
+              ) : null}
             </nav>
           ) : null}
         </div>

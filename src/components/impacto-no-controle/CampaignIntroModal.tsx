@@ -40,6 +40,19 @@ export function CampaignIntroModal({
   useEffect(() => {
     if (!enabled) return;
 
+    const currentUrl = new URL(window.location.href);
+    const forceOpen = currentUrl.searchParams.get("inicio") === "1";
+
+    if (forceOpen) {
+      window.sessionStorage.removeItem(skipOnceKey);
+      setOpen(true);
+
+      currentUrl.searchParams.delete("inicio");
+      const cleanUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+      window.history.replaceState(null, "", cleanUrl);
+      return;
+    }
+
     const skipOnce = window.sessionStorage.getItem(skipOnceKey) === "true";
     if (skipOnce) {
       window.sessionStorage.removeItem(skipOnceKey);
