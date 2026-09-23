@@ -1,0 +1,71 @@
+AUTOMAÇÃO EXTREMA — TUCXA EM HARMONIA
+AGENDAMENTOS — PILOTO V1
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+PRINCIPAIS ENTREGAS
+- calendário de Entidades por segunda/terça e ocorrência do mês;
+- capacidade máxima por Entidade/dia;
+- suspensão/disponibilização por data ou período;
+- agendamento simples pela Recepção;
+- autoagendamento do Filho de Fora/Consulente;
+- confirmação pelo painel;
+- confirmação por link seguro enviado por SMS quando houver provider configurado;
+- horário-limite inicial de confirmação: 16:00 do dia do atendimento;
+- agendamento pendente expirado é cancelado ao consultar o piloto, liberando a vaga;
+- experiência compacta para celular com detalhes em pop-ups.
+
+BANCO
+Aplicar antes de homologar as telas:
+supabase/migrations/20260923110000_oh_tucxa_agendamentos_piloto_v1.sql
+
+A migration é aditiva e inclui:
+- novas colunas de confirmação em oh_consulente_appointments;
+- oh_tucxa_pilot_entity_schedule;
+- oh_tucxa_pilot_entity_overrides;
+- calendário inicial das Entidades informado para o piloto;
+- função atômica oh_tucxa_pilot_reserve_appointment;
+- EXECUTE da função concedido somente a service_role.
+
+SMS
+O SMS é opcional e desacoplado.
+Providers implementados:
+- disabled
+- twilio
+- webhook
+
+Variáveis para Twilio:
+TUCXA_SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_SMS_FROM=...
+
+Ou webhook:
+TUCXA_SMS_PROVIDER=webhook
+TUCXA_SMS_WEBHOOK_URL=...
+TUCXA_SMS_WEBHOOK_TOKEN=...  (opcional)
+
+Sem provider:
+TUCXA_SMS_PROVIDER=disabled
+
+Nunca versionar tokens, senhas ou chaves no GitHub.
+
+ARQUIVOS NOVOS/ATUALIZADOS DESTA ENTREGA
+- supabase/migrations/20260923110000_oh_tucxa_agendamentos_piloto_v1.sql
+- src/lib/organizacao-em-harmonia/tucxa-appointment-pilot.ts
+- src/lib/organizacao-em-harmonia/tucxa-sms.ts
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+- src/app/api/organizacao-em-harmonia/consulentes/agendamento-piloto/route.ts
+- src/app/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar/route.ts
+- src/components/organizacao-em-harmonia/tucxa-pilot-reception-landing.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/atendimento/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/[token]/page.tsx
+- docs/tucxa/HOMOLOGACAO-AGENDAMENTOS-PILOTO-V1.md
+
+HOMOLOGAÇÃO
+Ver:
+docs/tucxa/HOMOLOGACAO-AGENDAMENTOS-PILOTO-V1.md

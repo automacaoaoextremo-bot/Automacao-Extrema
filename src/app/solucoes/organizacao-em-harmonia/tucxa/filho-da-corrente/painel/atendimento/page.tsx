@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FilhoCorrentePanelHeader } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPilotReceptionLanding } from "@/components/organizacao-em-harmonia/tucxa-pilot-reception-landing";
 
 const filhoPanelBase = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
 const pageHref = `${filhoPanelBase}/atendimento`;
@@ -111,6 +112,7 @@ export default function AtendimentoEmHarmoniaPage() {
   const [canReception, setCanReception] = useState(false);
   const [canCambono, setCanCambono] = useState(false);
   const [canCavalinho, setCanCavalinho] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [functionTokens, setFunctionTokens] = useState<string[]>([]);
   const [modal, setModal] = useState<ModalKind>(null);
   const [submodule, setSubmodule] = useState<SubmoduleKind>(null);
@@ -131,6 +133,7 @@ export default function AtendimentoEmHarmoniaPage() {
           setCanCavalinho(payload.canCavalinho === true);
           setFunctionTokens(profileFunctionTokens(payload));
         }
+        if (active) setProfileLoaded(true);
       });
     }, 0);
 
@@ -223,6 +226,10 @@ export default function AtendimentoEmHarmoniaPage() {
   );
 
   const selected = modal ? modalContent[modal] : null;
+
+  if (profileLoaded && canReception) {
+    return <TucxaPilotReceptionLanding />;
+  }
 
   return (
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
