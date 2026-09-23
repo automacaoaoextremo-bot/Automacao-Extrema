@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 
 export function middleware() {
-  // A autorização da Organização em Harmonia é feita nas páginas/rotas com Supabase.
-  // Este middleware fica intencionalmente sem redirecionamentos para não quebrar links
-  // profundos como /cliente/simular-acesso/[personId].
+  // A autorização das áreas privadas é feita pelas próprias páginas/rotas
+  // com Supabase Auth + RLS. O middleware permanece sem redirecionamentos
+  // para não quebrar links profundos e fluxos de recuperação de senha.
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/solucoes/organizacao-em-harmonia/:path*"],
+  matcher: [
+    "/solucoes/organizacao-em-harmonia/:path*",
+    "/solucoes/caixa-claro/:path*",
+  ],
 };

@@ -80,6 +80,14 @@ const examples = [
       "Solução em validação para eventos afetivos: convite, confirmação individual, grupos, lembretes, painel de presença e pós-evento.",
     transformation: "Transforma confirmações espalhadas no WhatsApp em uma jornada organizada, carinhosa e previsível.",
   },
+  {
+    name: "Caixa Claro",
+    url: "/solucoes/caixa-claro",
+    label: "Clareza financeira familiar",
+    description:
+      "Solução para reunir extratos, rendas, documentos e compromissos futuros, com acessos individuais e conciliação de transferências entre contas da própria família.",
+    transformation: "Transforma dados financeiros espalhados em visão de caixa futuro e decisões semanais sem dupla contagem de renda.",
+  },
 ];
 
 const valueCards = [
