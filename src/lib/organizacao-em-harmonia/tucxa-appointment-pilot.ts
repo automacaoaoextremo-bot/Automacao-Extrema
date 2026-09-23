@@ -27,8 +27,24 @@ export type PilotSettings = {
   confirmationCutoff: string;
   appointmentTime: string;
   arrivalWindow: string;
+  doorClosesAt: string;
+  doorReopensAt: string;
+  endTime: string;
   daysAhead: number;
   smsEnabled: boolean;
+  selfServiceViewMode: "entity_day" | "day_entity" | "both";
+  useDefaultEntity: boolean;
+  allowDifferentEntity: boolean;
+  serviceOrderMode: "booking" | "arrival";
+  confirmationReminderOffsetsHours: number[];
+};
+
+export type PilotPersonPreferences = {
+  defaultEntityId: string;
+  reminderSmsEnabled: boolean;
+  reminderOffsetsHours: number[];
+  receptionSummaryChannels: string[];
+  receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
 };
 
 type PilotReceptionContext = {
@@ -159,6 +175,22 @@ export async function findTucxaOrganization() {
   return { id: byName.id as string, name: asText(byName.name) || "Tucxa" };
 }
 
+function viewMode(value: unknown): "entity_day" | "day_entity" | "both" {
+  const normalized = asText(value);
+  return normalized === "entity_day" || normalized === "day_entity" ? normalized : "both";
+}
+
+function positiveHourList(value: unknown, fallback: number[]) {
+  if (!Array.isArray(value)) return fallback;
+  const parsed = value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0 && item <= 720)
+    .map((item) => Math.round(item));
+  return Array.from(new Set(parsed)).sort((left, right) => right - left).slice(0, 8).length
+    ? Array.from(new Set(parsed)).sort((left, right) => right - left).slice(0, 8)
+    : fallback;
+}
+
 export async function loadPilotSettings(organizationId: string): Promise<PilotSettings> {
   const { data, error } = await supabaseAdmin
     .from("oh_module_settings")
@@ -172,9 +204,62 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     confirmationCutoff: asText(settings.pilotConfirmationCutoff) || "16:00",
     appointmentTime: asText(settings.pilotAppointmentTime) || "20:00",
     arrivalWindow: asText(settings.pilotArrivalWindow) || "18:30–19:20",
+    doorClosesAt: asText(settings.pilotDoorClosesAt) || "19:20",
+    doorReopensAt: asText(settings.pilotDoorReopensAt) || "20:00",
+    endTime: asText(settings.pilotEndTime) || "21:40",
     daysAhead: Math.max(14, Math.min(180, Number(settings.pilotDaysAhead ?? 90) || 90)),
     smsEnabled: settings.pilotSmsEnabled !== false,
+    selfServiceViewMode: viewMode(settings.pilotSelfServiceViewMode),
+    useDefaultEntity: settings.pilotUseDefaultEntity === true,
+    allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
+    serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
+    confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
   };
+}
+
+export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
+  const { data, error } = await supabaseAdmin
+    .from("oh_tucxa_pilot_person_preferences")
+    .select("default_entity_id, reminder_sms_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    defaultEntityId: asText(data?.default_entity_id),
+    reminderSmsEnabled: data?.reminder_sms_enabled !== false,
+    reminderOffsetsHours: positiveHourList(data?.reminder_offsets_hours, []),
+    receptionSummaryChannels: Array.isArray(data?.reception_summary_channels)
+      ? data.reception_summary_channels.map(asText).filter((item) => item === "email" || item === "sms")
+      : [],
+    receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
+  };
+}
+
+export async function savePilotPersonPreferences(
+  organizationId: string,
+  personId: string,
+  input: Partial<PilotPersonPreferences>,
+) {
+  const current = await loadPilotPersonPreferences(organizationId, personId);
+  const payload = {
+    organization_id: organizationId,
+    person_id: personId,
+    default_entity_id: input.defaultEntityId === undefined ? current.defaultEntityId || null : input.defaultEntityId || null,
+    reminder_sms_enabled: input.reminderSmsEnabled ?? current.reminderSmsEnabled,
+    reminder_offsets_hours: input.reminderOffsetsHours === undefined
+      ? current.reminderOffsetsHours
+      : positiveHourList(input.reminderOffsetsHours, []),
+    reception_summary_channels: input.receptionSummaryChannels === undefined
+      ? current.receptionSummaryChannels
+      : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "sms"))),
+    reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabaseAdmin
+    .from("oh_tucxa_pilot_person_preferences")
+    .upsert(payload, { onConflict: "organization_id,person_id" });
+  if (error) throw error;
 }
 
 export async function currentPilotReception(request: Request): Promise<PilotReceptionContext | null> {
@@ -428,7 +513,7 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, metadata, notes, created_at")
+    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, metadata, notes, created_at")
     .eq("organization_id", organizationId)
     .gte("appointment_date", startDate)
     .lte("appointment_date", endDate)
@@ -461,6 +546,9 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
     confirmationSentAt: asText(item.confirmation_sent_at),
     confirmationChannel: asText(item.confirmation_channel),
     confirmedAt: asText(item.confirmed_at),
+    arrivalStatus: asText(item.arrival_status) || "pending",
+    arrivedAt: asText(item.arrived_at),
+    arrivalOrder: Number(item.arrival_order ?? 0) || null,
     notes: asText(item.notes),
     order: Number(asRecord(item.metadata).order ?? 0) || null,
   }));

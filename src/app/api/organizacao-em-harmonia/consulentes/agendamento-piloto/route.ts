@@ -9,8 +9,10 @@ import {
   loadPilotAppointments,
   loadPilotDates,
   loadPilotDay,
+  loadPilotPersonPreferences,
   loadPilotSettings,
   pilotReservationError,
+  savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 
@@ -18,6 +20,15 @@ export const dynamic = "force-dynamic";
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function hourList(value: unknown) {
+  const source = Array.isArray(value) ? value : asText(value).split(/[;,\s]+/);
+  const parsed = source
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0 && item <= 720)
+    .map((item) => Math.round(item));
+  return Array.from(new Set(parsed)).sort((a, b) => b - a).slice(0, 8);
 }
 
 function requestId() {
@@ -29,11 +40,14 @@ async function buildPayload(context: NonNullable<Awaited<ReturnType<typeof curre
   const settings = await loadPilotSettings(context.organizationId);
   const dates = await loadPilotDates(context.organizationId, settings.daysAhead);
   const selected = dates.some((item) => item.date === selectedDate) ? selectedDate! : dates[0]?.date || todayInSaoPaulo();
-  const [entities, appointments] = await Promise.all([
+  const matrixDates = dates.slice(0, 16);
+  const [entities, appointments, preferences, matrixEntities] = await Promise.all([
     loadPilotDay(context.organizationId, selected),
     loadPilotAppointments(context.organizationId, todayInSaoPaulo(), addDaysIso(todayInSaoPaulo(), settings.daysAhead), context.personId),
+    loadPilotPersonPreferences(context.organizationId, context.personId),
+    Promise.all(matrixDates.map(async (item) => ({ date: item.date, label: item.label, entities: await loadPilotDay(context.organizationId, item.date) }))),
   ]);
-  return { settings, dates, selectedDate: selected, entities, appointments };
+  return { settings, dates, selectedDate: selected, entities, appointments, preferences, calendar: matrixEntities };
 }
 
 export async function GET(request: Request) {
@@ -63,10 +77,19 @@ export async function POST(request: Request) {
     const settings = await loadPilotSettings(context.organizationId);
 
     if (action === "book") {
-      const entityId = asText(body.entityId);
+      let entityId = asText(body.entityId);
       const appointmentDate = asText(body.appointmentDate);
       const notes = asText(body.notes);
+      const preferences = await loadPilotPersonPreferences(context.organizationId, context.personId);
+
+      if (settings.useDefaultEntity && preferences.defaultEntityId) {
+        if (!settings.allowDifferentEntity) entityId = preferences.defaultEntityId;
+        if (settings.allowDifferentEntity && !entityId) entityId = preferences.defaultEntityId;
+      }
       if (!entityId || !appointmentDate) return NextResponse.json({ error: "Escolha a data e a Entidade.", requestId: code }, { status: 400 });
+      if (settings.useDefaultEntity && preferences.defaultEntityId && !settings.allowDifferentEntity && entityId !== preferences.defaultEntityId) {
+        return NextResponse.json({ error: "Neste momento seu agendamento deve usar a Entidade padrão definida pela Recepção.", requestId: code }, { status: 409 });
+      }
 
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
       if (isPastConfirmationDeadline(deadline)) {
@@ -107,6 +130,15 @@ export async function POST(request: Request) {
         },
         message: "Agendamento reservado. Agora confirme sua presença em Meus agendamentos.",
       });
+    }
+
+    if (action === "save-reminders") {
+      const offsets = hourList(body.reminderOffsetsHours);
+      await savePilotPersonPreferences(context.organizationId, context.personId, {
+        reminderSmsEnabled: body.reminderSmsEnabled !== false,
+        reminderOffsetsHours: offsets,
+      });
+      return NextResponse.json({ ok: true, message: "Preferências de lembretes atualizadas." });
     }
 
     if (action === "confirm") {
