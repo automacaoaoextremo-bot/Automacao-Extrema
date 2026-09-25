@@ -61,12 +61,13 @@ export default function AgendamentoTucxaPublicPage() {
           { label: "Agendamento", href: LOGIN_HREF, variant: "secondary" },
           { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
-        compactMobileActions
+        mobileActionColumns={4}
+        compactMobileActions={false}
         autoHighlightCurrent={false}
       />
 
-      <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
-        <section className="w-full overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-950/10 sm:rounded-[2rem] sm:p-8">
+      <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-stretch px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
+        <section className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-950/10 sm:h-auto sm:rounded-[2rem] sm:p-8">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
             Atendimento em Harmonia · Agendamento
           </p>
@@ -94,7 +95,7 @@ export default function AgendamentoTucxaPublicPage() {
               onClick={() => setModal("horarios")}
               className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2"
             >
-              <span className="text-sm font-black sm:text-base">Ver horários</span>
+              <span className="text-sm font-black sm:text-base">Horários</span>
               <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
             </button>
 

@@ -74,39 +74,72 @@ export default function AgendamentoLoginPage() {
         navLabel="Login único do Agendamento"
         showSupport={false}
         actions={[
-          { label: "Início", href: LANDING, variant: "primary" },
           { label: "Voltar", href: LANDING, variant: "secondary" },
           { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
-        mobileActionColumns={3}
+        mobileActionColumns={2}
         compactMobileActions={false}
         autoHighlightCurrent={false}
       />
 
-      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 items-center px-3 py-2 sm:block sm:px-6 sm:py-7">
-        <article className="w-full rounded-[1.6rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-7">
-          <p className="text-[0.62rem] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">Agendamento · acesso único</p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">Entre com seu WhatsApp ou e-mail.</h1>
-          <p className="mt-2 text-xs font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-sm sm:leading-6">
-            Nesta primeira fase do piloto, o uso do sistema está sendo validado com a Recepção. Consulentes recebem o link de confirmação por SMS.
+      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 items-stretch px-3 py-2 sm:block sm:px-6 sm:py-7">
+        <article className="flex h-full w-full flex-col justify-center rounded-[1.6rem] bg-[#123D2C] p-4 text-white shadow-xl sm:h-auto sm:rounded-[2rem] sm:p-7">
+          <p className="text-[0.62rem] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
+            Agendamento · acesso único
           </p>
+          <h1 className="mt-1 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">
+            Entre com seu WhatsApp ou e-mail.
+          </h1>
 
           <form onSubmit={submit} className="mt-3 grid gap-2 rounded-[1.4rem] bg-white p-3 text-[#10251C] sm:mt-5 sm:gap-3 sm:p-5">
-            <label className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">WhatsApp ou e-mail
-              <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl" required />
+            <label htmlFor="agendamento-login-identificador" className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">
+              WhatsApp ou e-mail
+              <input
+                id="agendamento-login-identificador"
+                value={identifier}
+                onChange={(event) => setIdentifier(event.target.value)}
+                autoComplete="username"
+                className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl"
+                required
+              />
             </label>
-            <label className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">Senha
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl" required />
-            </label>
-            <div className="grid grid-cols-[auto_1fr] gap-2">
-              <button type="button" onClick={() => setShowPassword((current) => !current)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-black text-[#123D2C] sm:h-12">
-                {showPassword ? "Ocultar" : "Mostrar"}
-              </button>
-              <button disabled={loading} className="h-10 rounded-xl bg-[#123D2C] px-4 text-sm font-black text-white disabled:opacity-60 sm:h-12 sm:rounded-2xl">
-                {loading ? "Entrando..." : "Entrar"}
-              </button>
+
+            <div className="grid gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="agendamento-login-senha" className="text-xs font-black text-[#123D2C] sm:text-sm">
+                  Senha
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[0.68rem] font-black text-[#123D2C] sm:text-xs"
+                >
+                  {showPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
+              <input
+                id="agendamento-login-senha"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl"
+                required
+              />
             </div>
-            {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold leading-4 text-red-700">{error}</p>}
+
+            <button
+              disabled={loading}
+              className="h-10 rounded-xl bg-[#123D2C] px-4 text-sm font-black text-white disabled:opacity-60 sm:h-12 sm:rounded-2xl"
+            >
+              {loading ? "Entrando..." : "Entrar"}
+            </button>
+
+            {error && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold leading-4 text-red-700">
+                {error}
+              </p>
+            )}
           </form>
         </article>
       </section>

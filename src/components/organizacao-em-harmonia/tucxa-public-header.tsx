@@ -12,6 +12,7 @@ type TucxaHeaderLink = {
   variant?: "primary" | "secondary";
   action?:
     | "signOutFilhoCorrente"
+    | "signOutAgendamento"
     | "signOutConsulente"
     | "signOutTucxa"
     | "supportWhatsapp"
@@ -143,6 +144,12 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
     if (link.action === "signOutFilhoCorrente") {
       await supabaseBrowser.auth.signOut();
       window.location.replace("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login");
+      return;
+    }
+
+    if (link.action === "signOutAgendamento") {
+      await supabaseBrowser.auth.signOut();
+      window.location.replace("/solucoes/organizacao-em-harmonia/agendamento/login");
       return;
     }
 

@@ -12,7 +12,7 @@ export type PanelHeaderAction = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente" | "supportWhatsapp";
+  action?: "signOutFilhoCorrente" | "signOutAgendamento" | "supportWhatsapp";
 };
 
 type FilhoCorrentePanelHeaderProps = {
@@ -98,6 +98,13 @@ export const filhoSignOutAction: PanelHeaderAction = {
   href: "#sair",
   variant: "secondary",
   action: "signOutFilhoCorrente",
+};
+
+export const filhoAgendamentoSignOutAction: PanelHeaderAction = {
+  label: "Sair",
+  href: "#sair",
+  variant: "secondary",
+  action: "signOutAgendamento",
 };
 
 export const filhoSupportAction: PanelHeaderAction = {

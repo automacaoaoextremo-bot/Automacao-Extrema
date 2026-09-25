@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
-  filhoSignOutAction,
+  filhoAgendamentoSignOutAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -11,7 +11,6 @@ const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-pilot
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
 const UNIFIED_LOGIN = "/solucoes/organizacao-em-harmonia/agendamento/login";
 const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto";
-const atendimentoHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
 type ModalKind = "agendar" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
@@ -128,7 +127,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
   const [notes, setNotes] = useState("");
-  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "", privacyAccepted: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+  const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<BookingResult | null>(null);
   const [management, setManagement] = useState({ entityId: "", startsOn: "", endsOn: "", available: true, capacity: "", reason: "" });
@@ -232,6 +232,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "" });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+    setShowNewPersonPassword(false);
   }
 
   async function searchPerson(event: FormEvent) {
@@ -488,22 +490,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
       <FilhoCorrentePanelHeader
         navLabel="Agendamento · Recepção"
         showSupport={false}
-        actions={[
-          { label: "Início", href: pageHref, variant: "primary" },
-          { label: "Voltar", href: atendimentoHref, variant: "secondary" },
-          { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
-          filhoSignOutAction,
-        ]}
-        mobileActionColumns={4}
+        actions={[filhoAgendamentoSignOutAction]}
+        mobileActionColumns={2}
+        compactMobileActions={false}
+        autoHighlightCurrent={false}
       />
 
       <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
         <section className="rounded-[1.8rem] bg-[#123D2C] p-4 text-white shadow-xl sm:p-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">Piloto · Recepção</p>
-          <h1 className="mt-1 text-2xl font-black sm:text-4xl">Um lugar para agendar, confirmar e organizar a chegada.</h1>
-          <p className="mt-2 text-sm font-semibold leading-5 text-[#EEF7EA] sm:text-base sm:leading-7">
-            A Recepção trabalha com a mesma informação que o Consulente: vagas, Entidade, confirmação e situação de chegada.
-          </p>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">Recepção</p>
+          <h1 className="mt-1 text-2xl font-black sm:text-4xl">
+            Olá, {payload?.profile.fullName?.trim().split(/\s+/)[0] || "Recepção"}, aqui você agenda, confirma e organiza os atendimentos do Tucxa.
+          </h1>
         </section>
 
         {loading && <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando...</p>}
@@ -513,12 +511,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
         {payload && (
           <>
             <section className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-              <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={() => setModal("agendar")} />
-              <ActionButton title="Consultar" subtitle="Confirmar, trocar Entidade e chegada" onClick={() => setModal("consultar")} />
-              <ActionButton title="Entidades" subtitle="Vagas, suspensão e Cavalinhos" onClick={() => setModal("entidades")} />
-              <ActionButton title="Cadastros" subtitle="Atualizar Consulente ou Entidade" onClick={() => setModal("cadastros")} />
+              <ActionButton title="Como funciona" subtitle="Resumo do fluxo de atendimentos" onClick={() => setModal("ajuda")} />
               <ActionButton title="Configurações" subtitle="Ordem, visualização e lembretes" onClick={openSettings} />
-              <ActionButton title="Como funciona" subtitle="Resumo do fluxo do piloto" onClick={() => setModal("ajuda")} />
+              <ActionButton title="Cadastros" subtitle="Atualizar Consulente ou Entidade" onClick={() => setModal("cadastros")} />
+              <ActionButton title="Entidades" subtitle="Vagas, suspensão e Cavalinhos" onClick={() => setModal("entidades")} />
+              <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={() => setModal("agendar")} />
+              <ActionButton title="Acolhimento" subtitle="Confirmar, trocar Entidade e registrar chegada" onClick={() => setModal("consultar")} />
             </section>
             <section className="mt-3 grid grid-cols-3 gap-2 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
               <Summary label="Agendados" value={payload.appointments.filter((item) => item.status !== "cancelado").length} />
@@ -548,7 +546,31 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="font-black text-amber-900">Cadastro não encontrado. Cadastre agora.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail (opcional)" type="email" className="rounded-xl border border-amber-200 p-3" />
-                  <input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} placeholder="Senha inicial" type="password" minLength={8} className="rounded-xl border border-amber-200 p-3" required />
+                  <div className="grid gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label htmlFor="novo-consulente-senha" className="text-sm font-black text-amber-950">Senha inicial</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPersonPassword((current) => !current)}
+                        className="rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-xs font-black text-amber-950"
+                      >
+                        {showNewPersonPassword ? "Ocultar" : "Mostrar"}
+                      </button>
+                    </div>
+                    <input
+                      id="novo-consulente-senha"
+                      value={newPerson.password}
+                      onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))}
+                      placeholder="Senha inicial"
+                      type={showNewPersonPassword ? "text" : "password"}
+                      minLength={8}
+                      className="rounded-xl border border-amber-200 p-3"
+                      required
+                    />
+                    <p className="text-xs font-semibold text-amber-900">
+                      A senha inicial vem preenchida como 12345678 e deverá ser trocada no primeiro login.
+                    </p>
+                  </div>
                   <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro</button>
                 </form>
@@ -570,7 +592,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               )}
 
-              {accessInfo?.loginUrl && <p className="rounded-2xl bg-blue-50 p-3 text-sm font-semibold text-blue-900">Cadastro criado. Login: {accessInfo.login || "WhatsApp/e-mail informado"}. O acesso individual pode ser enviado pela Recepção.</p>}
+              {accessInfo?.loginUrl && <p className="rounded-2xl bg-blue-50 p-3 text-sm font-semibold text-blue-900">Cadastro criado. Login: {accessInfo.login || "WhatsApp/e-mail informado"}.</p>}
               {bookingResult?.confirmation?.url && (
                 <div className="grid gap-2 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-100">
                   <p className="font-black">Agendamento criado.</p>
@@ -763,9 +785,9 @@ function Info({ title, children }: { title: string; children: React.ReactNode })
 
 function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "agendar") return "Agendar Filho de Fora/Consulente";
-  if (modal === "consultar") return "Consultar, confirmar e registrar chegada";
+  if (modal === "consultar") return "Acolhimento";
   if (modal === "entidades") return "Disponibilidade das Entidades";
-  if (modal === "cadastros") return "Cadastros do piloto";
+  if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";
   return "Como funciona";
 }
