@@ -5,7 +5,6 @@ import { ReactNode, useEffect, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
 const LOGIN_HREF = "/solucoes/organizacao-em-harmonia/agendamento/login";
-const TUCXA_HREF = "/solucoes/organizacao-em-harmonia/tucxa";
 
 type ModalKind = "horarios" | "porque" | null;
 
@@ -29,22 +28,27 @@ export default function AgendamentoTucxaPublicPage() {
 
   useEffect(() => {
     const openWhy = () => setModal("porque");
+    const openHours = () => setModal("horarios");
+
     window.addEventListener("tucxa:open-agendamento-why", openWhy);
-    return () => window.removeEventListener("tucxa:open-agendamento-why", openWhy);
+    window.addEventListener("tucxa:open-agendamento-hours", openHours);
+
+    return () => {
+      window.removeEventListener("tucxa:open-agendamento-why", openWhy);
+      window.removeEventListener("tucxa:open-agendamento-hours", openHours);
+    };
   }, []);
 
   useEffect(() => {
     if (!modal) return;
+
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
     return () => {
       document.body.style.overflow = previous;
     };
   }, [modal]);
-
-  function closeModal() {
-    setModal(null);
-  }
 
   return (
     <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C] sm:min-h-screen sm:h-auto sm:overflow-visible">
@@ -52,64 +56,82 @@ export default function AgendamentoTucxaPublicPage() {
         navLabel="Agendamento do Tucxa"
         showSupport={false}
         actions={[
-          { label: "Início", href: "#inicio", variant: "primary" },
-          { label: "Como funciona", href: "#como-funciona", variant: "secondary", action: "openAgendamentoWhy" },
+          { label: "Por que usar", href: "#por-que-usar", variant: "secondary", action: "openAgendamentoWhy" },
+          { label: "Horários", href: "#horarios", variant: "secondary", action: "openAgendamentoHours" },
           { label: "Agendamento", href: LOGIN_HREF, variant: "secondary" },
-          { label: "Voltar", href: TUCXA_HREF, variant: "secondary" },
           { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
         compactMobileActions
         autoHighlightCurrent={false}
       />
 
-      <section id="inicio" className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
+      <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
         <section className="w-full overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-950/10 sm:rounded-[2rem] sm:p-8">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
             Atendimento em Harmonia · Agendamento
           </p>
+
           <h1 className="mt-1 max-w-3xl text-[1.5rem] font-black leading-[1.05] sm:mt-2 sm:text-5xl">
             Menos dúvida no caminho. Mais clareza para acolher.
           </h1>
+
           <p className="mt-1.5 max-w-3xl text-[0.72rem] font-semibold leading-[1.15rem] text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
-            Nesta primeira etapa, a Recepção faz os agendamentos e o Consulente confirma sua presença pelo link recebido por SMS. Vagas, Entidade, confirmação e chegada ficam no mesmo fluxo.
+            O agendamento do Tucxa reúne em um só lugar o pedido do Consulente, a disponibilidade das Entidades e o acompanhamento da Recepção. A proposta é simples: cada pessoa saber o que precisa fazer, quando precisa fazer e qual informação está valendo.
           </p>
 
           <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:mt-5 sm:grid-cols-3 sm:gap-2">
-            <Link href={LOGIN_HREF} className="group flex min-h-11 flex-col items-center justify-center rounded-2xl bg-white px-4 py-1.5 text-center text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:py-2">
-              <span className="text-sm font-black sm:text-base">Agendamento</span>
-              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[0.65rem]">Clique para abrir</span>
-            </Link>
-            <button type="button" onClick={() => setModal("horarios")} className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2">
-              <span className="text-sm font-black sm:text-base">Ver horários</span>
-              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
-            </button>
-            <button type="button" onClick={() => setModal("porque")} className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2">
+            <button
+              type="button"
+              onClick={() => setModal("porque")}
+              className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2"
+            >
               <span className="text-sm font-black sm:text-base">Por que usar</span>
               <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
             </button>
-          </div>
 
-          <div className="mt-2.5 rounded-2xl bg-white/10 px-3 py-1.5 text-center text-[0.62rem] font-bold leading-4 text-[#EEF7EA] sm:mt-5 sm:px-5 sm:py-3 sm:text-sm sm:leading-6">
-            Segunda e terça: chegada entre <strong>18h30 e 19h20</strong>. A porta fecha às <strong>19h20</strong> para o início dos trabalhos.
+            <button
+              type="button"
+              onClick={() => setModal("horarios")}
+              className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2"
+            >
+              <span className="text-sm font-black sm:text-base">Ver horários</span>
+              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
+            </button>
+
+            <Link
+              href={LOGIN_HREF}
+              className="group flex min-h-11 flex-col items-center justify-center rounded-2xl bg-white px-4 py-1.5 text-center text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:py-2"
+            >
+              <span className="text-sm font-black sm:text-base">Agendamento</span>
+              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[0.65rem]">Clique para abrir</span>
+            </Link>
           </div>
         </section>
       </section>
 
       {modal === "horarios" && (
-        <CompactModal title="Horários de segunda e terça" onClose={closeModal}>
+        <CompactModal title="Horários de segunda e terça" onClose={() => setModal(null)}>
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 sm:gap-3">
-            <InfoCard eyebrow="Chegada" title="18h30 às 19h20">Todos devem chegar dentro dessa janela.</InfoCard>
-            <InfoCard eyebrow="Início dos trabalhos" title="19h20">A porta fecha às 19h20 e reabre às 20h.</InfoCard>
-            <InfoCard eyebrow="Atendimentos" title="20h às 21h40">Horário previsto para os atendimentos.</InfoCard>
+            <InfoCard eyebrow="Chegada" title="18h30 às 19h20">
+              Todos devem chegar dentro dessa janela.
+            </InfoCard>
+            <InfoCard eyebrow="Início dos trabalhos" title="19h20">
+              A porta fecha às 19h20 e reabre às 20h.
+            </InfoCard>
+            <InfoCard eyebrow="Atendimentos" title="20h às 21h40">
+              Horário previsto para os atendimentos.
+            </InfoCard>
           </div>
         </CompactModal>
       )}
 
       {modal === "porque" && (
-        <CompactModal title="Por que usar o Agendamento" onClose={closeModal}>
+        <CompactModal title="Por que usar o Agendamento" onClose={() => setModal(null)}>
           <section className="rounded-2xl bg-[#E9F2E7] p-2.5 ring-1 ring-[#123D2C]/10 sm:p-4">
             <p className="text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">Por que usar</p>
-            <h3 className="mt-0.5 text-[1.05rem] font-black leading-tight text-[#123D2C] sm:text-2xl">A informação certa precisa chegar à pessoa certa.</h3>
+            <h3 className="mt-0.5 text-[1.05rem] font-black leading-tight text-[#123D2C] sm:text-2xl">
+              A informação certa precisa chegar à pessoa certa.
+            </h3>
             <p className="mt-1 text-[0.62rem] font-semibold leading-4 text-slate-700 sm:text-sm sm:leading-5">
               O objetivo não é trocar o acolhimento humano por uma tela. É reduzir retrabalho, mensagens desencontradas e incerteza para que todos possam dedicar mais atenção ao atendimento.
             </p>
@@ -130,11 +152,21 @@ export default function AgendamentoTucxaPublicPage() {
 
 function CompactModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[250] flex items-center justify-center bg-[#10251C]/75 p-1.5 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      className="fixed inset-0 z-[250] flex items-center justify-center bg-[#10251C]/75 p-1.5 backdrop-blur-sm sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.4rem] bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#123D2C]/10 px-3.5 py-2.5 sm:px-5 sm:py-4">
           <h2 className="text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-3 py-1.5 text-[0.68rem] font-black text-white sm:px-4 sm:py-2 sm:text-sm">Fechar</button>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-3 py-1.5 text-[0.68rem] font-black text-white sm:px-4 sm:py-2 sm:text-sm">
+            Fechar
+          </button>
         </header>
         <div className="min-h-0 flex-1 overflow-hidden p-2.5 sm:p-5">{children}</div>
       </section>

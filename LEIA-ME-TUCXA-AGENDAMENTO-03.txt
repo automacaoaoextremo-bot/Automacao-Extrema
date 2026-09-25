@@ -1,0 +1,20 @@
+AUTOMAÇÃO EXTREMA — OeH / TUCXA — AGENDAMENTO 03
+
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais ajustes:
+- cabeçalho público com Por que usar | Horários | Agendamento | Ajuda;
+- mesmo padrão de fonte para os quatro itens;
+- texto explicativo restaurado;
+- botões na ordem Por que usar | Ver horários | Agendamento;
+- remoção do quadro fixo de horários;
+- listagem resiliente de todos os Filhos da Corrente e acessos do piloto;
+- normalização dos acessos provisionados para o papel-base Filho da Corrente;
+- provisionador atualizado para manter função-base e atualizar nome/telefone a partir do arquivo local.
+
+Antes do commit:
+1. aplicar a migration 03;
+2. executar npm run lint;
+3. executar npm run build;
+4. executar git diff --check;
+5. homologar no Preview do Vercel.

@@ -153,6 +153,7 @@ for (const item of seed.people) {
       const { data, error } = await supabase
         .from("oh_people")
         .update({
+          full_name: fullName,
           whatsapp: phone,
           active: true,
           updated_at: new Date().toISOString(),
@@ -203,7 +204,7 @@ for (const item of seed.people) {
       const { error } = await supabase
         .from("oh_memberships")
         .update({
-          role_id: membership.role_id || role.id,
+          role_id: role.id,
           module_slugs: moduleSlugs,
           active: true,
           status: "ativo",

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { pilotFilhoMembershipsByPerson } from "@/lib/organizacao-em-harmonia/tucxa-pilot-membership";
 
 type Person = {
   id: string;
@@ -220,14 +221,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
   const filhosCorrente = useMemo(() => {
     const people = payload?.people ?? [];
     const roles = payload?.roles ?? [];
-    const role = roles.find((item) => item.slug === "filho-da-corrente" && item.active !== false);
-    if (!role) return [] as Array<{ person: Person; membership: Membership }>;
-
-    const byPerson = new Map(
-      (payload?.memberships ?? [])
-        .filter((membership) => membership.role_id === role.id && membership.active !== false)
-        .map((membership) => [membership.person_id, membership]),
-    );
+    const byPerson = pilotFilhoMembershipsByPerson(payload?.memberships ?? [], roles);
 
     return people
       .filter((person) => byPerson.has(person.id))

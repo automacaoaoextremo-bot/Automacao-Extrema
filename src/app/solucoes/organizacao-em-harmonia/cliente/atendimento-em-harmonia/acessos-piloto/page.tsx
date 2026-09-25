@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { OrganizacaoClientShell } from "@/components/organizacao-client-shell";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { pilotFilhoMembershipsByPerson } from "@/lib/organizacao-em-harmonia/tucxa-pilot-membership";
 
 type Person = {
   id: string;
@@ -84,9 +85,9 @@ export default function AcessosPilotoPage() {
 
   const rows = useMemo(() => {
     if (!payload) return [];
-    const role = payload.roles.find((item) => item.slug === "filho-da-corrente");
-    if (!role) return [];
-    const memberships = new Map(payload.memberships.filter((item) => item.role_id === role.id).map((item) => [item.person_id, item]));
+
+    const memberships = pilotFilhoMembershipsByPerson(payload.memberships, payload.roles);
+
     return payload.people
       .filter((person) => memberships.has(person.id))
       .map((person) => ({ person, membership: memberships.get(person.id)! }))
