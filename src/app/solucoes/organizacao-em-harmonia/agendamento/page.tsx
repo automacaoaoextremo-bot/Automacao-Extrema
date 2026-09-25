@@ -8,10 +8,36 @@ const LOGIN_HREF = "/solucoes/organizacao-em-harmonia/agendamento/login";
 
 type ModalKind = "horarios" | "porque" | null;
 
+const headerActions = [
+  {
+    label: "Por que usar",
+    href: "#por-que-usar",
+    variant: "secondary" as const,
+    action: "openAgendamentoWhy" as const,
+  },
+  {
+    label: "Horários",
+    href: "#horarios",
+    variant: "secondary" as const,
+    action: "openAgendamentoHours" as const,
+  },
+  {
+    label: "Agendamento",
+    href: LOGIN_HREF,
+    variant: "primary" as const,
+  },
+  {
+    label: "Ajuda",
+    href: "#ajuda",
+    variant: "secondary" as const,
+    action: "supportWhatsapp" as const,
+  },
+];
+
 const benefits = [
   {
     title: "Para quem busca atendimento",
-    text: "Receba a confirmação do atendimento pelo SMS e confirme sua presença com clareza, sem depender de anotações paralelas.",
+    text: "Receba a confirmação do atendimento por SMS e confirme sua presença com clareza, sem depender de anotações paralelas.",
   },
   {
     title: "Para a Recepção",
@@ -51,60 +77,62 @@ export default function AgendamentoTucxaPublicPage() {
   }, [modal]);
 
   return (
-    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C] sm:min-h-screen sm:h-auto sm:overflow-visible">
+    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         navLabel="Agendamento do Tucxa"
         showSupport={false}
-        actions={[
-          { label: "Por que usar", href: "#por-que-usar", variant: "secondary", action: "openAgendamentoWhy" },
-          { label: "Horários", href: "#horarios", variant: "secondary", action: "openAgendamentoHours" },
-          { label: "Agendamento", href: LOGIN_HREF, variant: "secondary" },
-          { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
-        ]}
+        actions={headerActions}
         mobileActionColumns={4}
-        compactMobileActions={false}
-        autoHighlightCurrent={false}
+        compactMobileActions
       />
 
-      <section className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-stretch px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
-        <section className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-950/10 sm:h-auto sm:rounded-[2rem] sm:p-8">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
+      <section className="mx-auto max-w-6xl px-3 py-2 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
+        <section className="rounded-[1.45rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-900/10 sm:rounded-[1.75rem] sm:p-6">
+          <p className="inline-flex rounded-full bg-[#E9F2E7] px-2.5 py-1 text-[0.64rem] font-black uppercase tracking-[0.15em] text-[#2F6B43] ring-1 ring-white/20 sm:px-3 sm:py-1.5 sm:text-xs sm:tracking-[0.22em]">
             Atendimento em Harmonia · Agendamento
           </p>
 
-          <h1 className="mt-1 max-w-3xl text-[1.5rem] font-black leading-[1.05] sm:mt-2 sm:text-5xl">
+          <h1 className="mt-1.5 max-w-4xl text-[1.48rem] font-black leading-[1.12] tracking-tight text-white sm:mt-2.5 sm:text-4xl sm:leading-tight lg:text-[2.8rem]">
             Menos dúvida no caminho. Mais clareza para acolher.
           </h1>
 
-          <p className="mt-1.5 max-w-3xl text-[0.72rem] font-semibold leading-[1.15rem] text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
+          <p className="mt-1.5 max-w-4xl text-[0.86rem] leading-[1.28rem] text-[#EEF7EA] sm:mt-2.5 sm:text-[1.05rem] sm:leading-8">
             O agendamento do Tucxa reúne em um só lugar o pedido do Consulente, a disponibilidade das Entidades e o acompanhamento da Recepção. A proposta é simples: cada pessoa saber o que precisa fazer, quando precisa fazer e qual informação está valendo.
           </p>
 
-          <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:mt-5 sm:grid-cols-3 sm:gap-2">
+          <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:mt-4 sm:grid-cols-3 sm:gap-2.5">
             <button
               type="button"
-              onClick={() => setModal("porque")}
-              className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2"
+              onClick={() => {
+                window.history.replaceState(null, "", "#por-que-usar");
+                window.dispatchEvent(new Event("hashchange"));
+                setModal("porque");
+              }}
+              className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-[#E9F2E7] px-2.5 py-2 text-center text-[0.78rem] font-black leading-tight text-[#123D2C] ring-1 ring-white/15 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
-              <span className="text-sm font-black sm:text-base">Por que usar</span>
-              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
+              <span>Por que usar</span>
+              <TouchHint />
             </button>
 
             <button
               type="button"
-              onClick={() => setModal("horarios")}
-              className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2"
+              onClick={() => {
+                window.history.replaceState(null, "", "#horarios");
+                window.dispatchEvent(new Event("hashchange"));
+                setModal("horarios");
+              }}
+              className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-[#E9F2E7] px-2.5 py-2 text-center text-[0.78rem] font-black leading-tight text-[#123D2C] ring-1 ring-white/15 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
-              <span className="text-sm font-black sm:text-base">Horários</span>
-              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
+              <span>Horários</span>
+              <TouchHint />
             </button>
 
             <Link
               href={LOGIN_HREF}
-              className="group flex min-h-11 flex-col items-center justify-center rounded-2xl bg-white px-4 py-1.5 text-center text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:py-2"
+              className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-white px-2.5 py-2 text-center text-[0.78rem] font-black leading-tight text-[#123D2C] shadow-lg shadow-green-950/10 ring-1 ring-white/20 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
-              <span className="text-sm font-black sm:text-base">Agendamento</span>
-              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[0.65rem]">Clique para abrir</span>
+              <span>Agendamento</span>
+              <TouchHint />
             </Link>
           </div>
         </section>
@@ -148,6 +176,14 @@ export default function AgendamentoTucxaPublicPage() {
         </CompactModal>
       )}
     </main>
+  );
+}
+
+function TouchHint() {
+  return (
+    <span className="mt-1 block text-[9px] font-black uppercase tracking-[0.13em] text-[#2F6B43] sm:text-[10px] sm:tracking-[0.18em]">
+      TOQUE PARA CONTINUAR
+    </span>
   );
 }
 

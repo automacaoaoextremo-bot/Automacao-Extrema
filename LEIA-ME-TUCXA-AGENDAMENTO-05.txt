@@ -1,0 +1,20 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 05
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais ajustes:
+- cabecalho da pagina publica igual ao padrao compacto do Tucxa;
+- opcao selecionada destacada;
+- quadro principal aproximado visualmente da pagina inicial do Tucxa;
+- login unico aproximado visualmente do login do Filho da Corrente;
+- texto "Entre com o seu WhatsApp ou e-mail" preservado;
+- SMS normalizado para ASCII/GSM-7 para reduzir segmentos;
+- link curto /a/[token] para reduzir o tamanho do SMS;
+- SMS inicial e lembretes encurtados;
+- documentacao detalhada de configuracao Twilio e homologacao.
+
+Nao ha nova migration Supabase nesta evolucao.
+Nao ha nova dependencia npm nesta evolucao.
+Nao ha alteracao obrigatoria do vercel.json nesta evolucao.
+As credenciais SMS ficam somente em variaveis de ambiente.

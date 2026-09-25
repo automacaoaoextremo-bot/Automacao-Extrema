@@ -13,10 +13,6 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function siteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
-}
-
 function authorize(request: Request) {
   const secret = process.env.CRON_SECRET || "";
   if (!secret) return false;
@@ -24,13 +20,24 @@ function authorize(request: Request) {
   return authorization === `Bearer ${secret}`;
 }
 
-function formatDate(date: string) {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString("pt-BR", {
-    timeZone: "UTC",
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-  });
+function compactSmsDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}` : value;
+}
+
+function compactSmsTime(value: string) {
+  return value.replace(/:00$/, "h").replace(/^(\d{2}):(\d{2})$/, "$1h$2");
+}
+
+function compactSmsWindow(value: string) {
+  return value
+    .replace(/[–—]/g, "-")
+    .replace(/(\d{1,2}):(\d{2})/g, "$1h$2");
+}
+
+function compactSmsEntity(value: string) {
+  const normalized = value.trim();
+  return normalized.length > 15 ? `${normalized.slice(0, 15).trim()}...` : normalized;
 }
 
 type AppointmentRow = {
@@ -164,16 +171,8 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const entityName = entityNames.get(asText(appointment.entity_id)) || "a Entidade agendada";
-      const portal = `${siteUrl()}/solucoes/organizacao-em-harmonia/agendamento/login?returnTo=${encodeURIComponent("/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto?abrir=consultar")}`;
-      const firstName = asText(appointment.consulente_name).split(/\s+/)[0] || "Consulente";
-      const message = [
-        "TUCXA - lembrete de agendamento",
-        `Olá, ${firstName}.`,
-        `${formatDate(appointment.appointment_date)}, ${asText(appointment.appointment_time) || settings.appointmentTime}, com ${entityName}.`,
-        `Confirme até ${settings.confirmationCutoff}. Chegada: ${settings.arrivalWindow}.`,
-        `Acesse: ${portal}`,
-      ].join("\n");
+      const entityName = entityNames.get(asText(appointment.entity_id)) || "Entidade";
+      const message = `TUCXA lembrete: ${compactSmsDate(appointment.appointment_date)} ${compactSmsTime(asText(appointment.appointment_time) || settings.appointmentTime)} - ${compactSmsEntity(entityName)}. Cheg ${compactSmsWindow(settings.arrivalWindow)}. Use o link do SMS inicial.`;
 
       const result = await sendTucxaSms({ to: phone, message }).catch((error: unknown) => ({
         sent: false,

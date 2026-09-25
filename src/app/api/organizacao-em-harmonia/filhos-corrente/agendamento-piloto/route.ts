@@ -12,7 +12,6 @@ import {
   loadPilotDay,
   loadPilotPersonPreferences,
   loadPilotSettings,
-  longDateLabel,
   normalizeBrazilPhone,
   pilotReservationError,
   savePilotPersonPreferences,
@@ -78,7 +77,27 @@ function siteUrl() {
 }
 
 function confirmationUrl(token: string) {
-  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
+  return `${siteUrl()}/a/${encodeURIComponent(token)}`;
+}
+
+function compactSmsDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}` : value;
+}
+
+function compactSmsTime(value: string) {
+  return value.replace(/:00$/, "h").replace(/^(\d{2}):(\d{2})$/, "$1h$2");
+}
+
+function compactSmsWindow(value: string) {
+  return value
+    .replace(/[–—]/g, "-")
+    .replace(/(\d{1,2}):(\d{2})/g, "$1h$2");
+}
+
+function compactSmsEntity(value: string) {
+  const normalized = value.trim();
+  return normalized.length > 15 ? `${normalized.slice(0, 15).trim()}...` : normalized;
 }
 
 function whatsappUrl(phone: string, message = "") {
@@ -278,13 +297,7 @@ export async function POST(request: Request) {
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
 
       const link = confirmationUrl(token);
-      const smsMessage = [
-        "TUCXA - Atendimento em Harmonia",
-        `Olá, ${asText(person.full_name).split(/\s+/)[0] || "Consulente"}.`,
-        `Agendamento: ${longDateLabel(appointmentDate)}, ${settings.appointmentTime}, com ${entity.name}.`,
-        `Chegue entre ${settings.arrivalWindow}. Porta fecha às ${settings.doorClosesAt}.`,
-        `Confirme até ${settings.confirmationCutoff}: ${link}`,
-      ].join("\n");
+      const smsMessage = `TUCXA ${compactSmsDate(appointmentDate)} ${compactSmsTime(settings.appointmentTime)} - ${compactSmsEntity(entity.name)}. Cheg ${compactSmsWindow(settings.arrivalWindow)}. Confirme ate ${compactSmsTime(settings.confirmationCutoff)}: ${link}`;
 
       const sms = settings.smsEnabled && phone
         ? await sendTucxaSms({ to: phone, message: smsMessage }).catch((error: unknown) => ({ sent: false, provider: "disabled" as const, error: error instanceof Error ? error.message : "Falha no envio do SMS." }))

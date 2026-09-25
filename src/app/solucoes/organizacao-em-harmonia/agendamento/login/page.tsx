@@ -69,77 +69,59 @@ export default function AgendamentoLoginPage() {
   }
 
   return (
-    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C] sm:min-h-screen sm:h-auto sm:overflow-visible">
+    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
-        navLabel="Login único do Agendamento"
-        showSupport={false}
         actions={[
-          { label: "Voltar", href: LANDING, variant: "secondary" },
+          { label: "Voltar", href: LANDING, variant: "primary" },
           { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
+        navLabel="Login único do Agendamento"
+        showSupport={false}
         mobileActionColumns={2}
-        compactMobileActions={false}
-        autoHighlightCurrent={false}
+        compactMobileActions
       />
 
-      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 items-stretch px-3 py-2 sm:block sm:px-6 sm:py-7">
-        <article className="flex h-full w-full flex-col justify-center rounded-[1.6rem] bg-[#123D2C] p-4 text-white shadow-xl sm:h-auto sm:rounded-[2rem] sm:p-7">
-          <p className="text-[0.62rem] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
-            Agendamento · acesso único
-          </p>
-          <h1 className="mt-1 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">
-            Entre com seu WhatsApp ou e-mail.
-          </h1>
+      <section className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
+        <article className="overflow-hidden rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-8">
+          <p className="text-xs font-black uppercase tracking-[0.26em] text-[#CFE2C7]">Agendamento · acesso único</p>
+          <h1 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">Entre com o seu WhatsApp ou e-mail</h1>
 
-          <form onSubmit={submit} className="mt-3 grid gap-2 rounded-[1.4rem] bg-white p-3 text-[#10251C] sm:mt-5 sm:gap-3 sm:p-5">
-            <label htmlFor="agendamento-login-identificador" className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">
-              WhatsApp ou e-mail
+          <form onSubmit={submit} className="mt-7 grid gap-4 rounded-[1.75rem] bg-white p-4 text-[#10251C] shadow-2xl shadow-green-950/20 ring-1 ring-[#123D2C]/10 sm:p-5">
+            <label className="grid min-w-0 gap-2">
+              <span className="text-sm font-black text-[#123D2C]">WhatsApp ou e-mail</span>
               <input
-                id="agendamento-login-identificador"
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
+                className="block w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-base text-[#123D2C] outline-none transition placeholder:text-slate-400 focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
+                placeholder="(19) 99999-9999 ou seu@email.com"
                 autoComplete="username"
-                className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl"
                 required
               />
             </label>
 
-            <div className="grid gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <label htmlFor="agendamento-login-senha" className="text-xs font-black text-[#123D2C] sm:text-sm">
-                  Senha
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[0.68rem] font-black text-[#123D2C] sm:text-xs"
-                >
+            <label className="grid min-w-0 gap-2">
+              <span className="text-sm font-black text-[#123D2C]">Senha</span>
+              <div className="flex w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white focus-within:border-[#31C16B] focus-within:ring-4 focus-within:ring-emerald-100">
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  type={showPassword ? "text" : "password"}
+                  className="block min-w-0 flex-1 bg-transparent px-4 py-4 text-base text-[#123D2C] outline-none placeholder:text-slate-400"
+                  placeholder="Digite sua senha"
+                  autoComplete="current-password"
+                  required
+                />
+                <button type="button" onClick={() => setShowPassword((value) => !value)} className="shrink-0 px-4 text-sm font-black text-[#123D2C]">
                   {showPassword ? "Ocultar" : "Mostrar"}
                 </button>
               </div>
-              <input
-                id="agendamento-login-senha"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl"
-                required
-              />
-            </div>
+            </label>
 
-            <button
-              disabled={loading}
-              className="h-10 rounded-xl bg-[#123D2C] px-4 text-sm font-black text-white disabled:opacity-60 sm:h-12 sm:rounded-2xl"
-            >
+            {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+
+            <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
               {loading ? "Entrando..." : "Entrar"}
             </button>
-
-            {error && (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold leading-4 text-red-700">
-                {error}
-              </p>
-            )}
           </form>
         </article>
       </section>

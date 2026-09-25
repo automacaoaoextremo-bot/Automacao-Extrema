@@ -176,11 +176,15 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
     }
 
     if (link.action === "openAgendamentoWhy") {
+      window.history.replaceState(null, "", link.href);
+      window.dispatchEvent(new Event("hashchange"));
       window.dispatchEvent(new Event("tucxa:open-agendamento-why"));
       return;
     }
 
     if (link.action === "openAgendamentoHours") {
+      window.history.replaceState(null, "", link.href);
+      window.dispatchEvent(new Event("hashchange"));
       window.dispatchEvent(new Event("tucxa:open-agendamento-hours"));
     }
   }
