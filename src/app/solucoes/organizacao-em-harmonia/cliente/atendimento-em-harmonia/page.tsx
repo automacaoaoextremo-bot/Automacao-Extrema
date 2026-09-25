@@ -13,6 +13,11 @@ const cards = [
     href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos",
   },
   {
+    title: "Acessos do piloto",
+    description: "Valide os logins dos Filhos da Corrente e exclua somente o acesso de teste antes de recriar o primeiro acesso real.",
+    href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/acessos-piloto",
+  },
+  {
     title: "Entidades e capacidades",
     description: "Ajuste entidades, dias de atendimento, capacidade diária e observações usadas nos agendamentos.",
     href: "/solucoes/organizacao-em-harmonia/cliente/base-unica/entidades",

@@ -1,109 +1,153 @@
+"use client";
+
 import Link from "next/link";
+import { ReactNode, useEffect, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
 const LOGIN_HREF = "/solucoes/organizacao-em-harmonia/agendamento/login";
+const TUCXA_HREF = "/solucoes/organizacao-em-harmonia/tucxa";
+
+type ModalKind = "horarios" | "porque" | null;
 
 const benefits = [
   {
     title: "Para quem busca atendimento",
-    text: "Veja as datas disponíveis, escolha a Entidade quando permitido, acompanhe a reserva e confirme sua presença sem depender de anotações paralelas.",
+    text: "Receba a confirmação do atendimento pelo SMS e confirme sua presença com clareza, sem depender de anotações paralelas.",
   },
   {
     title: "Para a Recepção",
     text: "Agende, consulte vagas, ajuste Entidades, confirme chegadas e mantenha a mesma informação disponível para toda a equipe.",
   },
   {
-    title: "Para os Cavalinhos",
-    text: "O sistema cria uma base única para consultar os atendimentos vinculados às suas Entidades e reduzir desencontros de informação.",
+    title: "Para os Filhos da Corrente",
+    text: "Uma base única reduz desencontros e ajuda Recepção, Cavalinhos, Cambonos e Coordenadores a trabalhar com a mesma informação.",
   },
 ];
 
 export default function AgendamentoTucxaPublicPage() {
+  const [modal, setModal] = useState<ModalKind>(null);
+
+  useEffect(() => {
+    const openWhy = () => setModal("porque");
+    window.addEventListener("tucxa:open-agendamento-why", openWhy);
+    return () => window.removeEventListener("tucxa:open-agendamento-why", openWhy);
+  }, []);
+
+  useEffect(() => {
+    if (!modal) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [modal]);
+
+  function closeModal() {
+    setModal(null);
+  }
+
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C] sm:min-h-screen sm:h-auto sm:overflow-visible">
       <TucxaPublicHeader
         navLabel="Agendamento do Tucxa"
         showSupport={false}
         actions={[
           { label: "Início", href: "#inicio", variant: "primary" },
-          { label: "Como funciona", href: "#como-funciona", variant: "secondary" },
+          { label: "Como funciona", href: "#como-funciona", variant: "secondary", action: "openAgendamentoWhy" },
           { label: "Agendamento", href: LOGIN_HREF, variant: "secondary" },
+          { label: "Voltar", href: TUCXA_HREF, variant: "secondary" },
+          { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
-        mobileActionColumns={3}
         compactMobileActions
+        autoHighlightCurrent={false}
       />
 
-      <section id="inicio" className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-7 lg:px-8">
-        <section className="overflow-hidden rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-950/10 sm:p-8">
-          <p className="text-[11px] font-black uppercase tracking-[0.23em] text-[#CFE2C7] sm:text-xs">
-            Atendimento em Harmonia · Piloto de agendamentos
+      <section id="inicio" className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-center px-3 py-1.5 sm:block sm:px-6 sm:py-7 lg:px-8">
+        <section className="w-full overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3.5 text-white shadow-xl shadow-green-950/10 sm:rounded-[2rem] sm:p-8">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">
+            Atendimento em Harmonia · Agendamento
           </p>
-          <h1 className="mt-2 max-w-3xl text-3xl font-black leading-tight sm:text-5xl">
+          <h1 className="mt-1 max-w-3xl text-[1.5rem] font-black leading-[1.05] sm:mt-2 sm:text-5xl">
             Menos dúvida no caminho. Mais clareza para acolher.
           </h1>
-          <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            O agendamento do Tucxa reúne em um só lugar o pedido do Consulente, a disponibilidade das Entidades e o acompanhamento da Recepção. A proposta é simples: cada pessoa saber o que precisa fazer, quando precisa fazer e qual informação está valendo.
+          <p className="mt-1.5 max-w-3xl text-[0.72rem] font-semibold leading-[1.15rem] text-[#EEF7EA] sm:mt-3 sm:text-base sm:leading-7">
+            Nesta primeira etapa, a Recepção faz os agendamentos e o Consulente confirma sua presença pelo link recebido por SMS. Vagas, Entidade, confirmação e chegada ficam no mesmo fluxo.
           </p>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
-            <Link
-              href={LOGIN_HREF}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] shadow-lg transition hover:-translate-y-0.5"
-            >
-              Acessar Agendamento
+
+          <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:mt-5 sm:grid-cols-3 sm:gap-2">
+            <Link href={LOGIN_HREF} className="group flex min-h-11 flex-col items-center justify-center rounded-2xl bg-white px-4 py-1.5 text-center text-[#123D2C] shadow-lg transition hover:-translate-y-0.5 sm:min-h-12 sm:py-2">
+              <span className="text-sm font-black sm:text-base">Agendamento</span>
+              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#2F6B43] sm:text-[0.65rem]">Clique para abrir</span>
             </Link>
-            <a
-              href="#horarios"
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-center font-black text-white transition hover:bg-white/15"
-            >
-              Ver horários de segunda e terça
-            </a>
+            <button type="button" onClick={() => setModal("horarios")} className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2">
+              <span className="text-sm font-black sm:text-base">Ver horários</span>
+              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
+            </button>
+            <button type="button" onClick={() => setModal("porque")} className="flex min-h-11 flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-4 py-1.5 text-center text-white transition hover:bg-white/15 sm:min-h-12 sm:py-2">
+              <span className="text-sm font-black sm:text-base">Por que usar</span>
+              <span className="mt-0.5 text-[0.55rem] font-black uppercase tracking-[0.14em] text-[#DDEED8] sm:text-[0.65rem]">Clique para abrir</span>
+            </button>
           </div>
-        </section>
 
-        <section id="horarios" className="mt-3 grid gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3">
-          <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Chegada</p>
-            <p className="mt-1 text-2xl font-black text-[#123D2C]">18h30 às 19h20</p>
-            <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">Segundas e terças: todos devem chegar dentro dessa janela.</p>
-          </article>
-          <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Início dos trabalhos</p>
-            <p className="mt-1 text-2xl font-black text-[#123D2C]">Porta fecha às 19h20</p>
-            <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">A porta fecha para o início dos trabalhos e reabre às 20h.</p>
-          </article>
-          <article className="rounded-[1.5rem] bg-white p-4 shadow ring-1 ring-[#123D2C]/10 sm:p-5">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#2F6B43]">Atendimentos</p>
-            <p className="mt-1 text-2xl font-black text-[#123D2C]">20h às 21h40</p>
-            <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">Horário previsto para os atendimentos de segunda e terça.</p>
-          </article>
-        </section>
-
-        <section id="como-funciona" className="mt-3 rounded-[2rem] bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10 sm:mt-4 sm:p-6">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Por que usar</p>
-          <h2 className="mt-1 text-2xl font-black text-[#123D2C] sm:text-3xl">A informação certa precisa chegar à pessoa certa.</h2>
-          <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-700 sm:text-base sm:leading-7">
-            O objetivo do piloto não é trocar o acolhimento humano por uma tela. É reduzir retrabalho, mensagens desencontradas e incerteza para que Consulentes, Recepção e Filhos da Corrente possam dedicar mais atenção ao que realmente importa no atendimento.
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3 sm:gap-3">
-            {benefits.map((benefit) => (
-              <article key={benefit.title} className="rounded-[1.4rem] bg-white p-4 ring-1 ring-[#123D2C]/10">
-                <h3 className="font-black text-[#123D2C]">{benefit.title}</h3>
-                <p className="mt-2 text-sm font-semibold leading-5 text-slate-600">{benefit.text}</p>
-              </article>
-            ))}
+          <div className="mt-2.5 rounded-2xl bg-white/10 px-3 py-1.5 text-center text-[0.62rem] font-bold leading-4 text-[#EEF7EA] sm:mt-5 sm:px-5 sm:py-3 sm:text-sm sm:leading-6">
+            Segunda e terça: chegada entre <strong>18h30 e 19h20</strong>. A porta fecha às <strong>19h20</strong> para o início dos trabalhos.
           </div>
-        </section>
-
-        <section className="mt-3 rounded-[2rem] bg-white p-5 text-center shadow ring-1 ring-[#123D2C]/10 sm:mt-4 sm:p-7">
-          <h2 className="text-2xl font-black text-[#123D2C]">Já faz parte desse fluxo?</h2>
-          <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-600">
-            O mesmo acesso atende Filhos de Fora/Consulentes e Filhos da Corrente. Informe seu WhatsApp ou e-mail e sua senha; o sistema direciona você para a área correta.
-          </p>
-          <Link href={LOGIN_HREF} className="mt-4 inline-flex min-h-12 w-full max-w-sm items-center justify-center rounded-2xl bg-[#123D2C] px-5 py-3 font-black text-white shadow sm:w-auto sm:min-w-64">
-            Entrar no Agendamento
-          </Link>
         </section>
       </section>
+
+      {modal === "horarios" && (
+        <CompactModal title="Horários de segunda e terça" onClose={closeModal}>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 sm:gap-3">
+            <InfoCard eyebrow="Chegada" title="18h30 às 19h20">Todos devem chegar dentro dessa janela.</InfoCard>
+            <InfoCard eyebrow="Início dos trabalhos" title="19h20">A porta fecha às 19h20 e reabre às 20h.</InfoCard>
+            <InfoCard eyebrow="Atendimentos" title="20h às 21h40">Horário previsto para os atendimentos.</InfoCard>
+          </div>
+        </CompactModal>
+      )}
+
+      {modal === "porque" && (
+        <CompactModal title="Por que usar o Agendamento" onClose={closeModal}>
+          <section className="rounded-2xl bg-[#E9F2E7] p-2.5 ring-1 ring-[#123D2C]/10 sm:p-4">
+            <p className="text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-xs">Por que usar</p>
+            <h3 className="mt-0.5 text-[1.05rem] font-black leading-tight text-[#123D2C] sm:text-2xl">A informação certa precisa chegar à pessoa certa.</h3>
+            <p className="mt-1 text-[0.62rem] font-semibold leading-4 text-slate-700 sm:text-sm sm:leading-5">
+              O objetivo não é trocar o acolhimento humano por uma tela. É reduzir retrabalho, mensagens desencontradas e incerteza para que todos possam dedicar mais atenção ao atendimento.
+            </p>
+            <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3 sm:gap-3">
+              {benefits.map((benefit) => (
+                <article key={benefit.title} className="rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10 sm:rounded-2xl sm:p-3">
+                  <h4 className="text-[0.7rem] font-black text-[#123D2C] sm:text-sm">{benefit.title}</h4>
+                  <p className="mt-0.5 text-[0.6rem] font-semibold leading-[0.95rem] text-slate-600 sm:text-xs sm:leading-5">{benefit.text}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </CompactModal>
+      )}
     </main>
+  );
+}
+
+function CompactModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[250] flex items-center justify-center bg-[#10251C]/75 p-1.5 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.4rem] bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[2rem]">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#123D2C]/10 px-3.5 py-2.5 sm:px-5 sm:py-4">
+          <h2 className="text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-3 py-1.5 text-[0.68rem] font-black text-white sm:px-4 sm:py-2 sm:text-sm">Fechar</button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-hidden p-2.5 sm:p-5">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function InfoCard({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
+  return (
+    <article className="rounded-xl bg-[#F7FAF2] p-2.5 text-center ring-1 ring-[#123D2C]/10 sm:rounded-2xl sm:p-4">
+      <p className="text-[0.55rem] font-black uppercase tracking-[0.12em] text-[#2F6B43] sm:text-xs">{eyebrow}</p>
+      <p className="mt-0.5 text-lg font-black text-[#123D2C] sm:text-2xl">{title}</p>
+      <p className="mt-0.5 text-[0.62rem] font-semibold leading-4 text-slate-600 sm:text-sm sm:leading-5">{children}</p>
+    </article>
   );
 }

@@ -203,6 +203,7 @@ const sidebarGroups: NavGroup[] = [
       { label: "Visão geral", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia", description: "Fluxos de atendimento e orientação." },
       { label: "Configurações", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/configuracoes", description: "Recorrência, ausências, troca de entidade e quarta-feira." },
       { label: "Agendamentos", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos", description: "Fila, filtros, impressão e status por entidade." },
+      { label: "Acessos do piloto", href: "/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/acessos-piloto", description: "Testar e reiniciar logins antes da liberação do Agendamento." },
       { label: "Escuta em Harmonia", href: LISTENING_BASE, description: "Submódulo para questionamentos, SLA, resposta e ações de melhoria da Diretoria." },
       { label: "Cursos em Harmonia", href: COURSES_BASE, description: "Submódulo para cursos, professores, alunos, Agenda Viva, convites e presença." },
     ],

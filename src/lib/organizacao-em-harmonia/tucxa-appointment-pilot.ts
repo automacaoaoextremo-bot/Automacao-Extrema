@@ -32,6 +32,8 @@ export type PilotSettings = {
   endTime: string;
   daysAhead: number;
   smsEnabled: boolean;
+  rolloutStage: "reception" | "consulente" | "all";
+  selfServiceEnabled: boolean;
   selfServiceViewMode: "entity_day" | "day_entity" | "both";
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
@@ -209,6 +211,12 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     endTime: asText(settings.pilotEndTime) || "21:40",
     daysAhead: Math.max(14, Math.min(180, Number(settings.pilotDaysAhead ?? 90) || 90)),
     smsEnabled: settings.pilotSmsEnabled !== false,
+    rolloutStage: asText(settings.pilotRolloutStage) === "all"
+      ? "all"
+      : asText(settings.pilotRolloutStage) === "consulente"
+        ? "consulente"
+        : "reception",
+    selfServiceEnabled: settings.pilotSelfServiceEnabled === true,
     selfServiceViewMode: viewMode(settings.pilotSelfServiceViewMode),
     useDefaultEntity: settings.pilotUseDefaultEntity === true,
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,

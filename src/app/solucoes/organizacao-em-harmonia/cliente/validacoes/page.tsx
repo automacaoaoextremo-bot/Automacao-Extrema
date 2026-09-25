@@ -8,11 +8,16 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 type Person = {
   id: string;
   full_name: string;
+  email?: string | null;
+  whatsapp?: string | null;
+  auth_user_id?: string | null;
 };
 
 type Membership = {
   id: string;
   person_id: string;
+  role_id?: string | null;
+  active?: boolean | null;
   status: string | null;
   agenda_viva_profile: Record<string, unknown> | null;
 };
@@ -24,8 +29,16 @@ type ValidationRequest = {
   summary: Record<string, unknown> | null;
 };
 
+type Role = {
+  id: string;
+  name?: string | null;
+  slug?: string | null;
+  active?: boolean | null;
+};
+
 type Payload = {
   people: Person[];
+  roles?: Role[];
   memberships: Membership[];
   validationRequests?: ValidationRequest[];
   error?: string;
@@ -101,6 +114,7 @@ export default function ValidacoesPrimeiroAcessoPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [resettingAccessId, setResettingAccessId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pendingWhatsappUrl, setPendingWhatsappUrl] = useState("");
@@ -198,6 +212,29 @@ export default function ValidacoesPrimeiroAcessoPage() {
       });
   }, [payload?.memberships, payload?.people, payload?.validationRequests]);
 
+  const validationByPerson = useMemo(
+    () => new Map(validations.map((item) => [item.person.id, item])),
+    [validations],
+  );
+
+  const filhosCorrente = useMemo(() => {
+    const people = payload?.people ?? [];
+    const roles = payload?.roles ?? [];
+    const role = roles.find((item) => item.slug === "filho-da-corrente" && item.active !== false);
+    if (!role) return [] as Array<{ person: Person; membership: Membership }>;
+
+    const byPerson = new Map(
+      (payload?.memberships ?? [])
+        .filter((membership) => membership.role_id === role.id && membership.active !== false)
+        .map((membership) => [membership.person_id, membership]),
+    );
+
+    return people
+      .filter((person) => byPerson.has(person.id))
+      .map((person) => ({ person, membership: byPerson.get(person.id)! }))
+      .sort((left, right) => left.person.full_name.localeCompare(right.person.full_name, "pt-BR"));
+  }, [payload?.memberships, payload?.people, payload?.roles]);
+
   async function decide(
     personId: string,
     action:
@@ -294,10 +331,59 @@ export default function ValidacoesPrimeiroAcessoPage() {
     }
   }
 
+  async function resetPilotAccess(person: Person) {
+    if (!person.auth_user_id) return;
+
+    const confirmed = window.confirm(
+      `Excluir somente o login de ${person.full_name}?\n\nO cadastro, as funções e os vínculos serão preservados. Depois dos testes, o login poderá ser criado novamente para que a pessoa faça o primeiro acesso real.`,
+    );
+    if (!confirmed) return;
+
+    setResettingAccessId(person.id);
+    setError("");
+    setMessage("");
+    setPendingWhatsappUrl("");
+
+    try {
+      const { data: sessionData } = await supabaseBrowser.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Sessão expirada.");
+
+      const response = await fetch(
+        "/api/organizacao-em-harmonia/cliente/base-unica",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action: "resetPilotAccess", personId: person.id }),
+        },
+      );
+      const result = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || "Não foi possível excluir o acesso de teste.");
+      }
+
+      setPayload(result);
+      setMessage(
+        `Login de ${person.full_name} excluído. Cadastro, funções e vínculos foram preservados para novo provisionamento.`,
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao excluir o acesso de teste.",
+      );
+    } finally {
+      setResettingAccessId("");
+    }
+  }
+
   return (
     <OrganizacaoClientShell
       title="Validações"
-      description="Aprove, solicite ajustes ou exclua os pedidos recebidos."
+      description="Valide pedidos e confira todos os Filhos da Corrente durante os testes do Agendamento."
     >
       {loading && (
         <p className="rounded-3xl bg-white p-5 shadow ring-1 ring-slate-100">
@@ -327,6 +413,12 @@ export default function ValidacoesPrimeiroAcessoPage() {
 
       {!loading && payload && (
         <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7">
+          <div className="mb-4 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#2F6B43]">Agendamento · fase de testes</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+              Todos os Filhos da Corrente aparecem abaixo. “Excluir acesso” remove somente o login de teste e preserva cadastro, funções e vínculos para que o primeiro acesso possa ser recriado depois da validação.
+            </p>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
@@ -336,16 +428,24 @@ export default function ValidacoesPrimeiroAcessoPage() {
                 </tr>
               </thead>
               <tbody>
-                {validations.map(({ membership, request, person }) => {
+                {filhosCorrente.map(({ person, membership }) => {
+                  const validation = validationByPerson.get(person.id) ?? null;
+                  const request = validation?.request ?? null;
                   const isProfileUpdate = requestType(request) === "profile_update";
+                  const hasLogin = Boolean(person.auth_user_id);
+
                   return (
                     <tr
-                      key={`${membership.id}-${request?.id ?? "membership"}`}
+                      key={membership.id}
                       className="border-b border-slate-50 align-top"
                     >
                       <td className="py-3 pr-4">
                         <p className="font-black text-[#00334E]">
                           {compactName(person.full_name)}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-slate-400">
+                          {hasLogin ? "Login criado" : "Sem login"}
+                          {validation ? ` · ${validation.membership.status}` : " · sem pedido pendente"}
                         </p>
                       </td>
                       <td className="py-3">
@@ -356,42 +456,53 @@ export default function ValidacoesPrimeiroAcessoPage() {
                           >
                             Simular acesso
                           </Link>
-                          {(isProfileUpdate || membership.status !== "ativo") && (
+                          {validation && (isProfileUpdate || validation.membership.status !== "ativo") && (
                             <button
-                              disabled={saving}
+                              disabled={saving || Boolean(resettingAccessId)}
                               type="button"
                               onClick={() => {
                                 setReviewNotes("");
-                                setReviewItem({ membership, request, person });
+                                setReviewItem(validation);
                               }}
                               className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-60"
                             >
                               {isProfileUpdate ? "Aprovar alterações" : "Aprovar"}
                             </button>
                           )}
+                          {validation && (
+                            <button
+                              disabled={saving || Boolean(resettingAccessId)}
+                              type="button"
+                              onClick={() =>
+                                void decide(
+                                  person.id,
+                                  "deleteAccessValidation",
+                                  isProfileUpdate,
+                                )
+                              }
+                              className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60"
+                            >
+                              Excluir pedido
+                            </button>
+                          )}
                           <button
-                            disabled={saving}
+                            disabled={!hasLogin || saving || Boolean(resettingAccessId)}
                             type="button"
-                            onClick={() =>
-                              void decide(
-                                person.id,
-                                "deleteAccessValidation",
-                                isProfileUpdate,
-                              )
-                            }
-                            className="rounded-xl bg-red-50 px-4 py-2 text-sm font-black text-red-700 disabled:opacity-60"
+                            onClick={() => void resetPilotAccess(person)}
+                            className="rounded-xl bg-rose-50 px-4 py-2 text-sm font-black text-rose-700 ring-1 ring-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={hasLogin ? "Remove somente o login de teste; preserva cadastro e vínculos." : "Esta pessoa ainda não possui login."}
                           >
-                            Excluir pedido
+                            {resettingAccessId === person.id ? "Excluindo acesso..." : "Excluir acesso"}
                           </button>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                {validations.length === 0 && (
+                {filhosCorrente.length === 0 && (
                   <tr>
                     <td colSpan={2} className="py-5 font-bold text-slate-500">
-                      Nenhum pedido de validação encontrado.
+                      Nenhum Filho da Corrente encontrado.
                     </td>
                   </tr>
                 )}

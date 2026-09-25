@@ -45,6 +45,8 @@ type Settings = {
   endTime: string;
   daysAhead: number;
   smsEnabled: boolean;
+  rolloutStage: "reception" | "consulente" | "all";
+  selfServiceEnabled: boolean;
   selfServiceViewMode: ViewMode;
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
@@ -315,12 +317,14 @@ export default function AgendamentoPilotoConsulentePage() {
 
       <section className="mx-auto max-w-4xl px-3 py-4 sm:px-6 lg:px-8">
         <section className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia · Piloto</p>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-[#CFE2C7]">Atendimento em Harmonia · Agendamento</p>
           <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">
             {firstName ? `${firstName}, ` : ""}seu atendimento sem dúvida no caminho.
           </h1>
           <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
-            Escolha entre as datas e Entidades liberadas pela Recepção, confirme sua presença e acompanhe tudo no mesmo lugar.
+            {payload?.settings.selfServiceEnabled
+              ? "Escolha entre as datas e Entidades liberadas pela Recepção, confirme sua presença e acompanhe tudo no mesmo lugar."
+              : "Nesta etapa do piloto, a Recepção faz o agendamento. Quando houver um atendimento reservado para você, a confirmação será feita pelo link enviado por SMS."}
           </p>
         </section>
 
@@ -330,11 +334,16 @@ export default function AgendamentoPilotoConsulentePage() {
 
         {payload && (
           <>
-            <section className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-              <Action title="Agendar" subtitle="Escolher data e Entidade" onClick={() => setModal("agendar")} />
-              <Action title="Consultar e confirmar" subtitle="Meus próximos atendimentos" onClick={() => setModal("consultar")} />
+            {!payload.settings.selfServiceEnabled && (
+              <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-5 text-amber-900 ring-1 ring-amber-100">
+                Fase atual: somente a Recepção realiza agendamentos. O Consulente recebe SMS para confirmar presença; o autoagendamento será liberado em uma etapa posterior.
+              </p>
+            )}
+            <section className={`mt-3 grid grid-cols-2 gap-2 sm:gap-3 ${payload.settings.selfServiceEnabled ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+              {payload.settings.selfServiceEnabled && <Action title="Agendar" subtitle="Escolher data e Entidade" onClick={() => setModal("agendar")} />}
+              <Action title="Consultar" subtitle="Meus próximos atendimentos" onClick={() => setModal("consultar")} />
               <Action title="Lembretes" subtitle="Escolher quando quero receber" onClick={openReminders} />
-              <Action title="Como funciona" subtitle="Entenda o piloto" onClick={() => setModal("ajuda")} />
+              <Action title="Como funciona" subtitle="Entenda o fluxo" onClick={() => setModal("ajuda")} />
             </section>
             <section className="mt-3 grid grid-cols-3 gap-2 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
               <Summary label="Próximos" value={payload.appointments.filter((item) => item.status !== "cancelado").length} />
@@ -358,7 +367,13 @@ export default function AgendamentoPilotoConsulentePage() {
           }
           onClose={() => setModal(null)}
         >
-          {modal === "agendar" && (
+          {modal === "agendar" && !payload.settings.selfServiceEnabled && (
+            <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">
+              Nesta etapa do piloto, os agendamentos são feitos somente pela Recepção. Você receberá um SMS para confirmar sua presença quando houver um atendimento agendado.
+            </div>
+          )}
+
+          {modal === "agendar" && payload.settings.selfServiceEnabled && (
             <div className="grid gap-3">
               {payload.settings.selfServiceViewMode === "both" && (
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">

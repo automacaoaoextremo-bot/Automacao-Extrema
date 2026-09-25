@@ -10,7 +10,7 @@ type TucxaHeaderLink = {
   label: string;
   href: string;
   variant?: "primary" | "secondary";
-  action?: "signOutFilhoCorrente" | "signOutConsulente" | "signOutTucxa" | "supportWhatsapp" | "openTucxaGuide";
+  action?: "signOutFilhoCorrente" | "signOutConsulente" | "signOutTucxa" | "supportWhatsapp" | "openTucxaGuide" | "openAgendamentoWhy";
 };
 
 type TucxaPublicHeaderProps = {
@@ -158,6 +158,11 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
 
     if (link.action === "openTucxaGuide") {
       window.dispatchEvent(new Event("tucxa:open-system-guide"));
+      return;
+    }
+
+    if (link.action === "openAgendamentoWhy") {
+      window.dispatchEvent(new Event("tucxa:open-agendamento-why"));
     }
   }
 

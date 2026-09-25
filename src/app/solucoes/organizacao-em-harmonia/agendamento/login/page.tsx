@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { TucxaFirstAccessModal } from "@/components/organizacao-em-harmonia/tucxa-first-access-modal";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const ACCESS_API = "/api/organizacao-em-harmonia/agendamento/acesso";
-const FIRST_ACCESS = "/solucoes/organizacao-em-harmonia/agendamento/primeiro-acesso";
+const LANDING = "/solucoes/organizacao-em-harmonia/agendamento";
 
 type LoginResponse = {
   ok?: boolean;
@@ -21,6 +21,7 @@ export default function AgendamentoLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [firstAccessDestination, setFirstAccessDestination] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,12 +47,14 @@ export default function AgendamentoLoginPage() {
       });
       if (sessionError) throw new Error("Não foi possível iniciar sua sessão. Tente novamente.");
 
-      const destination = result.profile.destination || "/solucoes/organizacao-em-harmonia/agendamento";
-      window.location.replace(
-        result.profile.onboardingRequired
-          ? `${FIRST_ACCESS}?returnTo=${encodeURIComponent(destination)}`
-          : destination,
-      );
+      const destination = result.profile.destination || LANDING;
+      if (result.profile.onboardingRequired) {
+        setFirstAccessDestination(destination);
+        setLoading(false);
+        return;
+      }
+
+      window.location.replace(destination);
     } catch (submitError) {
       await supabaseBrowser.auth.signOut().catch(() => undefined);
       setError(submitError instanceof Error ? submitError.message : "Não foi possível entrar agora.");
@@ -59,73 +62,58 @@ export default function AgendamentoLoginPage() {
     }
   }
 
+  async function cancelFirstAccess() {
+    setFirstAccessDestination("");
+    setPassword("");
+    await supabaseBrowser.auth.signOut().catch(() => undefined);
+  }
+
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#F7FAF2] text-[#10251C] sm:min-h-screen sm:h-auto sm:overflow-visible">
       <TucxaPublicHeader
         navLabel="Login único do Agendamento"
         showSupport={false}
         actions={[
-          { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/agendamento", variant: "primary" },
+          { label: "Início", href: LANDING, variant: "primary" },
+          { label: "Voltar", href: LANDING, variant: "secondary" },
           { label: "Ajuda", href: "#ajuda", variant: "secondary", action: "supportWhatsapp" },
         ]}
-        mobileActionColumns={2}
-        compactMobileActions
+        mobileActionColumns={3}
+        compactMobileActions={false}
+        autoHighlightCurrent={false}
       />
 
-      <section className="mx-auto max-w-2xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
-        <article className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
-          <p className="text-xs font-black uppercase tracking-[0.23em] text-[#CFE2C7]">Um único acesso</p>
-          <h1 className="mt-2 text-3xl font-black leading-tight sm:text-4xl">Entre e o sistema leva você para o lugar certo.</h1>
-          <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA]">
-            Este login atende Filhos de Fora/Consulentes e Filhos da Corrente. Use o WhatsApp ou e-mail cadastrado e sua senha.
+      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 items-center px-3 py-2 sm:block sm:px-6 sm:py-7">
+        <article className="w-full rounded-[1.6rem] bg-[#123D2C] p-4 text-white shadow-xl sm:rounded-[2rem] sm:p-7">
+          <p className="text-[0.62rem] font-black uppercase tracking-[0.2em] text-[#CFE2C7] sm:text-xs">Agendamento · acesso único</p>
+          <h1 className="mt-1 text-2xl font-black leading-tight sm:mt-2 sm:text-4xl">Entre com seu WhatsApp ou e-mail.</h1>
+          <p className="mt-2 text-xs font-semibold leading-5 text-[#EEF7EA] sm:mt-3 sm:text-sm sm:leading-6">
+            Nesta primeira fase do piloto, o uso do sistema está sendo validado com a Recepção. Consulentes recebem o link de confirmação por SMS.
           </p>
 
-          <form onSubmit={submit} className="mt-5 grid gap-3 rounded-[1.6rem] bg-white p-4 text-[#10251C] sm:p-5">
-            <label className="grid gap-2">
-              <span className="text-sm font-black text-[#123D2C]">WhatsApp ou e-mail</span>
-              <input
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-                className="min-w-0 rounded-2xl border border-slate-200 px-4 py-4 outline-none focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
-                placeholder="(19) 99999-9999 ou seu@email.com"
-                autoComplete="username"
-                required
-              />
+          <form onSubmit={submit} className="mt-3 grid gap-2 rounded-[1.4rem] bg-white p-3 text-[#10251C] sm:mt-5 sm:gap-3 sm:p-5">
+            <label className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">WhatsApp ou e-mail
+              <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl" required />
             </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-black text-[#123D2C]">Senha</span>
-              <div className="flex overflow-hidden rounded-2xl border border-slate-200 focus-within:border-[#31C16B] focus-within:ring-4 focus-within:ring-emerald-100">
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type={showPassword ? "text" : "password"}
-                  className="min-w-0 flex-1 px-4 py-4 outline-none"
-                  autoComplete="current-password"
-                  placeholder="Digite sua senha"
-                  required
-                />
-                <button type="button" onClick={() => setShowPassword((current) => !current)} className="px-4 text-sm font-black text-[#123D2C]">
-                  {showPassword ? "Ocultar" : "Mostrar"}
-                </button>
-              </div>
+            <label className="grid gap-1 text-xs font-black text-[#123D2C] sm:text-sm">Senha
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" className="h-10 rounded-xl border border-slate-200 px-3 font-semibold sm:h-12 sm:rounded-2xl" required />
             </label>
-            {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
-            <button type="submit" disabled={loading} className="min-h-12 rounded-2xl bg-[#123D2C] px-5 font-black text-white disabled:opacity-60">
-              {loading ? "Entrando..." : "Entrar no Agendamento"}
-            </button>
-            <p className="text-center text-xs font-semibold leading-5 text-slate-500">
-              Primeiro acesso com senha temporária? Depois do login você confirmará seus dados, a ciência do Aviso de Privacidade e criará uma senha definitiva.
-            </p>
+            <div className="grid grid-cols-[auto_1fr] gap-2">
+              <button type="button" onClick={() => setShowPassword((current) => !current)} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-black text-[#123D2C] sm:h-12">
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+              <button disabled={loading} className="h-10 rounded-xl bg-[#123D2C] px-4 text-sm font-black text-white disabled:opacity-60 sm:h-12 sm:rounded-2xl">
+                {loading ? "Entrando..." : "Entrar"}
+              </button>
+            </div>
+            {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold leading-4 text-red-700">{error}</p>}
           </form>
         </article>
-
-        <p className="mt-4 text-center text-sm font-semibold text-slate-600">
-          Ainda não tem cadastro como Consulente? A Recepção pode cadastrar você durante o piloto ou você pode usar o cadastro atual do Tucxa.
-        </p>
-        <Link href="/solucoes/organizacao-em-harmonia/tucxa/consulente/cadastro" className="mt-2 block text-center text-sm font-black text-[#123D2C] underline">
-          Abrir cadastro de Consulente / Filho de Fora
-        </Link>
       </section>
+
+      {firstAccessDestination && (
+        <TucxaFirstAccessModal destination={firstAccessDestination} onCancel={() => void cancelFirstAccess()} />
+      )}
     </main>
   );
 }

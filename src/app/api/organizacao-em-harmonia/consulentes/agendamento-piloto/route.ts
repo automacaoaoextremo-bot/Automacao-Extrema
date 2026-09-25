@@ -77,6 +77,13 @@ export async function POST(request: Request) {
     const settings = await loadPilotSettings(context.organizationId);
 
     if (action === "book") {
+      if (!settings.selfServiceEnabled) {
+        return NextResponse.json({
+          error: "Nesta etapa do piloto, os agendamentos são feitos pela Recepção. Aguarde o SMS para confirmar sua presença.",
+          requestId: code,
+        }, { status: 403 });
+      }
+
       let entityId = asText(body.entityId);
       const appointmentDate = asText(body.appointmentDate);
       const notes = asText(body.notes);

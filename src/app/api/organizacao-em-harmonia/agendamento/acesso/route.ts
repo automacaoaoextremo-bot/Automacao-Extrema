@@ -5,7 +5,10 @@ import {
   profileHasCavalinho,
   profileHasReception,
 } from "@/lib/organizacao-em-harmonia/appointment-permissions";
-import { findTucxaOrganization } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import {
+  findTucxaOrganization,
+  loadPilotSettings,
+} from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +66,23 @@ function destinationFor(kind: ReturnType<typeof profileKind>) {
   if (kind === "cavalinho") return CAVALINHO_DESTINATION;
   if (kind === "consulente") return CONSULENTE_DESTINATION;
   return FILHO_DESTINATION;
+}
+
+function rolloutAllows(kind: ReturnType<typeof profileKind>, stage: "reception" | "consulente" | "all") {
+  if (stage === "all") return true;
+  if (kind === "recepcao") return true;
+  if (stage === "consulente" && kind === "consulente") return true;
+  return false;
+}
+
+function rolloutMessage(kind: ReturnType<typeof profileKind>, stage: "reception" | "consulente" | "all") {
+  if (stage === "reception" && kind === "consulente") {
+    return "Nesta etapa do piloto, os agendamentos são feitos pela Recepção. Você receberá um SMS para confirmar sua presença quando houver um atendimento agendado.";
+  }
+  if (stage !== "all") {
+    return "Seu acesso ao Agendamento ainda não foi liberado nesta etapa do piloto. A implantação está sendo feita gradualmente pelo Tucxa.";
+  }
+  return "Seu acesso ao Agendamento ainda não está liberado.";
 }
 
 async function findPersonByIdentifier(organizationId: string, identifier: string) {
@@ -166,6 +186,13 @@ export async function POST(request: Request) {
 
       const profile = asRecord(membership.agenda_viva_profile);
       const kind = profileKind(profile);
+      const pilotSettings = await loadPilotSettings(organization.id);
+      if (!rolloutAllows(kind, pilotSettings.rolloutStage)) {
+        return NextResponse.json(
+          { error: rolloutMessage(kind, pilotSettings.rolloutStage), rolloutStage: pilotSettings.rolloutStage },
+          { status: 403 },
+        );
+      }
       const metadata = asRecord(authData.user.user_metadata);
       const registrationSource = asText(person.registration_source);
       const pilotSeed = registrationSource === "tucxa_agendamento_piloto_01" || asText(profile.source) === "tucxa_agendamento_piloto_01";
@@ -226,7 +253,7 @@ export async function POST(request: Request) {
           email: personEmail,
           notification_email: email || null,
           privacy_notice_accepted_at: now,
-          privacy_notice_version: "2026-09-23-agendamento-01",
+          privacy_notice_version: "2026-09-24-agendamento-02",
           privacy_notice_source: "agendamento_primeiro_acesso",
           updated_at: now,
         })
