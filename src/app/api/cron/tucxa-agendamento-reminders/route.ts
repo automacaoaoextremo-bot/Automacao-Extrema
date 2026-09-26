@@ -4,7 +4,7 @@ import {
   findTucxaOrganization,
   loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
-import { sendTucxaSms } from "@/lib/organizacao-em-harmonia/tucxa-sms";
+import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,26 +20,6 @@ function authorize(request: Request) {
   return authorization === `Bearer ${secret}`;
 }
 
-function compactSmsDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return match ? `${match[3]}/${match[2]}` : value;
-}
-
-function compactSmsTime(value: string) {
-  return value.replace(/:00$/, "h").replace(/^(\d{2}):(\d{2})$/, "$1h$2");
-}
-
-function compactSmsWindow(value: string) {
-  return value
-    .replace(/[–—]/g, "-")
-    .replace(/(\d{1,2}):(\d{2})/g, "$1h$2");
-}
-
-function compactSmsEntity(value: string) {
-  const normalized = value.trim();
-  return normalized.length > 15 ? `${normalized.slice(0, 15).trim()}...` : normalized;
-}
-
 type AppointmentRow = {
   id: string;
   person_id: string | null;
@@ -53,6 +33,23 @@ type AppointmentRow = {
   status: string | null;
 };
 
+type PreferenceRow = {
+  person_id: string | null;
+  reminder_whatsapp_enabled: boolean | null;
+  reminder_offsets_hours: unknown;
+};
+
+type EntityRow = {
+  id: string;
+  name: string | null;
+};
+
+type NotificationLogRow = {
+  appointment_id: string;
+  scheduled_offset_hours: number | null;
+  status: string | null;
+};
+
 export async function GET(request: Request) {
   if (!authorize(request)) {
     return NextResponse.json({ error: "Cron não autorizado." }, { status: 401 });
@@ -63,9 +60,6 @@ export async function GET(request: Request) {
     if (!organization) return NextResponse.json({ error: "Organização Tucxa não localizada." }, { status: 404 });
 
     const settings = await loadPilotSettings(organization.id);
-    if (!settings.smsEnabled) {
-      return NextResponse.json({ ok: true, sent: 0, skipped: 0, message: "SMS desabilitado nas configurações do piloto." });
-    }
 
     const now = new Date();
     const nowIso = now.toISOString();
@@ -91,7 +85,7 @@ export async function GET(request: Request) {
       personIds.length
         ? supabaseAdmin
             .from("oh_tucxa_pilot_person_preferences")
-            .select("person_id,reminder_sms_enabled,reminder_offsets_hours")
+            .select("person_id,reminder_whatsapp_enabled,reminder_offsets_hours")
             .eq("organization_id", organization.id)
             .in("person_id", personIds)
         : Promise.resolve({ data: [], error: null }),
@@ -106,7 +100,7 @@ export async function GET(request: Request) {
         .from("oh_tucxa_pilot_notification_log")
         .select("appointment_id,scheduled_offset_hours,status")
         .eq("organization_id", organization.id)
-        .eq("channel", "sms")
+        .eq("channel", "whatsapp")
         .eq("notification_type", "confirmation_reminder")
         .in("appointment_id", appointmentIds),
     ]);
@@ -115,14 +109,18 @@ export async function GET(request: Request) {
     if (entitiesResult.error) throw entitiesResult.error;
     if (logsResult.error) throw logsResult.error;
 
-    const preferences = new Map(
-      (preferencesResult.data ?? []).map((item) => [asText(item.person_id), item]),
+    const preferenceRows = (preferencesResult.data ?? []) as PreferenceRow[];
+    const entityRows = (entitiesResult.data ?? []) as EntityRow[];
+    const notificationLogs = (logsResult.data ?? []) as NotificationLogRow[];
+
+    const preferences = new Map<string, PreferenceRow>(
+      preferenceRows.map((item) => [asText(item.person_id), item]),
     );
-    const entityNames = new Map(
-      (entitiesResult.data ?? []).map((item) => [asText(item.id), asText(item.name)]),
+    const entityNames = new Map<string, string>(
+      entityRows.map((item) => [asText(item.id), asText(item.name)]),
     );
     const sentKeys = new Set(
-      (logsResult.data ?? [])
+      notificationLogs
         .filter((item) => item.status === "sent")
         .map((item) => `${item.appointment_id}:${Number(item.scheduled_offset_hours)}`),
     );
@@ -139,7 +137,7 @@ export async function GET(request: Request) {
       }
 
       const preference = preferences.get(asText(appointment.person_id));
-      if (preference?.reminder_sms_enabled === false) {
+      if (preference?.reminder_whatsapp_enabled === false) {
         skipped += 1;
         continue;
       }
@@ -149,8 +147,10 @@ export async function GET(request: Request) {
             .map((value: unknown) => Number(value))
             .filter((value: number) => Number.isFinite(value) && value > 0)
         : [];
-      const offsets = [...new Set(customOffsets.length ? customOffsets : settings.confirmationReminderOffsetsHours)]
-        .sort((left, right) => left - right);
+      const offsetSource: number[] = customOffsets.length
+        ? customOffsets
+        : settings.confirmationReminderOffsetsHours;
+      const offsets: number[] = [...new Set<number>(offsetSource)].sort((left, right) => left - right);
 
       const remainingHours = (deadline.getTime() - now.getTime()) / (60 * 60 * 1000);
       const dueOffset = offsets.find((offset) => {
@@ -172,25 +172,25 @@ export async function GET(request: Request) {
       }
 
       const entityName = entityNames.get(asText(appointment.entity_id)) || "Entidade";
-      const message = `TUCXA lembrete: ${compactSmsDate(appointment.appointment_date)} ${compactSmsTime(asText(appointment.appointment_time) || settings.appointmentTime)} - ${compactSmsEntity(entityName)}. Cheg ${compactSmsWindow(settings.arrivalWindow)}. Use o link do SMS inicial.`;
-
-      const result = await sendTucxaSms({ to: phone, message }).catch((error: unknown) => ({
-        sent: false,
-        provider: "disabled" as const,
-        messageId: undefined,
-        error: error instanceof Error ? error.message : "Falha inesperada no envio.",
-      }));
+      const result = await sendTucxaAppointmentWhatsapp({
+        kind: "reminder",
+        fullName: asText(appointment.consulente_name) || "Consulente",
+        whatsapp: phone,
+        appointmentDate: appointment.appointment_date,
+        entityName,
+        reminderOffsetHours: dueOffset,
+      });
 
       const logPayload = {
         organization_id: organization.id,
         appointment_id: appointment.id,
         person_id: appointment.person_id || null,
-        channel: "sms",
+        channel: "whatsapp",
         notification_type: "confirmation_reminder",
         scheduled_offset_hours: dueOffset,
         status: result.sent ? "sent" : "failed",
         provider: result.provider,
-        provider_message_id: result.messageId || null,
+        provider_message_id: result.subscriberId || null,
         error: result.error || null,
         sent_at: result.sent ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),

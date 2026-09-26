@@ -43,7 +43,8 @@ export type PilotSettings = {
 
 export type PilotPersonPreferences = {
   defaultEntityId: string;
-  reminderSmsEnabled: boolean;
+  allowDifferentEntity: boolean;
+  reminderWhatsappEnabled: boolean;
   reminderOffsetsHours: number[];
   receptionSummaryChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
@@ -228,17 +229,18 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, reminder_sms_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode")
+    .select("default_entity_id, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
   if (error) throw error;
   return {
     defaultEntityId: asText(data?.default_entity_id),
-    reminderSmsEnabled: data?.reminder_sms_enabled !== false,
+    allowDifferentEntity: data?.allow_different_entity === true,
+    reminderWhatsappEnabled: data?.reminder_whatsapp_enabled !== false,
     reminderOffsetsHours: positiveHourList(data?.reminder_offsets_hours, []),
     receptionSummaryChannels: Array.isArray(data?.reception_summary_channels)
-      ? data.reception_summary_channels.map(asText).filter((item) => item === "email" || item === "sms")
+      ? data.reception_summary_channels.map(asText).filter((item) => item === "email" || item === "whatsapp")
       : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
   };
@@ -254,13 +256,14 @@ export async function savePilotPersonPreferences(
     organization_id: organizationId,
     person_id: personId,
     default_entity_id: input.defaultEntityId === undefined ? current.defaultEntityId || null : input.defaultEntityId || null,
-    reminder_sms_enabled: input.reminderSmsEnabled ?? current.reminderSmsEnabled,
+    allow_different_entity: input.allowDifferentEntity ?? current.allowDifferentEntity,
+    reminder_whatsapp_enabled: input.reminderWhatsappEnabled ?? current.reminderWhatsappEnabled,
     reminder_offsets_hours: input.reminderOffsetsHours === undefined
       ? current.reminderOffsetsHours
       : positiveHourList(input.reminderOffsetsHours, []),
     reception_summary_channels: input.receptionSummaryChannels === undefined
       ? current.receptionSummaryChannels
-      : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "sms"))),
+      : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
     updated_at: new Date().toISOString(),
   };
@@ -480,8 +483,10 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
     .map((entity) => {
       const id = asText(entity.id);
       const override = overrideMap.get(id);
-      const capacity = override?.capacity ?? scheduleMap.get(id) ?? Math.max(1, Number(entity.daily_capacity ?? 4) || 4);
-      const booked = bookedMap.get(id) ?? 0;
+      const capacity = Number(
+        override?.capacity ?? scheduleMap.get(id) ?? Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
+      );
+      const booked = Number(bookedMap.get(id) ?? 0);
       const isAvailable = override?.available !== false;
       return {
         id,

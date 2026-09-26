@@ -55,7 +55,8 @@ type Settings = {
 };
 type Preferences = {
   defaultEntityId: string;
-  reminderSmsEnabled: boolean;
+  allowDifferentEntity: boolean;
+  reminderWhatsappEnabled: boolean;
   reminderOffsetsHours: number[];
 };
 type CalendarDay = { date: string; label: string; entities: Entity[] };
@@ -158,16 +159,11 @@ export default function AgendamentoPilotoConsulentePage() {
     };
   }, [modal]);
 
-  const effectiveView = useMemo<"entity_day" | "day_entity">(() => {
-    if (!payload) return bookingView;
-    if (payload.settings.selfServiceViewMode === "entity_day") return "entity_day";
-    if (payload.settings.selfServiceViewMode === "day_entity") return "day_entity";
-    return bookingView;
-  }, [bookingView, payload]);
+  const effectiveView = bookingView;
 
-  const defaultEntityId = payload?.settings.useDefaultEntity ? payload.preferences.defaultEntityId : "";
+  const defaultEntityId = payload?.preferences.defaultEntityId || "";
   const effectiveEntityId = entityId || defaultEntityId;
-  const entityLocked = Boolean(defaultEntityId && payload && !payload.settings.allowDifferentEntity);
+  const entityLocked = Boolean(defaultEntityId && payload && !payload.preferences.allowDifferentEntity);
 
   const availableEntities = useMemo(
     () => (payload?.entities ?? []).filter((entity) => entity.isAvailable && entity.available > 0),
@@ -271,7 +267,7 @@ export default function AgendamentoPilotoConsulentePage() {
 
   function openReminders() {
     if (!payload) return;
-    setReminderEnabled(payload.preferences.reminderSmsEnabled);
+    setReminderEnabled(payload.preferences.reminderWhatsappEnabled);
     const offsets = payload.preferences.reminderOffsetsHours.length
       ? payload.preferences.reminderOffsetsHours
       : payload.settings.confirmationReminderOffsetsHours;
@@ -285,7 +281,7 @@ export default function AgendamentoPilotoConsulentePage() {
     try {
       const result = await post({
         action: "save-reminders",
-        reminderSmsEnabled: reminderEnabled,
+        reminderWhatsappEnabled: reminderEnabled,
         reminderOffsetsHours: reminderOffsets,
       });
       setMessage(result.message || "Preferências de lembretes atualizadas.");
@@ -324,7 +320,7 @@ export default function AgendamentoPilotoConsulentePage() {
           <p className="mt-3 text-sm font-semibold leading-6 text-[#EEF7EA] sm:text-base sm:leading-7">
             {payload?.settings.selfServiceEnabled
               ? "Escolha entre as datas e Entidades liberadas pela Recepção, confirme sua presença e acompanhe tudo no mesmo lugar."
-              : "Nesta etapa do piloto, a Recepção faz o agendamento. Quando houver um atendimento reservado para você, a confirmação será feita pelo link enviado por SMS."}
+              : "Nesta etapa do piloto, a Recepção faz o agendamento. Quando houver um atendimento reservado para você, a confirmação será feita pelo link enviado pelo WhatsApp."}
           </p>
         </section>
 
@@ -336,7 +332,7 @@ export default function AgendamentoPilotoConsulentePage() {
           <>
             {!payload.settings.selfServiceEnabled && (
               <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-sm font-bold leading-5 text-amber-900 ring-1 ring-amber-100">
-                Fase atual: somente a Recepção realiza agendamentos. O Consulente recebe SMS para confirmar presença; o autoagendamento será liberado em uma etapa posterior.
+                Fase atual: somente a Recepção realiza agendamentos. O Consulente recebe uma mensagem no WhatsApp para confirmar presença; o autoagendamento será liberado em uma etapa posterior.
               </p>
             )}
             <section className={`mt-3 grid grid-cols-2 gap-2 sm:gap-3 ${payload.settings.selfServiceEnabled ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
@@ -348,7 +344,7 @@ export default function AgendamentoPilotoConsulentePage() {
             <section className="mt-3 grid grid-cols-3 gap-2 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
               <Summary label="Próximos" value={payload.appointments.filter((item) => item.status !== "cancelado").length} />
               <Summary label="Confirmados" value={payload.appointments.filter((item) => item.confirmationStatus === "confirmed").length} />
-              <Summary label="Lembretes" value={payload.preferences.reminderSmsEnabled ? payload.preferences.reminderOffsetsHours.length || payload.settings.confirmationReminderOffsetsHours.length : 0} />
+              <Summary label="Lembretes" value={payload.preferences.reminderWhatsappEnabled ? payload.preferences.reminderOffsetsHours.length || payload.settings.confirmationReminderOffsetsHours.length : 0} />
             </section>
           </>
         )}
@@ -369,13 +365,13 @@ export default function AgendamentoPilotoConsulentePage() {
         >
           {modal === "agendar" && !payload.settings.selfServiceEnabled && (
             <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 ring-1 ring-amber-100">
-              Nesta etapa do piloto, os agendamentos são feitos somente pela Recepção. Você receberá um SMS para confirmar sua presença quando houver um atendimento agendado.
+              Nesta etapa do piloto, os agendamentos são feitos somente pela Recepção. Você receberá uma mensagem no WhatsApp para confirmar sua presença quando houver um atendimento agendado.
             </div>
           )}
 
           {modal === "agendar" && payload.settings.selfServiceEnabled && (
             <div className="grid gap-3">
-              {payload.settings.selfServiceViewMode === "both" && (
+              {(
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
                   <button type="button" onClick={() => setBookingView("day_entity")} className={`rounded-xl px-3 py-2 text-sm font-black ${effectiveView === "day_entity" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Dia / Entidade</button>
                   <button type="button" onClick={() => setBookingView("entity_day")} className={`rounded-xl px-3 py-2 text-sm font-black ${effectiveView === "entity_day" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Entidade / Dia</button>
@@ -472,7 +468,7 @@ export default function AgendamentoPilotoConsulentePage() {
 
           {modal === "lembretes" && (
             <div className="grid gap-3">
-              <Toggle checked={reminderEnabled} onChange={setReminderEnabled} label="Quero receber lembretes por SMS" />
+              <Toggle checked={reminderEnabled} onChange={setReminderEnabled} label="Quero receber lembretes pelo WhatsApp" />
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Quando quero ser lembrado · antecedência em horas
                 <input value={reminderOffsets} onChange={(event) => setReminderOffsets(event.target.value)} disabled={!reminderEnabled} className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold disabled:bg-slate-100" placeholder="Ex.: 48, 24, 4" />
                 <span className="text-xs font-semibold text-slate-500">Você pode informar até 8 momentos separados por vírgula. Ex.: 48, 24, 4.</span>
@@ -487,7 +483,7 @@ export default function AgendamentoPilotoConsulentePage() {
               <Info title="Vaga real">A quantidade disponível considera o limite definido pela Recepção e eventuais suspensões.</Info>
               <Info title={`Confirme até ${payload.settings.confirmationCutoff}`}>Depois de reservar, abra Meus agendamentos e confirme sua presença dentro do prazo.</Info>
               <Info title="Chegue com tranquilidade">A orientação é chegar entre {payload.settings.arrivalWindow}. A porta fecha às {payload.settings.doorClosesAt} e reabre às {payload.settings.doorReopensAt} para o início dos trabalhos.</Info>
-              <Info title="Lembretes do seu jeito">Em “Lembretes”, escolha se deseja SMS e com quanta antecedência quer ser avisado.</Info>
+              <Info title="Lembretes do seu jeito">Em “Lembretes”, escolha se deseja WhatsApp e com quanta antecedência quer ser avisado.</Info>
               <Info title="Mudou de ideia?">Use “Não poderei ir” para liberar a vaga para outra pessoa.</Info>
             </div>
           )}

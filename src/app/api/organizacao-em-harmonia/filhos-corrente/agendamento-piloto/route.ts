@@ -17,7 +17,7 @@ import {
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
-import { sendTucxaSms } from "@/lib/organizacao-em-harmonia/tucxa-sms";
+import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 
 export const dynamic = "force-dynamic";
 
@@ -80,26 +80,6 @@ function confirmationUrl(token: string) {
   return `${siteUrl()}/a/${encodeURIComponent(token)}`;
 }
 
-function compactSmsDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return match ? `${match[3]}/${match[2]}` : value;
-}
-
-function compactSmsTime(value: string) {
-  return value.replace(/:00$/, "h").replace(/^(\d{2}):(\d{2})$/, "$1h$2");
-}
-
-function compactSmsWindow(value: string) {
-  return value
-    .replace(/[–—]/g, "-")
-    .replace(/(\d{1,2}):(\d{2})/g, "$1h$2");
-}
-
-function compactSmsEntity(value: string) {
-  const normalized = value.trim();
-  return normalized.length > 15 ? `${normalized.slice(0, 15).trim()}...` : normalized;
-}
-
 function whatsappUrl(phone: string, message = "") {
   const digits = normalizeBrazilPhone(phone);
   if (!digits) return "";
@@ -108,7 +88,7 @@ function whatsappUrl(phone: string, message = "") {
 }
 
 async function loadEntityContacts(organizationId: string, entityIds: string[]) {
-  if (!entityIds.length) return new Map<string, { name: string; whatsapp: string }[]>();
+  if (!entityIds.length) return new Map<string, { personId: string; name: string; whatsapp: string }[]>();
   const { data: links, error: linkError } = await supabaseAdmin
     .from("oh_person_entity_links")
     .select("entity_id, person_id, active")
@@ -126,8 +106,13 @@ async function loadEntityContacts(organizationId: string, entityIds: string[]) {
         .in("id", personIds)
     : { data: [], error: null };
   if (peopleError) throw peopleError;
-  const peopleMap = new Map((people ?? []).map((person) => [asText(person.id), { name: asText(person.full_name), whatsapp: asText(person.whatsapp) }]));
-  const output = new Map<string, { name: string; whatsapp: string }[]>();
+  const peopleMap = new Map<string, { personId: string; name: string; whatsapp: string }>(
+    (people ?? []).map((person) => [
+      asText(person.id),
+      { personId: asText(person.id), name: asText(person.full_name), whatsapp: asText(person.whatsapp) },
+    ]),
+  );
+  const output = new Map<string, { personId: string; name: string; whatsapp: string }[]>();
   for (const link of links ?? []) {
     const entityId = asText(link.entity_id);
     const person = peopleMap.get(asText(link.person_id));
@@ -145,13 +130,13 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
   const dates = await loadPilotDates(organizationId, settings.daysAhead);
   const selected = dates.some((item) => item.date === selectedDate) ? selectedDate! : dates[0]?.date || todayInSaoPaulo();
 
-  const [entities, appointments, receptionPreferences, catalogRows, scheduleRows] = await Promise.all([
+  const [entities, appointments, receptionPreferences, catalogRows, scheduleRows, membershipsRows] = await Promise.all([
     loadPilotDay(organizationId, selected),
     loadPilotAppointments(organizationId, selected, selected),
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,daily_capacity,active,appointment_enabled")
+      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -159,10 +144,16 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       .select("entity_id,weekday,month_occurrence,default_capacity,active")
       .eq("organization_id", organizationId)
       .eq("active", true),
+    supabaseAdmin
+      .from("oh_memberships")
+      .select("person_id,agenda_viva_profile,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
   ]);
 
   if (catalogRows.error) throw catalogRows.error;
   if (scheduleRows.error) throw scheduleRows.error;
+  if (membershipsRows.error) throw membershipsRows.error;
 
   const catalogEntityIds = (catalogRows.data ?? []).map((item) => asText(item.id)).filter(Boolean);
   const contacts = await loadEntityContacts(organizationId, catalogEntityIds);
@@ -183,6 +174,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       id: asText(entity.id),
       name: asText(entity.name),
       slug: asText(entity.slug),
+      description: asText(entity.appointment_notes) || asText(entity.notes),
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
       active: entity.active !== false,
       appointmentEnabled: entity.appointment_enabled !== false,
@@ -191,6 +183,30 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
     };
   });
+
+  const cavalinhoIds = Array.from(new Set(
+    (membershipsRows.data ?? [])
+      .filter((membership) => {
+        const profile = asRecord(membership.agenda_viva_profile);
+        const kind = asText(profile.pilotAccessKind).toLowerCase();
+        const supports = profile.supportsCavalinho === true || profile.isCavalinho === true;
+        const functions = Array.isArray(profile.functions)
+          ? profile.functions.map((item) => asText(asRecord(item).slug || item).toLowerCase())
+          : [];
+        return kind === "cavalinho" || supports || functions.some((item) => item.includes("cavalinho"));
+      })
+      .map((membership) => asText(membership.person_id))
+      .filter(Boolean),
+  ));
+  const { data: cavalinhoPeople, error: cavalinhoError } = cavalinhoIds.length
+    ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,active").eq("organization_id", organizationId).eq("active", true).in("id", cavalinhoIds).order("full_name")
+    : { data: [], error: null };
+  if (cavalinhoError) throw cavalinhoError;
+  const cavalinhos = (cavalinhoPeople ?? []).map((person) => ({
+    id: asText(person.id),
+    name: asText(person.full_name),
+    whatsapp: asText(person.whatsapp),
+  }));
 
   return {
     settings,
@@ -201,6 +217,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       mediums: (contacts.get(entity.id) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
     })),
     entityCatalog,
+    cavalinhos,
     appointments,
     receptionPreferences,
   };
@@ -326,19 +343,24 @@ export async function POST(request: Request) {
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
 
       const link = confirmationUrl(token);
-      const smsMessage = `TUCXA ${compactSmsDate(appointmentDate)} ${compactSmsTime(settings.appointmentTime)} - ${compactSmsEntity(entity.name)}. Cheg ${compactSmsWindow(settings.arrivalWindow)}. Confirme ate ${compactSmsTime(settings.confirmationCutoff)}: ${link}`;
+      const whatsappDispatch = phone
+        ? await sendTucxaAppointmentWhatsapp({
+            kind: "confirmation",
+            fullName: asText(person.full_name) || "Consulente",
+            whatsapp: phone,
+            appointmentDate,
+            entityName: entity.name,
+            confirmationUrl: link,
+          })
+        : { sent: false, provider: "disabled" as const, error: "Telefone não informado." };
 
-      const sms = settings.smsEnabled && phone
-        ? await sendTucxaSms({ to: phone, message: smsMessage }).catch((error: unknown) => ({ sent: false, provider: "disabled" as const, error: error instanceof Error ? error.message : "Falha no envio do SMS." }))
-        : { sent: false, provider: "disabled" as const, error: phone ? "Envio de SMS desabilitado na configuração." : "Telefone não informado." };
-
-      if (sms.sent) {
+      if (whatsappDispatch.sent) {
         const { error: sentUpdateError } = await supabaseAdmin
           .from("oh_consulente_appointments")
-          .update({ confirmation_sent_at: new Date().toISOString(), confirmation_channel: "sms", updated_at: new Date().toISOString() })
+          .update({ confirmation_sent_at: new Date().toISOString(), confirmation_channel: "whatsapp_botconversa", updated_at: new Date().toISOString() })
           .eq("organization_id", context.organizationId)
           .eq("id", reservation.appointment_id);
-        if (sentUpdateError) console.error("[TUCXA piloto SMS status]", sentUpdateError);
+        if (sentUpdateError) console.error("[TUCXA piloto BotConversa status]", sentUpdateError);
       }
 
       return NextResponse.json({
@@ -354,7 +376,7 @@ export async function POST(request: Request) {
           status: reservation.confirmed_status || "solicitado",
           confirmationDeadline: deadline,
         },
-        confirmation: { url: link, sms },
+        confirmation: { url: link, whatsapp: whatsappDispatch },
       });
     }
 
@@ -385,7 +407,6 @@ export async function POST(request: Request) {
     }
 
     if (action === "save-settings") {
-      const selfServiceViewMode = ["entity_day", "day_entity", "both"].includes(asText(body.selfServiceViewMode)) ? asText(body.selfServiceViewMode) : "both";
       const serviceOrderMode = asText(body.serviceOrderMode) === "arrival" ? "arrival" : "booking";
       const reminderOffsets = hourList(body.confirmationReminderOffsetsHours);
       const { data: row, error: selectError } = await supabaseAdmin
@@ -397,9 +418,10 @@ export async function POST(request: Request) {
       if (selectError) throw selectError;
       const nextSettings = {
         ...asRecord(row?.settings),
-        pilotSelfServiceViewMode: selfServiceViewMode,
-        pilotUseDefaultEntity: asBoolean(body.useDefaultEntity),
-        pilotAllowDifferentEntity: asBoolean(body.allowDifferentEntity, true),
+        pilotSelfServiceViewMode: "both",
+        pilotUseDefaultEntity: true,
+        pilotAllowDifferentEntity: false,
+        pilotSmsEnabled: false,
         pilotServiceOrderMode: serviceOrderMode,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
       };
@@ -413,7 +435,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "save-reception-preferences") {
-      const channels = Array.isArray(body.channels) ? body.channels.map(asText).filter((item) => item === "email" || item === "sms") : [];
+      const channels = Array.isArray(body.channels) ? body.channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
       const mode = ["entity_day", "day_entity", "both"].includes(asText(body.viewMode))
         ? (asText(body.viewMode) as "entity_day" | "day_entity" | "both")
         : "both";
@@ -437,6 +459,36 @@ export async function POST(request: Request) {
         p_arrival_status: arrivalStatus,
       });
       if (error) throw error;
+
+      if (arrivalStatus === "arrived") {
+        const { data: appointment, error: appointmentError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .select("person_id,entity_id")
+          .eq("organization_id", context.organizationId)
+          .eq("id", appointmentId)
+          .maybeSingle();
+        if (appointmentError) throw appointmentError;
+
+        const personId = asText(appointment?.person_id);
+        const entityId = asText(appointment?.entity_id);
+        if (personId && entityId) {
+          const preferences = await loadPilotPersonPreferences(context.organizationId, personId);
+          if (!preferences.defaultEntityId) {
+            const { data: entityRow, error: entityError } = await supabaseAdmin
+              .from("oh_spiritual_entities")
+              .select("id,name,slug")
+              .eq("organization_id", context.organizationId)
+              .eq("id", entityId)
+              .maybeSingle();
+            if (entityError) throw entityError;
+            const passToken = `${asText(entityRow?.slug)} ${asText(entityRow?.name)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            if (entityRow?.id && !passToken.includes("passe")) {
+              await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
+            }
+          }
+        }
+      }
+
       return NextResponse.json({ ok: true, arrival: Array.isArray(data) ? data[0] : data, message: arrivalStatus === "arrived" ? "Chegada registrada." : arrivalStatus === "absent" ? "Ausência registrada." : "Situação de chegada redefinida." });
     }
 
@@ -486,6 +538,7 @@ export async function POST(request: Request) {
           whatsapp: asText(person.whatsapp),
           email: asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email)),
           defaultEntityId: preferences.defaultEntityId,
+          allowDifferentEntity: preferences.allowDifferentEntity,
           whatsappUrl: whatsappUrl(asText(person.whatsapp)),
         },
       });
@@ -497,6 +550,7 @@ export async function POST(request: Request) {
       const whatsapp = normalizeBrazilPhone(body.whatsapp);
       const email = asText(body.email).toLowerCase();
       const defaultEntityId = asText(body.defaultEntityId);
+      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, false);
       if (!personId || !fullName || whatsapp.length < 10) return NextResponse.json({ error: "Informe pessoa, nome e telefone válidos.", requestId: code }, { status: 400 });
       if (email && !email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
       const { data: person, error: personError } = await supabaseAdmin
@@ -508,13 +562,15 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
-      await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId });
+      await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId, allowDifferentEntity });
       return NextResponse.json({ ok: true, message: "Cadastro do Consulente atualizado." });
     }
 
     if (action === "save-entity") {
       const requestedEntityId = asText(body.entityId);
       const name = asText(body.name);
+      const description = asText(body.description);
+      const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
@@ -529,6 +585,7 @@ export async function POST(request: Request) {
           .from("oh_spiritual_entities")
           .update({
             name,
+            appointment_notes: description || null,
             daily_capacity: capacity,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: true,
@@ -569,8 +626,8 @@ export async function POST(request: Request) {
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
             appointment_enabled: true,
-            appointment_notes: "Cadastro realizado pela Recepção no piloto de agendamentos.",
-            notes: "Cadastro realizado pelo piloto Agendamento-01.",
+            appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
+            notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: true,
           })
           .select("id")
@@ -602,6 +659,27 @@ export async function POST(request: Request) {
         .from("oh_tucxa_pilot_entity_schedule")
         .insert(scheduleRows);
       if (scheduleError) throw scheduleError;
+
+      const { error: unlinkError } = await supabaseAdmin
+        .from("oh_person_entity_links")
+        .delete()
+        .eq("organization_id", context.organizationId)
+        .eq("entity_id", entityId)
+        .eq("relationship_type", "recebe");
+      if (unlinkError) throw unlinkError;
+
+      if (cavalinhoPersonId) {
+        const { error: linkError } = await supabaseAdmin
+          .from("oh_person_entity_links")
+          .insert({
+            organization_id: context.organizationId,
+            person_id: cavalinhoPersonId,
+            entity_id: entityId,
+            relationship_type: "recebe",
+            active: true,
+          });
+        if (linkError) throw linkError;
+      }
 
       return NextResponse.json({ ok: true, entityId, message: requestedEntityId ? "Cadastro e calendário da Entidade atualizados." : "Entidade cadastrada e incluída no calendário do piloto." });
     }

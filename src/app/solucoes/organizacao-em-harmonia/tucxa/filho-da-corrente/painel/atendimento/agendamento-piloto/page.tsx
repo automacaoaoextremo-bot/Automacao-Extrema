@@ -18,12 +18,13 @@ type ModalKind = "agendar" | "consultar" | "entidades" | "cadastros" | "configur
 type BookingMode = "date" | "entity";
 type ConsultStatus = "all" | "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
-type Medium = { name: string; whatsapp: string; whatsappUrl: string };
+type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
 type EntityCatalogItem = {
   id: string;
   name: string;
   slug: string;
+  description: string;
   capacity: number;
   active: boolean;
   appointmentEnabled: boolean;
@@ -70,25 +71,23 @@ type Payload = {
   selectedDate: string;
   entities: Entity[];
   entityCatalog: EntityCatalogItem[];
+  cavalinhos: Array<{ id: string; name: string; whatsapp: string }>;
   appointments: Appointment[];
   receptionPreferences: ReceptionPreferences;
 };
-type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string };
+type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; allowDifferentEntity?: boolean };
 type AccessInfo = { login?: string; temporaryPassword?: string; loginUrl?: string; whatsappUrl?: string; emailSent?: boolean };
 type BookingResult = {
   appointment?: { id: string; personName: string; appointmentDate: string; appointmentTime: string; entityName: string; order: number | null; confirmationDeadline: string };
-  confirmation?: { url: string; sms: { sent: boolean; provider: string; error?: string } };
+  confirmation?: { url: string; whatsapp: { sent: boolean; provider: string; error?: string } };
 };
 type CompletedBooking = BookingResult & { whatsapp: string };
 
 type SettingsDraft = {
-  selfServiceViewMode: ViewMode;
-  useDefaultEntity: boolean;
-  allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
   reminderOffsets: string;
   summaryEmail: boolean;
-  summarySms: boolean;
+  summaryWhatsapp: boolean;
   summaryViewMode: ViewMode;
 };
 
@@ -153,14 +152,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [changeSelections, setChangeSelections] = useState<Record<string, string>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
-  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "" });
+  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
     name: "",
+    description: "",
     capacity: "4",
+    cavalinhoPersonId: "",
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
   });
+  const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
+  const [showCreateConsulente, setShowCreateConsulente] = useState(false);
+  const [newPersonWhatsapp, setNewPersonWhatsapp] = useState("");
 
   const load = useCallback(async (date?: string) => {
     setLoading(true);
@@ -266,8 +270,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSearchResults([]);
     setPersonNotFound(false);
     setAccessInfo(null);
-    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "" });
+    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPersonWhatsapp("");
+    setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
   }
 
@@ -309,6 +315,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         whatsapp: detailedPerson.whatsapp || person.whatsapp,
         email: detailedPerson.email || person.email,
         defaultEntityId: detailedPerson.defaultEntityId || "",
+        allowDifferentEntity: detailedPerson.allowDifferentEntity === true,
       });
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : "Não foi possível selecionar o cadastro.");
@@ -372,7 +379,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const result = await postLegacy({
         action: "create-consulente",
         fullName: newPerson.fullName,
-        whatsapp: phone,
+        whatsapp: newPersonWhatsapp || phone,
         email: newPerson.email,
         password: newPerson.password,
         privacyAccepted: newPerson.privacyAccepted,
@@ -380,7 +387,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
       const person = result.person as FoundPerson;
       setFoundPerson(person);
-      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "" });
+      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: false });
       setAccessInfo(result.access && typeof result.access === "object" ? result.access as AccessInfo : null);
       setPersonNotFound(false);
     } catch (createError) {
@@ -483,13 +490,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   function openSettings() {
     if (!payload) return;
     setSettingsDraft({
-      selfServiceViewMode: payload.settings.selfServiceViewMode,
-      useDefaultEntity: payload.settings.useDefaultEntity,
-      allowDifferentEntity: payload.settings.allowDifferentEntity,
       serviceOrderMode: payload.settings.serviceOrderMode,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
-      summarySms: payload.receptionPreferences.receptionSummaryChannels.includes("sms"),
+      summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
     });
     setModal("configuracoes");
@@ -503,15 +507,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
     try {
       await postPilot({
         action: "save-settings",
-        selfServiceViewMode: settingsDraft.selfServiceViewMode,
-        useDefaultEntity: settingsDraft.useDefaultEntity,
-        allowDifferentEntity: settingsDraft.allowDifferentEntity,
         serviceOrderMode: settingsDraft.serviceOrderMode,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
       });
       await postPilot({
         action: "save-reception-preferences",
-        channels: [settingsDraft.summaryEmail ? "email" : "", settingsDraft.summarySms ? "sms" : ""].filter(Boolean),
+        channels: [settingsDraft.summaryEmail ? "email" : "", settingsDraft.summaryWhatsapp ? "whatsapp" : ""].filter(Boolean),
         viewMode: settingsDraft.summaryViewMode,
       });
       setMessage("Configurações do piloto atualizadas.");
@@ -544,7 +545,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEditEntity({
       entityId: value,
       name: entity?.name || "",
+      description: entity?.description || "",
       capacity: String(entity?.capacity ?? 4),
+      cavalinhoPersonId: entity?.mediums[0]?.personId || "",
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
     });
@@ -571,12 +574,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: "save-entity",
         entityId: editEntity.entityId,
         name: editEntity.name,
+        description: editEntity.description,
+        cavalinhoPersonId: editEntity.cavalinhoPersonId,
         capacity: Number(editEntity.capacity),
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
       });
       setMessage(typeof result.message === "string" ? result.message : "Entidade salva.");
-      setEditEntity({ entityId: "", name: "", capacity: "4", mondayOccurrences: [], tuesdayOccurrences: [] });
+      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [] });
       await load(payload?.selectedDate);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a Entidade.");
@@ -612,8 +617,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
           <>
             <section className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
               <ActionButton title="Como funciona" subtitle="Resumo do fluxo de atendimentos" onClick={() => setModal("ajuda")} />
-              <ActionButton title="Configurações" subtitle="Ordem, visualização e lembretes" onClick={openSettings} />
-              <ActionButton title="Cadastros" subtitle="Atualizar Consulente ou Entidade" onClick={() => setModal("cadastros")} />
+              <ActionButton title="Configurações" subtitle="Ordem, lembretes e resumos" onClick={openSettings} />
+              <ActionButton title="Cadastros" subtitle="Consulentes e Entidades" onClick={() => { setCadastroMode("menu"); setModal("cadastros"); }} />
               <ActionButton title="Entidades" subtitle="Vagas, suspensão e Cavalinhos" onClick={() => setModal("entidades")} />
               <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={openBookingModal} />
               <ActionButton title="Acolhimento" subtitle="Confirmar, trocar Entidade e registrar chegada" onClick={() => setModal("consultar")} />
@@ -830,46 +835,153 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "cadastros" && (
             <div className="grid gap-4">
-              <section className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Atualizar Consulente</p>
-                <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2"><input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp" className="rounded-xl border border-[#123D2C]/15 p-3" required /><button className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button></form>
-                {foundPerson && <form onSubmit={updateConsulente} className="grid gap-2"><input value={editPerson.fullName} onChange={(event) => setEditPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Nome" required /><input value={editPerson.whatsapp} onChange={(event) => setEditPerson((current) => ({ ...current, whatsapp: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="WhatsApp" required /><input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="E-mail opcional" type="email" /><select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="">Sem Entidade padrão</option>{payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select><button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Salvar Consulente</button></form>}
-              </section>
-              <form onSubmit={saveEntity} className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Cadastrar ou atualizar Entidade</p>
-                <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-xl border border-[#123D2C]/15 p-3">
-                  <option value="">Nova Entidade</option>
-                  {payload.entityCatalog.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.active && entity.appointmentEnabled ? "" : " · inativa"}</option>)}
-                </select>
-                <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Nome da Entidade" required />
-                <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Capacidade padrão" required />
-                <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
-                <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
-                <p className="text-xs font-semibold leading-5 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
-                <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
-              </form>
+              {cadastroMode === "menu" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setCadastroMode("consulentes"); }} className="rounded-2xl bg-[#E9F2E7] p-5 text-left ring-1 ring-[#123D2C]/10">
+                    <span className="block text-lg font-black text-[#123D2C]">Consulentes</span>
+                    <span className="mt-1 block text-sm font-semibold text-slate-600">Buscar, atualizar ou cadastrar Filho de Fora/Consulente.</span>
+                  </button>
+                  <button type="button" onClick={() => setCadastroMode("entidades")} className="rounded-2xl bg-white p-5 text-left ring-1 ring-[#123D2C]/10">
+                    <span className="block text-lg font-black text-[#123D2C]">Entidades</span>
+                    <span className="mt-1 block text-sm font-semibold text-slate-600">Cadastrar, atualizar calendário, vagas e Cavalinho.</span>
+                  </button>
+                </div>
+              )}
+
+              {cadastroMode === "consulentes" && (
+                <section className="grid gap-3">
+                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setCadastroMode("menu"); }} className="justify-self-start rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Cadastros</button>
+                  <p className="font-black text-[#123D2C]">Consulentes</p>
+                  <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
+                    <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3" required />
+                    <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
+                  </form>
+
+                  {searchResults.length > 1 && (
+                    <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
+                      {searchResults.map((person) => (
+                        <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
+                          <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                          <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {personNotFound && !showCreateConsulente && (
+                    <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
+                      <p className="text-sm font-semibold text-amber-950">Nenhum cadastro encontrado. Deseja cadastrar um novo Consulente?</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const typedDigits = phone.replace(/\D/g, "");
+                          setNewPersonWhatsapp(typedDigits.length >= 10 ? phone : "");
+                          setNewPerson((current) => ({ ...current, fullName: typedDigits.length >= 10 ? current.fullName : phone }));
+                          setShowCreateConsulente(true);
+                        }}
+                        className="mt-2 rounded-xl bg-amber-900 px-4 py-2 text-sm font-black text-white"
+                      >
+                        Cadastrar novo Consulente
+                      </button>
+                    </div>
+                  )}
+
+                  {showCreateConsulente && (
+                    <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
+                      <p className="font-black text-amber-950">Novo Consulente</p>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">Nome completo
+                        <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 p-3" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">WhatsApp com DDD
+                        <input value={newPersonWhatsapp} onChange={(event) => setNewPersonWhatsapp(event.target.value)} className="rounded-xl border border-amber-200 p-3" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">E-mail opcional
+                        <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 p-3" />
+                      </label>
+                      <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
+                      <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Cadastrar Consulente</button>
+                    </form>
+                  )}
+
+                  {foundPerson && (
+                    <form onSubmit={updateConsulente} className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="font-black text-[#123D2C]">Atualizar Consulente</p>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome
+                        <input value={editPerson.fullName} onChange={(event) => setEditPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">WhatsApp
+                        <input value={editPerson.whatsapp} onChange={(event) => setEditPerson((current) => ({ ...current, whatsapp: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">E-mail opcional
+                        <input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" type="email" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
+                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3">
+                          <option value="">Sem Entidade padrão</option>
+                          {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                        </select>
+                      </label>
+                      <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
+                      <p className="text-xs font-semibold leading-5 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
+                      <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Salvar Consulente</button>
+                    </form>
+                  )}
+                </section>
+              )}
+
+              {cadastroMode === "entidades" && (
+                <form onSubmit={saveEntity} className="grid gap-3">
+                  <button type="button" onClick={() => setCadastroMode("menu")} className="justify-self-start rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Cadastros</button>
+                  <p className="font-black text-[#123D2C]">Entidades</p>
+                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cadastro
+                    <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-xl border border-[#123D2C]/15 p-3">
+                      <option value="">Nova Entidade</option>
+                      {payload.entityCatalog.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.active && entity.appointmentEnabled ? "" : " · inativa"}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
+                    <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                  </label>
+                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
+                    <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={2} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Como esta Entidade atua no atendimento." />
+                  </label>
+                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
+                    <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                  </label>
+                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
+                    <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3">
+                      <option value="">Sem Cavalinho associado</option>
+                      {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
+                    </select>
+                  </label>
+                  <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
+                  <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
+                  <p className="text-xs font-semibold leading-5 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
+                  <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
+                </form>
+              )}
             </div>
           )}
 
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Consulentes podem visualizar para agendar por
-                <select value={settingsDraft.selfServiceViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, selfServiceViewMode: event.target.value as ViewMode } : current)} className="rounded-xl border border-[#123D2C]/15 p-3">
-                  <option value="entity_day">Entidade / Dia</option><option value="day_entity">Dia / Entidade</option><option value="both">Ambos</option>
-                </select>
-              </label>
-              <Toggle checked={settingsDraft.useDefaultEntity} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, useDefaultEntity: checked } : current)} label="Usar Entidade padrão por Consulente" />
-              <Toggle checked={settingsDraft.allowDifferentEntity} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, allowDifferentEntity: checked } : current)} label="Permitir que o Consulente escolha Entidade diferente da padrão" />
+              <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
+                Os Consulentes terão, quando o autoagendamento for liberado, as duas formas de visualização: por Data e por Entidade. A Entidade padrão e a permissão para escolher outra Entidade são definidas individualmente no cadastro de cada Consulente.
+              </p>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
                 <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
               </label>
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações por SMS · antecedência em horas
+              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
                 <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
-                <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula.</span>
+                <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula. Os avisos do piloto serão enviados pelo WhatsApp/BotConversa.</span>
               </label>
               <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Meu resumo da Recepção</p>
-                <div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summarySms} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summarySms: checked } : current)} label="SMS" /></div>
+                <p className="font-black text-[#123D2C]">Receber resumo agendamentos</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" />
+                  <Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" />
+                </div>
                 <select value={settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-2 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade / Dia</option><option value="day_entity">Dia / Entidade</option><option value="both">Ambos</option></select>
               </section>
               <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
@@ -878,11 +990,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "ajuda" && (
             <div className="grid gap-3 text-sm font-semibold leading-6 text-slate-700">
-              <Info title="Agendamento">A Recepção localiza ou cadastra o Consulente, escolhe data e Entidade e cria a reserva.</Info>
-              <Info title="Confirmação">O Consulente confirma no link ou no painel. O prazo padrão continua sendo {payload.settings.confirmationCutoff} no dia do atendimento.</Info>
-              <Info title="Chegada">Chegada orientada: {payload.settings.arrivalWindow}. A porta fecha às {payload.settings.doorClosesAt} e reabre às {payload.settings.doorReopensAt}.</Info>
-              <Info title="Ordem">O piloto pode trabalhar por ordem de agendamento ou por ordem de chegada. Quando a ordem de chegada estiver ativa, use o botão “Chegou”.</Info>
-              <Info title="Contato">Os cartões disponibilizam WhatsApp do Consulente e, quando cadastrado, do Cavalinho ligado à Entidade.</Info>
+              <Info title="Agendamento">A Recepção localiza ou cadastra o Consulente, cria a reserva por Data ou Entidade.</Info>
+              <Info title="Confirmação">O Consulente pode confirmar pelo link que recebe. O prazo padrão é as {payload.settings.confirmationCutoff} no dia do atendimento.</Info>
+              <Info title="Chegada">Chegada orientada: {payload.settings.arrivalWindow}. A porta fecha às {payload.settings.doorClosesAt}.</Info>
+              <Info title="Ordem">O acolhimento pode ser por ordem de agendamento ou por ordem de chegada. Quando a ordem de chegada estiver ativa, use o botão “Chegou”.</Info>
+              <Info title="Contato">É possível contactar pelo WhatsApp o Consulente ou Cavalinho ligado a Entidade nos agendamentos.</Info>
             </div>
           )}
         </Modal>
@@ -895,7 +1007,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <p className="text-lg font-black text-[#123D2C]">{bookingResult.appointment.personName}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
-              {bookingResult.confirmation.sms.sent && <p className="mt-2 text-sm font-black text-emerald-800">SMS enviado.</p>}
+              {bookingResult.confirmation.whatsapp.sent && <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada pelo WhatsApp.</p>}
             </section>
             <a
               href={whatsappHref(bookingResult.whatsapp, `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme sua presença: ${bookingResult.confirmation.url}`)}

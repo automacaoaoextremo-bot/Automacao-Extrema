@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     if (action === "book") {
       if (!settings.selfServiceEnabled) {
         return NextResponse.json({
-          error: "Nesta etapa do piloto, os agendamentos são feitos pela Recepção. Aguarde o SMS para confirmar sua presença.",
+          error: "Nesta etapa do piloto, os agendamentos são feitos pela Recepção. Aguarde a mensagem no WhatsApp para confirmar sua presença.",
           requestId: code,
         }, { status: 403 });
       }
@@ -89,12 +89,12 @@ export async function POST(request: Request) {
       const notes = asText(body.notes);
       const preferences = await loadPilotPersonPreferences(context.organizationId, context.personId);
 
-      if (settings.useDefaultEntity && preferences.defaultEntityId) {
-        if (!settings.allowDifferentEntity) entityId = preferences.defaultEntityId;
-        if (settings.allowDifferentEntity && !entityId) entityId = preferences.defaultEntityId;
+      if (preferences.defaultEntityId) {
+        if (!preferences.allowDifferentEntity) entityId = preferences.defaultEntityId;
+        if (preferences.allowDifferentEntity && !entityId) entityId = preferences.defaultEntityId;
       }
       if (!entityId || !appointmentDate) return NextResponse.json({ error: "Escolha a data e a Entidade.", requestId: code }, { status: 400 });
-      if (settings.useDefaultEntity && preferences.defaultEntityId && !settings.allowDifferentEntity && entityId !== preferences.defaultEntityId) {
+      if (preferences.defaultEntityId && !preferences.allowDifferentEntity && entityId !== preferences.defaultEntityId) {
         return NextResponse.json({ error: "Neste momento seu agendamento deve usar a Entidade padrão definida pela Recepção.", requestId: code }, { status: 409 });
       }
 
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     if (action === "save-reminders") {
       const offsets = hourList(body.reminderOffsetsHours);
       await savePilotPersonPreferences(context.organizationId, context.personId, {
-        reminderSmsEnabled: body.reminderSmsEnabled !== false,
+        reminderWhatsappEnabled: body.reminderWhatsappEnabled !== false,
         reminderOffsetsHours: offsets,
       });
       return NextResponse.json({ ok: true, message: "Preferências de lembretes atualizadas." });

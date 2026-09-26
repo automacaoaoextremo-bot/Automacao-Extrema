@@ -37,7 +37,7 @@ const headerActions = [
 const benefits = [
   {
     title: "Para quem busca atendimento",
-    text: "Receba a confirmação do atendimento por SMS e confirme sua presença com clareza, sem depender de anotações paralelas.",
+    text: "Receba pelo WhatsApp o link para confirmar seu atendimento com clareza, sem depender de anotações paralelas.",
   },
   {
     title: "Para a Recepção",
@@ -83,7 +83,7 @@ export default function AgendamentoTucxaPublicPage() {
         showSupport={false}
         actions={headerActions}
         mobileActionColumns={4}
-        compactMobileActions={false}
+        compactMobileActions
       />
 
       <section className="mx-auto max-w-6xl px-3 py-2 sm:px-6 sm:py-3 lg:px-8 lg:py-4">
