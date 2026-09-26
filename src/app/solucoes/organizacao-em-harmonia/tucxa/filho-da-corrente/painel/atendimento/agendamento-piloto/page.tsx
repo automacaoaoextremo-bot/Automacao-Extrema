@@ -87,6 +87,7 @@ type BookingResult = {
   confirmation?: { url: string; whatsapp: { sent: boolean; provider: string; error?: string } };
 };
 type CompletedBooking = BookingResult & { whatsapp: string };
+type SuccessNotice = { title: string; message: string };
 
 type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
@@ -150,6 +151,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
+  const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
@@ -230,6 +232,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
     timeLabel: "",
     associatedToCurrentPerson: true,
   })), [entityCalendar]);
+  const entityCalendarVisibleMonths = useMemo(() => Array.from(new Set(
+    (entityCalendar?.dates ?? [])
+      .filter((item) => Number(item.date.slice(0, 4)) === entityCalendarYear)
+      .map((item) => Number(item.date.slice(5, 7)) - 1)
+      .filter((month) => Number.isInteger(month) && month >= 0 && month <= 11),
+  )).sort((a, b) => a - b), [entityCalendar?.dates, entityCalendarYear]);
   const effectiveConsultView = consultView || (payload?.receptionPreferences.receptionSummaryViewMode === "entity_day" ? "entity_day" : "day_entity");
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
@@ -574,8 +582,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
         channels: [settingsDraft.summaryEmail ? "email" : "", settingsDraft.summaryWhatsapp ? "whatsapp" : ""].filter(Boolean),
         viewMode: settingsDraft.summaryViewMode,
       });
-      setMessage("Configurações do piloto atualizadas.");
+      setMessage("");
       await load(payload?.selectedDate);
+      setModal(null);
+      setSuccessNotice({
+        title: "Configurações salvas",
+        message: "Configurações do piloto atualizadas com sucesso.",
+      });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar as configurações.");
     } finally {
@@ -590,8 +603,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setError("");
     try {
       const result = await postPilot({ action: "update-consulente", personId: foundPerson.id, ...editPerson });
-      setMessage(typeof result.message === "string" ? result.message : "Cadastro atualizado.");
+      const successMessage = typeof result.message === "string" ? result.message : "Cadastro de Consulente atualizado com sucesso.";
+      setMessage("");
       setFoundPerson({ id: foundPerson.id, fullName: editPerson.fullName, whatsapp: editPerson.whatsapp, email: editPerson.email });
+      setModal(null);
+      setCadastroMode("menu");
+      setSuccessNotice({ title: "Cadastro de Consulente salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível atualizar o Consulente.");
     } finally {
@@ -639,9 +656,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
       });
-      setMessage(typeof result.message === "string" ? result.message : "Entidade salva.");
+      const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
+      setMessage("");
       setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [] });
       await load(payload?.selectedDate);
+      setModal(null);
+      setCadastroMode("menu");
+      setSuccessNotice({ title: "Cadastro de Entidade salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a Entidade.");
     } finally {
@@ -1106,12 +1127,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
               events={entityCalendarEvents.filter((event) => event.startsAt?.startsWith(`${entityCalendarYear}-`))}
               year={entityCalendarYear}
               onSelectDay={(date) => void chooseEntityCalendarDate(date)}
+              visibleMonths={entityCalendarVisibleMonths}
+              onlyEventDays
               title={`Calendário anual · ${entityCalendar.entity.name}`}
-              subtitle="Datas disponíveis para agendamento"
-              emptyMessage="Nenhuma data com vaga para esta Entidade neste ano."
+              subtitle="Somente datas de atendimento disponíveis para agendamento"
+              emptyMessage="Nenhuma data de atendimento com vaga para esta Entidade neste ano."
             />
           </div>
         </Modal>
+      )}
+
+      {successNotice && (
+        <SuccessPopup
+          title={successNotice.title}
+          message={successNotice.message}
+          onClose={() => setSuccessNotice(null)}
+        />
       )}
 
       {bookingResult?.appointment && bookingResult.confirmation?.url && (
@@ -1136,6 +1167,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
     </main>
+  );
+}
+
+function SuccessPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+          <h2 className="text-xl font-black text-[#123D2C]">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </header>
+        <div className="p-4 sm:p-5">
+          <p className="rounded-2xl bg-[#E9F2E7] p-4 font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">{message}</p>
+        </div>
+      </section>
+    </div>
   );
 }
 

@@ -8,5 +8,7 @@ export async function GET(
 ) {
   const { token } = await context.params;
   const safeToken = encodeURIComponent(token || "");
-  return NextResponse.redirect(new URL(`${CONFIRMATION_BASE}/${safeToken}`, request.url), 307);
+  const response = NextResponse.redirect(new URL(`${CONFIRMATION_BASE}/${safeToken}`, request.url), 302);
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  return response;
 }

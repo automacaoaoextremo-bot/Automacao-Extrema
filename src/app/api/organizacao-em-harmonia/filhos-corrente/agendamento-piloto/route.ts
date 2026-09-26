@@ -80,7 +80,7 @@ function siteUrl() {
 }
 
 function confirmationUrl(token: string) {
-  return `${siteUrl()}/a/${encodeURIComponent(token)}`;
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
 }
 
 function whatsappUrl(phone: string, message = "") {

@@ -3,8 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   confirmationTokenHash,
   isPastConfirmationDeadline,
-  longDateLabel,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import { loadTucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/tucxa-confirmation";
 
 export const dynamic = "force-dynamic";
 
@@ -12,61 +12,27 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function firstName(value: string) {
-  return value.trim().split(/\s+/)[0] || "Consulente";
-}
 
 async function appointmentFromToken(token: string) {
   if (token.length < 20) return null;
   const hash = confirmationTokenHash(token);
   const { data: appointment, error } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, entity_id, consulente_name, appointment_date, appointment_time, status, confirmation_status, confirmation_expires_at, confirmed_at")
+    .select("id, status, confirmation_status, confirmation_expires_at")
     .eq("confirmation_token_hash", hash)
     .maybeSingle();
   if (error) throw error;
-  if (!appointment?.id) return null;
-
-  const { data: entity, error: entityError } = appointment.entity_id
-    ? await supabaseAdmin.from("oh_spiritual_entities").select("name").eq("id", appointment.entity_id).maybeSingle()
-    : { data: null, error: null };
-  if (entityError) throw entityError;
-  return { appointment, entityName: asText(entity?.name) || "Entidade" };
+  return appointment?.id ? appointment : null;
 }
 
 export async function GET(request: Request) {
   try {
     const token = asText(new URL(request.url).searchParams.get("token"));
-    const found = await appointmentFromToken(token);
-    if (!found) return NextResponse.json({ error: "Link de confirmação inválido ou não localizado." }, { status: 404 });
-    const { appointment, entityName } = found;
-    const deadline = asText(appointment.confirmation_expires_at);
-    const expired = Boolean(deadline) && isPastConfirmationDeadline(deadline) && appointment.confirmation_status === "pending";
-    if (expired) {
-      const now = new Date().toISOString();
-      await supabaseAdmin.from("oh_consulente_appointments").update({
-        status: "cancelado",
-        confirmation_status: "expired",
-        cancelled_at: now,
-        cancellation_reason: "Prazo de confirmação do piloto encerrado",
-        updated_at: now,
-      }).eq("id", appointment.id);
+    const appointment = await loadTucxaConfirmationAppointment(token);
+    if (!appointment) {
+      return NextResponse.json({ error: "Link de confirmação inválido ou não localizado." }, { status: 404 });
     }
-    return NextResponse.json({
-      ok: true,
-      appointment: {
-        id: appointment.id,
-        firstName: firstName(asText(appointment.consulente_name)),
-        appointmentDate: asText(appointment.appointment_date),
-        appointmentDateLabel: longDateLabel(asText(appointment.appointment_date)),
-        appointmentTime: asText(appointment.appointment_time) || "20:00",
-        entityName,
-        status: asText(appointment.status),
-        confirmationStatus: expired ? "expired" : asText(appointment.confirmation_status),
-        confirmationExpiresAt: deadline,
-        confirmedAt: asText(appointment.confirmed_at),
-      },
-    });
+    return NextResponse.json({ ok: true, appointment });
   } catch (error) {
     console.error("[TUCXA piloto confirmação GET]", error);
     return NextResponse.json({ error: "Não foi possível validar este link agora." }, { status: 500 });
@@ -80,7 +46,7 @@ export async function POST(request: Request) {
     const action = asText(body.action);
     const found = await appointmentFromToken(token);
     if (!found) return NextResponse.json({ error: "Link de confirmação inválido ou não localizado." }, { status: 404 });
-    const { appointment } = found;
+    const appointment = found;
     const deadline = asText(appointment.confirmation_expires_at);
     if (appointment.confirmation_status === "pending" && deadline && isPastConfirmationDeadline(deadline)) {
       const now = new Date().toISOString();
@@ -112,11 +78,11 @@ export async function POST(request: Request) {
         status: "confirmado",
         confirmation_status: "confirmed",
         confirmed_at: now,
-        confirmation_channel: "sms_link",
+        confirmation_channel: "whatsapp_link",
         updated_at: now,
       }).eq("id", appointment.id);
       if (error) throw error;
-      return NextResponse.json({ ok: true, message: "Presença confirmada. Seu atendimento está reservado." });
+      return NextResponse.json({ ok: true, message: "Presença confirmada conforme os dados abaixo." });
     }
 
     if (action === "decline") {
