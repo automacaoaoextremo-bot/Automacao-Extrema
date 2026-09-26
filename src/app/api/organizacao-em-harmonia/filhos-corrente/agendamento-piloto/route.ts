@@ -238,6 +238,35 @@ export async function POST(request: Request) {
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
 
+    if (action === "next-available-date") {
+      const entityId = asText(body.entityId);
+      if (!entityId) {
+        return NextResponse.json({ error: "Informe a Entidade.", requestId: code }, { status: 400 });
+      }
+
+      const dates = await loadPilotDates(context.organizationId, settings.daysAhead);
+      for (const date of dates) {
+        const deadline = confirmationDeadlineIso(date.date, settings.confirmationCutoff);
+        if (isPastConfirmationDeadline(deadline)) continue;
+        const dayEntities = await loadPilotDay(context.organizationId, date.date);
+        const entity = dayEntities.find((item) => item.id === entityId);
+        if (!entity || !entity.isAvailable || entity.available < 1) continue;
+        return NextResponse.json({
+          ok: true,
+          date: date.date,
+          label: date.label,
+          entity: {
+            id: entity.id,
+            name: entity.name,
+            available: entity.available,
+            capacity: entity.capacity,
+          },
+        });
+      }
+
+      return NextResponse.json({ error: "Não encontramos uma próxima data com vaga para esta Entidade no período disponível.", requestId: code }, { status: 404 });
+    }
+
     if (action === "book") {
       const targetPersonId = asText(body.targetPersonId);
       const entityId = asText(body.entityId);

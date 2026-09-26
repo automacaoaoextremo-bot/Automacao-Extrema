@@ -850,7 +850,7 @@ function filhoAppointmentWhatsappMessage(input: {
 
 async function findPersonByPhone(organizationId: string, phone: string) {
   const normalized = normalizePhone(phone);
-  if (normalized.length < 8) return { person: null, ambiguous: false };
+  if (normalized.length < 8) return { person: null, ambiguous: false, matches: [] as Array<Record<string, unknown>> };
 
   const selectFields = "id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp";
 
@@ -864,7 +864,7 @@ async function findPersonByPhone(organizationId: string, phone: string) {
       .limit(1)
       .maybeSingle();
     if (directError && !String(directError.message || "").includes("normalized_whatsapp")) throw directError;
-    if (direct?.id) return { person: direct, ambiguous: false };
+    if (direct?.id) return { person: direct, ambiguous: false, matches: [direct] };
   }
 
   const { data, error } = await supabaseAdmin
@@ -881,8 +881,65 @@ async function findPersonByPhone(organizationId: string, phone: string) {
     return normalized.length >= 10 ? candidate === normalized : candidate.endsWith(normalized);
   });
 
-  if (matches.length === 1) return { person: matches[0], ambiguous: false };
-  return { person: null, ambiguous: matches.length > 1 };
+  if (matches.length === 1) return { person: matches[0], ambiguous: false, matches };
+  return { person: null, ambiguous: matches.length > 1, matches };
+}
+
+async function findPeopleByName(organizationId: string, name: string) {
+  const term = normalize(name).replace(/\s+/g, " ").trim();
+  if (term.length < 2) return [] as Array<Record<string, unknown>>;
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp, registration_source")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .limit(1500);
+  if (error) throw error;
+
+  const matches = (data ?? [])
+    .filter((person) => normalize(person.full_name).includes(term))
+    .slice(0, 25);
+  if (!matches.length) return [] as Array<Record<string, unknown>>;
+
+  const personIds = matches.map((person) => asText(person.id)).filter(Boolean);
+  const { data: memberships, error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("person_id, active, status, agenda_viva_profile")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .in("person_id", personIds);
+  if (membershipError) throw membershipError;
+
+  const membershipMap = new Map<string, Array<Record<string, unknown>>>();
+  for (const membership of memberships ?? []) {
+    const personId = asText(membership.person_id);
+    if (!personId) continue;
+    const current = membershipMap.get(personId) ?? [];
+    current.push(membership as Record<string, unknown>);
+    membershipMap.set(personId, current);
+  }
+
+  return matches.filter((person) => {
+    const personId = asText(person.id);
+    const personMemberships = membershipMap.get(personId) ?? [];
+    if (!personMemberships.length) return true;
+    if (normalize(person.registration_source).includes("recepcao")) return true;
+    return personMemberships.some((membership) => {
+      const profileText = normalize(JSON.stringify(asRecord(membership.agenda_viva_profile)));
+      return profileText.includes("consulente") || profileText.includes("filho-de-fora") || profileText.includes("filho de fora");
+    });
+  });
+}
+
+function receptionSearchPerson(person: unknown) {
+  const record = asRecord(person);
+  return {
+    id: asText(record.id),
+    fullName: asText(record.full_name),
+    whatsapp: normalizePhone(record.normalized_whatsapp || record.whatsapp),
+    email: realNotificationEmail(record.notification_email || record.email),
+  };
 }
 
 function maskPhone(value: unknown) {
@@ -1256,20 +1313,36 @@ export async function POST(request: Request) {
 
     if (action === "search-consulente") {
       if (!currentBundle.profile.canScheduleConsulente) return jsonError("Seu perfil não possui função autorizada para agendar Consulentes.", 403, code);
-      const lookup = await findPersonByPhone(context.organizationId, asText(body.whatsapp));
-      if (lookup.ambiguous) {
-        return jsonError("Encontramos mais de um cadastro com esse número sem DDD. Informe também o DDD.", 409, code);
+      const query = asText(body.query) || asText(body.whatsapp);
+      const normalizedPhone = normalizePhone(query);
+
+      if (normalizedPhone.length >= 8) {
+        const lookup = await findPersonByPhone(context.organizationId, query);
+        if (lookup.matches.length > 1) {
+          return NextResponse.json({
+            ok: true,
+            found: true,
+            multiple: true,
+            people: lookup.matches.map((person) => receptionSearchPerson(person)),
+          });
+        }
+        if (!lookup.person) return NextResponse.json({ ok: true, found: false, people: [] });
+        return NextResponse.json({
+          ok: true,
+          found: true,
+          person: receptionSearchPerson(lookup.person),
+          people: [receptionSearchPerson(lookup.person)],
+        });
       }
-      if (!lookup.person) return NextResponse.json({ ok: true, found: false });
+
+      const matches = await findPeopleByName(context.organizationId, query);
+      if (!matches.length) return NextResponse.json({ ok: true, found: false, people: [] });
       return NextResponse.json({
         ok: true,
         found: true,
-        person: {
-          id: lookup.person.id,
-          fullName: lookup.person.full_name,
-          whatsapp: maskPhone(lookup.person.whatsapp),
-          email: maskEmail(lookup.person.notification_email || lookup.person.email),
-        },
+        multiple: matches.length > 1,
+        person: matches.length === 1 ? receptionSearchPerson(matches[0]) : null,
+        people: matches.map(receptionSearchPerson),
       });
     }
 
@@ -1280,8 +1353,8 @@ export async function POST(request: Request) {
         person: {
           id: created.person.id,
           fullName: created.person.full_name,
-          whatsapp: maskPhone(created.person.whatsapp),
-          email: maskEmail(created.person.notification_email || created.person.email),
+          whatsapp: normalizePhone(created.person.whatsapp),
+          email: realNotificationEmail(created.person.notification_email || created.person.email),
         },
         access: created.access,
       });

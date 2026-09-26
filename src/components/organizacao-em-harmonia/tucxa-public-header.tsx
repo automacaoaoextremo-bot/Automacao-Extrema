@@ -132,7 +132,7 @@ function headerActionClassName(active: boolean, compactMobile = false) {
     ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
     : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
 
-  return `inline-flex items-center justify-center rounded-full border text-center font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
+  return `inline-flex items-center justify-center rounded-full border text-center font-sans font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
     active
       ? "border-[#123D2C] bg-[#123D2C] text-white shadow-green-950/10 hover:-translate-y-0.5 hover:bg-[#2F6B43] hover:shadow-lg"
       : "border-[#123D2C]/15 bg-white text-[#123D2C] shadow-none ring-1 ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"
@@ -228,7 +228,7 @@ function SectionLink({ link, active, onSelect, compactMobile = false }: { link: 
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={`inline-flex items-center justify-center rounded-full text-center font-black shadow-sm ring-1 transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${compactMobile ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]" : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]"} ${
+      className={`inline-flex items-center justify-center rounded-full text-center font-sans font-black shadow-sm ring-1 transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${compactMobile ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]" : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]"} ${
         active
           ? "bg-[#123D2C] text-white ring-[#123D2C] hover:-translate-y-0.5 hover:bg-[#2F6B43]"
           : "bg-white text-[#123D2C] ring-[#123D2C]/10 hover:-translate-y-0.5 hover:bg-[#E9F2E7]"

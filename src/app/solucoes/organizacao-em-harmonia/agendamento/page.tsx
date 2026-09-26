@@ -83,7 +83,7 @@ export default function AgendamentoTucxaPublicPage() {
         showSupport={false}
         actions={headerActions}
         mobileActionColumns={4}
-        compactMobileActions
+        compactMobileActions={false}
       />
 
       <section className="mx-auto max-w-6xl px-3 py-2 sm:px-6 sm:py-3 lg:px-8 lg:py-4">

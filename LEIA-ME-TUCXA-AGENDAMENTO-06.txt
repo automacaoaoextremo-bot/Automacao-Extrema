@@ -1,0 +1,32 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 06
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Arquivos atualizados:
+- src/app/solucoes/organizacao-em-harmonia/agendamento/page.tsx
+- src/components/organizacao-em-harmonia/tucxa-public-header.tsx
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamentos/route.ts
+
+Arquivo novo:
+- docs/tucxa/HOMOLOGACAO-AGENDAMENTO-06.md
+
+Nao ha migration Supabase nova nesta evolucao.
+Nao ha dependencia npm nova.
+Nao ha nova variavel de ambiente obrigatoria.
+
+Principais evolucoes:
+- menu publico com tipografia padronizada;
+- Ajuda ao lado de Sair no painel da Recepcao;
+- agendamento por data ou por Entidade;
+- proxima data com vaga para a Entidade;
+- pesquisa de Consulente por nome ou WhatsApp;
+- selecao de homonimos usando nome + WhatsApp;
+- popup separado de sucesso com envio pelo WhatsApp;
+- limpeza do formulario depois de criar a reserva;
+- Acolhimento com filtro por status;
+- acoes individuais recolhidas em botao Acoes;
+- remocao do horario 20:00 dos cartoes;
+- paginacao de 4 pessoas por pagina no Acolhimento.
