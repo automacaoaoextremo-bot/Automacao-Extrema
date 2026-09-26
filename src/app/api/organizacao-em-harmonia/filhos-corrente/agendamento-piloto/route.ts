@@ -12,8 +12,11 @@ import {
   loadPilotDay,
   loadPilotPersonPreferences,
   loadPilotSettings,
+  monthOccurrence,
   normalizeBrazilPhone,
+  PILOT_ACTIVE_STATUSES,
   pilotReservationError,
+  pilotWeekday,
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
@@ -122,6 +125,137 @@ async function loadEntityContacts(organizationId: string, entityIds: string[]) {
     output.set(entityId, current);
   }
   return output;
+}
+
+type EntityAvailableDate = {
+  date: string;
+  label: string;
+  available: number;
+  capacity: number;
+};
+
+async function loadEntityAvailableDatesIndex(
+  organizationId: string,
+  daysAhead: number,
+  confirmationCutoff: string,
+) {
+  const dates = await loadPilotDates(organizationId, daysAhead);
+  const result = new Map<string, EntityAvailableDate[]>();
+  if (!dates.length) return result;
+
+  const startDate = dates[0].date;
+  const endDate = dates[dates.length - 1].date;
+
+  const [scheduleResult, entityResult, overrideResult, appointmentResult] = await Promise.all([
+    supabaseAdmin
+      .from("oh_tucxa_pilot_entity_schedule")
+      .select("entity_id,weekday,month_occurrence,default_capacity,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true),
+    supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id,name,daily_capacity,active,appointment_enabled")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .eq("appointment_enabled", true),
+    supabaseAdmin
+      .from("oh_tucxa_pilot_entity_overrides")
+      .select("entity_id,starts_on,ends_on,available,capacity,reason,created_at")
+      .eq("organization_id", organizationId)
+      .lte("starts_on", endDate)
+      .gte("ends_on", startDate)
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("entity_id,appointment_date,status")
+      .eq("organization_id", organizationId)
+      .gte("appointment_date", startDate)
+      .lte("appointment_date", endDate)
+      .in("status", PILOT_ACTIVE_STATUSES),
+  ]);
+
+  if (scheduleResult.error) throw scheduleResult.error;
+  if (entityResult.error) throw entityResult.error;
+  if (overrideResult.error) throw overrideResult.error;
+  if (appointmentResult.error) throw appointmentResult.error;
+
+  const entityMap = new Map<string, Record<string, unknown>>(
+    (entityResult.data ?? []).map((entity) => [asText(entity.id), asRecord(entity)]),
+  );
+  const schedulesByKey = new Map<string, Array<{ entityId: string; defaultCapacity: number }>>();
+  for (const row of scheduleResult.data ?? []) {
+    const entityId = asText(row.entity_id);
+    const weekday = asText(row.weekday);
+    const occurrence = Number(row.month_occurrence);
+    if (!entityId || !weekday || !Number.isInteger(occurrence)) continue;
+    const key = `${weekday}:${occurrence}`;
+    const current = schedulesByKey.get(key) ?? [];
+    current.push({
+      entityId,
+      defaultCapacity: Math.max(1, Number(row.default_capacity ?? 4) || 4),
+    });
+    schedulesByKey.set(key, current);
+  }
+
+  const overridesByEntity = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of overrideResult.data ?? []) {
+    const entityId = asText(row.entity_id);
+    if (!entityId) continue;
+    const current = overridesByEntity.get(entityId) ?? [];
+    current.push(asRecord(row));
+    overridesByEntity.set(entityId, current);
+  }
+
+  const bookedByEntityDate = new Map<string, number>();
+  for (const row of appointmentResult.data ?? []) {
+    const entityId = asText(row.entity_id);
+    const appointmentDate = asText(row.appointment_date);
+    if (!entityId || !appointmentDate) continue;
+    const key = `${entityId}:${appointmentDate}`;
+    bookedByEntityDate.set(key, (bookedByEntityDate.get(key) ?? 0) + 1);
+  }
+
+  for (const date of dates) {
+    const deadline = confirmationDeadlineIso(date.date, confirmationCutoff);
+    if (isPastConfirmationDeadline(deadline)) continue;
+
+    const weekday = pilotWeekday(date.date);
+    const occurrence = monthOccurrence(date.date);
+    if (!weekday || occurrence < 1 || occurrence > 4) continue;
+
+    const schedules = schedulesByKey.get(`${weekday}:${occurrence}`) ?? [];
+    for (const schedule of schedules) {
+      const entity = entityMap.get(schedule.entityId);
+      if (!entity) continue;
+
+      const override = (overridesByEntity.get(schedule.entityId) ?? []).find((item) => {
+        const startsOn = asText(item.starts_on);
+        const endsOn = asText(item.ends_on);
+        return startsOn <= date.date && endsOn >= date.date;
+      });
+
+      if (override && override.available === false) continue;
+
+      const capacity = Math.max(
+        1,
+        Number(override?.capacity ?? schedule.defaultCapacity ?? entity["daily_capacity"] ?? 4) || 4,
+      );
+      const booked = bookedByEntityDate.get(`${schedule.entityId}:${date.date}`) ?? 0;
+      const available = Math.max(capacity - booked, 0);
+      if (available < 1) continue;
+
+      const current = result.get(schedule.entityId) ?? [];
+      current.push({
+        date: date.date,
+        label: date.label,
+        available,
+        capacity,
+      });
+      result.set(schedule.entityId, current);
+    }
+  }
+
+  return result;
 }
 
 async function buildPayload(organizationId: string, receptionPersonId: string, selectedDate?: string) {
@@ -254,6 +388,55 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
+
+    if (action === "entity-overview") {
+      const availability = await loadEntityAvailableDatesIndex(
+        context.organizationId,
+        settings.daysAhead,
+        settings.confirmationCutoff,
+      );
+      const { data: entities, error: entityError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,name")
+        .eq("organization_id", context.organizationId)
+        .eq("active", true)
+        .eq("appointment_enabled", true)
+        .order("name");
+      if (entityError) throw entityError;
+
+      return NextResponse.json({
+        ok: true,
+        entities: (entities ?? []).map((entity) => {
+          const entityId = asText(entity.id);
+          const next = availability.get(entityId)?.[0] ?? null;
+          return {
+            entityId,
+            name: asText(entity.name),
+            nextDate: next?.date ?? "",
+            nextLabel: next?.label ?? "",
+            available: next?.available ?? 0,
+            capacity: next?.capacity ?? 0,
+          };
+        }),
+      });
+    }
+
+    if (action === "entity-available-dates") {
+      const entityId = asText(body.entityId);
+      if (!entityId) {
+        return NextResponse.json({ error: "Informe a Entidade.", requestId: code }, { status: 400 });
+      }
+      const availability = await loadEntityAvailableDatesIndex(
+        context.organizationId,
+        settings.daysAhead,
+        settings.confirmationCutoff,
+      );
+      return NextResponse.json({
+        ok: true,
+        entityId,
+        dates: availability.get(entityId) ?? [],
+      });
+    }
 
     if (action === "next-available-date") {
       const entityId = asText(body.entityId);

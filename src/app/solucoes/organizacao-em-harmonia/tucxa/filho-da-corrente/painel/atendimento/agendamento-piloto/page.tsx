@@ -6,6 +6,7 @@ import {
   filhoAgendamentoSignOutAction,
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
+import { AnnualCalendarView, type AnnualCalendarEvent } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
@@ -32,6 +33,10 @@ type EntityCatalogItem = {
   tuesdayOccurrences: number[];
   mediums: Medium[];
 };
+type EntityAvailableDate = { date: string; label: string; available: number; capacity: number };
+type EntityOverview = { entityId: string; name: string; nextDate: string; nextLabel: string; available: number; capacity: number };
+type EntityCalendarState = { entity: EntityCatalogItem; dates: EntityAvailableDate[] };
+
 type Appointment = {
   id: string;
   personId: string;
@@ -145,7 +150,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
-  const [management, setManagement] = useState({ entityId: "", startsOn: "", endsOn: "", available: true, capacity: "", reason: "" });
+  const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
+  const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
+  const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
+  const [entityCalendarYear, setEntityCalendarYear] = useState(new Date().getFullYear());
   const [consultView, setConsultView] = useState<"" | "entity_day" | "day_entity">("");
   const [consultStatus, setConsultStatus] = useState<ConsultStatus>("all");
   const [consultPage, setConsultPage] = useState(1);
@@ -208,6 +216,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [modal]);
 
   const usableEntities = useMemo(() => (payload?.entities ?? []).filter((item) => item.isAvailable && item.available > 0), [payload?.entities]);
+  const entityCalendarYears = useMemo(() => Array.from(new Set((entityCalendar?.dates ?? []).map((item) => Number(item.date.slice(0, 4))).filter(Number.isFinite))).sort((a, b) => a - b), [entityCalendar?.dates]);
+  const entityCalendarEvents = useMemo<AnnualCalendarEvent[]>(() => (entityCalendar?.dates ?? []).map((item) => ({
+    id: `appointment:${entityCalendar?.entity.id || "entity"}:${item.date}`,
+    title: `${entityCalendar?.entity.name || "Entidade"} · ${item.available} vaga(s)`,
+    status: "ativo",
+    eventType: "appointment",
+    eventTypeLabel: "Agendamento",
+    classification: "umbanda",
+    eventSubtype: "appointment",
+    startsAt: `${item.date}T12:00:00-03:00`,
+    endsAt: null,
+    timeLabel: "",
+    associatedToCurrentPerson: true,
+  })), [entityCalendar]);
   const effectiveConsultView = consultView || (payload?.receptionPreferences.receptionSummaryViewMode === "entity_day" ? "entity_day" : "day_entity");
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
@@ -297,6 +319,67 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingResult(null);
     setError("");
     setModal("agendar");
+  }
+
+  async function loadEntityOverview() {
+    setEntityOverviewLoading(true);
+    setError("");
+    try {
+      const result = await postPilot({ action: "entity-overview" });
+      const items = Array.isArray(result.entities)
+        ? result.entities.filter((item): item is EntityOverview => Boolean(item && typeof item === "object"))
+        : [];
+      setEntityOverview(Object.fromEntries(items.map((item) => [item.entityId, item])));
+    } catch (overviewError) {
+      setError(overviewError instanceof Error ? overviewError.message : "Não foi possível carregar a disponibilidade das Entidades.");
+    } finally {
+      setEntityOverviewLoading(false);
+    }
+  }
+
+  function openEntitiesModal() {
+    setModal("entidades");
+    setEntityOverview({});
+    void loadEntityOverview();
+  }
+
+  function openEntityCadastro(entityId: string) {
+    selectEntityForEdit(entityId);
+    setCadastroMode("entidades");
+    setModal("cadastros");
+  }
+
+  async function openEntityBookingCalendar(entity: EntityCatalogItem) {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({ action: "entity-available-dates", entityId: entity.id });
+      const dates = Array.isArray(result.dates)
+        ? result.dates.filter((item): item is EntityAvailableDate => Boolean(item && typeof item === "object" && typeof (item as EntityAvailableDate).date === "string"))
+        : [];
+      if (!dates.length) {
+        throw new Error("Não há datas futuras com vagas para esta Entidade no período disponível.");
+      }
+      setEntityCalendar({ entity, dates });
+      setEntityCalendarYear(Number(dates[0].date.slice(0, 4)) || new Date().getFullYear());
+    } catch (calendarError) {
+      setError(calendarError instanceof Error ? calendarError.message : "Não foi possível carregar o calendário da Entidade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function chooseEntityCalendarDate(date: string) {
+    const entity = entityCalendar?.entity;
+    if (!entity) return;
+    setEntityCalendar(null);
+    resetBookingForm();
+    setBookingMode("entity");
+    setBookingEntityLookupId(entity.id);
+    setBookingEntityDateLabel(shortDate(date));
+    setModal("agendar");
+    await load(date);
+    setEntityId(entity.id);
   }
 
   async function selectPerson(person: FoundPerson) {
@@ -414,30 +497,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setModal(null);
     } catch (bookError) {
       setError(bookError instanceof Error ? bookError.message : "Não foi possível criar o agendamento.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveAvailability(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      await postPilot({
-        action: "set-availability",
-        entityId: management.entityId,
-        startsOn: management.startsOn || payload?.selectedDate,
-        endsOn: management.endsOn || payload?.selectedDate,
-        available: management.available,
-        capacity: management.capacity ? Number(management.capacity) : null,
-        reason: management.reason,
-      });
-      setMessage(management.available ? "Disponibilidade atualizada." : "Suspensão registrada.");
-      await load(payload?.selectedDate);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Não foi possível atualizar a disponibilidade.");
     } finally {
       setSaving(false);
     }
@@ -619,7 +678,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <ActionButton title="Como funciona" subtitle="Resumo do fluxo de atendimentos" onClick={() => setModal("ajuda")} />
               <ActionButton title="Configurações" subtitle="Ordem, lembretes e resumos" onClick={openSettings} />
               <ActionButton title="Cadastros" subtitle="Consulentes e Entidades" onClick={() => { setCadastroMode("menu"); setModal("cadastros"); }} />
-              <ActionButton title="Entidades" subtitle="Vagas, suspensão e Cavalinhos" onClick={() => setModal("entidades")} />
+              <ActionButton title="Entidades" subtitle="Próximas datas, cadastro e agendamento" onClick={openEntitiesModal} />
               <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={openBookingModal} />
               <ActionButton title="Acolhimento" subtitle="Confirmar, trocar Entidade e registrar chegada" onClick={() => setModal("consultar")} />
             </section>
@@ -633,7 +692,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
       </section>
 
       {modal && payload && (
-        <Modal title={modalTitle(modal)} onClose={() => { if (modal === "agendar") resetBookingForm(); setModal(null); }}>
+        <Modal
+          title={modalTitle(modal)}
+          onClose={() => {
+            if (modal === "cadastros" && cadastroMode !== "menu") {
+              clearPersonSearch();
+              setPhone("");
+              setCadastroMode("menu");
+              return;
+            }
+            if (modal === "agendar") resetBookingForm();
+            setModal(null);
+          }}
+        >
           {modal === "agendar" && (
             <div className="grid gap-3">
               <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5 ring-1 ring-[#123D2C]/10">
@@ -800,36 +871,41 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "entidades" && (
-            <div className="grid gap-4">
-              <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="text-sm font-black text-[#123D2C]">Situação em {shortDate(payload.selectedDate)}</p>
-                {payload.entities.map((entity) => (
-                  <div key={entity.id} className="rounded-xl bg-white px-3 py-2 ring-1 ring-[#123D2C]/10">
-                    <div className="flex items-center justify-between gap-3">
-                      <div><p className="text-sm font-black text-[#123D2C]">{entity.name}</p><p className="text-xs font-semibold text-slate-500">{entity.booked}/{entity.capacity} agendado(s)</p></div>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-black ${entity.isAvailable ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{entity.isAvailable ? `${entity.available} vaga(s)` : "Suspenso"}</span>
-                    </div>
-                    {entity.mediums.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{entity.mediums.map((medium) => <a key={`${entity.id}-${medium.whatsapp}`} href={medium.whatsappUrl} target="_blank" rel="noreferrer" className="rounded-full bg-[#E9F2E7] px-3 py-1 text-xs font-black text-[#176A3A]">{medium.name} · WhatsApp</a>)}</div>}
-                  </div>
-                ))}
-              </div>
-              <form onSubmit={saveAvailability} className="grid gap-2 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Disponibilidade / suspensão</p>
-                <select value={management.entityId} onChange={(event) => setManagement((current) => ({ ...current, entityId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required>
-                  <option value="">Escolha a Entidade</option>
-                  {payload.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-                </select>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">De<input type="date" value={management.startsOn || payload.selectedDate} onChange={(event) => setManagement((current) => ({ ...current, startsOn: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required /></label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Até<input type="date" value={management.endsOn || payload.selectedDate} onChange={(event) => setManagement((current) => ({ ...current, endsOn: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required /></label>
-                </div>
-                <select value={management.available ? "available" : "suspended"} onChange={(event) => setManagement((current) => ({ ...current, available: event.target.value === "available" }))} className="rounded-xl border border-[#123D2C]/15 p-3">
-                  <option value="available">Disponível</option><option value="suspended">Suspender atendimento</option>
-                </select>
-                <input type="number" min={1} value={management.capacity} onChange={(event) => setManagement((current) => ({ ...current, capacity: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Capacidade máxima por dia (opcional)" />
-                <textarea value={management.reason} onChange={(event) => setManagement((current) => ({ ...current, reason: event.target.value }))} rows={2} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Motivo/observação" />
-                <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">Salvar disponibilidade</button>
-              </form>
+            <div className="grid gap-2">
+              {entityOverviewLoading && (
+                <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando próximas disponibilidades...</p>
+              )}
+              {payload.entityCatalog
+                .filter((entity) => entity.active && entity.appointmentEnabled)
+                .map((entity) => {
+                  const overview = entityOverview[entity.id];
+                  return (
+                    <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="font-black text-[#123D2C]">{entity.name}</h3>
+                          <p className="mt-0.5 text-xs font-semibold text-slate-600">
+                            Próxima disponibilidade: {overview?.nextDate ? shortDate(overview.nextDate) : entityOverviewLoading ? "carregando..." : "sem vaga no período"}
+                          </p>
+                          {overview?.nextDate && <p className="text-[11px] font-bold text-[#2F6B43]">{overview.available} vaga(s) disponível(is)</p>}
+                        </div>
+                        <div className="grid shrink-0 grid-cols-2 gap-1.5">
+                          <button type="button" onClick={() => openEntityCadastro(entity.id)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Cadastro</button>
+                          <button type="button" disabled={saving || (!overview?.nextDate && !entityOverviewLoading)} onClick={() => void openEntityBookingCalendar(entity)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-40">Agendar</button>
+                        </div>
+                      </div>
+                      {entity.mediums.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {entity.mediums.map((medium) => (
+                            <a key={`${entity.id}-${medium.personId}`} href={medium.whatsappUrl} target="_blank" rel="noreferrer" className="rounded-full bg-[#E9F2E7] px-3 py-1 text-xs font-black text-[#176A3A]">
+                              {medium.name} · WhatsApp
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
             </div>
           )}
 
@@ -850,7 +926,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "consulentes" && (
                 <section className="grid gap-3">
-                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setCadastroMode("menu"); }} className="justify-self-start rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Cadastros</button>
                   <p className="font-black text-[#123D2C]">Consulentes</p>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                     <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3" required />
@@ -932,7 +1007,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "entidades" && (
                 <form onSubmit={saveEntity} className="grid gap-3">
-                  <button type="button" onClick={() => setCadastroMode("menu")} className="justify-self-start rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Cadastros</button>
                   <p className="font-black text-[#123D2C]">Entidades</p>
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cadastro
                     <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-xl border border-[#123D2C]/15 p-3">
@@ -989,7 +1063,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "ajuda" && (
-            <div className="grid gap-3 text-sm font-semibold leading-6 text-slate-700">
+            <div className="grid gap-2 text-[13px] font-semibold leading-5 text-slate-700 sm:text-sm">
               <Info title="Agendamento">A Recepção localiza ou cadastra o Consulente, cria a reserva por Data ou Entidade.</Info>
               <Info title="Confirmação">O Consulente pode confirmar pelo link que recebe. O prazo padrão é as {payload.settings.confirmationCutoff} no dia do atendimento.</Info>
               <Info title="Chegada">Chegada orientada: {payload.settings.arrivalWindow}. A porta fecha às {payload.settings.doorClosesAt}.</Info>
@@ -997,6 +1071,46 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <Info title="Contato">É possível contactar pelo WhatsApp o Consulente ou Cavalinho ligado a Entidade nos agendamentos.</Info>
             </div>
           )}
+        </Modal>
+      )}
+
+      {entityCalendar && (
+        <Modal title={`Agendar · ${entityCalendar.entity.name}`} onClose={() => setEntityCalendar(null)}>
+          <div className="grid gap-3">
+            {entityCalendarYears.length > 1 && (
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <button
+                  type="button"
+                  disabled={entityCalendarYear <= entityCalendarYears[0]}
+                  onClick={() => setEntityCalendarYear((current) => { const previousYears = entityCalendarYears.filter((year) => year < current); return previousYears[previousYears.length - 1] ?? current; })}
+                  className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <span className="text-sm font-black text-[#123D2C]">{entityCalendarYear}</span>
+                <button
+                  type="button"
+                  disabled={entityCalendarYear >= entityCalendarYears[entityCalendarYears.length - 1]}
+                  onClick={() => setEntityCalendarYear((current) => entityCalendarYears.find((year) => year > current) ?? current)}
+                  className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
+                >
+                  Próximo
+                </button>
+              </div>
+            )}
+            <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-semibold text-[#123D2C]">
+              Toque em uma data destacada para continuar o agendamento. Somente datas em que esta Entidade atende e ainda possui vaga podem ser selecionadas.
+            </p>
+            <AnnualCalendarView
+              mode="all"
+              events={entityCalendarEvents.filter((event) => event.startsAt?.startsWith(`${entityCalendarYear}-`))}
+              year={entityCalendarYear}
+              onSelectDay={(date) => void chooseEntityCalendarDate(date)}
+              title={`Calendário anual · ${entityCalendar.entity.name}`}
+              subtitle="Datas disponíveis para agendamento"
+              emptyMessage="Nenhuma data com vaga para esta Entidade neste ano."
+            />
+          </div>
         </Modal>
       )}
 
@@ -1058,7 +1172,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">{title}</p><p className="mt-1">{children}</p></div>;
+  return <div className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">{title}</p><p className="mt-0.5">{children}</p></div>;
 }
 
 function modalTitle(modal: Exclude<ModalKind, null>) {
