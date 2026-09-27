@@ -1,0 +1,11 @@
+TUCXA AGENDAMENTO 14 — ARQUIVOS COMPLETOS
+
+src/lib/botconversa.ts
+src/components/organizacao-em-harmonia/tucxa-public-header.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados/page.tsx
+docs/tucxa/SQL-EXCLUIR-AGENDAMENTO-TESTE-PAULO-MACHADO-20260928.sql
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-14.md
+LEIA-ME-TUCXA-AGENDAMENTO-14.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-14.txt

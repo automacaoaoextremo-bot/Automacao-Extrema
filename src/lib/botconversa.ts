@@ -193,6 +193,23 @@ function botConversaDateValue(value: string) {
   return trimmed;
 }
 
+function botConversaIsoDateValue(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+
+  return trimmed;
+}
+
+function botConversaWait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export function buildCorrenteLeadBotConversaMessage(
   input: BotConversaSyncInput,
 ) {
@@ -1005,10 +1022,12 @@ async function setCustomFields(
       subscriberId,
       fieldId: field.fieldId,
     });
-    const response = await botconversaRequest(path, {
+
+    let response = await botconversaRequest(path, {
       method,
       body: customFieldBody(field),
     });
+
     results.push({
       step: `set_field_${field.label}`,
       ok: response.ok,
@@ -1018,9 +1037,69 @@ async function setCustomFields(
       data: response.data,
       responseText: response.ok ? undefined : response.text,
     });
+
+    // Campos do tipo Data podem demorar alguns milissegundos para ficar
+    // disponíveis ao fluxo. Regravamos uma vez o valor normalizado e só
+    // disparamos o fluxo depois que todas as gravações terminarem.
+    if (field.label === "tucxa_data") {
+      await botConversaWait(250);
+
+      const retryField: BotConversaFieldConfig = {
+        ...field,
+        value: botConversaDateValue(field.value),
+      };
+      response = await botconversaRequest(path, {
+        method,
+        body: customFieldBody(retryField),
+      });
+
+      results.push({
+        step: "set_field_tucxa_data_retry",
+        ok: response.ok,
+        status: response.status,
+        path: response.path,
+        method: response.method,
+        data: response.data,
+        responseText: response.ok ? undefined : response.text,
+      });
+
+      if (!response.ok) {
+        const isoRetryField: BotConversaFieldConfig = {
+          ...field,
+          value: botConversaIsoDateValue(field.value),
+        };
+        const isoResponse = await botconversaRequest(path, {
+          method,
+          body: customFieldBody(isoRetryField),
+        });
+        results.push({
+          step: "set_field_tucxa_data_iso_fallback",
+          ok: isoResponse.ok,
+          status: isoResponse.status,
+          path: isoResponse.path,
+          method: isoResponse.method,
+          data: isoResponse.data,
+          responseText: isoResponse.ok ? undefined : isoResponse.text,
+        });
+      }
+    }
   }
 
   return results;
+}
+
+function failedCustomFieldStep(steps: BotConversaStepResult[]) {
+  const nonDateFailure = steps.find(
+    (step) => step.ok === false && !step.step.includes("tucxa_data"),
+  );
+  if (nonDateFailure) return nonDateFailure;
+
+  const dateSteps = steps.filter((step) => step.step.includes("tucxa_data"));
+  if (dateSteps.length > 0 && !dateSteps.some((step) => step.ok === true)) {
+    return dateSteps[dateSteps.length - 1];
+  }
+
+  return undefined;
 }
 
 async function sendFlow(
@@ -1440,7 +1519,22 @@ export async function sendTucxaAppointmentWhatsapp(
     }
 
     const steps = [...subscriber.steps];
-    steps.push(...(await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(input))));
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(input));
+    steps.push(...fieldSteps);
+
+    const failedFieldStep = failedCustomFieldStep(fieldSteps);
+    if (failedFieldStep) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        subscriberId: subscriber.subscriberId,
+        flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do envio (${failedFieldStep.step}).`,
+        steps,
+      };
+    }
+
+    await botConversaWait(900);
 
     const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
     const numericFlowId = Number(flowId);
@@ -1556,7 +1650,22 @@ export async function sendTucxaReceptionConfirmationWhatsapp(
     }
 
     const steps = [...subscriber.steps];
-    steps.push(...(await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(fieldInput))));
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(fieldInput));
+    steps.push(...fieldSteps);
+
+    const failedFieldStep = failedCustomFieldStep(fieldSteps);
+    if (failedFieldStep) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        subscriberId: subscriber.subscriberId,
+        flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do aviso à Recepção (${failedFieldStep.step}).`,
+        steps,
+      };
+    }
+
+    await botConversaWait(900);
 
     const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
     const numericFlowId = Number(flowId);

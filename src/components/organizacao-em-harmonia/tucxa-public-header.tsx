@@ -189,6 +189,22 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
     }
   }
 
+  if (link.action === "openAgendamentoWhy" || link.action === "openAgendamentoHours") {
+    return (
+      <a
+        href={link.href}
+        onClick={(event) => {
+          event.preventDefault();
+          onSelect(link.href);
+          void handleSpecialAction();
+        }}
+        className={headerActionClassName(active, compactMobile)}
+      >
+        {link.label}
+      </a>
+    );
+  }
+
   if (link.action) {
     return (
       <button

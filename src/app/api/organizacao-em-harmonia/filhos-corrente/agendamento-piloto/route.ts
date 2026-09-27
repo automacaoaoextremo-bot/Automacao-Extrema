@@ -641,7 +641,42 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
+      const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
+
+      if (personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
+        const requiredEntity = dayEntities.find((item) => item.id === personPreferences.defaultEntityId);
+        const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,name")
+          .eq("organization_id", context.organizationId)
+          .eq("id", personPreferences.defaultEntityId)
+          .maybeSingle();
+        if (defaultEntityError) throw defaultEntityError;
+
+        const defaultEntityName = asText(defaultEntityRow?.name) || "a Entidade padrão cadastrada";
+
+        if (!requiredEntity || !requiredEntity.isAvailable || requiredEntity.available < 1) {
+          return NextResponse.json(
+            {
+              error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não pode escolher outra Entidade. Essa Entidade não atende ou não possui vaga nesta data.`,
+              requestId: code,
+            },
+            { status: 409 },
+          );
+        }
+
+        if (entityId !== personPreferences.defaultEntityId) {
+          return NextResponse.json(
+            {
+              error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não está autorizado a escolher outra Entidade.`,
+              requestId: code,
+            },
+            { status: 409 },
+          );
+        }
+      }
+
       const entity = dayEntities.find((item) => item.id === entityId);
       if (!entity) return NextResponse.json({ error: "A Entidade escolhida não está prevista para esta data.", requestId: code }, { status: 409 });
       if (!entity.isAvailable) return NextResponse.json({ error: entity.suspendedReason || "Atendimento suspenso para esta Entidade.", requestId: code }, { status: 409 });
@@ -769,9 +804,7 @@ export async function POST(request: Request) {
 
     if (action === "save-reception-preferences") {
       const channels = Array.isArray(body.channels) ? body.channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
-      const mode = ["entity_day", "day_entity", "both"].includes(asText(body.viewMode))
-        ? (asText(body.viewMode) as "entity_day" | "day_entity" | "both")
-        : "both";
+      const mode = asText(body.viewMode) === "day_entity" ? "day_entity" : "entity_day";
       await savePilotPersonPreferences(context.organizationId, context.personId, {
         receptionSummaryChannels: channels,
         receptionSummaryViewMode: mode,
@@ -890,11 +923,35 @@ export async function POST(request: Request) {
           .filter((letter): letter is string => /^[A-Z]$/.test(letter)),
       )).sort((left, right) => left.localeCompare(right, "pt-BR"));
 
-      const selectedPeople = requestedLetter && /^[A-Z]$/.test(requestedLetter)
-        ? people
-            .filter((person) => normalizeSearchText(person.full_name).startsWith(requestedLetter.toLowerCase()))
-            .map((person) => receptionConsulentePerson(person as Record<string, unknown>))
+      const selectedBasePeople = requestedLetter && /^[A-Z]$/.test(requestedLetter)
+        ? people.filter((person) => normalizeSearchText(person.full_name).startsWith(requestedLetter.toLowerCase()))
         : [];
+
+      const selectedPeople = await Promise.all(
+        selectedBasePeople.map(async (person) => {
+          const base = receptionConsulentePerson(person as Record<string, unknown>);
+          const preferences = await loadPilotPersonPreferences(context.organizationId, base.id);
+          let defaultEntityName = "";
+
+          if (preferences.defaultEntityId) {
+            const { data: entityRow, error: entityError } = await supabaseAdmin
+              .from("oh_spiritual_entities")
+              .select("id,name")
+              .eq("organization_id", context.organizationId)
+              .eq("id", preferences.defaultEntityId)
+              .maybeSingle();
+            if (entityError) throw entityError;
+            defaultEntityName = asText(entityRow?.name);
+          }
+
+          return {
+            ...base,
+            defaultEntityId: preferences.defaultEntityId,
+            defaultEntityName,
+            allowDifferentEntity: preferences.allowDifferentEntity,
+          };
+        }),
+      );
 
       return NextResponse.json({
         ok: true,
@@ -917,6 +974,18 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
       const preferences = await loadPilotPersonPreferences(context.organizationId, person.id);
+      let defaultEntityName = "";
+      if (preferences.defaultEntityId) {
+        const { data: defaultEntity, error: defaultEntityError } = await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,name")
+          .eq("organization_id", context.organizationId)
+          .eq("id", preferences.defaultEntityId)
+          .maybeSingle();
+        if (defaultEntityError) throw defaultEntityError;
+        defaultEntityName = asText(defaultEntity?.name);
+      }
+
       return NextResponse.json({
         ok: true,
         person: {
@@ -925,6 +994,7 @@ export async function POST(request: Request) {
           whatsapp: asText(person.whatsapp),
           email: asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email)),
           defaultEntityId: preferences.defaultEntityId,
+          defaultEntityName,
           allowDifferentEntity: preferences.allowDifferentEntity,
           whatsappUrl: whatsappUrl(asText(person.whatsapp)),
         },
