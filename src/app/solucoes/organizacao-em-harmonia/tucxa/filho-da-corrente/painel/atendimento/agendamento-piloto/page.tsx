@@ -6,7 +6,6 @@ import {
   filhoAgendamentoSignOutAction,
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
-import { AnnualCalendarView, type AnnualCalendarEvent } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
@@ -79,6 +78,7 @@ type Payload = {
   cavalinhos: Array<{ id: string; name: string; whatsapp: string }>;
   appointments: Appointment[];
   receptionPreferences: ReceptionPreferences;
+  summary: SummaryCounts;
 };
 type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; allowDifferentEntity?: boolean };
 type AccessInfo = { login?: string; temporaryPassword?: string; loginUrl?: string; whatsappUrl?: string; emailSent?: boolean };
@@ -88,6 +88,16 @@ type BookingResult = {
 };
 type CompletedBooking = BookingResult & { whatsapp: string };
 type SuccessNotice = { title: string; message: string };
+type ErrorNotice = { title: string; message: string };
+type SummaryMode = "date" | "future";
+type SummaryCounts = {
+  mode: SummaryMode;
+  date: string;
+  fromDate: string;
+  scheduled: number;
+  confirmed: number;
+  arrived: number;
+};
 
 type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
@@ -100,6 +110,25 @@ type SettingsDraft = {
 function shortDate(value: string) {
   if (!value) return "";
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
+}
+
+function monthYearLabel(value: string) {
+  if (!value) return "";
+  const label = new Date(`${value.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("pt-BR", {
+    timeZone: "UTC",
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function todaySaoPaulo() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function statusLabel(item: Appointment) {
@@ -152,10 +181,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
+  const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
+  const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
+  const [summaryDate, setSummaryDate] = useState("");
+  const [summaryOverride, setSummaryOverride] = useState<SummaryCounts | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
-  const [entityCalendarYear, setEntityCalendarYear] = useState(new Date().getFullYear());
   const [consultView, setConsultView] = useState<"" | "entity_day" | "day_entity">("");
   const [consultStatus, setConsultStatus] = useState<ConsultStatus>("all");
   const [consultPage, setConsultPage] = useState(1);
@@ -218,26 +251,32 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [modal]);
 
   const usableEntities = useMemo(() => (payload?.entities ?? []).filter((item) => item.isAvailable && item.available > 0), [payload?.entities]);
-  const entityCalendarYears = useMemo(() => Array.from(new Set((entityCalendar?.dates ?? []).map((item) => Number(item.date.slice(0, 4))).filter(Number.isFinite))).sort((a, b) => a - b), [entityCalendar?.dates]);
-  const entityCalendarEvents = useMemo<AnnualCalendarEvent[]>(() => (entityCalendar?.dates ?? []).map((item) => ({
-    id: `appointment:${entityCalendar?.entity.id || "entity"}:${item.date}`,
-    title: `${entityCalendar?.entity.name || "Entidade"} · ${item.available} vaga(s)`,
-    status: "ativo",
-    eventType: "appointment",
-    eventTypeLabel: "Agendamento",
-    classification: "umbanda",
-    eventSubtype: "appointment",
-    startsAt: `${item.date}T12:00:00-03:00`,
-    endsAt: null,
-    timeLabel: "",
-    associatedToCurrentPerson: true,
-  })), [entityCalendar]);
-  const entityCalendarVisibleMonths = useMemo(() => Array.from(new Set(
-    (entityCalendar?.dates ?? [])
-      .filter((item) => Number(item.date.slice(0, 4)) === entityCalendarYear)
-      .map((item) => Number(item.date.slice(5, 7)) - 1)
-      .filter((month) => Number.isInteger(month) && month >= 0 && month <= 11),
-  )).sort((a, b) => a - b), [entityCalendar?.dates, entityCalendarYear]);
+  const entityCalendarMonths = useMemo(() => {
+    const groups = new Map<string, EntityAvailableDate[]>();
+    for (const item of entityCalendar?.dates ?? []) {
+      if (!item.date || item.available < 1) continue;
+      const monthKey = item.date.slice(0, 7);
+      const current = groups.get(monthKey) ?? [];
+      current.push(item);
+      groups.set(monthKey, current);
+    }
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([month, dates]) => ({
+        month,
+        label: monthYearLabel(`${month}-01`),
+        dates: [...dates].sort((left, right) => left.date.localeCompare(right.date)),
+      }));
+  }, [entityCalendar?.dates]);
+  const effectiveSummaryDate = summaryDate || payload?.selectedDate || todaySaoPaulo();
+  const displayedSummary = summaryOverride ?? payload?.summary ?? {
+    mode: "date" as const,
+    date: effectiveSummaryDate,
+    fromDate: effectiveSummaryDate,
+    scheduled: 0,
+    confirmed: 0,
+    arrived: 0,
+  };
   const effectiveConsultView = consultView || (payload?.receptionPreferences.receptionSummaryViewMode === "entity_day" ? "entity_day" : "day_entity");
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
@@ -293,6 +332,27 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & { error?: string; requestId?: string };
     if (!response.ok) throw new Error(`${data.error || "Não foi possível concluir a ação."}${data.requestId ? ` Código: ${data.requestId}` : ""}`);
     return data;
+  }
+
+  async function refreshSummary(mode: SummaryMode, date = effectiveSummaryDate) {
+    setSummaryLoading(true);
+    try {
+      const result = await postPilot({ action: "summary", mode, date });
+      const summary = result.summary && typeof result.summary === "object"
+        ? result.summary as SummaryCounts
+        : null;
+      if (!summary) throw new Error("Resumo não retornado pelo servidor.");
+      setSummaryMode(mode);
+      if (mode === "date") setSummaryDate(summary.date || date);
+      setSummaryOverride(summary);
+    } catch (summaryError) {
+      setErrorNotice({
+        title: "Não foi possível atualizar os indicadores",
+        message: summaryError instanceof Error ? summaryError.message : "Tente novamente em instantes.",
+      });
+    } finally {
+      setSummaryLoading(false);
+    }
   }
 
   function clearPersonSearch() {
@@ -369,7 +429,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
         throw new Error("Não há datas futuras com vagas para esta Entidade no período disponível.");
       }
       setEntityCalendar({ entity, dates });
-      setEntityCalendarYear(Number(dates[0].date.slice(0, 4)) || new Date().getFullYear());
     } catch (calendarError) {
       setError(calendarError instanceof Error ? calendarError.message : "Não foi possível carregar o calendário da Entidade.");
     } finally {
@@ -490,21 +549,31 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
   async function book() {
     if (!payload || !foundPerson || !entityId) {
-      setError("Escolha a Entidade e confirme a pessoa antes de agendar.");
+      setError("");
+      setErrorNotice({
+        title: "Não foi possível criar o agendamento",
+        message: "Escolha a Entidade e confirme a pessoa antes de agendar.",
+      });
       return;
     }
     setSaving(true);
     setError("");
+    setErrorNotice(null);
     try {
       const bookingWhatsapp = foundPerson.whatsapp;
       const result = await postPilot({ action: "book", targetPersonId: foundPerson.id, entityId, appointmentDate: payload.selectedDate, notes }) as BookingResult;
       const selectedDate = payload.selectedDate;
       await load(selectedDate);
+      await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
       setBookingResult({ ...result, whatsapp: bookingWhatsapp });
       resetBookingForm();
       setModal(null);
     } catch (bookError) {
-      setError(bookError instanceof Error ? bookError.message : "Não foi possível criar o agendamento.");
+      setError("");
+      setErrorNotice({
+        title: "Não foi possível criar o agendamento",
+        message: bookError instanceof Error ? bookError.message : "Não foi possível criar o agendamento.",
+      });
     } finally {
       setSaving(false);
     }
@@ -517,6 +586,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const result = await postPilot({ action, appointmentId });
       setMessage(typeof result.message === "string" ? result.message : "Atualização concluída.");
       await load(payload?.selectedDate);
+      await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível atualizar o agendamento.");
     } finally {
@@ -531,6 +601,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const result = await postPilot({ action: "mark-arrival", appointmentId, arrivalStatus });
       setMessage(typeof result.message === "string" ? result.message : "Chegada atualizada.");
       await load(payload?.selectedDate);
+      await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada.");
     } finally {
@@ -547,6 +618,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const result = await postPilot({ action: "change-entity", appointmentId, entityId: nextEntityId });
       setMessage(typeof result.message === "string" ? result.message : "Entidade atualizada.");
       await load(payload?.selectedDate);
+      await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível trocar a Entidade.");
     } finally {
@@ -703,10 +775,45 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={openBookingModal} />
               <ActionButton title="Acolhimento" subtitle="Confirmar, trocar Entidade e registrar chegada" onClick={() => setModal("consultar")} />
             </section>
-            <section className="mt-3 grid grid-cols-3 gap-2 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
-              <Summary label="Agendados" value={payload.appointments.filter((item) => item.status !== "cancelado").length} />
-              <Summary label="Confirmados" value={payload.appointments.filter((item) => item.confirmationStatus === "confirmed").length} />
-              <Summary label="Chegaram" value={payload.appointments.filter((item) => item.arrivalStatus === "arrived").length} />
+            <section className="mt-3 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
+              <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-end">
+                <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+                  Período dos indicadores
+                  <select
+                    value={summaryMode}
+                    onChange={(event) => void refreshSummary(event.target.value as SummaryMode, effectiveSummaryDate)}
+                    className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2 text-xs font-black normal-case tracking-normal text-[#123D2C]"
+                  >
+                    <option value="date">Data específica</option>
+                    <option value="future">Todos os futuros</option>
+                  </select>
+                </label>
+                {summaryMode === "date" ? (
+                  <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
+                    Data
+                    <input
+                      type="date"
+                      min={todaySaoPaulo()}
+                      value={effectiveSummaryDate}
+                      onChange={(event) => {
+                        setSummaryDate(event.target.value);
+                        void refreshSummary("date", event.target.value);
+                      }}
+                      className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2 text-xs font-black normal-case tracking-normal text-[#123D2C]"
+                    />
+                  </label>
+                ) : (
+                  <p className="rounded-xl bg-[#F7FAF2] px-3 py-2 text-xs font-bold text-slate-600">
+                    Contando todos os agendamentos a partir de {shortDate(displayedSummary.fromDate)}.
+                  </p>
+                )}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <Summary label="Agendados" value={displayedSummary.scheduled} />
+                <Summary label="Confirmados" value={displayedSummary.confirmed} />
+                <Summary label="Chegaram" value={displayedSummary.arrived} />
+              </div>
+              {summaryLoading && <p className="mt-2 text-center text-[11px] font-bold text-slate-500">Atualizando indicadores...</p>}
             </section>
           </>
         )}
@@ -1098,41 +1205,35 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {entityCalendar && (
         <Modal title={`Agendar · ${entityCalendar.entity.name}`} onClose={() => setEntityCalendar(null)}>
           <div className="grid gap-3">
-            {entityCalendarYears.length > 1 && (
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <button
-                  type="button"
-                  disabled={entityCalendarYear <= entityCalendarYears[0]}
-                  onClick={() => setEntityCalendarYear((current) => { const previousYears = entityCalendarYears.filter((year) => year < current); return previousYears[previousYears.length - 1] ?? current; })}
-                  className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
-                >
-                  Anterior
-                </button>
-                <span className="text-sm font-black text-[#123D2C]">{entityCalendarYear}</span>
-                <button
-                  type="button"
-                  disabled={entityCalendarYear >= entityCalendarYears[entityCalendarYears.length - 1]}
-                  onClick={() => setEntityCalendarYear((current) => entityCalendarYears.find((year) => year > current) ?? current)}
-                  className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
-                >
-                  Próximo
-                </button>
+            <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-semibold leading-5 text-[#123D2C]">
+              Selecione uma data. O calendário abaixo mostra somente dias em que esta Entidade atende e ainda possui vaga disponível.
+            </p>
+            {entityCalendarMonths.length === 0 ? (
+              <p className="rounded-2xl bg-[#F7FAF2] p-4 text-center text-sm font-bold text-slate-500 ring-1 ring-[#123D2C]/10">
+                Nenhuma data com vaga disponível no período.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {entityCalendarMonths.map((group) => (
+                  <section key={group.month} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                    <h3 className="text-sm font-black text-[#123D2C]">{group.label}</h3>
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {group.dates.map((item) => (
+                        <button
+                          key={item.date}
+                          type="button"
+                          onClick={() => void chooseEntityCalendarDate(item.date)}
+                          className="rounded-xl bg-white px-3 py-3 text-left ring-1 ring-[#123D2C]/15 transition hover:-translate-y-0.5 hover:shadow"
+                        >
+                          <span className="block text-sm font-black text-[#123D2C]">{shortDate(item.date)}</span>
+                          <span className="mt-1 block text-[11px] font-bold text-[#2F6B43]">{item.available} vaga(s) disponível(is)</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
               </div>
             )}
-            <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-semibold text-[#123D2C]">
-              Toque em uma data destacada para continuar o agendamento. Somente datas em que esta Entidade atende e ainda possui vaga podem ser selecionadas.
-            </p>
-            <AnnualCalendarView
-              mode="all"
-              events={entityCalendarEvents.filter((event) => event.startsAt?.startsWith(`${entityCalendarYear}-`))}
-              year={entityCalendarYear}
-              onSelectDay={(date) => void chooseEntityCalendarDate(date)}
-              visibleMonths={entityCalendarVisibleMonths}
-              onlyEventDays
-              title={`Calendário anual · ${entityCalendar.entity.name}`}
-              subtitle="Somente datas de atendimento disponíveis para agendamento"
-              emptyMessage="Nenhuma data de atendimento com vaga para esta Entidade neste ano."
-            />
           </div>
         </Modal>
       )}
@@ -1142,6 +1243,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
           title={successNotice.title}
           message={successNotice.message}
           onClose={() => setSuccessNotice(null)}
+        />
+      )}
+
+      {errorNotice && (
+        <ErrorPopup
+          title={errorNotice.title}
+          message={errorNotice.message}
+          onClose={() => setErrorNotice(null)}
         />
       )}
 
@@ -1180,6 +1289,22 @@ function SuccessPopup({ title, message, onClose }: { title: string; message: str
         </header>
         <div className="p-4 sm:p-5">
           <p className="rounded-2xl bg-[#E9F2E7] p-4 font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">{message}</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ErrorPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[270] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b border-red-100 px-5 py-4">
+          <h2 className="text-xl font-black text-red-800">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </header>
+        <div className="p-4 sm:p-5">
+          <p className="rounded-2xl bg-red-50 p-4 font-bold leading-6 text-red-800 ring-1 ring-red-100">{message}</p>
         </div>
       </section>
     </div>

@@ -258,6 +258,63 @@ async function loadEntityAvailableDatesIndex(
   return result;
 }
 
+type ReceptionSummary = {
+  mode: "date" | "future";
+  date: string;
+  fromDate: string;
+  scheduled: number;
+  confirmed: number;
+  arrived: number;
+};
+
+function summarizeAppointments(
+  appointments: Array<{ status?: string; confirmationStatus?: string; arrivalStatus?: string }>,
+  mode: "date" | "future",
+  date: string,
+  fromDate: string,
+): ReceptionSummary {
+  const active = appointments.filter((item) => asText(item.status) !== "cancelado");
+  return {
+    mode,
+    date: mode === "date" ? date : "",
+    fromDate,
+    scheduled: active.length,
+    confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length,
+    arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length,
+  };
+}
+
+async function loadReceptionSummary(
+  organizationId: string,
+  mode: "date" | "future",
+  requestedDate?: string,
+): Promise<ReceptionSummary> {
+  const today = todayInSaoPaulo();
+  const targetDate = requestedDate && requestedDate >= today ? requestedDate : today;
+
+  let query = supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("status,confirmation_status,arrival_status")
+    .eq("organization_id", organizationId);
+
+  if (mode === "future") {
+    query = query.gte("appointment_date", today);
+  } else {
+    query = query.eq("appointment_date", targetDate);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const appointments = (data ?? []).map((item) => ({
+    status: asText(item.status),
+    confirmationStatus: asText(item.confirmation_status),
+    arrivalStatus: asText(item.arrival_status),
+  }));
+
+  return summarizeAppointments(appointments, mode, targetDate, mode === "future" ? today : targetDate);
+}
+
 async function buildPayload(organizationId: string, receptionPersonId: string, selectedDate?: string) {
   await expirePastPilotConfirmations(organizationId);
   const settings = await loadPilotSettings(organizationId);
@@ -342,10 +399,18 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     whatsapp: asText(person.whatsapp),
   }));
 
+  const summary = summarizeAppointments(
+    appointments,
+    "date",
+    selected,
+    selected,
+  );
+
   return {
     settings,
     dates,
     selectedDate: selected,
+    summary,
     entities: entities.map((entity) => ({
       ...entity,
       mediums: (contacts.get(entity.id) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -388,6 +453,13 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
+
+    if (action === "summary") {
+      const mode = asText(body.mode) === "future" ? "future" : "date";
+      const date = asText(body.date);
+      const summary = await loadReceptionSummary(context.organizationId, mode, date);
+      return NextResponse.json({ ok: true, summary });
+    }
 
     if (action === "entity-overview") {
       const availability = await loadEntityAvailableDatesIndex(

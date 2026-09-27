@@ -1,0 +1,13 @@
+AUTOMACAO EXTREMA - TUCXA AGENDAMENTO 10 - ARQUIVOS DA IMPLEMENTACAO
+
+ATUALIZADOS:
+src/app/api/organizacao-em-harmonia/cliente/base-unica/route.ts
+src/app/solucoes/organizacao-em-harmonia/cliente/base-unica/entidades/page.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+
+NOVO:
+supabase/migrations/20260926213000_oh_tucxa_agendamento_piloto_ajustes_10.sql
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-10.md
+LEIA-ME-TUCXA-AGENDAMENTO-10.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-10.txt
