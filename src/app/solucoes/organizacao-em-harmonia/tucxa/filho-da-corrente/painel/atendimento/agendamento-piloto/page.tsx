@@ -91,6 +91,7 @@ type CompletedBooking = BookingResult & { whatsapp: string };
 type SuccessNotice = { title: string; message: string };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string };
+type AlphabetPickerState = { letter: string; people: FoundPerson[] };
 type SummaryMode = "date" | "future";
 type SummaryCounts = {
   mode: SummaryMode;
@@ -190,6 +191,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingMode, setBookingMode] = useState<BookingMode>("date");
   const [bookingEntityLookupId, setBookingEntityLookupId] = useState("");
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
+  const [bookingContextLocked, setBookingContextLocked] = useState(false);
+  const [alphabetLetters, setAlphabetLetters] = useState<string[]>([]);
+  const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
+  const [alphabetLoading, setAlphabetLoading] = useState(false);
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
@@ -430,6 +435,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingMode("date");
     setBookingEntityLookupId("");
     setBookingEntityDateLabel("");
+    setBookingContextLocked(false);
+    setAlphabetPicker(null);
   }
 
   function openBookingModal() {
@@ -437,6 +444,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingResult(null);
     setError("");
     setModal("agendar");
+    void loadConsulenteAlphabet();
   }
 
   async function loadEntityOverview() {
@@ -492,9 +500,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityCalendar(null);
     resetBookingForm();
     setBookingMode("entity");
+    setBookingContextLocked(true);
     setBookingEntityLookupId(entity.id);
     setBookingEntityDateLabel(shortDate(date));
     setModal("agendar");
+    void loadConsulenteAlphabet();
     await load(date);
     setEntityId(entity.id);
   }
@@ -510,13 +520,21 @@ export default function AgendamentoPilotoRecepcaoPage() {
         ? details.person as FoundPerson
         : person;
       setFoundPerson(detailedPerson);
+      const defaultEntityId = detailedPerson.defaultEntityId || "";
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
         whatsapp: detailedPerson.whatsapp || person.whatsapp,
         email: detailedPerson.email || person.email,
-        defaultEntityId: detailedPerson.defaultEntityId || "",
+        defaultEntityId,
         allowDifferentEntity: detailedPerson.allowDifferentEntity === true,
       });
+
+      if (modal === "agendar" && bookingMode === "date" && !bookingContextLocked) {
+        const defaultEntityAvailable = defaultEntityId
+          ? usableEntities.some((entity) => entity.id === defaultEntityId)
+          : false;
+        setEntityId(defaultEntityAvailable ? defaultEntityId : "");
+      }
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : "Não foi possível selecionar o cadastro.");
     } finally {
@@ -544,6 +562,37 @@ export default function AgendamentoPilotoRecepcaoPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function loadConsulenteAlphabet(letter = "") {
+    setAlphabetLoading(true);
+    try {
+      const result = await postPilot({ action: "consulente-alphabet", letter });
+      const letters = Array.isArray(result.letters)
+        ? result.letters.filter((item): item is string => typeof item === "string" && /^[A-Z]$/.test(item))
+        : [];
+      setAlphabetLetters(letters);
+
+      if (letter) {
+        const people = Array.isArray(result.people)
+          ? result.people.filter((item): item is FoundPerson => Boolean(item && typeof item === "object"))
+          : [];
+        setAlphabetPicker({ letter, people });
+      }
+    } catch (alphabetError) {
+      setErrorNotice({
+        title: "Não foi possível abrir a lista alfabética",
+        message: alphabetError instanceof Error ? alphabetError.message : "Tente novamente em instantes.",
+      });
+    } finally {
+      setAlphabetLoading(false);
+    }
+  }
+
+  async function selectAlphabetPerson(person: FoundPerson) {
+    setAlphabetPicker(null);
+    setPhone(person.fullName);
+    await selectPerson(person);
   }
 
   async function searchPerson(event: FormEvent) {
@@ -956,12 +1005,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
         >
           {modal === "agendar" && (
             <div className="grid gap-3">
-              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5 ring-1 ring-[#123D2C]/10">
-                <button type="button" onClick={() => { setBookingMode("date"); setBookingEntityLookupId(""); setBookingEntityDateLabel(""); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "date" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por data</button>
-                <button type="button" onClick={() => { setBookingMode("entity"); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "entity" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por Entidade</button>
-              </div>
+              {!bookingContextLocked && (
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5 ring-1 ring-[#123D2C]/10">
+                  <button type="button" onClick={() => { setBookingMode("date"); setBookingEntityLookupId(""); setBookingEntityDateLabel(""); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "date" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por data</button>
+                  <button type="button" onClick={() => { setBookingMode("entity"); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "entity" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por Entidade</button>
+                </div>
+              )}
 
-              {bookingMode === "date" ? (
+              {bookingContextLocked ? (
+                <section className="grid gap-1 rounded-2xl bg-[#E9F2E7] p-3 text-sm text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                  <p><span className="font-black">Entidade:</span> {payload.entityCatalog.find((entity) => entity.id === entityId)?.name || "Entidade selecionada"}</p>
+                  <p><span className="font-black">Data:</span> {bookingEntityDateLabel || shortDate(payload.selectedDate)}</p>
+                </section>
+              ) : bookingMode === "date" ? (
                 <label className="grid gap-1 text-sm font-black text-[#123D2C]">Data
                   <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                     {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
@@ -983,6 +1039,32 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
               </form>
+
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Ou escolha pela inicial</p>
+                  {alphabetLoading && <span className="text-[11px] font-bold text-slate-500">Carregando...</span>}
+                </div>
+                {alphabetLetters.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {alphabetLetters.map((letter) => (
+                      <button
+                        key={letter}
+                        type="button"
+                        disabled={alphabetLoading}
+                        onClick={() => void loadConsulenteAlphabet(letter)}
+                        className="flex h-9 min-w-9 items-center justify-center rounded-lg bg-white px-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
+                      >
+                        {letter}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <button type="button" disabled={alphabetLoading} onClick={() => void loadConsulenteAlphabet()} className="mt-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
+                    Carregar lista alfabética
+                  </button>
+                )}
+              </section>
 
               {searchResults.length > 1 && (
                 <section className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
@@ -1302,9 +1384,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
-              <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold leading-5 text-[#123D2C]">
-                Os Consulentes terão, quando o autoagendamento for liberado, as duas formas de visualização: por Data e por Entidade. A Entidade padrão e a permissão para escolher outra Entidade são definidas individualmente no cadastro de cada Consulente.
-              </p>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
                 <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
               </label>
@@ -1383,6 +1462,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
 
+      {alphabetPicker && (
+        <AlphabetConsulentePopup
+          letter={alphabetPicker.letter}
+          people={alphabetPicker.people}
+          loading={alphabetLoading}
+          onClose={() => setAlphabetPicker(null)}
+          onSelect={(person) => void selectAlphabetPerson(person)}
+        />
+      )}
+
       {cancelRequest && (
         <CancelAppointmentPopup
           request={cancelRequest}
@@ -1431,6 +1520,50 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
     </main>
+  );
+}
+
+function AlphabetConsulentePopup({
+  letter,
+  people,
+  loading,
+  onClose,
+  onSelect,
+}: {
+  letter: string;
+  people: FoundPerson[];
+  loading: boolean;
+  onClose: () => void;
+  onSelect: (person: FoundPerson) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
+      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
+            <h2 className="text-xl font-black text-[#123D2C]">Consulentes · {letter}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+          {loading ? (
+            <p className="rounded-2xl bg-[#F7FAF2] p-4 text-center text-sm font-bold text-slate-500">Carregando cadastros...</p>
+          ) : people.length === 0 ? (
+            <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhum Consulente ativo encontrado com esta inicial.</p>
+          ) : (
+            <div className="grid gap-2">
+              {people.map((person) => (
+                <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                  <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                  <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

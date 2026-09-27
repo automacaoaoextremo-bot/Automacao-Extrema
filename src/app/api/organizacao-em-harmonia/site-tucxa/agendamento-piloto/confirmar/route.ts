@@ -10,16 +10,11 @@ import { sendTucxaReceptionConfirmationWhatsapp } from "@/lib/botconversa";
 export const dynamic = "force-dynamic";
 
 
-const RECEPTION_PAGE = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto";
-const AGENDAMENTO_LOGIN = "/solucoes/organizacao-em-harmonia/agendamento/login";
+const RECEPTION_LOGIN_URL =
+  "https://www.automacaoextrema.com/solucoes/organizacao-em-harmonia/agendamento/login";
 
-function receptionLoginUrl(request: Request, appointmentDate: string) {
-  const login = new URL(AGENDAMENTO_LOGIN, request.url);
-  const returnTo = new URL(RECEPTION_PAGE, request.url);
-  returnTo.searchParams.set("abrir", "consultar");
-  if (appointmentDate) returnTo.searchParams.set("date", appointmentDate);
-  login.searchParams.set("returnTo", `${returnTo.pathname}${returnTo.search}`);
-  return login.toString();
+function receptionLoginUrl() {
+  return RECEPTION_LOGIN_URL;
 }
 
 function asText(value: unknown) {
@@ -104,7 +99,7 @@ export async function POST(request: Request) {
             consulenteName: details.fullName || details.firstName,
             appointmentDate: details.appointmentDate,
             entityName: details.entityName,
-            loginUrl: receptionLoginUrl(request, details.appointmentDate),
+            loginUrl: receptionLoginUrl(),
           });
           if (!notification.sent && notification.provider === "botconversa") {
             console.warn("[TUCXA confirmação] aviso à Recepção não enviado", notification.error || "erro desconhecido");

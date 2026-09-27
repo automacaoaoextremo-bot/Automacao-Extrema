@@ -1,0 +1,26 @@
+AUTOMAÇÃO EXTREMA — TUCXA — AGENDAMENTO 13
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais ajustes:
+- Corrige o valor enviado ao campo Data do BotConversa para DD/MM/AAAA.
+- Remove o quadro informativo verde das Configurações da Recepção.
+- Aviso de presença confirmada para a Recepção usa diretamente o Login único.
+- Ao selecionar o Consulente em Agendar por data, aplica automaticamente a Entidade padrão quando ela estiver disponível.
+- Adiciona seleção alfabética de Consulentes por inicial, com popup Nome + WhatsApp.
+- Mantém a busca já existente por nome/WhatsApp.
+- Quando o agendamento nasce da agenda de uma Entidade, remove a escolha redundante Por data/Por Entidade e preserva Entidade + data já selecionadas.
+
+Banco:
+- Não há migration nova no Agendamento 13.
+
+Vercel:
+- Não há variável de ambiente obrigatória nova.
+- Fazer Redeploy do Preview após o push para garantir a versão atual da branch.
+
+Validação:
+1. npm run lint
+2. npm run build
+3. git diff --check
+4. seguir docs/tucxa/HOMOLOGACAO-AGENDAMENTO-13.md

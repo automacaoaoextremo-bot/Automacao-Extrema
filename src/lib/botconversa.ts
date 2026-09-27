@@ -178,6 +178,21 @@ function optionalValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function botConversaDateValue(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  }
+
+  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (brMatch) return trimmed;
+
+  return trimmed;
+}
+
 export function buildCorrenteLeadBotConversaMessage(
   input: BotConversaSyncInput,
 ) {
@@ -1276,7 +1291,7 @@ function tucxaAppointmentFields(input: TucxaAppointmentBotConversaInput): BotCon
     {
       fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE"),
       label: "tucxa_data",
-      value: input.appointmentDate,
+      value: botConversaDateValue(input.appointmentDate),
     },
     {
       fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY"),

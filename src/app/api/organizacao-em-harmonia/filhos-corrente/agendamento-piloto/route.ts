@@ -38,6 +38,73 @@ function asBoolean(value: unknown, fallback = false) {
   return fallback;
 }
 
+function normalizeSearchText(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function receptionConsulentePerson(person: Record<string, unknown>) {
+  const email = asText(person.notification_email)
+    || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
+
+  return {
+    id: asText(person.id),
+    fullName: asText(person.full_name),
+    whatsapp: normalizeBrazilPhone(person.normalized_whatsapp || person.whatsapp),
+    email,
+  };
+}
+
+async function loadReceptionConsulentes(organizationId: string) {
+  const { data: people, error: peopleError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id,full_name,whatsapp,email,notification_email,active,normalized_whatsapp,registration_source")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .limit(1500);
+  if (peopleError) throw peopleError;
+
+  const personIds = (people ?? []).map((person) => asText(person.id)).filter(Boolean);
+  const { data: memberships, error: membershipError } = personIds.length
+    ? await supabaseAdmin
+        .from("oh_memberships")
+        .select("person_id,active,status,agenda_viva_profile")
+        .eq("organization_id", organizationId)
+        .eq("active", true)
+        .in("person_id", personIds)
+    : { data: [], error: null };
+  if (membershipError) throw membershipError;
+
+  const membershipMap = new Map<string, Array<Record<string, unknown>>>();
+  for (const membership of memberships ?? []) {
+    const personId = asText(membership.person_id);
+    if (!personId) continue;
+    const current = membershipMap.get(personId) ?? [];
+    current.push(membership as Record<string, unknown>);
+    membershipMap.set(personId, current);
+  }
+
+  return (people ?? [])
+    .filter((person) => {
+      const personId = asText(person.id);
+      const personMemberships = membershipMap.get(personId) ?? [];
+      if (!personMemberships.length) return true;
+      if (normalizeSearchText(person.registration_source).includes("recepcao")) return true;
+
+      return personMemberships.some((membership) => {
+        const profileText = normalizeSearchText(JSON.stringify(asRecord(membership.agenda_viva_profile)));
+        return profileText.includes("consulente")
+          || profileText.includes("filho-de-fora")
+          || profileText.includes("filho de fora");
+      });
+    })
+    .sort((left, right) => asText(left.full_name).localeCompare(asText(right.full_name), "pt-BR"));
+}
+
 function hourList(value: unknown) {
   const source = Array.isArray(value) ? value : asText(value).split(/[;,\s]+/);
   const parsed = source
@@ -812,6 +879,29 @@ export async function POST(request: Request) {
         .eq("id", appointmentId);
       if (updateError) throw updateError;
       return NextResponse.json({ ok: true, message: `Entidade alterada para ${target.name}.` });
+    }
+
+    if (action === "consulente-alphabet") {
+      const requestedLetter = normalizeSearchText(body.letter).slice(0, 1).toUpperCase();
+      const people = await loadReceptionConsulentes(context.organizationId);
+      const letters = Array.from(new Set<string>(
+        people
+          .map((person) => normalizeSearchText(person.full_name).slice(0, 1).toUpperCase())
+          .filter((letter): letter is string => /^[A-Z]$/.test(letter)),
+      )).sort((left, right) => left.localeCompare(right, "pt-BR"));
+
+      const selectedPeople = requestedLetter && /^[A-Z]$/.test(requestedLetter)
+        ? people
+            .filter((person) => normalizeSearchText(person.full_name).startsWith(requestedLetter.toLowerCase()))
+            .map((person) => receptionConsulentePerson(person as Record<string, unknown>))
+        : [];
+
+      return NextResponse.json({
+        ok: true,
+        letters,
+        letter: requestedLetter,
+        people: selectedPeople,
+      });
     }
 
     if (action === "get-consulente") {
