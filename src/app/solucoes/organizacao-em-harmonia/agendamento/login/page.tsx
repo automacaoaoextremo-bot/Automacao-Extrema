@@ -7,6 +7,19 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const ACCESS_API = "/api/organizacao-em-harmonia/agendamento/acesso";
 const LANDING = "/solucoes/organizacao-em-harmonia/agendamento";
+const RECEPTION_PAGE = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto";
+
+function safeReturnTo(value: string) {
+  if (!value.startsWith("/solucoes/organizacao-em-harmonia/") || value.startsWith("//")) return "";
+  return value;
+}
+
+function withLoginMarker(value: string) {
+  if (!value.startsWith(RECEPTION_PAGE)) return value;
+  const [pathnameAndQuery, hash = ""] = value.split("#", 2);
+  const separator = pathnameAndQuery.includes("?") ? "&" : "?";
+  return `${pathnameAndQuery}${separator}login=1${hash ? `#${hash}` : ""}`;
+}
 
 type LoginResponse = {
   ok?: boolean;
@@ -47,7 +60,8 @@ export default function AgendamentoLoginPage() {
       });
       if (sessionError) throw new Error("Não foi possível iniciar sua sessão. Tente novamente.");
 
-      const destination = result.profile.destination || LANDING;
+      const requestedReturnTo = safeReturnTo(new URL(window.location.href).searchParams.get("returnTo") || "");
+      const destination = withLoginMarker(requestedReturnTo || result.profile.destination || LANDING);
       if (result.profile.onboardingRequired) {
         setFirstAccessDestination(destination);
         setLoading(false);

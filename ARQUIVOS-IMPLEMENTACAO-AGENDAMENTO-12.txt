@@ -1,0 +1,19 @@
+ARQUIVOS COMPLETOS - AGENDAMENTO 12
+
+ATUALIZADOS
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/lib/organizacao-em-harmonia/tucxa-appointment-pilot.ts
+src/app/solucoes/organizacao-em-harmonia/agendamento/login/page.tsx
+src/lib/botconversa.ts
+src/lib/organizacao-em-harmonia/tucxa-confirmation.ts
+src/app/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar/route.ts
+
+NOVOS
+supabase/migrations/20260927123000_oh_tucxa_agendamento_piloto_ajustes_12.sql
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-12.md
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-12.md
+LEIA-ME-TUCXA-AGENDAMENTO-12.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-12.txt
+
+Nao ha dependencia npm nova.

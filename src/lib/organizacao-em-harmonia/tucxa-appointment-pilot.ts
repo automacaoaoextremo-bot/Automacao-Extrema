@@ -48,6 +48,7 @@ export type PilotPersonPreferences = {
   reminderOffsetsHours: number[];
   receptionSummaryChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
+  receptionOpenAcolhimentoOnLogin: boolean;
 };
 
 type PilotReceptionContext = {
@@ -229,7 +230,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode")
+    .select("default_entity_id, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -243,6 +244,7 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
       ? data.reception_summary_channels.map(asText).filter((item) => item === "email" || item === "whatsapp")
       : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
+    receptionOpenAcolhimentoOnLogin: data?.reception_open_acolhimento_on_login !== false,
   };
 }
 
@@ -265,6 +267,7 @@ export async function savePilotPersonPreferences(
       ? current.receptionSummaryChannels
       : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
+    reception_open_acolhimento_on_login: input.receptionOpenAcolhimentoOnLogin ?? current.receptionOpenAcolhimentoOnLogin,
     updated_at: new Date().toISOString(),
   };
   const { error } = await supabaseAdmin

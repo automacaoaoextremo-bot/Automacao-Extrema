@@ -16,6 +16,7 @@ function firstName(value: string) {
 
 export type TucxaConfirmationAppointment = {
   id: string;
+  fullName: string;
   firstName: string;
   appointmentDate: string;
   appointmentDateLabel: string;
@@ -82,6 +83,7 @@ export async function loadTucxaConfirmationAppointment(
 
   return {
     id: asText(appointment.id),
+    fullName: asText(appointment.consulente_name),
     firstName: firstName(asText(appointment.consulente_name)),
     appointmentDate: asText(appointment.appointment_date),
     appointmentDateLabel: longDateLabel(asText(appointment.appointment_date)),

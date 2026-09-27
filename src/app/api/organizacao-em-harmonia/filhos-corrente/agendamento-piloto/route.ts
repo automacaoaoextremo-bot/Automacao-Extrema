@@ -71,6 +71,17 @@ function requestId() {
   return crypto.randomUUID().slice(0, 8);
 }
 
+function currentSaoPauloMinutes() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return Number(map.hour || 0) * 60 + Number(map.minute || 0);
+}
+
 function siteUrl() {
   const vercelUrl = (process.env.VERCEL_URL || "").trim();
   if (process.env.VERCEL_ENV === "preview" && vercelUrl) {
@@ -697,6 +708,7 @@ export async function POST(request: Request) {
       await savePilotPersonPreferences(context.organizationId, context.personId, {
         receptionSummaryChannels: channels,
         receptionSummaryViewMode: mode,
+        receptionOpenAcolhimentoOnLogin: asBoolean(body.openAcolhimentoOnLogin, true),
       });
       return NextResponse.json({ ok: true, message: "Preferências da Recepção atualizadas." });
     }
@@ -707,6 +719,36 @@ export async function POST(request: Request) {
       if (!appointmentId || !["arrived", "absent", "pending"].includes(arrivalStatus)) {
         return NextResponse.json({ error: "Informe o agendamento e a situação de chegada.", requestId: code }, { status: 400 });
       }
+
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,person_id,entity_id,appointment_date,status")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id) {
+        return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+      }
+
+      if (arrivalStatus === "arrived") {
+        const appointmentDate = asText(appointment.appointment_date);
+        const today = todayInSaoPaulo();
+        const minutes = currentSaoPauloMinutes();
+        const arrivalStart = 18 * 60;
+        const arrivalEnd = 20 * 60;
+
+        if (appointmentDate !== today || minutes < arrivalStart || minutes > arrivalEnd) {
+          return NextResponse.json(
+            {
+              error: "A chegada só pode ser registrada no dia do atendimento, entre 18:00 e 20:00.",
+              requestId: code,
+            },
+            { status: 409 },
+          );
+        }
+      }
+
       const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_mark_arrival", {
         p_organization_id: context.organizationId,
         p_appointment_id: appointmentId,
@@ -716,16 +758,8 @@ export async function POST(request: Request) {
       if (error) throw error;
 
       if (arrivalStatus === "arrived") {
-        const { data: appointment, error: appointmentError } = await supabaseAdmin
-          .from("oh_consulente_appointments")
-          .select("person_id,entity_id")
-          .eq("organization_id", context.organizationId)
-          .eq("id", appointmentId)
-          .maybeSingle();
-        if (appointmentError) throw appointmentError;
-
-        const personId = asText(appointment?.person_id);
-        const entityId = asText(appointment?.entity_id);
+        const personId = asText(appointment.person_id);
+        const entityId = asText(appointment.entity_id);
         if (personId && entityId) {
           const preferences = await loadPilotPersonPreferences(context.organizationId, personId);
           if (!preferences.defaultEntityId) {
@@ -744,7 +778,15 @@ export async function POST(request: Request) {
         }
       }
 
-      return NextResponse.json({ ok: true, arrival: Array.isArray(data) ? data[0] : data, message: arrivalStatus === "arrived" ? "Chegada registrada." : arrivalStatus === "absent" ? "Ausência registrada." : "Situação de chegada redefinida." });
+      return NextResponse.json({
+        ok: true,
+        arrival: Array.isArray(data) ? data[0] : data,
+        message: arrivalStatus === "arrived"
+          ? "Chegada registrada dentro do período permitido (18:00–20:00)."
+          : arrivalStatus === "absent"
+            ? "Ausência registrada."
+            : "Situação de chegada redefinida.",
+      });
     }
 
     if (action === "change-entity") {
