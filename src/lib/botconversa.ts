@@ -182,37 +182,19 @@ function botConversaDateValue(value: string) {
   const trimmed = String(value).trim();
   if (!trimmed) return "";
 
+  // BotConversa Swagger: campos do tipo Date (type 2) exigem %d.%m.%Y.
+  // Ex.: 2026-10-06 ou 06/10/2026 -> 06.10.2026.
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
   if (isoMatch) {
-    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    return `${isoMatch[3]}.${isoMatch[2]}.${isoMatch[1]}`;
   }
 
-  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
-  if (brMatch) return trimmed;
+  const brMatch = /^(\d{2})[\/.](\d{2})[\/.](\d{4})$/.exec(trimmed);
+  if (brMatch) {
+    return `${brMatch[1]}.${brMatch[2]}.${brMatch[3]}`;
+  }
 
   return trimmed;
-}
-
-function botConversaIsoDateValue(value: string | number) {
-  const trimmed = String(value).trim();
-  if (!trimmed) return "";
-
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
-  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-
-  const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
-  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
-
-  return trimmed;
-}
-
-function botConversaUnixDateValue(value: string | number) {
-  const iso = botConversaIsoDateValue(value);
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!match) return iso;
-
-  // Meio-dia UTC evita que conversões de fuso desloquem a data civil.
-  return Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0) / 1000);
 }
 
 function botConversaWait(milliseconds: number) {
@@ -1032,7 +1014,7 @@ async function setCustomFields(
       fieldId: field.fieldId,
     });
 
-    let response = await botconversaRequest(path, {
+    const response = await botconversaRequest(path, {
       method,
       body: customFieldBody(field),
     });
@@ -1047,53 +1029,7 @@ async function setCustomFields(
       responseText: response.ok ? undefined : response.text,
     });
 
-    // O BotConversa documenta campos Data como DD/MM/AAAA. Em algumas contas,
-    // porém, o endpoint legado ainda valida a representação interna da data.
-    // Só fazemos fallback quando a primeira gravação falha; se DD/MM/AAAA foi
-    // aceito, não regravamos o campo desnecessariamente.
-    if (field.label === "tucxa_data" && !response.ok) {
-      await botConversaWait(250);
 
-      const isoRetryField: BotConversaFieldConfig = {
-        ...field,
-        value: botConversaIsoDateValue(field.value),
-      };
-      response = await botconversaRequest(path, {
-        method,
-        body: customFieldBody(isoRetryField),
-      });
-
-      results.push({
-        step: "set_field_tucxa_data_iso_fallback",
-        ok: response.ok,
-        status: response.status,
-        path: response.path,
-        method: response.method,
-        data: response.data,
-        responseText: response.ok ? undefined : response.text,
-      });
-
-      if (!response.ok) {
-        const unixRetryField: BotConversaFieldConfig = {
-          ...field,
-          value: botConversaUnixDateValue(field.value),
-        };
-        const unixResponse = await botconversaRequest(path, {
-          method,
-          body: customFieldBody(unixRetryField),
-        });
-
-        results.push({
-          step: "set_field_tucxa_data_unix_fallback",
-          ok: unixResponse.ok,
-          status: unixResponse.status,
-          path: unixResponse.path,
-          method: unixResponse.method,
-          data: unixResponse.data,
-          responseText: unixResponse.ok ? undefined : unixResponse.text,
-        });
-      }
-    }
   }
 
   return results;
