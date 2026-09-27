@@ -966,8 +966,9 @@ export async function POST(request: Request) {
 
     if (action === "cancel") {
       const appointmentId = asText(body.appointmentId);
-      const reason = asText(body.reason) || "Cancelado pela Recepção no piloto";
+      const reason = asText(body.reason);
       if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId: code }, { status: 400 });
+      if (!reason) return NextResponse.json({ error: "Informe o motivo do cancelamento.", requestId: code }, { status: 400 });
       const now = new Date().toISOString();
       const { data, error } = await supabaseAdmin
         .from("oh_consulente_appointments")

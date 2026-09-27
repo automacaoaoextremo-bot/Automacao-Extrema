@@ -1,0 +1,28 @@
+AUTOMAÇÃO EXTREMA · TUCXA · AGENDAMENTO 11
+ARQUIVOS DA IMPLEMENTAÇÃO
+
+ATUALIZADOS
+src/app/api/cron/tucxa-agendamento-reminders/route.ts
+src/app/api/organizacao-em-harmonia/cliente/atendimento-em-harmonia/route.ts
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/agendamentos/page.tsx
+src/app/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/[token]/confirmation-client.tsx
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/lib/botconversa.ts
+vercel.json
+
+NOVOS
+supabase/migrations/20260926224500_oh_tucxa_agendamento_piloto_ajustes_11.sql
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-11.md
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-11.md
+LEIA-ME-TUCXA-AGENDAMENTO-11.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-11.txt
+
+SEM NOVA DEPENDÊNCIA NPM.
+
+NOVA VARIÁVEL VERCEL
+BOTCONVERSA_TUCXA_REMINDER_FLOW_ID=<id do fluxo TUCXA - Lembrete Agendamento>
+
+CRON
+/api/cron/tucxa-agendamento-reminders
+schedule: 0 12 * * * (UTC)

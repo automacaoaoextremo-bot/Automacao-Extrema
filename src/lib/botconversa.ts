@@ -1283,22 +1283,26 @@ function tucxaAppointmentFields(input: TucxaAppointmentBotConversaInput): BotCon
       label: "tucxa_entidade",
       value: input.entityName,
     },
-    {
-      fieldId: firstEnv(
-        "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
-        "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL",
-      ),
-      label: "tucxa_link_confirmacao",
-      value: input.confirmationUrl || "",
-    },
-    {
-      fieldId: firstEnv(
-        "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS_ID",
-        "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS",
-      ),
-      label: "tucxa_antecedencia_horas",
-      value: input.reminderOffsetHours ? String(input.reminderOffsetHours) : "",
-    },
+    ...(input.confirmationUrl
+      ? [{
+          fieldId: firstEnv(
+            "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
+            "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL",
+          ),
+          label: "tucxa_link_confirmacao",
+          value: input.confirmationUrl,
+        }]
+      : []),
+    ...(input.reminderOffsetHours !== null && input.reminderOffsetHours !== undefined
+      ? [{
+          fieldId: firstEnv(
+            "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS_ID",
+            "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS",
+          ),
+          label: "tucxa_antecedencia_horas",
+          value: String(input.reminderOffsetHours),
+        }]
+      : []),
   ];
 
   return fields.filter((field) => isConfigured(field.fieldId));

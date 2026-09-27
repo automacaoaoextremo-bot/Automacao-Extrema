@@ -1,0 +1,31 @@
+AUTOMAÇÃO EXTREMA · Organização em Harmonia · TUCXA
+AGENDAMENTO 11
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais ajustes:
+- cancelamento em popup com motivo obrigatório;
+- exclusão administrativa de agendamentos sem histórico de atendimento/chegada;
+- Acolhimento padrão Entidade/Dia;
+- data em formato dia-da-semana-dd/mm/aaaa;
+- filtro de status multisseleção sem Todos;
+- Cancelar -> Cancelado no filtro;
+- filtros fixos e paginação compacta;
+- retirada de Porta Reabre da confirmação;
+- retirada do quadro final redundante;
+- BotConversa com lembrete no dia do atendimento;
+- cron diário Vercel às 12:00 UTC;
+- correção do constraint do log para aceitar canal whatsapp.
+
+Antes do commit:
+npm run lint
+npm run build
+git diff --check
+
+Migration obrigatória:
+supabase/migrations/20260926224500_oh_tucxa_agendamento_piloto_ajustes_11.sql
+
+Documentação:
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-11.md
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-11.md

@@ -16,7 +16,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 type ViewMode = "entity_day" | "day_entity" | "both";
 type ModalKind = "agendar" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
-type ConsultStatus = "all" | "confirm" | "arrived" | "absent" | "cancelled";
+type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
@@ -89,6 +89,7 @@ type BookingResult = {
 type CompletedBooking = BookingResult & { whatsapp: string };
 type SuccessNotice = { title: string; message: string };
 type ErrorNotice = { title: string; message: string };
+type CancelRequest = { appointmentId: string; consulenteName: string; reason: string };
 type SummaryMode = "date" | "future";
 type SummaryCounts = {
   mode: SummaryMode;
@@ -110,6 +111,21 @@ type SettingsDraft = {
 function shortDate(value: string) {
   if (!value) return "";
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
+}
+
+function acolhimentoDateLabel(value: string) {
+  if (!value) return "";
+  const date = new Date(`${value}T12:00:00Z`);
+  const weekday = date
+    .toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long" })
+    .replace("-feira", "");
+  const calendarDate = date.toLocaleDateString("pt-BR", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return `${weekday}-${calendarDate}`;
 }
 
 function monthYearLabel(value: string) {
@@ -182,6 +198,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
   const [summaryOverride, setSummaryOverride] = useState<SummaryCounts | null>(null);
@@ -189,8 +206,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
-  const [consultView, setConsultView] = useState<"" | "entity_day" | "day_entity">("");
-  const [consultStatus, setConsultStatus] = useState<ConsultStatus>("all");
+  const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
+  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(["confirm", "arrived", "absent", "cancelled"]);
   const [consultPage, setConsultPage] = useState(1);
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [changeSelections, setChangeSelections] = useState<Record<string, string>>({});
@@ -277,16 +294,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
     confirmed: 0,
     arrived: 0,
   };
-  const effectiveConsultView = consultView || (payload?.receptionPreferences.receptionSummaryViewMode === "entity_day" ? "entity_day" : "day_entity");
+  const effectiveConsultView = consultView;
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
-    if (consultStatus === "all") return appointments;
-    if (consultStatus === "confirm") return appointments.filter((item) => item.status !== "cancelado" && item.confirmationStatus !== "confirmed");
-    if (consultStatus === "arrived") return appointments.filter((item) => item.arrivalStatus === "arrived");
-    if (consultStatus === "absent") return appointments.filter((item) => item.arrivalStatus === "absent");
-    return appointments.filter((item) => item.status === "cancelado");
-  }, [consultStatus, payload?.appointments]);
-  const consultPageSize = 4;
+    if (!consultStatuses.length) return [];
+
+    return appointments.filter((item) => {
+      if (item.status === "cancelado") return consultStatuses.includes("cancelled");
+      if (item.arrivalStatus === "arrived") return consultStatuses.includes("arrived");
+      if (item.arrivalStatus === "absent") return consultStatuses.includes("absent");
+      return consultStatuses.includes("confirm");
+    });
+  }, [consultStatuses, payload?.appointments]);
+  const consultPageSize = 2;
   const consultPageCount = Math.max(1, Math.ceil(filteredAppointments.length / consultPageSize));
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
   const paginatedAppointments = useMemo(
@@ -304,7 +324,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
       return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([label, appointments]) => ({ label, appointments }));
     }
-    return [{ label: shortDate(payload.selectedDate), appointments: [...paginatedAppointments].sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR")) }];
+    return [{ label: acolhimentoDateLabel(payload.selectedDate), appointments: [...paginatedAppointments].sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR")) }];
   }, [effectiveConsultView, paginatedAppointments, payload]);
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
@@ -579,7 +599,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  async function appointmentAction(action: "confirm-manual" | "cancel", appointmentId: string) {
+  function toggleConsultStatus(status: ConsultStatus) {
+    setConsultStatuses((current) => (
+      current.includes(status)
+        ? current.filter((item) => item !== status)
+        : [...current, status]
+    ));
+    setConsultPage(1);
+    setOpenAppointmentActions({});
+  }
+
+  async function appointmentAction(action: "confirm-manual", appointmentId: string) {
     setSaving(true);
     setError("");
     try {
@@ -589,6 +619,54 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Não foi possível atualizar o agendamento.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openCancelAppointment(appointment: Appointment) {
+    setCancelRequest({
+      appointmentId: appointment.id,
+      consulenteName: appointment.consulenteName,
+      reason: "",
+    });
+  }
+
+  async function submitCancellation(event: FormEvent) {
+    event.preventDefault();
+    if (!cancelRequest) return;
+
+    const reason = cancelRequest.reason.trim();
+    if (!reason) {
+      setErrorNotice({
+        title: "Informe o motivo do cancelamento",
+        message: "O motivo é obrigatório para cancelar um agendamento e preservar o histórico da Recepção.",
+      });
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({
+        action: "cancel",
+        appointmentId: cancelRequest.appointmentId,
+        reason,
+      });
+      const successMessage = typeof result.message === "string"
+        ? result.message
+        : "Agendamento cancelado e vaga liberada.";
+      setCancelRequest(null);
+      setOpenAppointmentActions({});
+      setMessage("");
+      setSuccessNotice({ title: "Agendamento cancelado", message: successMessage });
+      await load(payload?.selectedDate);
+      await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({
+        title: "Não foi possível cancelar o agendamento",
+        message: actionError instanceof Error ? actionError.message : "Não foi possível cancelar o agendamento.",
+      });
     } finally {
       setSaving(false);
     }
@@ -923,24 +1001,33 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "consultar" && (
             <div className="grid gap-3">
-              <div className="grid grid-cols-2 gap-2">
-                <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-bold text-[#123D2C]">
-                  {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
-                </select>
-                <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-bold text-[#123D2C]">
-                  <option value="day_entity">Dia / Entidade</option>
-                  <option value="entity_day">Entidade / Dia</option>
-                </select>
+              <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                    {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+                  </select>
+                  <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                    <option value="entity_day">Entidade / Dia</option>
+                    <option value="day_entity">Dia / Entidade</option>
+                  </select>
+                </div>
+                <fieldset className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                  <legend className="px-1 text-[10px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">Status</legend>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {([
+                      ["confirm", "Confirmar"],
+                      ["arrived", "Chegou"],
+                      ["absent", "Não Chegou"],
+                      ["cancelled", "Cancelado"],
+                    ] as Array<[ConsultStatus, string]>).map(([status, label]) => (
+                      <label key={status} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-black ring-1 ${consultStatuses.includes(status) ? "bg-[#E9F2E7] text-[#123D2C] ring-[#2F6B43]/30" : "bg-white text-slate-500 ring-[#123D2C]/10"}`}>
+                        <input type="checkbox" checked={consultStatuses.includes(status)} onChange={() => toggleConsultStatus(status)} className="h-4 w-4" />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
-              <label className="grid gap-1 text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Status
-                <select value={consultStatus} onChange={(event) => { setConsultStatus(event.target.value as ConsultStatus); setConsultPage(1); setOpenAppointmentActions({}); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm font-bold normal-case tracking-normal text-[#123D2C]">
-                  <option value="all">Todos</option>
-                  <option value="confirm">Confirmar</option>
-                  <option value="arrived">Chegou</option>
-                  <option value="absent">Não Chegou</option>
-                  <option value="cancelled">Cancelar</option>
-                </select>
-              </label>
 
               {groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
@@ -967,7 +1054,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${appointment.consulenteName}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("cancel", appointment.id)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
                               <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -1238,6 +1325,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
 
+      {cancelRequest && (
+        <CancelAppointmentPopup
+          request={cancelRequest}
+          saving={saving}
+          onChangeReason={(reason) => setCancelRequest((current) => current ? { ...current, reason } : current)}
+          onClose={() => !saving && setCancelRequest(null)}
+          onSubmit={submitCancellation}
+        />
+      )}
+
       {successNotice && (
         <SuccessPopup
           title={successNotice.title}
@@ -1276,6 +1373,54 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
     </main>
+  );
+}
+
+function CancelAppointmentPopup({
+  request,
+  saving,
+  onChangeReason,
+  onClose,
+  onSubmit,
+}: {
+  request: CancelRequest;
+  saving: boolean;
+  onChangeReason: (reason: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[280] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cancelar agendamento">
+      <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b border-red-100 px-5 py-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-red-600">Cancelamento</p>
+            <h2 className="text-xl font-black text-red-800">Cancelar agendamento</h2>
+          </div>
+          <button type="button" disabled={saving} onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-50">Fechar</button>
+        </header>
+        <form onSubmit={onSubmit} className="grid gap-3 p-4 sm:p-5">
+          <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-800 ring-1 ring-red-100">
+            Você está cancelando o atendimento de {request.consulenteName}. A vaga será liberada e o motivo ficará registrado no histórico.
+          </p>
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Motivo do cancelamento
+            <textarea
+              value={request.reason}
+              onChange={(event) => onChangeReason(event.target.value)}
+              rows={4}
+              maxLength={500}
+              placeholder="Ex.: Consulente avisou que não poderá comparecer."
+              className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold"
+              required
+            />
+          </label>
+          <button type="submit" disabled={saving || !request.reason.trim()} className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:opacity-50">
+            {saving ? "Cancelando..." : "Confirmar cancelamento"}
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
 

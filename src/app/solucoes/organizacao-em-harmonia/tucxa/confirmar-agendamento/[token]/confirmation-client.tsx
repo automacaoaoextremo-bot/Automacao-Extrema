@@ -90,7 +90,6 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
                 <Detail label="Data" value={appointment.appointmentDateLabel} />
                 <Detail label="Chegada" value={appointment.arrivalWindow} />
                 <Detail label="Porta fecha" value={appointment.doorClosesAt} />
-                <Detail label="Porta reabre" value={appointment.doorReopensAt} />
                 <Detail label="Início dos atendimentos" value={appointment.appointmentTime} />
                 <Detail label="Término previsto" value={appointment.endTime} />
                 <Detail label="Entidade" value={appointment.entityName} />
@@ -107,7 +106,6 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
                 </div>
               )}
 
-              {confirmed && <StateBox tone="green" title="Presença confirmada">Seu atendimento está reservado conforme os dados acima. Obrigado por confirmar.</StateBox>}
               {declined && !expired && <StateBox tone="amber" title="Vaga liberada">Recebemos seu aviso de que não poderá comparecer.</StateBox>}
               {expired && <StateBox tone="amber" title="Prazo encerrado">O prazo de confirmação terminou. Entre em contato com a Recepção do Tucxa para verificar a situação do atendimento.</StateBox>}
             </>
