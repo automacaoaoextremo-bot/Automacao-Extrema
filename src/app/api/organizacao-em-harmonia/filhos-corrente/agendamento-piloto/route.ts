@@ -411,8 +411,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     supabaseAdmin
       .from("oh_tucxa_pilot_entity_schedule")
       .select("entity_id,weekday,month_occurrence,default_capacity,active")
-      .eq("organization_id", organizationId)
-      .eq("active", true),
+      .eq("organization_id", organizationId),
     supabaseAdmin
       .from("oh_memberships")
       .select("person_id,agenda_viva_profile,active")
@@ -722,6 +721,15 @@ export async function POST(request: Request) {
           })
         : { sent: false, provider: "disabled" as const, error: "Telefone não informado." };
 
+      if (!whatsappDispatch.sent) {
+        console.warn("[TUCXA piloto BotConversa envio] confirmação automática não enviada", {
+          appointmentId: reservation.appointment_id,
+          provider: whatsappDispatch.provider,
+          error: whatsappDispatch.error,
+          steps: "steps" in whatsappDispatch ? whatsappDispatch.steps : undefined,
+        });
+      }
+
       if (whatsappDispatch.sent) {
         const { error: sentUpdateError } = await supabaseAdmin
           .from("oh_consulente_appointments")
@@ -1029,10 +1037,11 @@ export async function POST(request: Request) {
       const description = asText(body.description);
       const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
+      const entityActive = body.active !== false;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
-      if (!mondayOccurrences.length && !tuesdayOccurrences.length) {
+      if (entityActive && !mondayOccurrences.length && !tuesdayOccurrences.length) {
         return NextResponse.json({ error: "Defina pelo menos uma ocorrência de segunda ou terça para a Entidade." }, { status: 400 });
       }
 
@@ -1045,8 +1054,8 @@ export async function POST(request: Request) {
             appointment_notes: description || null,
             daily_capacity: capacity,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
-            appointment_enabled: true,
-            active: true,
+            appointment_enabled: entityActive,
+            active: entityActive,
             updated_at: new Date().toISOString(),
           })
           .eq("organization_id", context.organizationId)
@@ -1082,10 +1091,10 @@ export async function POST(request: Request) {
             entity_type: "Entidade de atendimento",
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
-            appointment_enabled: true,
+            appointment_enabled: entityActive,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
-            active: true,
+            active: entityActive,
           })
           .select("id")
           .single();
@@ -1109,13 +1118,15 @@ export async function POST(request: Request) {
         weekday: item.weekday,
         month_occurrence: item.occurrence,
         default_capacity: capacity,
-        active: true,
+        active: entityActive,
       }));
 
-      const { error: scheduleError } = await supabaseAdmin
-        .from("oh_tucxa_pilot_entity_schedule")
-        .insert(scheduleRows);
-      if (scheduleError) throw scheduleError;
+      if (scheduleRows.length) {
+        const { error: scheduleError } = await supabaseAdmin
+          .from("oh_tucxa_pilot_entity_schedule")
+          .insert(scheduleRows);
+        if (scheduleError) throw scheduleError;
+      }
 
       const { error: unlinkError } = await supabaseAdmin
         .from("oh_person_entity_links")
@@ -1138,7 +1149,7 @@ export async function POST(request: Request) {
         if (linkError) throw linkError;
       }
 
-      return NextResponse.json({ ok: true, entityId, message: requestedEntityId ? "Cadastro e calendário da Entidade atualizados." : "Entidade cadastrada e incluída no calendário do piloto." });
+      return NextResponse.json({ ok: true, entityId, message: requestedEntityId ? (entityActive ? "Cadastro e calendário da Entidade atualizados." : "Entidade inativada. O cadastro e o calendário foram preservados para futura reativação.") : "Entidade cadastrada e incluída no calendário do piloto." });
     }
 
     if (action === "confirm-manual") {

@@ -1,0 +1,26 @@
+AUTOMAÇÃO EXTREMA — TUCXA — AGENDAMENTO 15
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Ajustes implementados:
+- BotConversa: mantém o envio automático na criação do agendamento e o aviso à Recepção após a confirmação; adiciona uma nova tentativa automática para respostas transitórias 409/429/5xx e log detalhado quando o disparo não é concluído.
+- Tela de resultado do agendamento passa a mostrar o motivo retornado pelo BotConversa quando o envio automático falhar, mantendo o botão de envio manual como contingência.
+- Cadastros > Consulentes: título passa a ser “Cadastros · Consulentes” na primeira linha e o conteúdo foi compactado para reduzir rolagem no celular.
+- Cadastros > Entidades: formulário compactado e opção para ativar/inativar a Entidade.
+- Ao salvar uma Entidade, o popup de sucesso fecha de volta no próprio formulário Cadastros · Entidades.
+- Ao inativar, o cadastro e o calendário são preservados; a Entidade deixa de ficar disponível para atendimento/agendamento até reativação.
+
+Não há migration nova neste pacote.
+
+Vercel/BotConversa — conferir no ambiente da branch:
+BOTCONVERSA_ENABLED=true
+BOTCONVERSA_TUCXA_ENABLED=true
+BOTCONVERSA_API_KEY=<segredo>
+BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID=<id>
+BOTCONVERSA_TUCXA_RECEPTION_CONFIRMATION_FLOW_ID=<id>
+BOTCONVERSA_TUCXA_FIELD_NAME_ID=<id>
+BOTCONVERSA_TUCXA_FIELD_DATE_ID=<id>
+BOTCONVERSA_TUCXA_FIELD_ENTITY_ID=<id>
+BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID=<id>
+TUCXA_RECEPTION_WHATSAPP=<numero com 55+DDD+numero>
+
+Importante: não versionar API Key.

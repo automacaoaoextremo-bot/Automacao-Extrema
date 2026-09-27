@@ -1538,10 +1538,17 @@ export async function sendTucxaAppointmentWhatsapp(
 
     const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
     const numericFlowId = Number(flowId);
-    const flow = await botconversaRequest(flowPath, {
+    let flow = await botconversaRequest(flowPath, {
       method: "POST",
       body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
     });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
 
     steps.push({
       step: input.kind === "reminder" ? "send_tucxa_reminder_flow" : "send_tucxa_confirmation_flow",
@@ -1669,10 +1676,17 @@ export async function sendTucxaReceptionConfirmationWhatsapp(
 
     const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
     const numericFlowId = Number(flowId);
-    const flow = await botconversaRequest(flowPath, {
+    let flow = await botconversaRequest(flowPath, {
       method: "POST",
       body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
     });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
 
     steps.push({
       step: "send_tucxa_reception_confirmation_flow",

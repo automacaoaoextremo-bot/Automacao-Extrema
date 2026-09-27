@@ -229,6 +229,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     cavalinhoPersonId: "",
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
+    active: true,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -915,6 +916,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       cavalinhoPersonId: entity?.mediums[0]?.personId || "",
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
+      active: entity?.active !== false,
     });
   }
 
@@ -944,13 +946,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
         capacity: Number(editEntity.capacity),
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
+        active: editEntity.active,
       });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
-      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [] });
+      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true });
       await load(payload?.selectedDate);
-      setModal(null);
-      setCadastroMode("menu");
+      setModal("cadastros");
+      setCadastroMode("entidades");
       setSuccessNotice({ title: "Cadastro de Entidade salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a Entidade.");
@@ -1038,7 +1041,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
       {modal && payload && (
         <Modal
-          title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modalTitle(modal)}
+          title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
           onClose={() => {
             if (modal === "cadastros" && cadastroMode !== "menu") {
               clearPersonSearch();
@@ -1084,7 +1087,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                 <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
-                <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
+                <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
               </form>
 
               <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
@@ -1093,14 +1096,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {alphabetLoading && <span className="text-[11px] font-bold text-slate-500">Carregando...</span>}
                 </div>
                 {alphabetLetters.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-1.5 flex flex-wrap gap-1">
                     {alphabetLetters.map((letter) => (
                       <button
                         key={letter}
                         type="button"
                         disabled={alphabetLoading}
                         onClick={() => void loadConsulenteAlphabet(letter)}
-                        className="flex h-9 min-w-9 items-center justify-center rounded-lg bg-white px-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
+                        className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-white px-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
                       >
                         {letter}
                       </button>
@@ -1328,14 +1331,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
               )}
 
               {cadastroMode === "consulentes" && (
-                <section className="grid gap-3">
-                  <p className="font-black text-[#123D2C]">Consulentes</p>
+                <section className="grid gap-2">
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
-                    <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3" required />
+                    <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
                   </form>
 
-                  <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <section className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Ou escolha pela inicial</p>
                       {alphabetLoading && <span className="text-[11px] font-bold text-slate-500">Carregando...</span>}
@@ -1409,58 +1411,59 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   )}
 
                   {foundPerson && (
-                    <form onSubmit={updateConsulente} className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                      <p className="font-black text-[#123D2C]">Atualizar Consulente</p>
+                    <form onSubmit={updateConsulente} className="grid gap-1.5 rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
+                      <p className="text-sm font-black text-[#123D2C]">Atualizar Consulente</p>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome
-                        <input value={editPerson.fullName} onChange={(event) => setEditPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-2.5" required />
+                        <input value={editPerson.fullName} onChange={(event) => setEditPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">WhatsApp
-                        <input value={editPerson.whatsapp} onChange={(event) => setEditPerson((current) => ({ ...current, whatsapp: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-2.5" required />
+                        <input value={editPerson.whatsapp} onChange={(event) => setEditPerson((current) => ({ ...current, whatsapp: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">E-mail opcional
-                        <input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-2.5" type="email" />
+                        <input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" type="email" />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
-                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-2.5">
+                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
                           <option value="">Sem Entidade padrão</option>
                           {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
                         </select>
                       </label>
                       <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
-                      <p className="text-xs font-semibold leading-5 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
-                      <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Salvar Consulente</button>
+                      <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
+                      <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">Salvar Consulente</button>
                     </form>
                   )}
                 </section>
               )}
 
               {cadastroMode === "entidades" && (
-                <form onSubmit={saveEntity} className="grid gap-2.5">
+                <form onSubmit={saveEntity} className="grid gap-1.5">
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cadastro
-                    <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-xl border border-[#123D2C]/15 p-2.5">
+                    <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-lg border border-[#123D2C]/15 p-2">
                       <option value="">Nova Entidade</option>
                       {payload.entityCatalog.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.active && entity.appointmentEnabled ? "" : " · inativa"}</option>)}
                     </select>
                   </label>
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
-                    <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                    <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
                   </label>
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
-                    <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={2} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Como esta Entidade atua no atendimento." />
+                    <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
                   </label>
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
-                    <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3" required />
+                    <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
                   </label>
                   <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
-                    <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-xl border border-[#123D2C]/15 p-3">
+                    <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
                       <option value="">Sem Cavalinho associado</option>
                       {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
                     </select>
                   </label>
+                  {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
                   <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
                   <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
-                  <p className="text-xs font-semibold leading-5 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
-                  <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
+                  <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
+                  <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
                 </form>
               )}
             </div>
@@ -1590,7 +1593,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <p className="text-lg font-black text-[#123D2C]">{bookingResult.appointment.personName}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
-              {bookingResult.confirmation.whatsapp.sent && <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada pelo WhatsApp.</p>}
+              {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
               href={whatsappHref(bookingResult.whatsapp, `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
