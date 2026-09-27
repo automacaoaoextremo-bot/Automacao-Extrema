@@ -95,7 +95,7 @@ type BotConversaRequestResult = {
 type BotConversaFieldConfig = {
   fieldId: string;
   label: string;
-  value: string;
+  value: string | number;
 };
 
 const DEFAULT_BASE_URL = "https://backend.botconversa.com.br";
@@ -179,7 +179,7 @@ function optionalValue(value: string | number | null | undefined) {
 }
 
 function botConversaDateValue(value: string) {
-  const trimmed = value.trim();
+  const trimmed = String(value).trim();
   if (!trimmed) return "";
 
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
@@ -193,8 +193,8 @@ function botConversaDateValue(value: string) {
   return trimmed;
 }
 
-function botConversaIsoDateValue(value: string) {
-  const trimmed = value.trim();
+function botConversaIsoDateValue(value: string | number) {
+  const trimmed = String(value).trim();
   if (!trimmed) return "";
 
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
@@ -204,6 +204,15 @@ function botConversaIsoDateValue(value: string) {
   if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
 
   return trimmed;
+}
+
+function botConversaUnixDateValue(value: string | number) {
+  const iso = botConversaIsoDateValue(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return iso;
+
+  // Meio-dia UTC evita que conversões de fuso desloquem a data civil.
+  return Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0) / 1000);
 }
 
 function botConversaWait(milliseconds: number) {
@@ -1038,23 +1047,24 @@ async function setCustomFields(
       responseText: response.ok ? undefined : response.text,
     });
 
-    // Campos do tipo Data podem demorar alguns milissegundos para ficar
-    // disponíveis ao fluxo. Regravamos uma vez o valor normalizado e só
-    // disparamos o fluxo depois que todas as gravações terminarem.
-    if (field.label === "tucxa_data") {
+    // O BotConversa documenta campos Data como DD/MM/AAAA. Em algumas contas,
+    // porém, o endpoint legado ainda valida a representação interna da data.
+    // Só fazemos fallback quando a primeira gravação falha; se DD/MM/AAAA foi
+    // aceito, não regravamos o campo desnecessariamente.
+    if (field.label === "tucxa_data" && !response.ok) {
       await botConversaWait(250);
 
-      const retryField: BotConversaFieldConfig = {
+      const isoRetryField: BotConversaFieldConfig = {
         ...field,
-        value: botConversaDateValue(field.value),
+        value: botConversaIsoDateValue(field.value),
       };
       response = await botconversaRequest(path, {
         method,
-        body: customFieldBody(retryField),
+        body: customFieldBody(isoRetryField),
       });
 
       results.push({
-        step: "set_field_tucxa_data_retry",
+        step: "set_field_tucxa_data_iso_fallback",
         ok: response.ok,
         status: response.status,
         path: response.path,
@@ -1064,22 +1074,23 @@ async function setCustomFields(
       });
 
       if (!response.ok) {
-        const isoRetryField: BotConversaFieldConfig = {
+        const unixRetryField: BotConversaFieldConfig = {
           ...field,
-          value: botConversaIsoDateValue(field.value),
+          value: botConversaUnixDateValue(field.value),
         };
-        const isoResponse = await botconversaRequest(path, {
+        const unixResponse = await botconversaRequest(path, {
           method,
-          body: customFieldBody(isoRetryField),
+          body: customFieldBody(unixRetryField),
         });
+
         results.push({
-          step: "set_field_tucxa_data_iso_fallback",
-          ok: isoResponse.ok,
-          status: isoResponse.status,
-          path: isoResponse.path,
-          method: isoResponse.method,
-          data: isoResponse.data,
-          responseText: isoResponse.ok ? undefined : isoResponse.text,
+          step: "set_field_tucxa_data_unix_fallback",
+          ok: unixResponse.ok,
+          status: unixResponse.status,
+          path: unixResponse.path,
+          method: unixResponse.method,
+          data: unixResponse.data,
+          responseText: unixResponse.ok ? undefined : unixResponse.text,
         });
       }
     }

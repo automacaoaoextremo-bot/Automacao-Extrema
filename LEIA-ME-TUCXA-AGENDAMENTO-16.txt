@@ -1,0 +1,15 @@
+Automação Extrema — TUCXA — Agendamento Piloto — Ajustes 16
+
+Arquivo alterado:
+- src/lib/botconversa.ts
+
+Arquivo novo de apoio:
+- docs/tucxa/HOMOLOGACAO-AGENDAMENTO-16.md
+
+Não há migration Supabase nova neste pacote.
+
+Correção principal:
+- evita regravar a data quando DD/MM/AAAA já foi aceito;
+- se a API rejeitar DD/MM/AAAA, tenta AAAA-MM-DD;
+- se ainda rejeitar, tenta timestamp Unix como compatibilidade do endpoint;
+- o fluxo só é bloqueado se todas as representações da data falharem.
