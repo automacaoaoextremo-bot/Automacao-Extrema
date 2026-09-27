@@ -942,18 +942,6 @@ function receptionSearchPerson(person: unknown) {
   };
 }
 
-function maskPhone(value: unknown) {
-  const digits = normalizePhone(value);
-  if (digits.length < 4) return "Não informado";
-  return `(${digits.slice(0, 2)}) *****-${digits.slice(-4)}`;
-}
-
-function maskEmail(value: unknown) {
-  const email = realNotificationEmail(value);
-  const [local, domain] = email.split("@");
-  if (!local || !domain) return "";
-  return `${local.slice(0, 2)}${"*".repeat(Math.max(3, local.length - 2))}@${domain}`;
-}
 
 async function defaultConsulenteRoleId(organizationId: string) {
   const { data, error } = await supabaseAdmin
