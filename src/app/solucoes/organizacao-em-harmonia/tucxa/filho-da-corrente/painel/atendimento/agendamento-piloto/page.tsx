@@ -931,8 +931,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }
 
-  function openBulkEntityChange(entity: Entity, appointments: Appointment[]) {
-    const active = appointments.filter((item) => item.status !== "cancelado");
+  function openBulkEntityChange(entity: Entity) {
+    const active = (payload?.appointments ?? []).filter(
+      (item) => item.entityId === entity.id && item.status !== "cancelado",
+    );
     if (!active.length) return;
     setEntityChangeRequest({
       mode: "bulk",
@@ -972,6 +974,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: entityChangeRequest.mode === "bulk" ? "change-entity-bulk" : "change-entity",
         appointmentId: entityChangeRequest.appointmentIds[0],
         appointmentIds: entityChangeRequest.appointmentIds,
+        sourceEntityId: entityChangeRequest.currentEntityId,
+        appointmentDate: payload?.selectedDate ?? "",
         entityId: entityChangeRequest.newEntityId,
         reason,
         notify: entityChangeRequest.notify,
@@ -1425,15 +1429,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     {effectiveConsultView === "entity_day" && (() => {
                       const entity = payload.entities.find((item) => item.name === group.label);
                       if (!entity) return null;
-                      const activeGroup = group.appointments.filter((item) => item.status !== "cancelado");
+                      const activeEntityAppointments = (payload.appointments ?? []).filter(
+                        (item) => item.entityId === entity.id && item.status !== "cancelado",
+                      );
                       return (
                         <span className="flex items-center gap-2">
                           <span className="text-xs">{entity.booked}/{entity.capacity}</span>
-                          {activeGroup.length > 0 && (
+                          {activeEntityAppointments.length > 0 && (
                             <button
                               type="button"
                               disabled={saving}
-                              onClick={() => openBulkEntityChange(entity, group.appointments)}
+                              onClick={() => openBulkEntityChange(entity)}
                               className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
                             >
                               Trocar todos
@@ -1945,7 +1951,7 @@ function EntityChangePopup({
 }) {
   const target = entities.find((entity) => entity.id === request.newEntityId);
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4">
+    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/55 p-4">
       <form onSubmit={onSubmit} className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[28px] bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 className="text-xl font-black text-[#123D2C]">

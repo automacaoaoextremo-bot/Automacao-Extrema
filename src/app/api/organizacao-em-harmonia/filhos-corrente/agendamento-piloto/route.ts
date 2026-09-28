@@ -936,9 +936,26 @@ export async function POST(request: Request) {
       const attachmentType = asText(body.attachmentType).toLowerCase();
       const attachmentBase64 = asText(body.attachmentBase64);
 
-      const appointmentIds = action === "change-entity-bulk"
+      let appointmentIds = action === "change-entity-bulk"
         ? (Array.isArray(body.appointmentIds) ? body.appointmentIds.map(asText).filter(Boolean) : [])
         : [asText(body.appointmentId)].filter(Boolean);
+
+      if (action === "change-entity-bulk") {
+        const sourceEntityId = asText(body.sourceEntityId);
+        const appointmentDate = asText(body.appointmentDate);
+        if (!sourceEntityId || !appointmentDate) {
+          return NextResponse.json({ error: "Informe a Entidade de origem e a data da troca em massa.", requestId: code }, { status: 400 });
+        }
+        const { data: bulkRows, error: bulkError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .select("id")
+          .eq("organization_id", context.organizationId)
+          .eq("appointment_date", appointmentDate)
+          .eq("entity_id", sourceEntityId)
+          .neq("status", "cancelado");
+        if (bulkError) throw bulkError;
+        appointmentIds = (bulkRows ?? []).map((item) => asText(item.id)).filter(Boolean);
+      }
 
       if (!appointmentIds.length || !entityId) {
         return NextResponse.json({ error: "Informe o(s) agendamento(s) e a nova Entidade.", requestId: code }, { status: 400 });
