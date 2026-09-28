@@ -1295,6 +1295,16 @@ export type TucxaAppointmentBotConversaInput = {
   kind: "confirmation" | "reminder";
 };
 
+export type TucxaEntityChangeBotConversaInput = {
+  fullName: string;
+  recipientName?: string;
+  whatsapp: string;
+  appointmentDate: string;
+  previousEntityName: string;
+  newEntityName: string;
+  reason: string;
+};
+
 export type TucxaAppointmentBotConversaResult = {
   sent: boolean;
   provider: "botconversa" | "disabled";
@@ -1661,6 +1671,102 @@ export async function sendTucxaReceptionConfirmationWhatsapp(
       sent: false,
       provider: "botconversa",
       error: error instanceof Error ? error.message : "Falha inesperada ao avisar a Recepção pelo BotConversa.",
+    };
+  }
+}
+
+
+export async function sendTucxaEntityChangeWhatsapp(
+  input: TucxaEntityChangeBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return { sent: false, provider: "disabled", error: "BotConversa do Agendamento não habilitado." };
+  }
+
+  const previousEntityFieldId = firstEnv(
+    "BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY_ID",
+    "BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY",
+  );
+  const reasonFieldId = firstEnv(
+    "BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON_ID",
+    "BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON",
+  );
+  const flowId = firstEnv(
+    "BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW_ID",
+    "BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW",
+  );
+
+  const required = [
+    ["BOTCONVERSA_TUCXA_FIELD_NAME_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME")],
+    ["BOTCONVERSA_TUCXA_FIELD_DATE_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE")],
+    ["BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY")],
+    ["BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY_ID", previousEntityFieldId],
+    ["BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON_ID", reasonFieldId],
+    ["BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW_ID", flowId],
+  ] as Array<[string, string]>;
+  const missing = required.filter(([, value]) => !isConfigured(value)).map(([name]) => name);
+  if (missing.length) {
+    return { sent: false, provider: "disabled", error: `Configuração BotConversa ausente: ${missing.join(", ")}.` };
+  }
+
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber({
+      kind: "reminder",
+      fullName: input.fullName,
+      recipientName: input.recipientName,
+      whatsapp: input.whatsapp,
+      appointmentDate: input.appointmentDate,
+      entityName: input.newEntityName,
+    });
+    if (!subscriber.subscriberId) {
+      return { sent: false, provider: "botconversa", error: subscriber.error, steps: subscriber.steps };
+    }
+
+    const fields: BotConversaFieldConfig[] = [
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME"), label: "tucxa_nome", value: input.fullName },
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE"), label: "tucxa_data", value: botConversaDateValue(input.appointmentDate) },
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY"), label: "tucxa_entidade", value: input.newEntityName },
+      { fieldId: previousEntityFieldId, label: "tucxa_entidade_anterior", value: input.previousEntityName },
+      { fieldId: reasonFieldId, label: "tucxa_motivo_alteracao", value: input.reason },
+    ];
+
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, fields);
+    steps.push(...fieldSteps);
+    const failed = failedCustomFieldStep(fieldSteps);
+    if (failed) {
+      return {
+        sent: false, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do envio (${failed.step}).`, steps,
+      };
+    }
+
+    await botConversaWait(900);
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    let flow = await botconversaRequest(flowPath, {
+      method: "POST",
+      body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+    });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
+    steps.push({
+      step: "send_tucxa_entity_change_flow", ok: flow.ok, status: flow.status,
+      path: flow.path, method: flow.method, data: flow.data, responseText: flow.ok ? undefined : flow.text,
+    });
+    return {
+      sent: flow.ok, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId,
+      error: flow.ok ? undefined : flow.text || "Não foi possível disparar o fluxo de alteração de Entidade.", steps,
+    };
+  } catch (error) {
+    return {
+      sent: false, provider: "botconversa",
+      error: error instanceof Error ? error.message : "Falha ao enviar alteração de Entidade pelo BotConversa.",
     };
   }
 }

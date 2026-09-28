@@ -91,6 +91,17 @@ type CompletedBooking = BookingResult & { whatsapp: string; contactName?: string
 type SuccessNotice = { title: string; message: string };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string; attachment: File | null };
+type EntityChangeRequest = {
+  mode: "individual" | "bulk";
+  appointmentIds: string[];
+  consulenteName: string;
+  currentEntityId: string;
+  currentEntityName: string;
+  newEntityId: string;
+  reason: string;
+  notify: boolean;
+  attachment: File | null;
+};
 type AlphabetPickerState = { letter: string; people: FoundPerson[] };
 type SummaryMode = "date" | "future";
 type SummaryCounts = {
@@ -209,6 +220,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
+  const [entityChangeRequest, setEntityChangeRequest] = useState<EntityChangeRequest | null>(null);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
   const [summaryOverride, setSummaryOverride] = useState<SummaryCounts | null>(null);
@@ -224,7 +236,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
-  const [changeSelections, setChangeSelections] = useState<Record<string, string>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
   const [editEntity, setEditEntity] = useState({
@@ -906,18 +917,83 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  async function changeEntity(appointmentId: string) {
-    const nextEntityId = changeSelections[appointmentId] || "";
-    if (!nextEntityId) return;
+  function openIndividualEntityChange(appointment: Appointment) {
+    setEntityChangeRequest({
+      mode: "individual",
+      appointmentIds: [appointment.id],
+      consulenteName: appointment.consulenteName,
+      currentEntityId: appointment.entityId,
+      currentEntityName: appointment.entityName,
+      newEntityId: "",
+      reason: "",
+      notify: true,
+      attachment: null,
+    });
+  }
+
+  function openBulkEntityChange(entity: Entity, appointments: Appointment[]) {
+    const active = appointments.filter((item) => item.status !== "cancelado");
+    if (!active.length) return;
+    setEntityChangeRequest({
+      mode: "bulk",
+      appointmentIds: active.map((item) => item.id),
+      consulenteName: `${active.length} agendamento(s)`,
+      currentEntityId: entity.id,
+      currentEntityName: entity.name,
+      newEntityId: "",
+      reason: "",
+      notify: true,
+      attachment: null,
+    });
+  }
+
+  async function submitEntityChange(event: FormEvent) {
+    event.preventDefault();
+    if (!entityChangeRequest) return;
+    const reason = entityChangeRequest.reason.trim();
+    if (!entityChangeRequest.newEntityId) {
+      setErrorNotice({ title: "Escolha a nova Entidade", message: "Selecione a Entidade de destino antes de confirmar a troca." });
+      return;
+    }
+    if (!reason) {
+      setErrorNotice({ title: "Informe o motivo", message: "O motivo da troca é obrigatório e ficará registrado no histórico." });
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
-      const result = await postPilot({ action: "change-entity", appointmentId, entityId: nextEntityId });
-      setMessage(typeof result.message === "string" ? result.message : "Entidade atualizada.");
+      const attachment = entityChangeRequest.attachment;
+      if (attachment && attachment.size > 5 * 1024 * 1024) throw new Error("O anexo deve ter no máximo 5 MB.");
+      if (attachment && !(attachment.type.startsWith("image/") || attachment.type === "application/pdf")) {
+        throw new Error("O anexo deve ser uma imagem ou arquivo PDF.");
+      }
+      const result = await postPilot({
+        action: entityChangeRequest.mode === "bulk" ? "change-entity-bulk" : "change-entity",
+        appointmentId: entityChangeRequest.appointmentIds[0],
+        appointmentIds: entityChangeRequest.appointmentIds,
+        entityId: entityChangeRequest.newEntityId,
+        reason,
+        notify: entityChangeRequest.notify,
+        attachmentName: attachment?.name || "",
+        attachmentType: attachment?.type || "",
+        attachmentBase64: attachment ? await fileToBase64(attachment) : "",
+      });
+      const failures = Array.isArray(result.notificationFailures) ? result.notificationFailures as string[] : [];
+      const baseMessage = typeof result.message === "string" ? result.message : "Entidade atualizada.";
+      const message = failures.length
+        ? `${baseMessage} Atenção: ${failures.length} aviso(s) não foram enviados.`
+        : baseMessage;
+      setEntityChangeRequest(null);
+      setOpenAppointmentActions({});
+      setSuccessNotice({ title: entityChangeRequest.mode === "bulk" ? "Troca em massa concluída" : "Entidade alterada", message });
       await load(payload?.selectedDate);
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : payload?.selectedDate);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Não foi possível trocar a Entidade.");
+      setErrorNotice({
+        title: "Não foi possível trocar a Entidade",
+        message: actionError instanceof Error ? actionError.message : "Não foi possível trocar a Entidade.",
+      });
     } finally {
       setSaving(false);
     }
@@ -1348,7 +1424,23 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <span>{group.label}</span>
                     {effectiveConsultView === "entity_day" && (() => {
                       const entity = payload.entities.find((item) => item.name === group.label);
-                      return entity ? <span className="text-xs">{entity.booked}/{entity.capacity}</span> : null;
+                      if (!entity) return null;
+                      const activeGroup = group.appointments.filter((item) => item.status !== "cancelado");
+                      return (
+                        <span className="flex items-center gap-2">
+                          <span className="text-xs">{entity.booked}/{entity.capacity}</span>
+                          {activeGroup.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => openBulkEntityChange(entity, group.appointments)}
+                              className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
+                            >
+                              Trocar todos
+                            </button>
+                          )}
+                        </span>
+                      );
                     })()}
                   </h3>
                   {group.appointments.map((appointment) => {
@@ -1376,13 +1468,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
-                              <div className="grid grid-cols-[1fr_auto] gap-2">
-                                <select value={changeSelections[appointment.id] || ""} onChange={(event) => setChangeSelections((current) => ({ ...current, [appointment.id]: event.target.value }))} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2 text-xs font-bold">
-                                  <option value="">Trocar Entidade...</option>
-                                  {usableEntities.filter((entity) => entity.id !== appointment.entityId).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
-                                </select>
-                                <button type="button" disabled={saving || !changeSelections[appointment.id]} onClick={() => void changeEntity(appointment.id)} className="rounded-xl bg-white px-3 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">Trocar</button>
-                              </div>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => openIndividualEntityChange(appointment)}
+                                className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
+                              >
+                                Trocar Entidade
+                              </button>
                             )}
                           </div>
                         )}
@@ -1734,6 +1827,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
         />
       )}
 
+      {entityChangeRequest && (
+        <EntityChangePopup
+          request={entityChangeRequest}
+          entities={usableEntities}
+          saving={saving}
+          onChange={(patch) => setEntityChangeRequest((current) => current ? { ...current, ...patch } : current)}
+          onClose={() => !saving && setEntityChangeRequest(null)}
+          onSubmit={submitEntityChange}
+        />
+      )}
+
       {successNotice && (
         <SuccessPopup
           title={successNotice.title}
@@ -1820,6 +1924,106 @@ function AlphabetConsulentePopup({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function EntityChangePopup({
+  request,
+  entities,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  request: EntityChangeRequest;
+  entities: Entity[];
+  saving: boolean;
+  onChange: (patch: Partial<EntityChangeRequest>) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  const target = entities.find((entity) => entity.id === request.newEntityId);
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4">
+      <form onSubmit={onSubmit} className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[28px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h2 className="text-xl font-black text-[#123D2C]">
+            {request.mode === "bulk" ? "Trocar Entidade de todos" : "Trocar Entidade"}
+          </h2>
+          <button type="button" disabled={saving} onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </div>
+        <div className="grid gap-4 p-5">
+          <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold text-[#123D2C]">
+            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : request.consulenteName}</strong></p>
+            <p className="mt-1">Entidade atual: <strong>{request.currentEntityName}</strong></p>
+            {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
+          </div>
+
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Nova Entidade
+            <select
+              value={request.newEntityId}
+              onChange={(event) => onChange({ newEntityId: event.target.value })}
+              className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold"
+              required
+            >
+              <option value="">Selecione...</option>
+              {entities.filter((entity) => entity.id !== request.currentEntityId).map((entity) => (
+                <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>
+              ))}
+            </select>
+          </label>
+
+          {target && request.mode === "bulk" && target.available < request.appointmentIds.length && (
+            <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
+              Atenção: {request.appointmentIds.length} agendamentos serão movidos, mas {target.name} mostra {target.available} vaga(s).
+              O servidor fará uma nova validação antes de alterar qualquer agendamento.
+            </p>
+          )}
+
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Motivo da troca
+            <textarea
+              value={request.reason}
+              onChange={(event) => onChange({ reason: event.target.value })}
+              rows={3}
+              required
+              placeholder="Ex.: A Entidade Frei Francisco não poderá comparecer."
+              className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Anexo opcional
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(event) => onChange({ attachment: event.target.files?.[0] ?? null })}
+              className="rounded-xl border border-[#123D2C]/15 p-3 text-sm font-semibold"
+            />
+            <span className="text-xs font-semibold text-slate-500">Imagem ou PDF, até 5 MB. O arquivo fica no histórico da troca.</span>
+          </label>
+
+          <label className="flex items-start gap-3 rounded-xl bg-slate-50 p-3 text-sm font-bold text-[#123D2C]">
+            <input
+              type="checkbox"
+              checked={request.notify}
+              onChange={(event) => onChange({ notify: event.target.checked })}
+              className="mt-1"
+            />
+            Avisar {request.mode === "bulk" ? "todos os Consulentes/contatos" : "o Consulente/contato"} pelo WhatsApp
+          </label>
+
+          <button
+            type="submit"
+            disabled={saving || !request.newEntityId || !request.reason.trim()}
+            className="rounded-xl bg-[#176A3A] px-4 py-3 font-black text-white disabled:opacity-50"
+          >
+            {saving ? "Alterando..." : request.mode === "bulk" ? "Confirmar troca de todos" : "Confirmar troca"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

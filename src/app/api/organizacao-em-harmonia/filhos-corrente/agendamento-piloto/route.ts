@@ -20,7 +20,7 @@ import {
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
-import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
+import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 
 export const dynamic = "force-dynamic";
 
@@ -928,29 +928,133 @@ export async function POST(request: Request) {
       });
     }
 
-    if (action === "change-entity") {
-      const appointmentId = asText(body.appointmentId);
+    if (action === "change-entity" || action === "change-entity-bulk") {
       const entityId = asText(body.entityId);
-      if (!appointmentId || !entityId) return NextResponse.json({ error: "Informe o agendamento e a nova Entidade.", requestId: code }, { status: 400 });
-      const { data: appointment, error: appointmentError } = await supabaseAdmin
+      const reason = asText(body.reason);
+      const notify = asBoolean(body.notify, true);
+      const attachmentName = asText(body.attachmentName);
+      const attachmentType = asText(body.attachmentType).toLowerCase();
+      const attachmentBase64 = asText(body.attachmentBase64);
+
+      const appointmentIds = action === "change-entity-bulk"
+        ? (Array.isArray(body.appointmentIds) ? body.appointmentIds.map(asText).filter(Boolean) : [])
+        : [asText(body.appointmentId)].filter(Boolean);
+
+      if (!appointmentIds.length || !entityId) {
+        return NextResponse.json({ error: "Informe o(s) agendamento(s) e a nova Entidade.", requestId: code }, { status: 400 });
+      }
+      if (!reason) {
+        return NextResponse.json({ error: "Informe o motivo da troca de Entidade.", requestId: code }, { status: 400 });
+      }
+
+      const { data: appointments, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id, appointment_date, entity_id, metadata")
+        .select("id,person_id,source_contact_person_id,appointment_date,entity_id,consulente_name,whatsapp,status,notification_contact_name,notification_contact_whatsapp")
         .eq("organization_id", context.organizationId)
-        .eq("id", appointmentId)
-        .maybeSingle();
+        .in("id", appointmentIds);
       if (appointmentError) throw appointmentError;
-      if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
-      const available = await loadPilotDay(context.organizationId, asText(appointment.appointment_date));
-      const target = available.find((item) => item.id === entityId);
-      if (!target?.isAvailable || target.available < 1) return NextResponse.json({ error: "A nova Entidade não possui vaga disponível nessa data.", requestId: code }, { status: 409 });
-      const metadata = asRecord(appointment.metadata);
-      const { error: updateError } = await supabaseAdmin
-        .from("oh_consulente_appointments")
-        .update({ entity_id: entityId, metadata: { ...metadata, changedEntityAt: new Date().toISOString(), changedEntityByPersonId: context.personId }, updated_at: new Date().toISOString() })
+      if (!appointments?.length || appointments.length !== appointmentIds.length) {
+        return NextResponse.json({ error: "Um ou mais agendamentos não foram localizados.", requestId: code }, { status: 404 });
+      }
+      if (appointments.some((item) => asText(item.status) === "cancelado")) {
+        return NextResponse.json({ error: "Agendamentos cancelados não podem trocar de Entidade.", requestId: code }, { status: 409 });
+      }
+
+      const sourceEntityIds = Array.from(new Set(appointments.map((item) => asText(item.entity_id)).filter(Boolean)));
+      if (action === "change-entity-bulk" && sourceEntityIds.length !== 1) {
+        return NextResponse.json({ error: "A troca em massa deve partir de uma única Entidade.", requestId: code }, { status: 400 });
+      }
+      if (sourceEntityIds.includes(entityId)) {
+        return NextResponse.json({ error: "Escolha uma Entidade diferente da atual.", requestId: code }, { status: 400 });
+      }
+
+      const entityIds = Array.from(new Set([...sourceEntityIds, entityId]));
+      const { data: entityRows, error: entityError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,name")
         .eq("organization_id", context.organizationId)
-        .eq("id", appointmentId);
-      if (updateError) throw updateError;
-      return NextResponse.json({ ok: true, message: `Entidade alterada para ${target.name}.` });
+        .in("id", entityIds);
+      if (entityError) throw entityError;
+      const entityNames = new Map((entityRows ?? []).map((item) => [asText(item.id), asText(item.name) || "Entidade"]));
+      const newEntityName = entityNames.get(entityId);
+      if (!newEntityName) {
+        return NextResponse.json({ error: "Nova Entidade não localizada.", requestId: code }, { status: 404 });
+      }
+
+      let attachmentPath: string | null = null;
+      if (attachmentBase64) {
+        const allowedType = attachmentType.startsWith("image/") || attachmentType === "application/pdf";
+        if (!allowedType) {
+          return NextResponse.json({ error: "O anexo deve ser uma imagem ou arquivo PDF.", requestId: code }, { status: 400 });
+        }
+        const bytes = Buffer.from(attachmentBase64, "base64");
+        if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
+          return NextResponse.json({ error: "O anexo deve ter no máximo 5 MB.", requestId: code }, { status: 400 });
+        }
+        const safeName = (attachmentName || "anexo").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120);
+        attachmentPath = `${context.organizationId}/${appointments[0].appointment_date}/${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from("tucxa-agendamento-trocas-entidade")
+          .upload(attachmentPath, bytes, { contentType: attachmentType || "application/octet-stream", upsert: false });
+        if (uploadError) throw uploadError;
+      }
+
+      const { data: changedRows, error: changeError } = await supabaseAdmin.rpc("oh_tucxa_change_appointment_entity", {
+        p_organization_id: context.organizationId,
+        p_appointment_ids: appointmentIds,
+        p_new_entity_id: entityId,
+        p_changed_by_person_id: context.personId,
+        p_reason: reason,
+        p_change_mode: action === "change-entity-bulk" ? "bulk" : "individual",
+        p_attachment_path: attachmentPath,
+        p_attachment_name: attachmentPath ? attachmentName || "anexo" : null,
+        p_attachment_type: attachmentPath ? attachmentType : null,
+      });
+      if (changeError) {
+        if (attachmentPath) await supabaseAdmin.storage.from("tucxa-agendamento-trocas-entidade").remove([attachmentPath]);
+        const message = asText(changeError.message);
+        if (message.includes("PILOT_NO_AVAILABILITY")) {
+          return NextResponse.json({ error: "A Entidade de destino não possui vagas suficientes para esta troca.", requestId: code }, { status: 409 });
+        }
+        if (message.includes("PILOT_ENTITY_NOT_SCHEDULED")) {
+          return NextResponse.json({ error: "A Entidade de destino não atende nesta data.", requestId: code }, { status: 409 });
+        }
+        throw changeError;
+      }
+
+      let sent = 0;
+      const failures: string[] = [];
+      if (notify) {
+        for (const appointment of appointments) {
+          const phone = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
+          if (!phone) {
+            failures.push(`${asText(appointment.consulente_name) || "Consulente"}: sem WhatsApp`);
+            continue;
+          }
+          const dispatch = await sendTucxaEntityChangeWhatsapp({
+            fullName: asText(appointment.consulente_name) || "Consulente",
+            recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name),
+            whatsapp: phone,
+            appointmentDate: asText(appointment.appointment_date),
+            previousEntityName: entityNames.get(asText(appointment.entity_id)) || "Entidade anterior",
+            newEntityName,
+            reason,
+          });
+          if (dispatch.sent) sent += 1;
+          else failures.push(`${asText(appointment.consulente_name) || "Consulente"}: ${dispatch.error || "falha no envio"}`);
+        }
+      }
+
+      const totalChanged = Array.isArray(changedRows) ? changedRows.length : appointmentIds.length;
+      return NextResponse.json({
+        ok: true,
+        changed: totalChanged,
+        notified: sent,
+        notificationFailures: failures,
+        message: action === "change-entity-bulk"
+          ? `${totalChanged} agendamento(s) alterado(s) para ${newEntityName}. ${notify ? `${sent} aviso(s) enviado(s).` : "Aviso por WhatsApp desativado."}`
+          : `Entidade alterada para ${newEntityName}. ${notify ? (sent ? "Consulente avisado pelo WhatsApp." : "A alteração foi salva, mas o aviso não foi enviado.") : ""}`.trim(),
+      });
     }
 
     if (action === "consulente-alphabet") {
