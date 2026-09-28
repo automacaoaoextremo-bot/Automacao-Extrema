@@ -891,7 +891,7 @@ async function findPeopleByName(organizationId: string, name: string) {
 
   const { data, error } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp, registration_source")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp, registration_source, birth_date")
     .eq("organization_id", organizationId)
     .eq("active", true)
     .limit(1500);
@@ -939,6 +939,7 @@ function receptionSearchPerson(person: unknown) {
     fullName: asText(record.full_name),
     whatsapp: normalizePhone(record.normalized_whatsapp || record.whatsapp),
     email: realNotificationEmail(record.notification_email || record.email),
+    birthDate: asText(record.birth_date),
   };
 }
 
@@ -1047,6 +1048,44 @@ async function ensureReceptionConsulenteAccount(input: {
   return { authEmail, authUserId };
 }
 
+async function ensureReceptionConsulenteMembership(context: CurrentFilho, personId: string, canReceiveNotifications: boolean) {
+  const roleId = await defaultConsulenteRoleId(context.organizationId);
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id")
+    .eq("organization_id", context.organizationId)
+    .eq("person_id", personId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+
+  const membershipPayload = {
+    organization_id: context.organizationId,
+    person_id: personId,
+    role_id: roleId,
+    module_slugs: ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"],
+    active: true,
+    status: "ativo",
+    is_main_contact: false,
+    can_receive_notifications: canReceiveNotifications,
+    agenda_viva_profile: {
+      publico: "consulente-filho-de-fora",
+      canScheduleAttendance: true,
+      validationStatus: "ativo",
+      accessReleasedAt: new Date().toISOString(),
+      accessType: "consulente-filho-de-fora",
+      registrationSource: "recepcao",
+    },
+    updated_at: new Date().toISOString(),
+  };
+  const write = membership?.id
+    ? supabaseAdmin.from("oh_memberships").update(membershipPayload).eq("id", membership.id)
+    : supabaseAdmin.from("oh_memberships").insert(membershipPayload);
+  const { error } = await write;
+  if (error) throw error;
+}
+
 async function createReceptionPerson(
   context: CurrentFilho,
   body: Record<string, unknown>,
@@ -1055,31 +1094,48 @@ async function createReceptionPerson(
   if (!canScheduleConsulente) throw new Error("PERMISSION_DENIED");
   const fullName = asText(body.fullName);
   const whatsapp = normalizePhone(body.whatsapp);
+  const birthDate = asText(body.birthDate);
   const rawEmail = normalizeEmail(body.email);
   const email = rawEmail ? realNotificationEmail(rawEmail) : "";
   const password = asText(body.password);
   const privacyAccepted = body.privacyAccepted === true;
   if (!fullName) throw new Error("Informe o nome completo do Consulente.");
-  if (whatsapp.length < 10) throw new Error("Informe o WhatsApp com DDD.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) throw new Error("Informe a data de nascimento do Consulente.");
   if (rawEmail && !email) throw new Error("Confira o e-mail informado.");
-  if (password.length < 8) throw new Error("Defina uma senha temporária com pelo menos 8 caracteres.");
+  if (whatsapp && whatsapp.length < 10) throw new Error("Confira o WhatsApp com DDD ou deixe-o em branco.");
+  if (whatsapp && password.length < 8) throw new Error("Defina uma senha temporária com pelo menos 8 caracteres.");
   if (!privacyAccepted) throw new Error("Confirme a ciência do Aviso de Privacidade.");
 
-  const existingLookup = await findPersonByPhone(context.organizationId, whatsapp);
-  if (existingLookup.ambiguous) throw new Error("PHONE_DDD_REQUIRED");
-  if (existingLookup.person?.id) {
-    return { person: existingLookup.person, access: null as ReceptionAccountAccess | null };
+  if (whatsapp) {
+    const existingLookup = await findPersonByPhone(context.organizationId, whatsapp);
+    if (existingLookup.ambiguous) throw new Error("PHONE_DDD_REQUIRED");
+    if (existingLookup.person?.id) {
+      return { person: existingLookup.person, access: null as ReceptionAccountAccess | null };
+    }
   }
 
+  const { data: sameIdentity, error: sameIdentityError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, birth_date")
+    .eq("organization_id", context.organizationId)
+    .eq("active", true)
+    .eq("birth_date", birthDate)
+    .ilike("full_name", fullName)
+    .limit(1)
+    .maybeSingle();
+  if (sameIdentityError) throw sameIdentityError;
+  if (sameIdentity?.id) return { person: sameIdentity, access: null as ReceptionAccountAccess | null };
+
   const now = new Date().toISOString();
-  const authEmail = email || syntheticEmailFromPhone(whatsapp);
+  const authEmail = whatsapp ? (email || syntheticEmailFromPhone(whatsapp)) : (email || null);
   const { data, error } = await supabaseAdmin
     .from("oh_people")
     .insert({
       organization_id: context.organizationId,
       full_name: fullName,
-      whatsapp,
-      normalized_whatsapp: whatsapp,
+      birth_date: birthDate,
+      whatsapp: whatsapp || null,
+      normalized_whatsapp: whatsapp || null,
       email: authEmail,
       notification_email: email || null,
       active: true,
@@ -1089,9 +1145,14 @@ async function createReceptionPerson(
       registration_source: "recepcao",
       created_by_person_id: context.personId,
     })
-    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id")
+    .select("id, full_name, whatsapp, email, notification_email, active, auth_user_id, birth_date")
     .single();
   if (error) throw error;
+
+  if (!whatsapp) {
+    await ensureReceptionConsulenteMembership(context, data.id, Boolean(email));
+    return { person: data, access: null as ReceptionAccountAccess | null };
+  }
 
   const account = await ensureReceptionConsulenteAccount({
     context,

@@ -201,7 +201,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [notes, setNotes] = useState("");
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
   const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
-  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
@@ -361,12 +361,21 @@ export default function AgendamentoPilotoRecepcaoPage() {
       return consultStatuses.includes("confirm");
     });
   }, [consultStatuses, payload?.appointments]);
+  const orderedConsultAppointments = useMemo(() => {
+    return [...filteredAppointments].sort((a, b) => {
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
+      const bookingOrder = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
+      if (bookingOrder !== 0) return bookingOrder;
+      return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+    });
+  }, [filteredAppointments]);
   const consultPageSize = 2;
-  const consultPageCount = Math.max(1, Math.ceil(filteredAppointments.length / consultPageSize));
+  const consultPageCount = Math.max(1, Math.ceil(orderedConsultAppointments.length / consultPageSize));
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
   const paginatedAppointments = useMemo(
-    () => filteredAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
-    [effectiveConsultPage, filteredAppointments],
+    () => orderedConsultAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
+    [effectiveConsultPage, orderedConsultAppointments],
   );
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
@@ -436,7 +445,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
-    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
@@ -451,7 +460,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setNotes("");
     setContactMode("consulente");
     setAlternateContact({ name: "", relationship: "", whatsapp: "" });
-    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
     setBookingMode("date");
@@ -682,10 +691,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
     try {
       const result = await postLegacy({
         action: "create-consulente",
-        fullName: newPerson.fullName,
-        whatsapp: newPersonWhatsapp || phone,
+        fullName: newPerson.fullName || (!searchHasPhone ? phone : ""),
+        whatsapp: searchHasPhone ? (newPersonWhatsapp || phone) : newPersonWhatsapp,
+        birthDate: newPerson.birthDate,
         email: newPerson.email,
-        password: newPerson.password,
+        password: newPersonWhatsapp || phone ? newPerson.password : "",
         privacyAccepted: newPerson.privacyAccepted,
       });
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
@@ -1149,6 +1159,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
+                  <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" aria-label="Data de nascimento" className="rounded-xl border border-amber-200 p-3" required />
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <div className="grid gap-1">
                     <div className="flex items-center justify-between gap-2">
@@ -1164,7 +1175,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
               )}
 
               {personNotFound && !searchHasPhone && (
-                <p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-950 ring-1 ring-amber-100">Nenhum cadastro encontrado por esse nome. Para criar um novo cadastro, pesquise pelo WhatsApp com DDD.</p>
+                <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
+                  <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Cadastre o Consulente sem WhatsApp.</p>
+                  <p className="text-xs font-semibold text-amber-900">Para não identificar a pessoa somente pelo nome, informe também a data de nascimento. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
+                  <input value={newPerson.fullName || phone} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
+                  <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
+                    <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
+                  </label>
+                  <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
+                  <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
+                  <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
+                </form>
               )}
 
               {foundPerson && (
@@ -1434,6 +1455,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="font-black text-amber-950">Novo Consulente</p>
                       <label className="grid gap-1 text-xs font-black text-amber-950">Nome completo
                         <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 p-3" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
+                        <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-amber-950">WhatsApp com DDD
                         <input value={newPersonWhatsapp} onChange={(event) => setNewPersonWhatsapp(event.target.value)} className="rounded-xl border border-amber-200 p-3" required />
