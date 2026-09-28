@@ -90,7 +90,7 @@ type BookingResult = {
 type CompletedBooking = BookingResult & { whatsapp: string; contactName?: string; alternateContact?: boolean };
 type SuccessNotice = { title: string; message: string };
 type ErrorNotice = { title: string; message: string };
-type CancelRequest = { appointmentId: string; consulenteName: string; reason: string };
+type CancelRequest = { appointmentId: string; consulenteName: string; reason: string; attachment: File | null };
 type AlphabetPickerState = { letter: string; people: FoundPerson[] };
 type SummaryMode = "date" | "future";
 type SummaryCounts = {
@@ -814,6 +814,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
       appointmentId: appointment.id,
       consulenteName: appointment.consulenteName,
       reason: "",
+      attachment: null,
+    });
+  }
+
+  async function fileToBase64(file: File) {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const value = typeof reader.result === "string" ? reader.result : "";
+        resolve(value.includes(",") ? value.split(",", 2)[1] : value);
+      };
+      reader.onerror = () => reject(new Error("Não foi possível ler o anexo."));
+      reader.readAsDataURL(file);
     });
   }
 
@@ -833,10 +846,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSaving(true);
     setError("");
     try {
+      const attachment = cancelRequest.attachment;
+      if (attachment && attachment.size > 5 * 1024 * 1024) {
+        throw new Error("O anexo deve ter no máximo 5 MB.");
+      }
+      if (attachment && !(attachment.type.startsWith("image/") || attachment.type === "application/pdf")) {
+        throw new Error("O anexo deve ser uma imagem ou arquivo PDF.");
+      }
       const result = await postPilot({
         action: "cancel",
         appointmentId: cancelRequest.appointmentId,
         reason,
+        attachmentName: attachment?.name || "",
+        attachmentType: attachment?.type || "",
+        attachmentBase64: attachment ? await fileToBase64(attachment) : "",
       });
       const successMessage = typeof result.message === "string"
         ? result.message
@@ -1705,6 +1728,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           request={cancelRequest}
           saving={saving}
           onChangeReason={(reason) => setCancelRequest((current) => current ? { ...current, reason } : current)}
+          onChangeAttachment={(attachment) => setCancelRequest((current) => current ? { ...current, attachment } : current)}
           onClose={() => !saving && setCancelRequest(null)}
           onSubmit={submitCancellation}
         />
@@ -1804,12 +1828,14 @@ function CancelAppointmentPopup({
   request,
   saving,
   onChangeReason,
+  onChangeAttachment,
   onClose,
   onSubmit,
 }: {
   request: CancelRequest;
   saving: boolean;
   onChangeReason: (reason: string) => void;
+  onChangeAttachment: (attachment: File | null) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
@@ -1838,6 +1864,17 @@ function CancelAppointmentPopup({
               className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold"
               required
             />
+          </label>
+          <label className="grid gap-1 text-sm font-black text-[#123D2C]">
+            Anexo opcional
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              disabled={saving}
+              onChange={(event) => onChangeAttachment(event.target.files?.[0] ?? null)}
+              className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm font-semibold"
+            />
+            <span className="text-xs font-semibold text-slate-500">Imagem ou PDF, até 5 MB.</span>
           </label>
           <button type="submit" disabled={saving || !request.reason.trim()} className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:opacity-50">
             {saving ? "Cancelando..." : "Confirmar cancelamento"}

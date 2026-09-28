@@ -700,7 +700,10 @@ export async function POST(request: Request) {
       const notificationName = asText(person.full_name) || "Consulente";
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
-        p_person_id: person.id,
+        // Quando o agendamento é para outra pessoa, o titular do WhatsApp é
+        // somente o contato de referência. person_id fica nulo para que a
+        // regra de unicidade por pessoa/data não confunda os dois atendimentos.
+        p_person_id: contactMode === "alternate" ? null : person.id,
         p_entity_id: entityId,
         p_appointment_date: appointmentDate,
         p_scheduled_by_person_id: context.personId,
@@ -725,6 +728,7 @@ export async function POST(request: Request) {
       const { error: contactUpdateError } = await supabaseAdmin
         .from("oh_consulente_appointments")
         .update({
+          source_contact_person_id: person.id,
           notification_contact_type: contactMode,
           notification_contact_name: notificationName,
           notification_contact_relationship: contactMode === "alternate" ? (alternateContactRelationship || null) : null,
@@ -1207,8 +1211,30 @@ export async function POST(request: Request) {
     if (action === "cancel") {
       const appointmentId = asText(body.appointmentId);
       const reason = asText(body.reason);
+      const attachmentName = asText(body.attachmentName);
+      const attachmentType = asText(body.attachmentType).toLowerCase();
+      const attachmentBase64 = asText(body.attachmentBase64);
       if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId: code }, { status: 400 });
       if (!reason) return NextResponse.json({ error: "Informe o motivo do cancelamento.", requestId: code }, { status: 400 });
+
+      let attachmentPath: string | null = null;
+      if (attachmentBase64) {
+        const allowedType = attachmentType.startsWith("image/") || attachmentType === "application/pdf";
+        if (!allowedType) {
+          return NextResponse.json({ error: "O anexo deve ser uma imagem ou arquivo PDF.", requestId: code }, { status: 400 });
+        }
+        const bytes = Buffer.from(attachmentBase64, "base64");
+        if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
+          return NextResponse.json({ error: "O anexo deve ter no máximo 5 MB.", requestId: code }, { status: 400 });
+        }
+        const safeName = (attachmentName || "anexo").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120);
+        attachmentPath = `${context.organizationId}/${appointmentId}/${Date.now()}-${safeName}`;
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from("tucxa-agendamento-cancelamentos")
+          .upload(attachmentPath, bytes, { contentType: attachmentType || "application/octet-stream", upsert: false });
+        if (uploadError) throw uploadError;
+      }
+
       const now = new Date().toISOString();
       const { data, error } = await supabaseAdmin
         .from("oh_consulente_appointments")
@@ -1218,14 +1244,23 @@ export async function POST(request: Request) {
           cancelled_at: now,
           cancelled_by_person_id: context.personId,
           cancellation_reason: reason,
+          cancellation_attachment_path: attachmentPath,
+          cancellation_attachment_name: attachmentPath ? attachmentName || "anexo" : null,
+          cancellation_attachment_type: attachmentPath ? attachmentType : null,
           updated_at: now,
         })
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .select("id")
         .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+      if (error) {
+        if (attachmentPath) await supabaseAdmin.storage.from("tucxa-agendamento-cancelamentos").remove([attachmentPath]);
+        throw error;
+      }
+      if (!data?.id) {
+        if (attachmentPath) await supabaseAdmin.storage.from("tucxa-agendamento-cancelamentos").remove([attachmentPath]);
+        return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+      }
       return NextResponse.json({ ok: true, message: "Agendamento cancelado e vaga liberada." });
     }
 
