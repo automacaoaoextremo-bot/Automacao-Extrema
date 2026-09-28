@@ -2097,7 +2097,7 @@ function CancelAppointmentPopup({
 
 function SuccessPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[410] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
           <h2 className="text-xl font-black text-[#123D2C]">{title}</h2>
@@ -2113,7 +2113,7 @@ function SuccessPopup({ title, message, onClose }: { title: string; message: str
 
 function ErrorPopup({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[270] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[420] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-red-100 px-5 py-4">
           <h2 className="text-xl font-black text-red-800">{title}</h2>

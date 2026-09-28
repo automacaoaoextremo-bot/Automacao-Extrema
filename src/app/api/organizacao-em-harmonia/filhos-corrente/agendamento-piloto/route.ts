@@ -1013,7 +1013,13 @@ export async function POST(request: Request) {
         const { error: uploadError } = await supabaseAdmin.storage
           .from("tucxa-agendamento-trocas-entidade")
           .upload(attachmentPath, bytes, { contentType: attachmentType || "application/octet-stream", upsert: false });
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error("[TUCXA troca entidade upload]", { requestId: code, error: uploadError });
+          return NextResponse.json({
+            error: "Não foi possível salvar o anexo da troca. Tente novamente sem o anexo ou verifique o Storage do Supabase.",
+            requestId: code,
+          }, { status: 500 });
+        }
       }
 
       const { data: changedRows, error: changeError } = await supabaseAdmin.rpc("oh_tucxa_change_appointment_entity", {
@@ -1036,7 +1042,30 @@ export async function POST(request: Request) {
         if (message.includes("PILOT_ENTITY_NOT_SCHEDULED")) {
           return NextResponse.json({ error: "A Entidade de destino não atende nesta data.", requestId: code }, { status: 409 });
         }
-        throw changeError;
+        if (message.includes("PILOT_ENTITY_SUSPENDED")) {
+          return NextResponse.json({ error: "A Entidade de destino está suspensa nesta data.", requestId: code }, { status: 409 });
+        }
+        if (message.includes("APPOINTMENT_NOT_FOUND")) {
+          return NextResponse.json({ error: "Um ou mais agendamentos deixaram de estar disponíveis para a troca. Atualize o Acolhimento e tente novamente.", requestId: code }, { status: 409 });
+        }
+        if (message.includes("MULTIPLE_DATES_NOT_ALLOWED")) {
+          return NextResponse.json({ error: "A troca em massa deve conter agendamentos de uma única data.", requestId: code }, { status: 400 });
+        }
+        if (message.includes("SAME_ENTITY_NOT_ALLOWED")) {
+          return NextResponse.json({ error: "Escolha uma Entidade diferente da atual.", requestId: code }, { status: 400 });
+        }
+        console.error("[TUCXA troca entidade RPC]", {
+          requestId: code,
+          action,
+          appointmentCount: appointmentIds.length,
+          sourceEntityIds,
+          destinationEntityId: entityId,
+          error: changeError,
+        });
+        return NextResponse.json({
+          error: "Não foi possível concluir a troca de Entidade no banco de dados.",
+          requestId: code,
+        }, { status: 500 });
       }
 
       let sent = 0;
