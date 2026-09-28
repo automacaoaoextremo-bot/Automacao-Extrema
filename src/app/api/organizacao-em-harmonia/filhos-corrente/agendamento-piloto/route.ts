@@ -690,8 +690,8 @@ export async function POST(request: Request) {
       const alternateContactRelationship = asText(body.contactRelationship);
       const alternateContactWhatsapp = normalizeBrazilPhone(body.contactWhatsapp);
 
-      if (contactMode === "alternate" && (!alternateContactName || alternateContactWhatsapp.length < 10)) {
-        return NextResponse.json({ error: "Informe o nome e o WhatsApp válido do familiar/responsável.", requestId: code }, { status: 400 });
+      if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship || alternateContactWhatsapp.length < 10)) {
+        return NextResponse.json({ error: "Informe o nome, o parentesco/vínculo e o WhatsApp válido do familiar/responsável.", requestId: code }, { status: 400 });
       }
       if (contactMode === "consulente" && ownPhone.length < 10) {
         return NextResponse.json({ error: "Este Consulente não possui WhatsApp válido. Informe um familiar/responsável para receber a confirmação.", requestId: code }, { status: 400 });

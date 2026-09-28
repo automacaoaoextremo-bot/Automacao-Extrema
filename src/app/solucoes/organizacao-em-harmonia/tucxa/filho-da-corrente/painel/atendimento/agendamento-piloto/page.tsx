@@ -201,6 +201,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [notes, setNotes] = useState("");
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
   const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
+  const [alternateRelationshipOption, setAlternateRelationshipOption] = useState<"" | "Mãe" | "Filho" | "Outro">("");
   const [newPerson, setNewPerson] = useState({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
@@ -219,6 +220,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
   const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(["confirm", "arrived", "absent", "cancelled"]);
   const [consultPage, setConsultPage] = useState(1);
+  const [consultSearch, setConsultSearch] = useState("");
+  const [consultLetter, setConsultLetter] = useState("");
+  const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [changeSelections, setChangeSelections] = useState<Record<string, string>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
@@ -350,26 +354,49 @@ export default function AgendamentoPilotoRecepcaoPage() {
     arrived: 0,
   };
   const effectiveConsultView = consultView;
+  const consultLetters = useMemo(() => {
+    const letters = new Set<string>();
+    for (const item of payload?.appointments ?? []) {
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      if (first) letters.add(first);
+    }
+    return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }, [payload?.appointments]);
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
-
+    const normalizedSearch = consultSearch.trim().toLocaleLowerCase("pt-BR");
     return appointments.filter((item) => {
-      if (item.status === "cancelado") return consultStatuses.includes("cancelled");
-      if (item.arrivalStatus === "arrived") return consultStatuses.includes("arrived");
-      if (item.arrivalStatus === "absent") return consultStatuses.includes("absent");
-      return consultStatuses.includes("confirm");
+      const statusMatches = item.status === "cancelado"
+        ? consultStatuses.includes("cancelled")
+        : item.arrivalStatus === "arrived"
+          ? consultStatuses.includes("arrived")
+          : item.arrivalStatus === "absent"
+            ? consultStatuses.includes("absent")
+            : consultStatuses.includes("confirm");
+      if (!statusMatches) return false;
+      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (normalizedSearch) {
+        const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
+        if (!haystack.includes(normalizedSearch)) return false;
+      }
+      return true;
     });
-  }, [consultStatuses, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
+      if (effectiveConsultView === "day_entity") {
+        const nameOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+        if (nameOrder !== 0) return nameOrder;
+        return a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
       const bookingOrder = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
       if (bookingOrder !== 0) return bookingOrder;
       return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
     });
-  }, [filteredAppointments]);
+  }, [effectiveConsultView, filteredAppointments]);
   const consultPageSize = 2;
   const consultPageCount = Math.max(1, Math.ceil(orderedConsultAppointments.length / consultPageSize));
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
@@ -388,7 +415,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
       return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([label, appointments]) => ({ label, appointments }));
     }
-    return [{ label: acolhimentoDateLabel(payload.selectedDate), appointments: [...paginatedAppointments].sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR")) }];
+    return [{ label: "Consulentes", appointments: [...paginatedAppointments] }];
   }, [effectiveConsultView, paginatedAppointments, payload]);
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
@@ -460,6 +487,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setNotes("");
     setContactMode("consulente");
     setAlternateContact({ name: "", relationship: "", whatsapp: "" });
+    setAlternateRelationshipOption("");
     setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
@@ -585,6 +613,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
       setAlternateContact({ name: "", relationship: "", whatsapp: "" });
+    setAlternateRelationshipOption("");
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
         whatsapp: detailedPerson.whatsapp || person.whatsapp,
@@ -1112,6 +1141,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               )}
 
+              {!foundPerson && (<>
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                 <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
@@ -1187,6 +1217,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
                 </form>
               )}
+              </>)}
 
               {foundPerson && (
                 <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
@@ -1222,9 +1253,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       Outro contato / familiar / responsável
                     </label>
                     {contactMode === "alternate" && (
-                      <div className="grid gap-2 sm:grid-cols-3">
+                      <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <p className="text-sm font-black text-[#123D2C]">Quem está fazendo o agendamento?</p>
                         <input value={alternateContact.name} onChange={(event) => setAlternateContact((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do contato" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
-                        <input value={alternateContact.relationship} onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))} placeholder="Vínculo (ex.: filha)" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                        <select
+                          value={alternateRelationshipOption}
+                          onChange={(event) => {
+                            const option = event.target.value as "" | "Mãe" | "Filho" | "Outro";
+                            setAlternateRelationshipOption(option);
+                            setAlternateContact((current) => ({ ...current, relationship: option === "Outro" ? "" : option }));
+                          }}
+                          className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
+                        >
+                          <option value="">Escolha o parentesco</option>
+                          <option value="Mãe">Mãe</option>
+                          <option value="Filho">Filho</option>
+                          <option value="Outro">Outro</option>
+                        </select>
+                        {alternateRelationshipOption === "Outro" && (
+                          <input value={alternateContact.relationship} onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))} placeholder="Informe o parentesco/vínculo" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                        )}
                         <input value={alternateContact.whatsapp} onChange={(event) => setAlternateContact((current) => ({ ...current, whatsapp: event.target.value }))} placeholder="WhatsApp com DDD" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
                       </div>
                     )}
@@ -1248,30 +1296,37 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   </select>
                   <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
                     <option value="entity_day">Entidade</option>
-                    <option value="day_entity">Dia</option>
+                    <option value="day_entity">Consulente</option>
                   </select>
                 </div>
-                <fieldset className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
-                  <legend className="px-1 text-[10px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">Status</legend>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {([
-                      ["confirm", "Confirmado"],
-                      ["arrived", "Chegou"],
-                      ["absent", "Não Chegou"],
-                      ["cancelled", "Cancelado"],
-                    ] as Array<[ConsultStatus, string]>).map(([status, label]) => (
-                      <label key={status} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-black ring-1 ${consultStatuses.includes(status) ? "bg-[#E9F2E7] text-[#123D2C] ring-[#2F6B43]/30" : "bg-white text-slate-500 ring-[#123D2C]/10"}`}>
-                        <input type="checkbox" checked={consultStatuses.includes(status)} onChange={() => toggleConsultStatus(status)} className="h-4 w-4" />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2">
+                  <span className="text-sm font-black text-[#123D2C]">Total agendado na data</span>
+                  <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
+                </div>
+
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <input value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar por nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                  <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                  {consultLetters.map((letter) => (
+                    <button key={letter} type="button" onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                  ))}
+                </div>
               </div>
 
               {groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
-                  <h3 className="rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">{group.label}</h3>
+                  <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
+                    <span>{group.label}</span>
+                    {effectiveConsultView === "entity_day" && (() => {
+                      const entity = payload.entities.find((item) => item.name === group.label);
+                      return entity ? <span className="text-xs">{entity.booked}/{entity.capacity}</span> : null;
+                    })()}
+                  </h3>
                   {group.appointments.map((appointment) => {
                     const detail = effectiveConsultView === "entity_day"
                       ? (appointment.order ? `Ordem de agendamento ${appointment.order}` : "")
@@ -1322,6 +1377,30 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" disabled={effectiveConsultPage >= consultPageCount} onClick={() => { setConsultPage((current) => Math.min(consultPageCount, current + 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {showConsultStatusFilter && (
+            <div className="fixed inset-0 z-[80] grid place-items-center bg-black/45 p-4">
+              <div className="w-full max-w-sm rounded-3xl bg-white p-4 shadow-2xl">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-black text-[#123D2C]">Filtrar por status</h3>
+                  <button type="button" onClick={() => setShowConsultStatusFilter(false)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {([
+                    ["confirm", "Confirmado"],
+                    ["arrived", "Chegou"],
+                    ["absent", "Não Chegou"],
+                    ["cancelled", "Cancelado"],
+                  ] as Array<[ConsultStatus, string]>).map(([status, label]) => (
+                    <label key={status} className={`flex items-center gap-2 rounded-xl px-3 py-3 text-xs font-black ring-1 ${consultStatuses.includes(status) ? "bg-[#E9F2E7] text-[#123D2C] ring-[#2F6B43]/30" : "bg-white text-slate-500 ring-[#123D2C]/10"}`}>
+                      <input type="checkbox" checked={consultStatuses.includes(status)} onChange={() => { toggleConsultStatus(status); setConsultPage(1); }} className="h-4 w-4" />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
