@@ -684,7 +684,21 @@ export async function POST(request: Request) {
       const token = createConfirmationToken();
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
-      const phone = normalizeBrazilPhone(person.whatsapp);
+      const ownPhone = normalizeBrazilPhone(person.whatsapp);
+      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
+      const alternateContactName = asText(body.contactName);
+      const alternateContactRelationship = asText(body.contactRelationship);
+      const alternateContactWhatsapp = normalizeBrazilPhone(body.contactWhatsapp);
+
+      if (contactMode === "alternate" && (!alternateContactName || alternateContactWhatsapp.length < 10)) {
+        return NextResponse.json({ error: "Informe o nome e o WhatsApp válido do familiar/responsável.", requestId: code }, { status: 400 });
+      }
+      if (contactMode === "consulente" && ownPhone.length < 10) {
+        return NextResponse.json({ error: "Este Consulente não possui WhatsApp válido. Informe um familiar/responsável para receber a confirmação.", requestId: code }, { status: 400 });
+      }
+
+      const notificationPhone = contactMode === "alternate" ? alternateContactWhatsapp : ownPhone;
+      const notificationName = contactMode === "alternate" ? alternateContactName : (asText(person.full_name) || "Consulente");
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
         p_person_id: person.id,
@@ -693,7 +707,7 @@ export async function POST(request: Request) {
         p_scheduled_by_person_id: context.personId,
         p_booking_channel: "recepcao_piloto",
         p_consulente_name: asText(person.full_name) || "Filho de Fora/Consulente",
-        p_whatsapp: phone || null,
+        p_whatsapp: notificationPhone || null,
         p_email: actualEmail || null,
         p_notes: notes || null,
         p_confirmation_token_hash: tokenHash,
@@ -709,12 +723,26 @@ export async function POST(request: Request) {
       } | null;
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
 
+      const { error: contactUpdateError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .update({
+          notification_contact_type: contactMode,
+          notification_contact_name: notificationName,
+          notification_contact_relationship: contactMode === "alternate" ? (alternateContactRelationship || null) : null,
+          notification_contact_whatsapp: notificationPhone || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", reservation.appointment_id);
+      if (contactUpdateError) throw contactUpdateError;
+
       const link = confirmationUrl(token);
-      const whatsappDispatch = phone
+      const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
             fullName: asText(person.full_name) || "Consulente",
-            whatsapp: phone,
+            recipientName: notificationName,
+            whatsapp: notificationPhone,
             appointmentDate,
             entityName: entity.name,
             confirmationUrl: link,

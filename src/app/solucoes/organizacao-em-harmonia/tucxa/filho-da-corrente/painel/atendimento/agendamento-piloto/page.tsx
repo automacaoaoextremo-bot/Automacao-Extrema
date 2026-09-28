@@ -87,7 +87,7 @@ type BookingResult = {
   appointment?: { id: string; personName: string; appointmentDate: string; appointmentTime: string; entityName: string; order: number | null; confirmationDeadline: string };
   confirmation?: { url: string; whatsapp: { sent: boolean; provider: string; error?: string } };
 };
-type CompletedBooking = BookingResult & { whatsapp: string };
+type CompletedBooking = BookingResult & { whatsapp: string; contactName?: string; alternateContact?: boolean };
 type SuccessNotice = { title: string; message: string };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string };
@@ -199,6 +199,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
   const [notes, setNotes] = useState("");
+  const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
+  const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
   const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
@@ -447,6 +449,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setEntityId("");
     setNotes("");
+    setContactMode("consulente");
+    setAlternateContact({ name: "", relationship: "", whatsapp: "" });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
@@ -569,6 +573,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
 
       setFoundPerson(detailedPerson);
+      const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
+      setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
+      setAlternateContact({ name: "", relationship: "", whatsapp: "" });
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
         whatsapp: detailedPerson.whatsapp || person.whatsapp,
@@ -707,12 +714,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setError("");
     setErrorNotice(null);
     try {
-      const bookingWhatsapp = foundPerson.whatsapp;
-      const result = await postPilot({ action: "book", targetPersonId: foundPerson.id, entityId, appointmentDate: payload.selectedDate, notes }) as BookingResult;
+      const bookingWhatsapp = contactMode === "alternate" ? alternateContact.whatsapp : foundPerson.whatsapp;
+      const result = await postPilot({
+        action: "book",
+        targetPersonId: foundPerson.id,
+        entityId,
+        appointmentDate: payload.selectedDate,
+        notes,
+        contactMode,
+        contactName: contactMode === "alternate" ? alternateContact.name : "",
+        contactRelationship: contactMode === "alternate" ? alternateContact.relationship : "",
+        contactWhatsapp: contactMode === "alternate" ? alternateContact.whatsapp : "",
+      }) as BookingResult;
       const selectedDate = payload.selectedDate;
       await load(selectedDate);
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
-      setBookingResult({ ...result, whatsapp: bookingWhatsapp });
+      setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: contactMode === "alternate" ? alternateContact.name : foundPerson.fullName, alternateContact: contactMode === "alternate" });
       resetBookingForm();
       setModal(null);
     } catch (bookError) {
@@ -1173,6 +1190,25 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   ) : (
                     <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">{payload.entityCatalog.find((entity) => entity.id === entityId)?.name || "Escolha uma Entidade acima"}{bookingEntityDateLabel ? ` · ${bookingEntityDateLabel}` : ""}</p>
                   )}
+                  <div className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                    <p className="text-sm font-black text-[#123D2C]">WhatsApp para confirmação e lembretes</p>
+                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <input type="radio" name="booking-contact" checked={contactMode === "consulente"} onChange={() => setContactMode("consulente")} disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10} />
+                      WhatsApp do Consulente{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · não informado"}
+                    </label>
+                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <input type="radio" name="booking-contact" checked={contactMode === "alternate"} onChange={() => setContactMode("alternate")} />
+                      Outro contato / familiar / responsável
+                    </label>
+                    {contactMode === "alternate" && (
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <input value={alternateContact.name} onChange={(event) => setAlternateContact((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do contato" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                        <input value={alternateContact.relationship} onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))} placeholder="Vínculo (ex.: filha)" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                        <input value={alternateContact.whatsapp} onChange={(event) => setAlternateContact((current) => ({ ...current, whatsapp: event.target.value }))} placeholder="WhatsApp com DDD" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                      </div>
+                    )}
+                    {contactMode === "alternate" && <p className="text-xs font-semibold text-slate-500">O agendamento continua pertencendo ao Consulente; este contato receberá apenas a confirmação e os lembretes.</p>}
+                  </div>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Observação opcional" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
                   <button type="button" onClick={() => void book()} disabled={saving || !entityId} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
                 </div>
@@ -1596,7 +1632,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
-              href={whatsappHref(bookingResult.whatsapp, `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
+              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
               target="_blank"
               rel="noreferrer"
               className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"

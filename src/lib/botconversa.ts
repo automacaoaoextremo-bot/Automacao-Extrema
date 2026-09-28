@@ -1286,6 +1286,7 @@ export async function syncOrganizacaoLeadWithBotConversa(
 
 export type TucxaAppointmentBotConversaInput = {
   fullName: string;
+  recipientName?: string;
   whatsapp: string;
   appointmentDate: string;
   entityName: string;
@@ -1376,8 +1377,10 @@ async function findOrCreateTucxaSubscriber(input: TucxaAppointmentBotConversaInp
     method: "POST",
     body: {
       phone,
-      first_name: firstName(input.fullName),
-      last_name: lastName(input.fullName),
+      first_name: firstName(input.recipientName || input.fullName),
+      // A API do BotConversa exige last_name não vazio. Para nomes monônimos,
+      // repetimos o próprio nome apenas no cadastro do subscriber.
+      last_name: lastName(input.recipientName || input.fullName) || firstName(input.recipientName || input.fullName),
       has_opt_in_whatsapp: true,
     },
   });

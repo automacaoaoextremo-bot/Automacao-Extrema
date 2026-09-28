@@ -39,6 +39,8 @@ type AppointmentRow = {
   confirmation_status: string | null;
   consulente_name: string | null;
   whatsapp: string | null;
+  notification_contact_name: string | null;
+  notification_contact_whatsapp: string | null;
   status: string | null;
 };
 
@@ -109,7 +111,7 @@ async function processDayOfReminders(
 ): Promise<ReminderSummary> {
   const { data: appointments, error: appointmentsError } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,status")
+    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status")
     .eq("organization_id", organizationId)
     .eq("appointment_date", today)
     .in("status", ["solicitado", "confirmado", "aprovado"])
@@ -157,7 +159,7 @@ async function processDayOfReminders(
       continue;
     }
 
-    const phone = asText(appointment.whatsapp);
+    const phone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
     if (!phone) {
       skipped += 1;
       continue;
@@ -167,6 +169,7 @@ async function processDayOfReminders(
     const result = await sendTucxaAppointmentWhatsapp({
       kind: "reminder",
       fullName: asText(appointment.consulente_name) || "Consulente",
+      recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
       whatsapp: phone,
       appointmentDate: appointment.appointment_date,
       entityName,
@@ -217,7 +220,7 @@ async function processConfirmationOffsetReminders(
 
   const { data: appointments, error: appointmentsError } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,status")
+    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status")
     .eq("organization_id", organizationId)
     .eq("confirmation_status", "pending")
     .gt("confirmation_expires_at", nowIso)
@@ -291,7 +294,7 @@ async function processConfirmationOffsetReminders(
       continue;
     }
 
-    const phone = asText(appointment.whatsapp);
+    const phone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
     if (!phone) {
       skipped += 1;
       continue;
@@ -301,6 +304,7 @@ async function processConfirmationOffsetReminders(
     const result = await sendTucxaAppointmentWhatsapp({
       kind: "reminder",
       fullName: asText(appointment.consulente_name) || "Consulente",
+      recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
       whatsapp: phone,
       appointmentDate: appointment.appointment_date,
       entityName,
