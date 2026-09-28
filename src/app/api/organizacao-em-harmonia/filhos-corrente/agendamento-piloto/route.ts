@@ -688,17 +688,16 @@ export async function POST(request: Request) {
       const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const alternateContactName = asText(body.contactName);
       const alternateContactRelationship = asText(body.contactRelationship);
-      const alternateContactWhatsapp = normalizeBrazilPhone(body.contactWhatsapp);
-
-      if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship || alternateContactWhatsapp.length < 10)) {
-        return NextResponse.json({ error: "Informe o nome, o parentesco/vínculo e o WhatsApp válido do familiar/responsável.", requestId: code }, { status: 400 });
+      if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship)) {
+        return NextResponse.json({ error: "Informe o nome e o parentesco/vínculo da pessoa para quem o agendamento será realizado.", requestId: code }, { status: 400 });
       }
-      if (contactMode === "consulente" && ownPhone.length < 10) {
-        return NextResponse.json({ error: "Este Consulente não possui WhatsApp válido. Informe um familiar/responsável para receber a confirmação.", requestId: code }, { status: 400 });
+      if (ownPhone.length < 10) {
+        return NextResponse.json({ error: "O Consulente já cadastrado precisa possuir um WhatsApp válido para receber as informações do agendamento.", requestId: code }, { status: 400 });
       }
 
-      const notificationPhone = contactMode === "alternate" ? alternateContactWhatsapp : ownPhone;
-      const notificationName = contactMode === "alternate" ? alternateContactName : (asText(person.full_name) || "Consulente");
+      const appointmentPersonName = contactMode === "alternate" ? alternateContactName : (asText(person.full_name) || "Consulente");
+      const notificationPhone = ownPhone;
+      const notificationName = asText(person.full_name) || "Consulente";
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
         p_person_id: person.id,
@@ -706,7 +705,7 @@ export async function POST(request: Request) {
         p_appointment_date: appointmentDate,
         p_scheduled_by_person_id: context.personId,
         p_booking_channel: "recepcao_piloto",
-        p_consulente_name: asText(person.full_name) || "Filho de Fora/Consulente",
+        p_consulente_name: appointmentPersonName || "Filho de Fora/Consulente",
         p_whatsapp: notificationPhone || null,
         p_email: actualEmail || null,
         p_notes: notes || null,
@@ -740,7 +739,7 @@ export async function POST(request: Request) {
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
-            fullName: asText(person.full_name) || "Consulente",
+            fullName: appointmentPersonName,
             recipientName: notificationName,
             whatsapp: notificationPhone,
             appointmentDate,
@@ -771,7 +770,7 @@ export async function POST(request: Request) {
         ok: true,
         appointment: {
           id: reservation.appointment_id,
-          personName: person.full_name,
+          personName: appointmentPersonName,
           appointmentDate,
           appointmentTime: settings.appointmentTime,
           entityName: entity.name,

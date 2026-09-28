@@ -357,11 +357,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
+      const first = alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR");
       if (first) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [payload?.appointments]);
+  }, [effectiveConsultView, payload?.appointments]);
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
@@ -375,14 +376,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
             ? consultStatuses.includes("absent")
             : consultStatuses.includes("confirm");
       if (!statusMatches) return false;
-      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
+      if (consultLetter && alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, effectiveConsultView, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
       if (effectiveConsultView === "day_entity") {
@@ -753,7 +755,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setError("");
     setErrorNotice(null);
     try {
-      const bookingWhatsapp = contactMode === "alternate" ? alternateContact.whatsapp : foundPerson.whatsapp;
+      const bookingWhatsapp = foundPerson.whatsapp;
       const result = await postPilot({
         action: "book",
         targetPersonId: foundPerson.id,
@@ -763,12 +765,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
         contactMode,
         contactName: contactMode === "alternate" ? alternateContact.name : "",
         contactRelationship: contactMode === "alternate" ? alternateContact.relationship : "",
-        contactWhatsapp: contactMode === "alternate" ? alternateContact.whatsapp : "",
+        contactWhatsapp: "",
       }) as BookingResult;
       const selectedDate = payload.selectedDate;
       await load(selectedDate);
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
-      setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: contactMode === "alternate" ? alternateContact.name : foundPerson.fullName, alternateContact: contactMode === "alternate" });
+      setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: foundPerson.fullName, alternateContact: contactMode === "alternate" });
       resetBookingForm();
       setModal(null);
     } catch (bookError) {
@@ -1246,7 +1248,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <p className="text-sm font-black text-[#123D2C]">WhatsApp para confirmação e lembretes</p>
                     <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                       <input type="radio" name="booking-contact" checked={contactMode === "consulente"} onChange={() => setContactMode("consulente")} disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10} />
-                      WhatsApp do Consulente{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · não informado"}
+                      Agendamento Próprio{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · WhatsApp não informado"}
                     </label>
                     <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                       <input type="radio" name="booking-contact" checked={contactMode === "alternate"} onChange={() => setContactMode("alternate")} />
@@ -1273,10 +1275,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         {alternateRelationshipOption === "Outro" && (
                           <input value={alternateContact.relationship} onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))} placeholder="Informe o parentesco/vínculo" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
                         )}
-                        <input value={alternateContact.whatsapp} onChange={(event) => setAlternateContact((current) => ({ ...current, whatsapp: event.target.value }))} placeholder="WhatsApp com DDD" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
                       </div>
                     )}
-                    {contactMode === "alternate" && <p className="text-xs font-semibold text-slate-500">O agendamento continua pertencendo ao Consulente; este contato receberá apenas a confirmação e os lembretes.</p>}
+                    {contactMode === "alternate" && <p className="text-xs font-semibold text-slate-500">O agendamento será para a pessoa informada e o Consulente já cadastrado receberá as informações.</p>}
                   </div>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Observação opcional" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
                   <button type="button" onClick={() => void book()} disabled={saving || !entityId} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
