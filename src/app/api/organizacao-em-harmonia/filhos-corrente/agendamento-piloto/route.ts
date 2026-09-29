@@ -21,6 +21,7 @@ import {
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
+import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 export const dynamic = "force-dynamic";
 
@@ -739,6 +740,19 @@ export async function POST(request: Request) {
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
 
+      if (contactMode === "alternate") {
+        const { error: relationshipError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships").upsert({
+          organization_id: context.organizationId,
+          owner_person_id: person.id,
+          related_name: alternateContactName,
+          relationship: alternateContactRelationship,
+          default_entity_id: entityId,
+          created_by_person_id: context.personId,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "organization_id,owner_person_id,related_name" });
+        if (relationshipError) console.error("[TUCXA vínculo de terceiro]", relationshipError);
+      }
+
       const link = confirmationUrl(token);
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
@@ -749,6 +763,8 @@ export async function POST(request: Request) {
             appointmentDate,
             entityName: entity.name,
             confirmationUrl: link,
+            appointmentOrder: Number(reservation.confirmed_order ?? 0) || null,
+            individualNotice: "Este agendamento é individual. Se você vier acompanhado de outra pessoa que também necessite de atendimento, faça um agendamento específico para ela. Sua confirmação ajuda a Recepção a organizar as vagas e acolher cada pessoa com atenção.",
           })
         : { sent: false, provider: "disabled" as const, error: "Telefone não informado." };
 
@@ -769,6 +785,8 @@ export async function POST(request: Request) {
           .eq("id", reservation.appointment_id);
         if (sentUpdateError) console.error("[TUCXA piloto BotConversa status]", sentUpdateError);
       }
+
+      if (whatsappDispatch.sent) void sendTucxaAppointmentAuditEmail({ event: "WhatsApp de confirmação enviado", consulenteName: appointmentPersonName, appointmentDate, entityName: entity.name, details: `Ordem: ${Number(reservation.confirmed_order ?? 0) || "não definida"}` });
 
       return NextResponse.json({
         ok: true,
@@ -1099,6 +1117,7 @@ export async function POST(request: Request) {
       }
 
       const totalChanged = Array.isArray(changedRows) ? changedRows.length : appointmentIds.length;
+      void sendTucxaAppointmentAuditEmail({ event: "Troca de Entidade", appointmentDate: asText(appointments[0]?.appointment_date), entityName: newEntityName, details: `${totalChanged} agendamento(s). Motivo: ${reason}` });
       return NextResponse.json({
         ok: true,
         changed: totalChanged,
@@ -1418,6 +1437,7 @@ export async function POST(request: Request) {
         if (attachmentPath) await supabaseAdmin.storage.from("tucxa-agendamento-cancelamentos").remove([attachmentPath]);
         return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
       }
+      void sendTucxaAppointmentAuditEmail({ event: "Cancelamento de agendamento", appointmentDate: "", details: reason });
       return NextResponse.json({ ok: true, message: "Agendamento cancelado e vaga liberada." });
     }
 

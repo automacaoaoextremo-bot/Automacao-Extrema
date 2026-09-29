@@ -94,8 +94,13 @@ export async function POST(request: Request) {
         if (preferences.allowDifferentEntity && !entityId) entityId = preferences.defaultEntityId;
       }
       if (!entityId || !appointmentDate) return NextResponse.json({ error: "Escolha a data e a Entidade.", requestId: code }, { status: 400 });
-      if (preferences.defaultEntityId && !preferences.allowDifferentEntity && entityId !== preferences.defaultEntityId) {
-        return NextResponse.json({ error: "Neste momento seu agendamento deve usar a Entidade padrão definida pela Recepção.", requestId: code }, { status: 409 });
+      if (preferences.defaultEntityId) {
+        const { data: passeRows, error: passeError } = await supabaseAdmin.from("oh_spiritual_entities").select("id,name,slug").eq("organization_id", context.organizationId).eq("active", true);
+        if (passeError) throw passeError;
+        const passeIds = new Set((passeRows ?? []).filter((item) => /passe/i.test(`${asText(item.name)} ${asText(item.slug)}`)).map((item) => asText(item.id)));
+        if (entityId !== preferences.defaultEntityId && !passeIds.has(entityId)) {
+          return NextResponse.json({ error: "Para seu próprio atendimento, escolha sua Entidade padrão ou Passe.", requestId: code }, { status: 409 });
+        }
       }
 
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
@@ -137,6 +142,23 @@ export async function POST(request: Request) {
         },
         message: "Agendamento reservado. Agora confirme sua presença em Meus agendamentos.",
       });
+    }
+
+    if (action === "change-default-entity") {
+      const newEntityId = asText(body.entityId);
+      if (!newEntityId) return NextResponse.json({ error: "Escolha a nova Entidade padrão.", requestId: code }, { status: 400 });
+      const current = await loadPilotPersonPreferences(context.organizationId, context.personId);
+      if (!current.defaultEntityId) return NextResponse.json({ error: "Sua Entidade padrão ainda não foi definida pela Recepção.", requestId: code }, { status: 409 });
+      if (current.defaultEntityChangedAt) return NextResponse.json({ error: "A troca única da Entidade padrão já foi utilizada.", requestId: code }, { status: 409 });
+      if (newEntityId === current.defaultEntityId) return NextResponse.json({ error: "Escolha uma Entidade diferente da atual.", requestId: code }, { status: 400 });
+      const { data: target, error: targetError } = await supabaseAdmin.from("oh_spiritual_entities").select("id,name").eq("organization_id", context.organizationId).eq("id", newEntityId).eq("active", true).maybeSingle();
+      if (targetError) throw targetError; if (!target?.id) return NextResponse.json({ error: "Entidade não localizada.", requestId: code }, { status: 404 });
+      const now = new Date().toISOString();
+      const { error: prefError } = await supabaseAdmin.from("oh_tucxa_pilot_person_preferences").update({ default_entity_id: newEntityId, default_entity_changed_at: now, default_entity_changed_by_person_id: context.personId, updated_at: now }).eq("organization_id", context.organizationId).eq("person_id", context.personId);
+      if (prefError) throw prefError;
+      const { error: historyError } = await supabaseAdmin.from("oh_tucxa_default_entity_history").insert({ organization_id: context.organizationId, person_id: context.personId, previous_entity_id: current.defaultEntityId, new_entity_id: newEntityId, changed_by_person_id: context.personId, changed_at: now });
+      if (historyError) throw historyError;
+      return NextResponse.json({ ok: true, message: `Entidade padrão alterada para ${asText(target.name)}. Esta troca única ficou registrada.` });
     }
 
     if (action === "save-reminders") {

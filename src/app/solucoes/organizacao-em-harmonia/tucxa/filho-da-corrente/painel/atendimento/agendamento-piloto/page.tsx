@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
@@ -15,7 +16,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
@@ -227,7 +228,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
   const [summaryOverride, setSummaryOverride] = useState<SummaryCounts | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [, setSummaryLoading] = useState(false);
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityPage, setEntityPage] = useState(1);
@@ -1161,47 +1162,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <ActionButton title="Cadastros" subtitle="Consulentes, Entidades e dados pessoais" onClick={() => { setCadastroMode("menu"); setModal("cadastros"); }} />
               <ActionButton title="Entidades" subtitle="Próximas datas, cadastro e agendamento" onClick={openEntitiesModal} />
               <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={openBookingModal} />
-              <ActionButton title="Acolhimento" subtitle="Confirmar, trocar Entidade e registrar chegada" onClick={() => setModal("consultar")} />
-            </section>
-            <section className="mt-3 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
-              <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-end">
-                <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
-                  Período dos indicadores
-                  <select
-                    value={summaryMode}
-                    onChange={(event) => void refreshSummary(event.target.value as SummaryMode, effectiveSummaryDate)}
-                    className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2 text-xs font-black normal-case tracking-normal text-[#123D2C]"
-                  >
-                    <option value="date">Data específica</option>
-                    <option value="future">Todos os futuros</option>
-                  </select>
-                </label>
-                {summaryMode === "date" ? (
-                  <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">
-                    Data
-                    <input
-                      type="date"
-                      min={todaySaoPaulo()}
-                      value={effectiveSummaryDate}
-                      onChange={(event) => {
-                        setSummaryDate(event.target.value);
-                        void refreshSummary("date", event.target.value);
-                      }}
-                      className="rounded-xl border border-[#123D2C]/15 bg-white px-3 py-2 text-xs font-black normal-case tracking-normal text-[#123D2C]"
-                    />
-                  </label>
-                ) : (
-                  <p className="rounded-xl bg-[#F7FAF2] px-3 py-2 text-xs font-bold text-slate-600">
-                    Contando todos os agendamentos a partir de {shortDate(displayedSummary.fromDate)}.
-                  </p>
-                )}
-              </div>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <Summary label="Agendados" value={displayedSummary.scheduled} />
-                <Summary label="Confirmados" value={displayedSummary.confirmed} />
-                <Summary label="Chegaram" value={displayedSummary.arrived} />
-              </div>
-              {summaryLoading && <p className="mt-2 text-center text-[11px] font-bold text-slate-500">Atualizando indicadores...</p>}
+              <ActionButton title="Acolhimento" subtitle="Painel, Triagem e Gestão" onClick={() => setModal("acolhimento")} />
             </section>
           </>
         )}
@@ -1221,6 +1182,28 @@ export default function AgendamentoPilotoRecepcaoPage() {
             setModal(null);
           }}
         >
+          {modal === "acolhimento" && (
+            <div className="grid gap-3">
+              <button type="button" onClick={() => setModal("painel")} className="rounded-2xl bg-[#E9F2E7] p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Painel</span><span className="text-sm font-semibold text-slate-600">Indicadores dos atendimentos e acesso à Triagem.</span>
+              </button>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
+              </Link>
+            </div>
+          )}
+
+          {modal === "painel" && (
+            <div className="grid gap-3">
+              <div className="grid grid-cols-3 gap-2">
+                <Summary label="Agendados" value={displayedSummary.scheduled} />
+                <Summary label="Confirmados" value={displayedSummary.confirmed} />
+                <Summary label="Chegaram" value={displayedSummary.arrived} />
+              </div>
+              <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
+            </div>
+          )}
+
           {modal === "agendar" && (
             <div className="grid gap-3">
               {!bookingContextLocked && (
@@ -2188,7 +2171,9 @@ function Info({ title, children }: { title: string; children: React.ReactNode })
 
 function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "agendar") return "Agendar Consulente";
-  if (modal === "consultar") return "Acolhimento";
+  if (modal === "acolhimento") return "Acolhimento";
+  if (modal === "painel") return "Painel do Acolhimento";
+  if (modal === "consultar") return "Triagem";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

@@ -44,6 +44,7 @@ export type PilotSettings = {
 
 export type PilotPersonPreferences = {
   defaultEntityId: string;
+  defaultEntityChangedAt: string;
   allowDifferentEntity: boolean;
   reminderWhatsappEnabled: boolean;
   reminderOffsetsHours: number[];
@@ -232,13 +233,14 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
   if (error) throw error;
   return {
     defaultEntityId: asText(data?.default_entity_id),
+    defaultEntityChangedAt: asText(data?.default_entity_changed_at),
     allowDifferentEntity: data?.allow_different_entity === true,
     reminderWhatsappEnabled: data?.reminder_whatsapp_enabled !== false,
     reminderOffsetsHours: positiveHourList(data?.reminder_offsets_hours, []),
@@ -464,6 +466,26 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
   if (overrideError) throw overrideError;
   if (appointmentError) throw appointmentError;
 
+  const { data: entityLinks, error: entityLinksError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .select("entity_id,person_id,active")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .in("entity_id", entityIds);
+  if (entityLinksError) throw entityLinksError;
+  const linkedPersonIds = Array.from(new Set((entityLinks ?? []).map((item) => asText(item.person_id)).filter(Boolean)));
+  const { data: linkedPeople, error: linkedPeopleError } = linkedPersonIds.length
+    ? await supabaseAdmin.from("oh_people").select("id,full_name").in("id", linkedPersonIds)
+    : { data: [], error: null };
+  if (linkedPeopleError) throw linkedPeopleError;
+  const linkedNameMap = new Map<string, string>((linkedPeople ?? []).map((item) => [asText(item.id), asText(item.full_name)] as [string, string]));
+  const cavalinhoNames = new Map<string, string[]>();
+  for (const link of entityLinks ?? []) {
+    const entityId = asText(link.entity_id); const personName = linkedNameMap.get(asText(link.person_id));
+    if (!entityId || !personName) continue;
+    cavalinhoNames.set(entityId, [...(cavalinhoNames.get(entityId) ?? []), personName]);
+  }
+
   const scheduleMap = new Map((scheduleRows ?? []).map((row) => [asText(row.entity_id), Math.max(1, Number(row.default_capacity ?? 4) || 4)]));
   const overrideMap = new Map<string, { available: boolean; capacity: number | null; reason: string }>();
   for (const item of overrides ?? []) {
@@ -495,7 +517,7 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
       const isAvailable = override?.available !== false;
       return {
         id,
-        name: asText(entity.name) || "Entidade",
+        name: `${asText(entity.name) || "Entidade"}${(cavalinhoNames.get(id) ?? []).length ? ` (${(cavalinhoNames.get(id) ?? []).join(", ")})` : ""}`,
         slug: asText(entity.slug),
         capacity,
         booked,

@@ -13,7 +13,7 @@ const atendimentoHref = "/solucoes/organizacao-em-harmonia/tucxa/consulente/pain
 const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "consultar" | "lembretes" | "ajuda" | null;
+type ModalKind = "agendar" | "consultar" | "lembretes" | "entidade-padrao" | "ajuda" | null;
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Entity = {
   id: string;
@@ -55,6 +55,7 @@ type Settings = {
 };
 type Preferences = {
   defaultEntityId: string;
+  defaultEntityChangedAt: string;
   allowDifferentEntity: boolean;
   reminderWhatsappEnabled: boolean;
   reminderOffsetsHours: number[];
@@ -163,12 +164,13 @@ export default function AgendamentoPilotoConsulentePage() {
 
   const defaultEntityId = payload?.preferences.defaultEntityId || "";
   const effectiveEntityId = entityId || defaultEntityId;
-  const entityLocked = Boolean(defaultEntityId && payload && !payload.preferences.allowDifferentEntity);
+  const entityLocked = false; // Consulente pode escolher a Entidade padrão ou Passe; API valida a regra.
 
   const availableEntities = useMemo(
     () => (payload?.entities ?? []).filter((entity) => entity.isAvailable && entity.available > 0),
     [payload?.entities],
   );
+  const selfServiceEntities = useMemo(() => availableEntities.filter((entity) => !defaultEntityId || entity.id === defaultEntityId || /passe/i.test(entity.name)), [availableEntities, defaultEntityId]);
 
   const allEntityOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -339,6 +341,7 @@ export default function AgendamentoPilotoConsulentePage() {
               {payload.settings.selfServiceEnabled && <Action title="Agendar" subtitle="Escolher data e Entidade" onClick={() => setModal("agendar")} />}
               <Action title="Consultar" subtitle="Meus próximos atendimentos" onClick={() => setModal("consultar")} />
               <Action title="Lembretes" subtitle="Escolher quando quero receber" onClick={openReminders} />
+              {payload.preferences.defaultEntityId && <Action title="Entidade padrão" subtitle={payload.preferences.defaultEntityChangedAt ? "Troca única já utilizada" : "Troca única disponível"} onClick={() => setModal("entidade-padrao")} />}
               <Action title="Como funciona" subtitle="Entenda o fluxo" onClick={() => setModal("ajuda")} />
             </section>
             <section className="mt-3 grid grid-cols-3 gap-2 rounded-[1.3rem] bg-white p-2 ring-1 ring-[#123D2C]/10">
@@ -359,7 +362,9 @@ export default function AgendamentoPilotoConsulentePage() {
                 ? "Meus agendamentos"
                 : modal === "lembretes"
                   ? "Meus lembretes"
-                  : "Como funciona"
+                  : modal === "entidade-padrao"
+                    ? "Entidade padrão"
+                    : "Como funciona"
           }
           onClose={() => setModal(null)}
         >
@@ -414,7 +419,7 @@ export default function AgendamentoPilotoConsulentePage() {
                       className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100"
                     >
                       <option value="">Escolha uma Entidade</option>
-                      {availableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
+                      {selfServiceEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                     </select>
                   </label>
                   {entityLocked && <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-bold text-[#123D2C]">A Recepção definiu uma Entidade padrão para este cadastro. Para alterar, fale com a Recepção.</p>}
@@ -463,6 +468,13 @@ export default function AgendamentoPilotoConsulentePage() {
                 </article>
               ))}
               {!payload.appointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Você ainda não possui agendamentos neste piloto.</p>}
+            </div>
+          )}
+
+          {modal === "entidade-padrao" && (
+            <div className="grid gap-3">
+              <p className="text-sm font-semibold text-slate-600">Você pode trocar sua Entidade padrão uma única vez. A data e a alteração ficam registradas.</p>
+              {payload.preferences.defaultEntityChangedAt ? <p className="rounded-xl bg-amber-50 p-3 font-bold text-amber-900">A troca única já foi utilizada.</p> : <>{<select value={entityId} onChange={(e)=>setEntityId(e.target.value)} className="rounded-xl border p-3"><option value="">Escolha a nova Entidade</option>{allEntityOptions.filter(e=>e.id!==payload.preferences.defaultEntityId).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>}<button disabled={!entityId||saving} onClick={async()=>{setSaving(true);setError("");try{const token=await sessionToken();const r=await fetch(API_PATH,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({action:"change-default-entity",entityId})});const j=await r.json();if(!r.ok)throw new Error(j.error||"Não foi possível alterar.");setMessage(j.message||"Entidade padrão alterada.");setModal(null);await load();}catch(e){setError(e instanceof Error?e.message:"Não foi possível alterar.");}finally{setSaving(false);}}} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">Confirmar troca única</button></>}
             </div>
           )}
 

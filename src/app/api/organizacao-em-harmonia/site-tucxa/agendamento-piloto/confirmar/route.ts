@@ -7,6 +7,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { loadTucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/tucxa-confirmation";
 import { sendTucxaReceptionConfirmationWhatsapp } from "@/lib/botconversa";
+import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,8 @@ export async function POST(request: Request) {
         console.error("[TUCXA confirmação] falha ao avisar a Recepção", notificationError);
       }
 
+      const confirmedDetails = await loadTucxaConfirmationAppointment(token).catch(() => null);
+      void sendTucxaAppointmentAuditEmail({ event: "Consulente confirmou a presença", consulenteName: confirmedDetails?.fullName, appointmentDate: confirmedDetails?.appointmentDate, entityName: confirmedDetails?.entityName });
       return NextResponse.json({ ok: true, message: "Presença confirmada conforme os dados abaixo." });
     }
 
@@ -125,6 +128,8 @@ export async function POST(request: Request) {
         updated_at: now,
       }).eq("id", appointment.id);
       if (error) throw error;
+      const declinedDetails = await loadTucxaConfirmationAppointment(token).catch(() => null);
+      void sendTucxaAppointmentAuditEmail({ event: "Cancelamento de agendamento", consulenteName: declinedDetails?.fullName, appointmentDate: declinedDetails?.appointmentDate, entityName: declinedDetails?.entityName, details: "Cancelado pelo link de confirmação." });
       return NextResponse.json({ ok: true, message: "Recebemos seu aviso. A vaga foi liberada." });
     }
 

@@ -5,6 +5,7 @@ import {
   loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
+import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -202,6 +203,7 @@ async function processDayOfReminders(
     if (result.sent) {
       sent += 1;
       sentAppointments.add(appointment.id);
+      void sendTucxaAppointmentAuditEmail({ event: "Lembrete de agendamento enviado", consulenteName: asText(appointment.consulente_name), appointmentDate: appointment.appointment_date, entityName });
     } else {
       failed += 1;
     }

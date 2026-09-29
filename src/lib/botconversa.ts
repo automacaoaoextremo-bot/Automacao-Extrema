@@ -1292,6 +1292,8 @@ export type TucxaAppointmentBotConversaInput = {
   entityName: string;
   confirmationUrl?: string;
   reminderOffsetHours?: number | null;
+  appointmentOrder?: number | null;
+  individualNotice?: string;
   kind: "confirmation" | "reminder";
 };
 
@@ -1335,6 +1337,16 @@ function tucxaAppointmentFields(input: TucxaAppointmentBotConversaInput): BotCon
       label: "tucxa_entidade",
       value: input.entityName,
     },
+    ...(input.appointmentOrder ? [{
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"),
+      label: "tucxa_ordem",
+      value: String(input.appointmentOrder),
+    }] : []),
+    ...(input.individualNotice ? [{
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_INDIVIDUAL_NOTICE_ID", "BOTCONVERSA_TUCXA_FIELD_INDIVIDUAL_NOTICE"),
+      label: "tucxa_aviso_individual",
+      value: input.individualNotice,
+    }] : []),
     ...(input.confirmationUrl
       ? [{
           fieldId: firstEnv(
