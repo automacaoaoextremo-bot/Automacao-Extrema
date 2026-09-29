@@ -162,7 +162,16 @@ export async function POST(request: Request) {
       if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
       const deadline = asText(appointment.confirmation_expires_at);
       if (deadline && isPastConfirmationDeadline(deadline)) {
-        await supabaseAdmin.from("oh_consulente_appointments").update({ confirmation_status: "expired", updated_at: new Date().toISOString() }).eq("id", appointment.id);
+        if (settings.autoCancelExpiredConfirmations) {
+          const now = new Date().toISOString();
+          await supabaseAdmin.from("oh_consulente_appointments").update({
+            status: "cancelado",
+            confirmation_status: "expired",
+            cancelled_at: now,
+            cancellation_reason: "Prazo de confirmação do piloto encerrado",
+            updated_at: now,
+          }).eq("id", appointment.id);
+        }
         return NextResponse.json({ error: `O prazo de confirmação encerrou às ${settings.confirmationCutoff}. Fale com a Recepção.`, requestId: code }, { status: 410 });
       }
       const now = new Date().toISOString();

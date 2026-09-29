@@ -55,6 +55,7 @@ type Appointment = {
 };
 type Settings = {
   confirmationCutoff: string;
+  autoCancelExpiredConfirmations: boolean;
   appointmentTime: string;
   arrivalWindow: string;
   doorClosesAt: string;
@@ -115,6 +116,8 @@ type SummaryCounts = {
 
 type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
+  confirmationCutoff: string;
+  autoCancelExpiredConfirmations: boolean;
   reminderOffsets: string;
   summaryEmail: boolean;
   summaryWhatsapp: boolean;
@@ -1007,6 +1010,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     if (!payload) return;
     setSettingsDraft({
       serviceOrderMode: payload.settings.serviceOrderMode,
+      confirmationCutoff: payload.settings.confirmationCutoff,
+      autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
@@ -1025,6 +1030,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await postPilot({
         action: "save-settings",
         serviceOrderMode: settingsDraft.serviceOrderMode,
+        confirmationCutoff: settingsDraft.confirmationCutoff,
+        autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
       });
       await postPilot({
@@ -1736,6 +1743,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
                 <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
               </label>
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#123D2C]">Prazo de confirmação</p>
+                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
+                  Horário-limite no dia do atendimento
+                  <input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required />
+                </label>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p>
+                <div className="mt-3">
+                  <Toggle
+                    checked={settingsDraft.autoCancelExpiredConfirmations}
+                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)}
+                    label="Cancelar automaticamente agendamentos não confirmados após o prazo"
+                  />
+                </div>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Por enquanto, deixe desativado para manter os agendamentos pendentes mesmo depois do horário-limite.</p>
+              </section>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
                 <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
                 <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula. Os avisos do piloto serão enviados pelo WhatsApp/BotConversa.</span>

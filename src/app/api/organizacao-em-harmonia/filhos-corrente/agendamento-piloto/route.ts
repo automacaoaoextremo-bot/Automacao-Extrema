@@ -625,10 +625,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Informe a pessoa, a data e a Entidade.", requestId: code }, { status: 400 });
       }
 
+      // O cutoff limita a confirmação do Consulente, não a criação pela Recepção.
+      // Se a Recepção agendar após o horário, a reserva continua válida e pendente;
+      // a política de cancelamento automático é controlada separadamente.
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
-      if (isPastConfirmationDeadline(deadline)) {
-        return NextResponse.json({ error: `O prazo de confirmação desta data encerrou às ${settings.confirmationCutoff}.`, requestId: code }, { status: 409 });
-      }
 
       const { data: person, error: personError } = await supabaseAdmin
         .from("oh_people")
@@ -816,6 +816,11 @@ export async function POST(request: Request) {
     if (action === "save-settings") {
       const serviceOrderMode = asText(body.serviceOrderMode) === "arrival" ? "arrival" : "booking";
       const reminderOffsets = hourList(body.confirmationReminderOffsetsHours);
+      const confirmationCutoff = asText(body.confirmationCutoff);
+      if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(confirmationCutoff)) {
+        return NextResponse.json({ error: "Informe o prazo de confirmação no formato HH:MM.", requestId: code }, { status: 400 });
+      }
+      const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
       const { data: row, error: selectError } = await supabaseAdmin
         .from("oh_module_settings")
         .select("settings")
@@ -830,6 +835,8 @@ export async function POST(request: Request) {
         pilotAllowDifferentEntity: false,
         pilotSmsEnabled: false,
         pilotServiceOrderMode: serviceOrderMode,
+        pilotConfirmationCutoff: confirmationCutoff,
+        pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
       };
       const { error: updateError } = await supabaseAdmin

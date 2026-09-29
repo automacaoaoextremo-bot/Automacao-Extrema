@@ -65,7 +65,9 @@ export async function loadTucxaConfirmationAppointment(
     isPastConfirmationDeadline(deadline) &&
     appointment.confirmation_status === "pending";
 
-  if (expired) {
+  const shouldAutoCancel = expired && settings?.autoCancelExpiredConfirmations === true;
+
+  if (shouldAutoCancel) {
     const now = new Date().toISOString();
     const { error: updateError } = await supabaseAdmin
       .from("oh_consulente_appointments")
@@ -93,8 +95,8 @@ export async function loadTucxaConfirmationAppointment(
     doorReopensAt: settings?.doorReopensAt || "20:00",
     endTime: settings?.endTime || "21:40",
     entityName: asText(entity?.name) || "Entidade",
-    status: expired ? "cancelado" : asText(appointment.status),
-    confirmationStatus: expired ? "expired" : asText(appointment.confirmation_status),
+    status: shouldAutoCancel ? "cancelado" : asText(appointment.status),
+    confirmationStatus: shouldAutoCancel ? "expired" : asText(appointment.confirmation_status),
     confirmationExpiresAt: deadline,
     confirmedAt: asText(appointment.confirmed_at),
   };

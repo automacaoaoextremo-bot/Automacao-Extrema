@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   confirmationTokenHash,
   isPastConfirmationDeadline,
+  loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { loadTucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/tucxa-confirmation";
 import { sendTucxaReceptionConfirmationWhatsapp } from "@/lib/botconversa";
@@ -27,7 +28,7 @@ async function appointmentFromToken(token: string) {
   const hash = confirmationTokenHash(token);
   const { data: appointment, error } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, status, confirmation_status, confirmation_expires_at")
+    .select("id, organization_id, status, confirmation_status, confirmation_expires_at")
     .eq("confirmation_token_hash", hash)
     .maybeSingle();
   if (error) throw error;
@@ -58,15 +59,18 @@ export async function POST(request: Request) {
     const appointment = found;
     const deadline = asText(appointment.confirmation_expires_at);
     if (appointment.confirmation_status === "pending" && deadline && isPastConfirmationDeadline(deadline)) {
-      const now = new Date().toISOString();
-      await supabaseAdmin.from("oh_consulente_appointments").update({
-        status: "cancelado",
-        confirmation_status: "expired",
-        cancelled_at: now,
-        cancellation_reason: "Prazo de confirmação do piloto encerrado",
-        updated_at: now,
-      }).eq("id", appointment.id);
-      return NextResponse.json({ error: "O prazo de confirmação encerrou. Entre em contato com a Recepção do Tucxa." }, { status: 410 });
+      const settings = await loadPilotSettings(asText(appointment.organization_id));
+      if (settings.autoCancelExpiredConfirmations) {
+        const now = new Date().toISOString();
+        await supabaseAdmin.from("oh_consulente_appointments").update({
+          status: "cancelado",
+          confirmation_status: "expired",
+          cancelled_at: now,
+          cancellation_reason: "Prazo de confirmação do piloto encerrado",
+          updated_at: now,
+        }).eq("id", appointment.id);
+      }
+      return NextResponse.json({ error: "O prazo de confirmação encerrou. Entre em contato com a Recepção do Tucxa.", autoCancelled: settings.autoCancelExpiredConfirmations }, { status: 410 });
     }
     if (appointment.confirmation_status === "expired") {
       return NextResponse.json({ error: "O prazo de confirmação encerrou. Entre em contato com a Recepção do Tucxa." }, { status: 410 });

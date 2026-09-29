@@ -25,6 +25,7 @@ export type PilotDateOption = {
 
 export type PilotSettings = {
   confirmationCutoff: string;
+  autoCancelExpiredConfirmations: boolean;
   appointmentTime: string;
   arrivalWindow: string;
   doorClosesAt: string;
@@ -206,6 +207,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
   const settings = asRecord(data?.settings);
   return {
     confirmationCutoff: asText(settings.pilotConfirmationCutoff) || "16:00",
+    autoCancelExpiredConfirmations: settings.pilotAutoCancelExpiredConfirmations === true,
     appointmentTime: asText(settings.pilotAppointmentTime) || "20:00",
     arrivalWindow: asText(settings.pilotArrivalWindow) || "18:30–19:20",
     doorClosesAt: asText(settings.pilotDoorClosesAt) || "19:20",
@@ -506,6 +508,9 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
 }
 
 export async function expirePastPilotConfirmations(organizationId: string, personId?: string) {
+  const settings = await loadPilotSettings(organizationId);
+  if (!settings.autoCancelExpiredConfirmations) return;
+
   const now = new Date().toISOString();
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
