@@ -8,6 +8,7 @@ import {
 import { loadTucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/tucxa-confirmation";
 import { sendTucxaReceptionConfirmationWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
+import { receptionConfirmationMessage } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,7 @@ export async function POST(request: Request) {
             appointmentDate: details.appointmentDate,
             entityName: details.entityName,
             loginUrl: receptionLoginUrl(),
+            appointmentOrder: details.order,
           });
           if (!notification.sent && notification.provider === "botconversa") {
             console.warn("[TUCXA confirmação] aviso à Recepção não enviado", notification.error || "erro desconhecido");
@@ -115,7 +117,19 @@ export async function POST(request: Request) {
       }
 
       const confirmedDetails = await loadTucxaConfirmationAppointment(token).catch(() => null);
-      void sendTucxaAppointmentAuditEmail({ event: "Consulente confirmou a presença", consulenteName: confirmedDetails?.fullName, appointmentDate: confirmedDetails?.appointmentDate, entityName: confirmedDetails?.entityName });
+      void sendTucxaAppointmentAuditEmail({
+        event: "Consulente confirmou a presença",
+        consulenteName: confirmedDetails?.fullName,
+        appointmentDate: confirmedDetails?.appointmentDate,
+        entityName: confirmedDetails?.entityName,
+        message: confirmedDetails ? receptionConfirmationMessage({
+          fullName: confirmedDetails.fullName,
+          appointmentDate: confirmedDetails.appointmentDate,
+          entityName: confirmedDetails.entityName,
+          order: confirmedDetails.order,
+          loginUrl: receptionLoginUrl(),
+        }) : undefined,
+      });
       return NextResponse.json({ ok: true, message: "Presença confirmada conforme os dados abaixo." });
     }
 

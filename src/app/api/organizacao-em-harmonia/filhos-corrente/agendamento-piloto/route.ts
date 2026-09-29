@@ -22,6 +22,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
+import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -764,7 +765,7 @@ export async function POST(request: Request) {
             entityName: entity.name,
             confirmationUrl: link,
             appointmentOrder: Number(reservation.confirmed_order ?? 0) || null,
-            individualNotice: "Este agendamento é individual. Se você vier acompanhado de outra pessoa que também necessite de atendimento, faça um agendamento específico para ela. Sua confirmação ajuda a Recepção a organizar as vagas e acolher cada pessoa com atenção.",
+            individualNotice: TUCXA_INDIVIDUAL_NOTICE,
           })
         : { sent: false, provider: "disabled" as const, error: "Telefone não informado." };
 
@@ -786,7 +787,22 @@ export async function POST(request: Request) {
         if (sentUpdateError) console.error("[TUCXA piloto BotConversa status]", sentUpdateError);
       }
 
-      if (whatsappDispatch.sent) void sendTucxaAppointmentAuditEmail({ event: "WhatsApp de confirmação enviado", consulenteName: appointmentPersonName, appointmentDate, entityName: entity.name, details: `Ordem: ${Number(reservation.confirmed_order ?? 0) || "não definida"}` });
+      if (whatsappDispatch.sent) {
+        const message = appointmentConfirmationMessage({
+          fullName: appointmentPersonName,
+          appointmentDate,
+          entityName: entity.name,
+          order: Number(reservation.confirmed_order ?? 0) || null,
+          confirmationUrl: link,
+        });
+        void sendTucxaAppointmentAuditEmail({
+          event: "WhatsApp de confirmação enviado",
+          consulenteName: appointmentPersonName,
+          appointmentDate,
+          entityName: entity.name,
+          message,
+        });
+      }
 
       return NextResponse.json({
         ok: true,
@@ -991,7 +1007,7 @@ export async function POST(request: Request) {
 
       const { data: appointments, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,appointment_date,entity_id,consulente_name,whatsapp,status,notification_contact_name,notification_contact_whatsapp")
+        .select("id,person_id,source_contact_person_id,appointment_date,entity_id,consulente_name,whatsapp,status,notification_contact_name,notification_contact_whatsapp,metadata")
         .eq("organization_id", context.organizationId)
         .in("id", appointmentIds);
       if (appointmentError) throw appointmentError;
@@ -1110,6 +1126,7 @@ export async function POST(request: Request) {
             previousEntityName: entityNames.get(asText(appointment.entity_id)) || "Entidade anterior",
             newEntityName,
             reason,
+            appointmentOrder: Number((appointment.metadata as Record<string, unknown> | null)?.order ?? 0) || null,
           });
           if (dispatch.sent) sent += 1;
           else failures.push(`${asText(appointment.consulente_name) || "Consulente"}: ${dispatch.error || "falha no envio"}`);

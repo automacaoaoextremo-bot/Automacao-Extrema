@@ -1305,6 +1305,7 @@ export type TucxaEntityChangeBotConversaInput = {
   previousEntityName: string;
   newEntityName: string;
   reason: string;
+  appointmentOrder?: number | null;
 };
 
 export type TucxaAppointmentBotConversaResult = {
@@ -1555,6 +1556,7 @@ export type TucxaReceptionConfirmationBotConversaInput = {
   entityName: string;
   loginUrl: string;
   receptionWhatsapp?: string;
+  appointmentOrder?: number | null;
 };
 
 export async function sendTucxaReceptionConfirmationWhatsapp(
@@ -1609,6 +1611,7 @@ export async function sendTucxaReceptionConfirmationWhatsapp(
     appointmentDate: input.appointmentDate,
     entityName: input.entityName,
     confirmationUrl: input.loginUrl,
+    appointmentOrder: input.appointmentOrder,
     kind: "confirmation",
   };
 
@@ -1740,6 +1743,7 @@ export async function sendTucxaEntityChangeWhatsapp(
       { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY"), label: "tucxa_entidade", value: input.newEntityName },
       { fieldId: previousEntityFieldId, label: "tucxa_entidade_anterior", value: input.previousEntityName },
       { fieldId: reasonFieldId, label: "tucxa_motivo_alteracao", value: input.reason },
+      ...(input.appointmentOrder ? [{ fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"), label: "tucxa_ordem", value: String(input.appointmentOrder) }] : []),
     ];
 
     const steps = [...subscriber.steps];

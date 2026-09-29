@@ -6,12 +6,20 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
+import { appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function appointmentOrder(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const record = metadata as Record<string, unknown>;
+  const value = Number(record.order ?? record.confirmed_order ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function authorize(request: Request) {
@@ -43,6 +51,7 @@ type AppointmentRow = {
   notification_contact_name: string | null;
   notification_contact_whatsapp: string | null;
   status: string | null;
+  metadata: unknown;
 };
 
 type PreferenceRow = {
@@ -60,6 +69,7 @@ type NotificationLogRow = {
   appointment_id: string;
   scheduled_offset_hours: number | null;
   status: string | null;
+  metadata: unknown;
 };
 
 type ReminderSummary = {
@@ -112,7 +122,7 @@ async function processDayOfReminders(
 ): Promise<ReminderSummary> {
   const { data: appointments, error: appointmentsError } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status")
+    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,metadata")
     .eq("organization_id", organizationId)
     .eq("appointment_date", today)
     .in("status", ["solicitado", "confirmado", "aprovado"])
@@ -175,6 +185,10 @@ async function processDayOfReminders(
       appointmentDate: appointment.appointment_date,
       entityName,
       reminderOffsetHours: null,
+      appointmentOrder: appointmentOrder(appointment.metadata),
+      individualNotice: appointment.confirmation_status === "confirmed"
+        ? TUCXA_INDIVIDUAL_NOTICE
+        : `Sua presença ainda não foi confirmada. Confirme para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
     });
 
     const logPayload = {
@@ -203,7 +217,19 @@ async function processDayOfReminders(
     if (result.sent) {
       sent += 1;
       sentAppointments.add(appointment.id);
-      void sendTucxaAppointmentAuditEmail({ event: "Lembrete de agendamento enviado", consulenteName: asText(appointment.consulente_name), appointmentDate: appointment.appointment_date, entityName });
+      void sendTucxaAppointmentAuditEmail({
+        event: "Lembrete de agendamento enviado",
+        consulenteName: asText(appointment.consulente_name),
+        appointmentDate: appointment.appointment_date,
+        entityName,
+        message: appointmentReminderMessage({
+          fullName: asText(appointment.consulente_name) || "Consulente",
+          appointmentDate: appointment.appointment_date,
+          entityName,
+          order: appointmentOrder(appointment.metadata),
+          confirmed: appointment.confirmation_status === "confirmed",
+        }),
+      });
     } else {
       failed += 1;
     }
@@ -222,7 +248,7 @@ async function processConfirmationOffsetReminders(
 
   const { data: appointments, error: appointmentsError } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status")
+    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,metadata")
     .eq("organization_id", organizationId)
     .eq("confirmation_status", "pending")
     .gt("confirmation_expires_at", nowIso)
@@ -311,6 +337,8 @@ async function processConfirmationOffsetReminders(
       appointmentDate: appointment.appointment_date,
       entityName,
       reminderOffsetHours: dueOffset,
+      appointmentOrder: appointmentOrder(appointment.metadata),
+      individualNotice: `Sua presença ainda não foi confirmada. Confirme para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
     });
 
     const logPayload = {

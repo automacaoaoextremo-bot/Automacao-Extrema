@@ -30,6 +30,7 @@ export type TucxaConfirmationAppointment = {
   confirmationStatus: string;
   confirmationExpiresAt: string;
   confirmedAt: string;
+  order: number | null;
 };
 
 export async function loadTucxaConfirmationAppointment(
@@ -41,7 +42,7 @@ export async function loadTucxaConfirmationAppointment(
   const { data: appointment, error } = await supabaseAdmin
     .from("oh_consulente_appointments")
     .select(
-      "id, organization_id, entity_id, consulente_name, appointment_date, appointment_time, status, confirmation_status, confirmation_expires_at, confirmed_at",
+      "id, organization_id, entity_id, consulente_name, appointment_date, appointment_time, status, confirmation_status, confirmation_expires_at, confirmed_at, metadata",
     )
     .eq("confirmation_token_hash", hash)
     .maybeSingle();
@@ -99,5 +100,6 @@ export async function loadTucxaConfirmationAppointment(
     confirmationStatus: shouldAutoCancel ? "expired" : asText(appointment.confirmation_status),
     confirmationExpiresAt: deadline,
     confirmedAt: asText(appointment.confirmed_at),
+    order: Number((appointment.metadata as Record<string, unknown> | null)?.order ?? 0) || null,
   };
 }
