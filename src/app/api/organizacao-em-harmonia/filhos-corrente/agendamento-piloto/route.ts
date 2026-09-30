@@ -107,6 +107,13 @@ async function loadReceptionConsulentes(organizationId: string) {
     .sort((left, right) => asText(left.full_name).localeCompare(asText(right.full_name), "pt-BR"));
 }
 
+async function loadPilotExtraSettings(organizationId: string) {
+  const { data, error } = await supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "atendimento-em-harmonia").maybeSingle();
+  if (error) throw error;
+  const raw = asRecord(data?.settings);
+  return { enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true) };
+}
+
 function hourList(value: unknown) {
   const source = Array.isArray(value) ? value : asText(value).split(/[;,\s]+/);
   const parsed = source
@@ -339,7 +346,7 @@ async function loadEntityAvailableDatesIndex(
 }
 
 type ReceptionSummary = {
-  mode: "date" | "future";
+  mode: "date" | "future" | "period" | "before";
   date: string;
   fromDate: string;
   scheduled: number;
@@ -347,57 +354,39 @@ type ReceptionSummary = {
   arrived: number;
 };
 
-function summarizeAppointments(
-  appointments: Array<{ status?: string; confirmationStatus?: string; arrivalStatus?: string }>,
-  mode: "date" | "future",
-  date: string,
-  fromDate: string,
-): ReceptionSummary {
+function summarizeAppointments(appointments: Array<{ status?: string; confirmationStatus?: string; arrivalStatus?: string }>, mode: ReceptionSummary["mode"], date: string, fromDate: string): ReceptionSummary {
   const active = appointments.filter((item) => asText(item.status) !== "cancelado");
-  return {
-    mode,
-    date: mode === "date" ? date : "",
-    fromDate,
-    scheduled: active.length,
-    confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length,
-    arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length,
-  };
+  return { mode, date, fromDate, scheduled: active.length, confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length, arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length };
 }
 
-async function loadReceptionSummary(
-  organizationId: string,
-  mode: "date" | "future",
-  requestedDate?: string,
-): Promise<ReceptionSummary> {
+async function loadReceptionSummary(organizationId: string, mode: ReceptionSummary["mode"], requestedDate?: string, requestedDateTo?: string): Promise<ReceptionSummary> {
   const today = todayInSaoPaulo();
-  const targetDate = requestedDate && requestedDate >= today ? requestedDate : today;
+  const date = asText(requestedDate) || today;
+  const dateTo = asText(requestedDateTo);
+  let query = supabaseAdmin.from("oh_consulente_appointments").select("status,confirmation_status,arrival_status").eq("organization_id", organizationId);
 
-  let query = supabaseAdmin
-    .from("oh_consulente_appointments")
-    .select("status,confirmation_status,arrival_status")
-    .eq("organization_id", organizationId);
-
-  if (mode === "future") {
-    query = query.gte("appointment_date", today);
+  if (mode === "future") query = query.gte("appointment_date", today);
+  else if (mode === "period") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo) || dateTo < date) throw new Error("Informe um período válido no formato dd/mm/aaaa.");
+    query = query.gte("appointment_date", date).lte("appointment_date", dateTo);
+  } else if (mode === "before") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) throw new Error("Informe a data limite no formato dd/mm/aaaa.");
+    query = query.lt("appointment_date", dateTo);
   } else {
-    query = query.eq("appointment_date", targetDate);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Informe uma data válida no formato dd/mm/aaaa.");
+    query = query.eq("appointment_date", date);
   }
 
   const { data, error } = await query;
   if (error) throw error;
-
-  const appointments = (data ?? []).map((item) => ({
-    status: asText(item.status),
-    confirmationStatus: asText(item.confirmation_status),
-    arrivalStatus: asText(item.arrival_status),
-  }));
-
-  return summarizeAppointments(appointments, mode, targetDate, mode === "future" ? today : targetDate);
+  const appointments = (data ?? []).map((item) => ({ status: asText(item.status), confirmationStatus: asText(item.confirmation_status), arrivalStatus: asText(item.arrival_status) }));
+  return summarizeAppointments(appointments, mode, mode === "before" ? dateTo : date, mode === "future" ? today : date);
 }
 
 async function buildPayload(organizationId: string, receptionPersonId: string, selectedDate?: string) {
   await expirePastPilotConfirmations(organizationId);
   const settings = await loadPilotSettings(organizationId);
+  const extraSettings = await loadPilotExtraSettings(organizationId);
   const dates = await loadPilotDates(organizationId, settings.daysAhead);
   const selected = dates.some((item) => item.date === selectedDate) ? selectedDate! : dates[0]?.date || todayInSaoPaulo();
 
@@ -486,7 +475,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
   );
 
   return {
-    settings,
+    settings: { ...settings, ...extraSettings },
     dates,
     selectedDate: selected,
     summary,
@@ -534,9 +523,11 @@ export async function POST(request: Request) {
     const settings = await loadPilotSettings(context.organizationId);
 
     if (action === "summary") {
-      const mode = asText(body.mode) === "future" ? "future" : "date";
+      const requestedMode = asText(body.mode);
+      const mode: ReceptionSummary["mode"] = ["future", "period", "before"].includes(requestedMode) ? requestedMode as ReceptionSummary["mode"] : "date";
       const date = asText(body.date);
-      const summary = await loadReceptionSummary(context.organizationId, mode, date);
+      const dateTo = asText(body.dateTo);
+      const summary = await loadReceptionSummary(context.organizationId, mode, date, dateTo);
       return NextResponse.json({ ok: true, summary });
     }
 
@@ -851,10 +842,11 @@ export async function POST(request: Request) {
       const serviceOrderMode = asText(body.serviceOrderMode) === "arrival" ? "arrival" : "booking";
       const reminderOffsets = hourList(body.confirmationReminderOffsetsHours);
       const confirmationCutoff = asText(body.confirmationCutoff);
-      if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(confirmationCutoff)) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(confirmationCutoff)) {
         return NextResponse.json({ error: "Informe o prazo de confirmação no formato HH:MM.", requestId: code }, { status: 400 });
       }
       const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
+      const enforceArrivalWindow = asBoolean(body.enforceArrivalWindow, true);
       const { data: row, error: selectError } = await supabaseAdmin
         .from("oh_module_settings")
         .select("settings")
@@ -871,6 +863,7 @@ export async function POST(request: Request) {
         pilotServiceOrderMode: serviceOrderMode,
         pilotConfirmationCutoff: confirmationCutoff,
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
+        pilotEnforceArrivalWindow: enforceArrivalWindow,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
       };
       const { error: updateError } = await supabaseAdmin
@@ -912,13 +905,14 @@ export async function POST(request: Request) {
       }
 
       if (arrivalStatus === "arrived") {
+        const extraSettings = await loadPilotExtraSettings(context.organizationId);
         const appointmentDate = asText(appointment.appointment_date);
         const today = todayInSaoPaulo();
         const minutes = currentSaoPauloMinutes();
         const arrivalStart = 18 * 60;
         const arrivalEnd = 20 * 60;
 
-        if (appointmentDate !== today || minutes < arrivalStart || minutes > arrivalEnd) {
+        if (extraSettings.enforceArrivalWindow && (appointmentDate !== today || minutes < arrivalStart || minutes > arrivalEnd)) {
           return NextResponse.json(
             {
               error: "A chegada só pode ser registrada no dia do atendimento, entre 18:00 e 20:00.",
@@ -962,7 +956,7 @@ export async function POST(request: Request) {
         ok: true,
         arrival: Array.isArray(data) ? data[0] : data,
         message: arrivalStatus === "arrived"
-          ? "Chegada registrada dentro do período permitido (18:00–20:00)."
+          ? "Chegada registrada."
           : arrivalStatus === "absent"
             ? "Ausência registrada."
             : "Situação de chegada redefinida.",

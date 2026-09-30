@@ -165,7 +165,8 @@ export async function POST(request: Request) {
         supabaseAdmin.auth.admin.getUserById(person.auth_user_id as string),
         loadMembership(organization.id, person.id as string),
       ]);
-      if (authError || !authData.user?.email || !membership?.id || String(membership.status || "").toLowerCase() !== "ativo") {
+      const membershipStatus = String(membership?.status || "").toLowerCase();
+      if (authError || !authData.user || !membership?.id || !["ativo", "active"].includes(membershipStatus)) {
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
 
@@ -176,10 +177,17 @@ export async function POST(request: Request) {
       const authClient = createClient(supabaseUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({
-        email: authData.user.email,
-        password,
-      });
+      const authEmail = asText(authData.user.email);
+      const authPhone = onlyDigits(authData.user.phone);
+      const credentials = authEmail
+        ? { email: authEmail, password }
+        : authPhone
+          ? { phone: authPhone.startsWith("55") ? `+${authPhone}` : `+55${authPhone}`, password }
+          : null;
+      if (!credentials) {
+        return NextResponse.json({ error: "Acesso sem e-mail/WhatsApp vinculado no Supabase Auth. Procure a Recepção." }, { status: 401 });
+      }
+      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword(credentials);
       if (signInError || !signInData.session) {
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }

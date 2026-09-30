@@ -57,6 +57,7 @@ type Appointment = {
 type Settings = {
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
+  enforceArrivalWindow: boolean;
   appointmentTime: string;
   arrivalWindow: string;
   doorClosesAt: string;
@@ -105,7 +106,7 @@ type EntityChangeRequest = {
   attachment: File | null;
 };
 type AlphabetPickerState = { letter: string; people: FoundPerson[] };
-type SummaryMode = "date" | "future";
+type SummaryMode = "date" | "future" | "period" | "before";
 type SummaryCounts = {
   mode: SummaryMode;
   date: string;
@@ -119,6 +120,7 @@ type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
+  enforceArrivalWindow: boolean;
   reminderOffsets: string;
   summaryEmail: boolean;
   summaryWhatsapp: boolean;
@@ -144,6 +146,17 @@ function acolhimentoDateLabel(value: string) {
     year: "numeric",
   });
   return `${weekday}-${calendarDate}`;
+}
+
+function formatDateInputPtBr(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function parseDateInputPtBr(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length !== 8) return value;
+  return `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
 }
 
 function monthYearLabel(value: string) {
@@ -227,6 +240,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityChangeRequest, setEntityChangeRequest] = useState<EntityChangeRequest | null>(null);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
+  const [summaryDateTo, setSummaryDateTo] = useState("");
   const [summaryOverride, setSummaryOverride] = useState<SummaryCounts | null>(null);
   const [, setSummaryLoading] = useState(false);
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
@@ -462,25 +476,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
     return data;
   }
 
-  async function refreshSummary(mode: SummaryMode, date = effectiveSummaryDate) {
+  async function refreshSummary(mode: SummaryMode, date = effectiveSummaryDate, dateTo = summaryDateTo) {
     setSummaryLoading(true);
     try {
-      const result = await postPilot({ action: "summary", mode, date });
-      const summary = result.summary && typeof result.summary === "object"
-        ? result.summary as SummaryCounts
-        : null;
+      const result = await postPilot({ action: "summary", mode, date, dateTo });
+      const summary = result.summary && typeof result.summary === "object" ? result.summary as SummaryCounts : null;
       if (!summary) throw new Error("Resumo não retornado pelo servidor.");
       setSummaryMode(mode);
-      if (mode === "date") setSummaryDate(summary.date || date);
+      if (mode === "date" || mode === "period") setSummaryDate(summary.date || date);
+      if (mode === "period" || mode === "before") setSummaryDateTo(dateTo);
       setSummaryOverride(summary);
     } catch (summaryError) {
-      setErrorNotice({
-        title: "Não foi possível atualizar os indicadores",
-        message: summaryError instanceof Error ? summaryError.message : "Tente novamente em instantes.",
-      });
-    } finally {
-      setSummaryLoading(false);
-    }
+      setErrorNotice({ title: "Não foi possível atualizar os indicadores", message: summaryError instanceof Error ? summaryError.message : "Tente novamente em instantes." });
+    } finally { setSummaryLoading(false); }
   }
 
   function clearPersonSearch() {
@@ -1013,6 +1021,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       serviceOrderMode: payload.settings.serviceOrderMode,
       confirmationCutoff: payload.settings.confirmationCutoff,
       autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
+      enforceArrivalWindow: payload.settings.enforceArrivalWindow,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
@@ -1033,6 +1042,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         serviceOrderMode: settingsDraft.serviceOrderMode,
         confirmationCutoff: settingsDraft.confirmationCutoff,
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
+        enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
       });
       await postPilot({
@@ -1049,7 +1059,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
         message: "Configurações do piloto atualizadas com sucesso.",
       });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar as configurações.");
+      setError("");
+      setErrorNotice({ title: "Não foi possível salvar as configurações", message: saveError instanceof Error ? saveError.message : "Não foi possível salvar as configurações." });
     } finally {
       setSaving(false);
     }
@@ -1187,6 +1198,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => setModal("painel")} className="rounded-2xl bg-[#E9F2E7] p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Painel</span><span className="text-sm font-semibold text-slate-600">Indicadores dos atendimentos e acesso à Triagem.</span>
               </button>
+              <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
+              </button>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
               </Link>
@@ -1195,11 +1209,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "painel" && (
             <div className="grid gap-3">
-              <div className="grid grid-cols-3 gap-2">
-                <Summary label="Agendados" value={displayedSummary.scheduled} />
-                <Summary label="Confirmados" value={displayedSummary.confirmed} />
-                <Summary label="Chegaram" value={displayedSummary.arrived} />
-              </div>
+              <section className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <label className="grid gap-1 text-sm font-black text-[#123D2C]">Período dos indicadores
+                  <select value={summaryMode} onChange={(event) => setSummaryMode(event.target.value as SummaryMode)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
+                    <option value="date">Data específica</option><option value="future">Todos a partir da data atual</option><option value="period">Período específico</option><option value="before">Somente anteriores à data específica</option>
+                  </select>
+                </label>
+                {(summaryMode === "date" || summaryMode === "period") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data inicial" : "Data"}<input value={summaryDate ? formatDateInputPtBr(summaryDate) : ""} onChange={(event) => setSummaryDate(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
+                {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
+                <button type="button" onClick={() => void refreshSummary(summaryMode, summaryDate || payload.selectedDate, summaryDateTo)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Atualizar indicadores</button>
+              </section>
+              <div className="grid grid-cols-3 gap-2"><Summary label="Agendados" value={displayedSummary.scheduled} /><Summary label="Confirmados" value={displayedSummary.confirmed} /><Summary label="Chegaram" value={displayedSummary.arrived} /></div>
               <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
             </div>
           )}
@@ -1741,6 +1761,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   />
                 </div>
                 <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Por enquanto, deixe desativado para manter os agendamentos pendentes mesmo depois do horário-limite.</p>
+              </section>
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#123D2C]">Registro de chegada</p>
+                <div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div>
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Desative temporariamente durante a homologação para testar a ordem de chegada fora da janela normal. Em produção, recomenda-se manter habilitado.</p>
               </section>
               <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
                 <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
