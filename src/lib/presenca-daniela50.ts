@@ -116,6 +116,13 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
       instagramUrl: "https://www.instagram.com/gabrielmattanosilva/",
       imageUrl: DANIELA50_DJ_PHOTO,
     },
+    {
+      title: "Sky Bartenders",
+      subtitle: "Drinks preparados na hora para brindar os 50 da Dani",
+      time: "Durante a tarde de comemoração",
+      description: "Uma novidade para deixar a tarde ainda mais especial: o pessoal da Sky Bartenders estará na festa preparando bebidas e drinks para acompanhar os encontros, a música e os brindes.",
+      instagramUrl: "https://www.instagram.com/skybartenders?stkn=MWdhcndwNmt6c3NoNg==",
+    },
   ],
   menuSections: [
     {
@@ -128,7 +135,7 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
     },
     {
       title: "Bebidas para refrescar a tarde",
-      items: ["Coca-Cola", "Guaraná", "Água aromatizada", "Chopp Kremer", "Café"],
+      items: ["Coca-Cola", "Guaraná", "Água aromatizada", "Chopp Kremer", "Drinks Sky Bartenders", "Café"],
     },
     {
       title: "Bolo e doces finos",
@@ -365,5 +372,60 @@ export function buildPersonalizedInvitationMessage(input: {
     "Novidade: ao confirmar, você também pode deixar uma curiosidade ou um recado carinhoso para a Dani. Depois da aprovação da família, alguns recados poderão aparecer na seção ‘Recados para a Dani’ na página da festa.",
     "",
     buildDaniela50HostSignature(input.event),
+  ].join("\n");
+}
+
+
+export type Daniela50ReminderAudience = "confirmado" | "talvez" | "pendente";
+
+export function buildDaniela50ReminderMessage(input: { guest: Record<string, unknown>; event: Partial<PresencaEvent>; confirmationUrl: string; audience: Daniela50ReminderAudience }) {
+  const firstName = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "você";
+  const signature = buildDaniela50HostSignature(input.event);
+  const novelty = "Tem novidade para a tarde: além do samba, do DJ e do chopp, teremos a Sky Bartenders preparando drinks para brindar juntos.";
+
+  if (input.audience === "confirmado") {
+    return [
+      `Oi, ${firstName}! 💗`,
+      "",
+      "Sua presença já está confirmada nos meus 50 anos — e isso deixa essa comemoração ainda mais especial para mim.",
+      "",
+      novelty,
+      "",
+      "Guarde o dia 19/12. Mais perto da festa eu envio os últimos detalhes para você chegar com tranquilidade e aproveitar a tarde inteira.",
+      "",
+      input.confirmationUrl,
+      "",
+      signature,
+    ].join("\n");
+  }
+
+  if (input.audience === "talvez") {
+    return [
+      `Oi, ${firstName}! 💗`,
+      "",
+      "Quando você respondeu ‘talvez’, eu deixei seu lugar em aberto porque gostaria muito de ter você comigo nessa tarde.",
+      "",
+      novelty,
+      "",
+      `Se já conseguir decidir, me ajuda confirmando pelo link até ${formatDaniela50Deadline()}. Assim conseguimos preparar buffet, bebidas, mesas e recepção pensando em quem estará lá.`,
+      "",
+      input.confirmationUrl,
+      "",
+      signature,
+    ].join("\n");
+  }
+
+  return [
+    `Oi, ${firstName}! 💗`,
+    "",
+    "Passando para lembrar de um convite que é importante para mim: quero comemorar meus 50 anos perto de pessoas que fazem parte da minha história.",
+    "",
+    novelty,
+    "",
+    `Se puder, me dê um retorno pelo link até ${formatDaniela50Deadline()}. A resposta ajuda muito a deixar buffet, bebidas, mesas e recepção preparados para receber todo mundo bem.`,
+    "",
+    input.confirmationUrl,
+    "",
+    signature,
   ].join("\n");
 }
