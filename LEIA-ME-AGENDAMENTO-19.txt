@@ -1,0 +1,20 @@
+Automacao Extrema - TUCXA - Agendamento Piloto - Ajustes 19
+
+Arquivos alterados:
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+
+Principais ajustes:
+- contato alternativo/familiar com parentesco Mãe, Filho ou Outro;
+- Outro exige vínculo digitado;
+- backend exige nome, vínculo e WhatsApp do contato alternativo;
+- busca/alfabeto do agendamento deixa de ser repetida depois da seleção do consulente;
+- Acolhimento: opção Dia renomeada para Consulente;
+- visão Consulente em ordem alfabética;
+- letras disponíveis conforme consulentes agendados;
+- busca por nome ou WhatsApp;
+- Status movido para popup;
+- total agendado na data;
+- total agendado/capacidade ao lado da Entidade.
+
+Não há migration nova nesta rodada.

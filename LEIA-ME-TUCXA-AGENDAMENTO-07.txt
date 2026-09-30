@@ -1,0 +1,30 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 07
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais evolucoes:
+- cabecalho da pagina publica volta ao padrao compacto da pagina principal do Tucxa;
+- textos de Como funciona revisados;
+- Configuracoes da Recepcao simplificadas;
+- Entidade padrao e permissao de trocar Entidade passam a ser individuais por Consulente;
+- primeiro atendimento com chegada registrada define a Entidade padrao, exceto Passe;
+- Cadastros separados em Consulentes e Entidades;
+- busca de Consulente por nome ou WhatsApp;
+- cadastro de Entidade com nome, descricao, vagas/dia e Cavalinho associado;
+- SMS deixa de ser utilizado pelo piloto;
+- confirmacoes e lembretes passam a usar WhatsApp via BotConversa;
+- fallback manual por WhatsApp e link de confirmacao permanecem disponiveis.
+
+Migration nova:
+supabase/migrations/20260926103000_oh_tucxa_agendamento_piloto_ajustes_07.sql
+
+Documentacao BotConversa:
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-07.md
+
+Antes de commit:
+npm run lint
+npm run build
+git diff --check
+
+Nao versionar .env, chaves BotConversa, CRON_SECRET ou arquivos *.local.json.

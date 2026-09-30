@@ -1,0 +1,14 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 10
+
+Principais ajustes:
+- exclusao definitiva de Entidade sem historico; com historico, apenas inativacao;
+- correcao da capacidade atomica da RPC de reserva;
+- erro de Criar Agendamento em popup;
+- indicadores com filtro Data especifica / Todos os futuros;
+- calendario de Entidade compacto, exibindo somente datas com vaga.
+
+IMPORTANTE:
+- executar npm run lint e npm run build antes do commit;
+- aplicar a migration 20260926213000_oh_tucxa_agendamento_piloto_ajustes_10.sql no Supabase;
+- manter a branch feature/tucxa-em-harmonia-agendamentos-piloto-v1;
+- nao fazer merge para main antes da homologacao.

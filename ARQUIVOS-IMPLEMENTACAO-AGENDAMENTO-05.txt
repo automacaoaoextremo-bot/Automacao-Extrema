@@ -1,0 +1,16 @@
+ARQUIVOS ATUALIZADOS
+
+src/app/solucoes/organizacao-em-harmonia/agendamento/page.tsx
+src/app/solucoes/organizacao-em-harmonia/agendamento/login/page.tsx
+src/components/organizacao-em-harmonia/tucxa-public-header.tsx
+src/lib/organizacao-em-harmonia/tucxa-sms.ts
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/api/cron/tucxa-agendamento-reminders/route.ts
+
+ARQUIVOS NOVOS
+
+src/app/a/[token]/route.ts
+docs/tucxa/CONFIGURACAO-SMS-AGENDAMENTO-05.md
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-05.md
+LEIA-ME-TUCXA-AGENDAMENTO-05.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-05.txt

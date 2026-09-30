@@ -1,0 +1,25 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 09
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Esta evolução implementa:
+- popup de sucesso ao salvar Configurações;
+- popup de sucesso ao salvar Cadastro de Consulente;
+- popup de sucesso ao salvar Cadastro de Entidade;
+- remoção dessas mensagens de sucesso da tela principal da Recepção;
+- calendário de Entidade exibindo somente meses/dias de atendimento disponíveis;
+- link novo de confirmação apontando diretamente para a página final, sem depender da rota curta;
+- compatibilidade da rota curta /a/[token] para links antigos, com redirect sem cache;
+- carregamento server-side dos dados da confirmação para evitar ficar preso em "Validando seu agendamento..." em navegador interno do WhatsApp;
+- exibição de todos os horários relevantes do atendimento;
+- mensagem final clara de presença confirmada mantendo os dados na tela.
+
+Não há migration Supabase nova.
+Não há dependência npm nova.
+Não há variável Vercel nova.
+
+Antes do commit execute:
+npm run lint
+npm run build
+git diff --check

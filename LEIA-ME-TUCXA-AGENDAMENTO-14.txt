@@ -1,0 +1,23 @@
+AUTOMAÇÃO EXTREMA — TUCXA — AGENDAMENTO 14
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais ajustes:
+- reforço da sincronização do campo Data antes do send_flow do BotConversa;
+- bloqueio do fluxo se algum campo personalizado obrigatório falhar;
+- fonte mobile de Por que usar/Horários alinhada aos links do cabeçalho;
+- Sair/Ajuda compactos;
+- Acolhimento com data completa;
+- Configurações sem opção Ambos e com Ordenação explícita;
+- seleção alfabética também em Cadastros > Consulentes;
+- Entidade padrão exibida na seleção alfabética;
+- Disponibilidade das Entidades compacta e paginada;
+- Cadastro de Entidades mais compacto;
+- título Agendar Consulente;
+- regra de Entidade padrão validada no cliente e no servidor;
+- retorno contextual do Cadastro pessoal;
+- SQL seguro e auditado para remover o teste de Paulo Machado.
+
+Não há nova migration Supabase obrigatória para a implementação.
+Há um SQL operacional separado para a exclusão do teste de Paulo Machado.

@@ -576,12 +576,62 @@ async function toggleEntity(organizationId: string, body: Record<string, unknown
 async function deleteEntity(organizationId: string, body: Record<string, unknown>) {
   const entityId = asText(body.entityId);
   if (!entityId) throw new Error("Entidade não informada.");
-  const { error } = await supabaseAdmin
+
+  const { data: entity, error: entityError } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .update({ active: false, appointment_enabled: false, updated_at: new Date().toISOString() })
+    .select("id,name")
+    .eq("id", entityId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (entityError) throw entityError;
+  if (!entity?.id) throw new Error("Entidade não localizada.");
+
+  const [
+    { count: attendanceCount, error: attendanceError },
+    { count: recommendationCount, error: recommendationError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("entity_id", entityId),
+    supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("recommended_by_entity_id", entityId),
+  ]);
+  if (attendanceError) throw attendanceError;
+  if (recommendationError) throw recommendationError;
+
+  const historyCount = Number(attendanceCount ?? 0) + Number(recommendationCount ?? 0);
+  if (historyCount > 0) {
+    const { error: deactivateError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .update({ active: false, appointment_enabled: false, updated_at: new Date().toISOString() })
+      .eq("id", entityId)
+      .eq("organization_id", organizationId);
+    if (deactivateError) throw deactivateError;
+
+    return {
+      entityDeleteMode: "inactivated",
+      entityDeleteHistoryCount: historyCount,
+      message: `${asText(entity.name) || "Entidade"} possui histórico de atendimento e foi apenas inativada. O histórico foi preservado.`,
+    };
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .delete()
     .eq("id", entityId)
     .eq("organization_id", organizationId);
-  if (error) throw error;
+  if (deleteError) throw deleteError;
+
+  return {
+    entityDeleteMode: "deleted",
+    entityDeleteHistoryCount: 0,
+    message: `${asText(entity.name) || "Entidade"} foi excluída definitivamente porque não possui histórico de atendimento.`,
+  };
 }
 
 async function upsertLocation(organizationId: string, body: Record<string, unknown>) {
@@ -1207,6 +1257,71 @@ async function deleteAccessValidation(organizationId: string, body: Record<strin
   return { deletedValidation: true, deletedPersonName: person.full_name };
 }
 
+async function resetPilotAccess(organizationId: string, body: Record<string, unknown>) {
+  const personId = asText(body.personId);
+  if (!personId) throw new Error("Pessoa não informada para excluir o acesso do piloto.");
+
+  const { data: person, error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, auth_user_id")
+    .eq("organization_id", organizationId)
+    .eq("id", personId)
+    .maybeSingle();
+  if (personError) throw personError;
+  if (!person?.id) throw new Error("Filho da Corrente não localizado.");
+
+  const previousAuthUserId = asText(person.auth_user_id);
+  if (previousAuthUserId) {
+    const { error: unlinkError } = await supabaseAdmin
+      .from("oh_people")
+      .update({ auth_user_id: null, updated_at: new Date().toISOString() })
+      .eq("organization_id", organizationId)
+      .eq("id", person.id);
+    if (unlinkError) throw unlinkError;
+
+    const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(previousAuthUserId);
+    if (deleteAuthError) {
+      await supabaseAdmin
+        .from("oh_people")
+        .update({ auth_user_id: previousAuthUserId, updated_at: new Date().toISOString() })
+        .eq("organization_id", organizationId)
+        .eq("id", person.id);
+      throw deleteAuthError;
+    }
+  }
+
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("id, agenda_viva_profile")
+    .eq("organization_id", organizationId)
+    .eq("person_id", person.id)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+
+  if (membership?.id) {
+    const profile = { ...asRecord(membership.agenda_viva_profile) };
+    delete profile.pilotOnboardingCompletedAt;
+    delete profile.pilotLgpdAcceptedAt;
+    profile.pilotFirstAccessRequired = true;
+    profile.pilotAccessResetAt = new Date().toISOString();
+
+    const { error: updateMembershipError } = await supabaseAdmin
+      .from("oh_memberships")
+      .update({ agenda_viva_profile: profile, updated_at: new Date().toISOString() })
+      .eq("id", membership.id);
+    if (updateMembershipError) throw updateMembershipError;
+  }
+
+  return {
+    resetPilotAccess: true,
+    personId: person.id,
+    personName: person.full_name,
+    hadLogin: Boolean(previousAuthUserId),
+  };
+}
+
 export async function GET(request: Request) {
   const auth = await getOrganizacaoAuthContext(request);
   if (!auth.ok) return auth.response;
@@ -1229,7 +1344,9 @@ export async function POST(request: Request) {
 
     let actionResult: Record<string, unknown> = {};
 
-    if (action === "deletePerson") {
+    if (action === "resetPilotAccess") {
+      actionResult = await resetPilotAccess(auth.context.organizationId, body);
+    } else if (action === "deletePerson") {
       const personId = asText(body.personId);
       if (!personId) throw new Error("Pessoa não informada.");
       const { error } = await supabaseAdmin.from("oh_people").delete().eq("id", personId).eq("organization_id", auth.context.organizationId);
@@ -1267,7 +1384,7 @@ export async function POST(request: Request) {
     } else if (action === "toggleEntity") {
       await toggleEntity(auth.context.organizationId, body);
     } else if (action === "deleteEntity") {
-      await deleteEntity(auth.context.organizationId, body);
+      actionResult = await deleteEntity(auth.context.organizationId, body);
     } else if (action === "upsertLocation") {
       await upsertLocation(auth.context.organizationId, body);
     } else if (action === "deleteLocation") {

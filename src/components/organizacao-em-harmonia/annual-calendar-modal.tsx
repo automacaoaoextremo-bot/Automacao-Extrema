@@ -196,6 +196,7 @@ function MiniMonth({
   onSelectDay,
   minDate,
   allowEmptyDaySelection = false,
+  onlyEventDays = false,
 }: {
   events: AnnualCalendarEvent[];
   year: number;
@@ -205,6 +206,7 @@ function MiniMonth({
   onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void;
   minDate?: string;
   allowEmptyDaySelection?: boolean;
+  onlyEventDays?: boolean;
 }) {
   const days = useMemo(() => buildMonthDays(events, year, month), [events, month, year]);
   const isEvents = variant === "events";
@@ -257,7 +259,7 @@ function MiniMonth({
       </div>
       <div className="grid min-w-0 grid-cols-7 gap-px text-center">
         {days.map((day, index) => {
-          if (day.outsideMonth || (minDate && day.isoDate < minDate)) {
+          if (day.outsideMonth || (minDate && day.isoDate < minDate) || (onlyEventDays && day.events.length === 0)) {
             return <span key={`${day.isoDate}-${index}`} className="block min-w-0" style={dayStyle} />;
           }
           const firstTone = day.events[0] ? toneFor(day.events[0]) : null;
@@ -298,6 +300,7 @@ function AnnualGrid({
   visibleMonths,
   minDate,
   allowEmptyDaySelection = false,
+  onlyEventDays = false,
 }: {
   events: AnnualCalendarEvent[];
   year: number;
@@ -307,6 +310,7 @@ function AnnualGrid({
   visibleMonths?: number[];
   minDate?: string;
   allowEmptyDaySelection?: boolean;
+  onlyEventDays?: boolean;
 }) {
   const months = visibleMonths ?? Array.from({ length: 12 }, (_, month) => month);
   return (
@@ -322,6 +326,7 @@ function AnnualGrid({
           onSelectDay={onSelectDay}
           minDate={minDate}
           allowEmptyDaySelection={allowEmptyDaySelection}
+          onlyEventDays={onlyEventDays}
         />
       ))}
     </div>
@@ -440,6 +445,10 @@ function IntegratedCalendar({
   visibleMonths,
   minDate,
   allowEmptyDaySelection,
+  title,
+  subtitle,
+  emptyMessage,
+  onlyEventDays = false,
 }: {
   events: AnnualCalendarEvent[];
   year: number;
@@ -447,11 +456,16 @@ function IntegratedCalendar({
   visibleMonths?: number[];
   minDate?: string;
   allowEmptyDaySelection?: boolean;
+  title?: string;
+  subtitle?: string;
+  emptyMessage?: string;
+  onlyEventDays?: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-3xl bg-gradient-to-b from-[#EDF5EB] to-white p-3 ring-1 ring-[#123D2C]/10 sm:p-6" data-agenda-pdf>
       <div className="mb-3 text-center">
-        <h2 className="text-2xl font-black text-[#123D2C]">Agenda Viva Integrada - {year}</h2>
+        <h2 className="text-2xl font-black text-[#123D2C]">{title || `Agenda Viva Integrada - ${year}`}</h2>
+        {subtitle && <p className="mt-1 text-xs font-semibold text-slate-600">{subtitle}</p>}
       </div>
       <AnnualGrid
         events={events}
@@ -462,10 +476,11 @@ function IntegratedCalendar({
         visibleMonths={visibleMonths}
         minDate={minDate}
         allowEmptyDaySelection={allowEmptyDaySelection}
+        onlyEventDays={onlyEventDays}
       />
       {events.length === 0 && (
         <p className="mt-4 rounded-2xl bg-white p-4 text-center text-sm font-bold text-slate-500 ring-1 ring-[#123D2C]/10">
-          Nenhum compromisso cadastrado para o período exibido.
+          {emptyMessage || "Nenhum compromisso cadastrado para o período exibido."}
         </p>
       )}
     </section>
@@ -480,6 +495,10 @@ export function AnnualCalendarView({
   visibleMonths,
   minDate,
   allowEmptyDaySelection = false,
+  title,
+  subtitle,
+  emptyMessage,
+  onlyEventDays = false,
 }: {
   mode: AnnualCalendarMode;
   events: AnnualCalendarEvent[];
@@ -488,6 +507,10 @@ export function AnnualCalendarView({
   visibleMonths?: number[];
   minDate?: string;
   allowEmptyDaySelection?: boolean;
+  title?: string;
+  subtitle?: string;
+  emptyMessage?: string;
+  onlyEventDays?: boolean;
 }) {
   if (mode === "events") return <EventsCalendar events={events} year={year} onSelectDay={onSelectDay} />;
   if (mode === "sementinha") return <SementinhaCalendar events={events} year={year} onSelectDay={onSelectDay} />;
@@ -501,6 +524,10 @@ export function AnnualCalendarView({
         visibleMonths={visibleMonths}
         minDate={minDate}
         allowEmptyDaySelection={allowEmptyDaySelection}
+        title={title}
+        subtitle={subtitle}
+        emptyMessage={emptyMessage}
+        onlyEventDays={onlyEventDays}
       />
     );
   }

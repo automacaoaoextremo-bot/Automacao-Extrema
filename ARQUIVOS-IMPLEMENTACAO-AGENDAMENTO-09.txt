@@ -1,0 +1,20 @@
+AGENDAMENTO 09 - ARQUIVOS COMPLETOS
+
+ATUALIZADOS:
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/components/organizacao-em-harmonia/annual-calendar-modal.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/a/[token]/route.ts
+src/app/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar/route.ts
+src/app/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/[token]/page.tsx
+
+NOVOS:
+src/app/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/[token]/confirmation-client.tsx
+src/lib/organizacao-em-harmonia/tucxa-confirmation.ts
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-09.md
+LEIA-ME-TUCXA-AGENDAMENTO-09.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-09.txt
+
+SEM NOVA MIGRATION SUPABASE.
+SEM NOVA DEPENDENCIA NPM.
+SEM NOVA VARIAVEL DE AMBIENTE.

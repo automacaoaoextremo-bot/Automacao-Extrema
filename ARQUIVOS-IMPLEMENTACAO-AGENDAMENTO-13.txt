@@ -1,0 +1,19 @@
+AUTOMAÇÃO EXTREMA — TUCXA AGENDAMENTO 13
+ARQUIVOS DA IMPLEMENTAÇÃO
+
+ATUALIZADOS
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/lib/botconversa.ts
+src/app/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar/route.ts
+
+NOVOS
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-13.md
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-13.md
+LEIA-ME-TUCXA-AGENDAMENTO-13.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-13.txt
+
+NÃO HÁ
+- migration Supabase nova
+- dependência npm nova
+- variável Vercel obrigatória nova

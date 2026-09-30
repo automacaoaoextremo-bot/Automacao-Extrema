@@ -1,0 +1,40 @@
+AUTOMAÇÃO EXTREMA — OeH — TUCXA — AGENDAMENTO 02
+Data: 24/09/2026
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+Base recebida: commit 46b8862b1d5fb01630cd45ce7b7e9199edddc357
+
+PRINCIPAIS AJUSTES
+1. Página pública /solucoes/organizacao-em-harmonia/agendamento compacta para mobile.
+2. Terceira linha do cabeçalho preserva Início / Como funciona / Agendamento e acrescenta Voltar / Ajuda.
+3. Texto “AGENDAMENTO” no lugar de “PILOTO DE AGENDAMENTO”.
+4. Botões Agendamento, Ver horários e POR QUE USAR com chamada “CLIQUE PARA ABRIR”.
+5. Ver horários abre popup com Chegada, Início dos trabalhos e Atendimentos.
+6. POR QUE USAR abre popup compacto com benefícios para Consulente, Recepção e Filhos da Corrente.
+7. Removido o quadro “Já faz parte desse fluxo”.
+8. Login detecta primeiro acesso pelo estado/metadata do usuário — não pela comparação da senha temporária em texto puro.
+9. Primeiro acesso abre em popup compacto após o login e exige confirmação de dados/LGPD e troca de senha.
+10. Rollout inicial configurado como “reception”: somente Recepção entra no Agendamento.
+11. Consulente não pode autoagendar nesta fase; recebe o link por SMS para confirmar presença.
+12. A tela já existente de Validações passa a listar TODOS os Filhos da Corrente, com opção “Excluir acesso”. A exclusão remove somente o login de teste e preserva cadastro, funções e vínculos.
+13. Mantida também uma tela dedicada “Acessos do piloto” dentro de Atendimento em Harmonia para facilitar a homologação dos logins.
+
+MIGRATION
+supabase/migrations/20260924170000_oh_tucxa_agendamento_piloto_ajustes_02.sql
+
+CONFIGURAÇÃO INICIAL
+pilotRolloutStage = reception
+pilotSelfServiceEnabled = false
+
+ETAPAS FUTURAS
+- Para liberar Recepção + Consulentes: pilotRolloutStage = consulente
+- Para liberar todos os perfis: pilotRolloutStage = all
+- Para permitir autoagendamento do Consulente: pilotSelfServiceEnabled = true
+
+SEGURANÇA
+- Senha temporária não é gravada no código, migration ou Git.
+- Primeiro acesso é identificado por must_change_password / pilotFirstAccessRequired / pilotOnboardingCompletedAt.
+- “Excluir acesso” remove o usuário do Supabase Auth e limpa auth_user_id, mas preserva o cadastro da pessoa.
+- Depois, o script de provisionamento existente pode criar novo login e exigir primeiro acesso novamente.
+
+OBSERVAÇÃO DE IMPLANTAÇÃO
+Na etapa 02, o documento lista como Recepção: Mayara, Fatima, Sheila, Leandro, Mariana e Renata. A associação de pessoas a funções continua sendo dado administrativo do Tucxa e não foi gravada em migration para evitar versionar dados pessoais. Antes do piloto, confira esses seis perfis na Base Única / Funções.

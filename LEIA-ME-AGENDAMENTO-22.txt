@@ -1,0 +1,27 @@
+AE - OeH - TUCXA - Agendamento-22
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Implementado:
+- troca individual de Entidade;
+- troca em massa dos agendamentos ativos de uma Entidade/data;
+- validação transacional da capacidade da Entidade destino;
+- motivo obrigatório;
+- anexo opcional (imagem/PDF, até 5 MB);
+- histórico/auditoria da troca;
+- aviso BotConversa para cada Consulente/contato;
+- suporte correto a atendimento de terceiro: a mensagem vai ao contato, mas identifica a pessoa atendida.
+
+BotConversa informado pelo usuário:
+TUCXA - Entidade ant: 5100464
+TUCXA - Motivo alter: 5100465
+TUCXA - Alteração de Entidade: 9289476
+
+Variáveis novas no Vercel:
+BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY_ID=5100464
+BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON_ID=5100465
+BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW_ID=9289476
+
+Storage privado criado pela migration:
+tucxa-agendamento-trocas-entidade

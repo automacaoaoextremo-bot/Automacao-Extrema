@@ -1,0 +1,23 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 12
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Principais evolucoes:
+- Acolhimento usa os rotulos Entidade e Dia.
+- Data completa no Acolhimento no padrao segunda-28/09/26.
+- Abertura automatica do Acolhimento apos login, configuravel por pessoa da Recepcao.
+- Filtro Confirmar passa a ser apresentado como Confirmado.
+- Chegou gera popup e so pode ser registrado no dia do atendimento entre 18:00 e 20:00.
+- Confirmacao do Consulente pode disparar aviso BotConversa para o WhatsApp da Recepcao.
+- Aviso da Recepcao contem link para Login unico com retorno ao Acolhimento.
+- Cadastros inclui Cadastro pessoal, reutilizando Atualizar meus dados.
+
+Migration obrigatoria:
+supabase/migrations/20260927123000_oh_tucxa_agendamento_piloto_ajustes_12.sql
+
+Nova configuracao BotConversa:
+BOTCONVERSA_TUCXA_RECEPTION_CONFIRMATION_FLOW_ID
+
+Variavel recomendada:
+TUCXA_RECEPTION_WHATSAPP=5519989045150

@@ -1,0 +1,18 @@
+AE - OeH - TUCXA - Agendamento-24
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Correções:
+1. Nova migration substitui a RPC oh_tucxa_change_appointment_entity por implementação
+   sem o RETURNING/CTE ambíguo da versão 22.
+2. Mantidas atomicidade, validação de capacidade e auditoria.
+3. Modal de sucesso/erro elevado acima do modal Trocar Entidade.
+4. Erros conhecidos da RPC recebem mensagens específicas.
+5. Falha de upload do anexo da troca passa a gerar diagnóstico específico no log/API.
+
+Migration nova:
+supabase/migrations/20260928163000_oh_tucxa_agendamento_piloto_ajustes_24.sql
+
+Não há novas variáveis de ambiente.
+Não há novos campos/fluxos no BotConversa.

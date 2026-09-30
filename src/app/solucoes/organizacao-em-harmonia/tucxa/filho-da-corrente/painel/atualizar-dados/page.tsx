@@ -244,14 +244,14 @@ function isThursdayGroup(item: AgendaOption) {
   );
 }
 
-const headerActions: PanelHeaderAction[] = [
-  { label: "Início", href: "#inicio", variant: "primary" },
-  { label: "Voltar", href: filhoPanelBase, variant: "secondary" },
-  filhoSignOutAction,
-  filhoSupportAction,
-];
-
 export default function AtualizarDadosFilhoDaCorrentePage() {
+  const [returnHref] = useState(() => {
+    if (typeof window === "undefined") return filhoPanelBase;
+    const requestedReturnTo = new URL(window.location.href).searchParams.get("returnTo") || "";
+    return requestedReturnTo.startsWith("/solucoes/organizacao-em-harmonia/")
+      ? requestedReturnTo
+      : filhoPanelBase;
+  });
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
@@ -818,7 +818,12 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     <main id="inicio" className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <FilhoCorrentePanelHeader
         navLabel="Atualização de dados do Filho da Corrente"
-        actions={headerActions}
+        actions={[
+          { label: "Início", href: "#inicio", variant: "primary" },
+          { label: "Voltar", href: returnHref, variant: "secondary" },
+          filhoSignOutAction,
+          filhoSupportAction,
+        ] as PanelHeaderAction[]}
         mobileActionColumns={4}
       />
 
@@ -893,10 +898,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   </a>
                 )}
                 <Link
-                  href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel"
+                  href={returnHref}
                   className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-white px-5 py-3 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
                 >
-                  Voltar ao painel
+                  {returnHref === filhoPanelBase ? "Voltar ao painel" : "Voltar à tela anterior"}
                 </Link>
               </div>
             </div>
@@ -971,10 +976,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                 </p>
               )}
               <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel"
+                href={returnHref}
                 className="rounded-2xl bg-white px-5 py-4 text-center font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
               >
-                Voltar ao painel
+                {returnHref === filhoPanelBase ? "Voltar ao painel" : "Voltar à tela anterior"}
               </Link>
             </form>
           )}

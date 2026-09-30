@@ -1,0 +1,28 @@
+AUTOMACAO EXTREMA - OeH - TUCXA - AGENDAMENTO 08
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+PRINCIPAIS AJUSTES
+- Popup Como funciona mais compacto no mobile.
+- Remocao do botao interno Cadastros em Consulentes e Entidades.
+- Fechar em Consulentes/Entidades retorna ao seletor Cadastros.
+- Disponibilidade das Entidades simplificada.
+- Cada Entidade mostra proxima data com vaga, Cadastro, Agendar e WhatsApp do Cavalinho.
+- Agendar pela Entidade abre calendario anual reutilizando o componente da Agenda Viva.
+- Apenas datas futuras da Entidade com vaga ficam selecionaveis.
+- Cadastro abre diretamente os dados da Entidade para atualizacao.
+
+BANCO / SUPABASE
+- Nao ha nova migration nesta evolucao.
+
+VERCEL
+- Nao ha nova variavel obrigatoria nesta evolucao.
+- Permanecem as variaveis BotConversa configuradas no Agendamento-07.
+
+VALIDACAO
+npm run lint
+npm run build
+git diff --check
+
+Nao fazer merge para main antes da homologacao completa do piloto.

@@ -16,6 +16,12 @@ type Appointment = {
   entity_id: string | null;
   notes: string | null;
   metadata?: Record<string, unknown> | null;
+  confirmation_status?: string | null;
+  confirmed_at?: string | null;
+  arrival_status?: string | null;
+  arrived_at?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
 };
 type Payload = { entities?: Entity[]; appointments?: Appointment[]; error?: string };
 
@@ -33,6 +39,9 @@ export default function AtendimentoAgendamentosClientePage() {
   const [filterDate, setFilterDate] = useState(todayIso());
   const [filterEntity, setFilterEntity] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Appointment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser.auth.getSession();
@@ -91,6 +100,35 @@ export default function AtendimentoAgendamentosClientePage() {
     }
   }
 
+  async function deleteAppointment() {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    setError("");
+    setMessage("");
+
+    try {
+      const { data } = await supabaseBrowser.auth.getSession();
+      const token = data.session?.access_token;
+      const response = await fetch("/api/organizacao-em-harmonia/cliente/atendimento-em-harmonia", {
+        method: "POST",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteAppointment", appointmentId: deleteTarget.id }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível excluir o agendamento.");
+
+      setDeleteTarget(null);
+      setMessage(result.message || "Agendamento excluído.");
+      await load();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Erro ao excluir agendamento.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <OrganizacaoClientShell title="Agendamentos do Atendimento" description="Consulte, filtre, imprima e atualize a fila por entidade e data.">
       <section className="rounded-[2rem] bg-white p-5 shadow ring-1 ring-slate-100 sm:p-7 print:shadow-none print:ring-0">
@@ -142,6 +180,7 @@ export default function AtendimentoAgendamentosClientePage() {
                       <button type="button" onClick={() => updateStatus(item.id, "confirmado")} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">Confirmar</button>
                       <button type="button" onClick={() => updateStatus(item.id, "atendido")} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Atendido</button>
                       <button type="button" onClick={() => updateStatus(item.id, "ausente")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 ring-1 ring-amber-100">Ausente</button>
+                      <button type="button" onClick={() => { setDeleteError(""); setDeleteTarget(item); }} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Excluir</button>
                     </div>
                   </td>
                 </tr>
@@ -151,6 +190,30 @@ export default function AtendimentoAgendamentosClientePage() {
           {!loading && filtered.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 font-bold text-slate-500">Nenhum agendamento encontrado para estes filtros.</p>}
         </div>
       </section>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Excluir agendamento">
+          <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+            <header className="border-b border-red-100 px-5 py-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-red-600">Exclusão definitiva</p>
+              <h2 className="mt-1 text-xl font-black text-red-800">Excluir agendamento?</h2>
+            </header>
+            <div className="grid gap-3 p-5">
+              <p className="rounded-2xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-800 ring-1 ring-red-100">
+                {deleteTarget.consulente_name} · {deleteTarget.appointment_date}. O sistema preservará um registro de auditoria antes da exclusão.
+              </p>
+              <p className="text-sm font-semibold leading-6 text-slate-600">
+                Agendamentos que já possuem chegada, ausência ou atendimento registrado não podem ser apagados para preservar o histórico.
+              </p>
+              {deleteError && <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 ring-1 ring-amber-100">{deleteError}</p>}
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={deleting} onClick={() => { setDeleteError(""); setDeleteTarget(null); }} className="rounded-xl bg-white px-4 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">Voltar</button>
+                <button type="button" disabled={deleting} onClick={() => void deleteAppointment()} className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:opacity-50">{deleting ? "Excluindo..." : "Excluir"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </OrganizacaoClientShell>
   );
 }

@@ -1,0 +1,31 @@
+TUCXA - AGENDAMENTO-28
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Arquivos alterados:
+1. src/app/api/organizacao-em-harmonia/agendamento/acesso/route.ts
+2. src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+3. src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+4. src/lib/botconversa.ts
+
+Arquivo operacional novo:
+5. scripts/tucxa-corrigir-acesso-patricia-agendamento-28.mjs
+
+Principais ajustes:
+- login da Recepção aceita membership ativo/ativo e autenticação por e-mail ou telefone;
+- script específico corrige organization_id, membership, perfil Recepção, Auth e senha da Patricia;
+- Painel do Acolhimento volta a oferecer data específica, todos a partir de hoje, período e anteriores a uma data;
+- datas dos filtros exibidas em dd/mm/aaaa;
+- Triagem volta a ser opção direta dentro de Acolhimento;
+- restrição do botão Chegou passa a ser configurável;
+- correção da validação HH:MM no backend (regex);
+- erro ao salvar Configurações passa a aparecer em popup;
+- ordem do agendamento passa a ser campo obrigatório do BotConversa quando houver ordem.
+
+IMPORTANTE BOTCONVERSA:
+Verifique no Vercel se BOTCONVERSA_TUCXA_FIELD_ORDER_ID está configurado com o ID do campo personalizado da ordem.
+
+PATRICIA:
+Na raiz do projeto:
+$env:TUCXA_PATRICIA_PASSWORD="12345678"
+node .\scripts\tucxa-corrigir-acesso-patricia-agendamento-28.mjs
+Remove-Item Env:TUCXA_PATRICIA_PASSWORD

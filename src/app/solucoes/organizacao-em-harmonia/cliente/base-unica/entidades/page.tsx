@@ -33,7 +33,7 @@ type Entity = {
   active: boolean;
 };
 
-type Payload = { entities: Entity[] };
+type Payload = { entities: Entity[]; message?: string; entityDeleteMode?: "deleted" | "inactivated"; entityDeleteHistoryCount?: number };
 type EntityForm = {
   id: string;
   name: string;
@@ -478,10 +478,17 @@ export default function EntidadesPage() {
     setError("");
     try {
       const result = await request({ method: "POST", body: JSON.stringify({ action: "deleteEntity", entityId: entity.id }) });
-      if (result) setPayload(result);
-      setMessage("Entidade retirada de uso e inativada para preservar vínculos, agendamentos e histórico.");
+      if (result) {
+        setPayload(result);
+        setMessage(
+          result.message ||
+            (result.entityDeleteMode === "deleted"
+              ? "Entidade excluída definitivamente porque não possui histórico de atendimento."
+              : "Entidade inativada para preservar o histórico existente."),
+        );
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao retirar entidade de uso.");
+      setError(err instanceof Error ? err.message : "Erro ao excluir ou inativar entidade.");
     } finally {
       setSaving(false);
     }
@@ -502,9 +509,9 @@ export default function EntidadesPage() {
 
   function askDelete(entity: Entity) {
     setConfirmation({
-      title: "Excluir entidade da lista ativa?",
-      message: `Tem certeza que deseja retirar ${entity.name} de uso? Para preservar eventos, agendamentos e histórico, o registro será inativado em vez de apagado definitivamente.`,
-      confirmLabel: "Excluir da lista ativa",
+      title: "Excluir entidade?",
+      message: `O sistema verificará o histórico de ${entity.name}. Se não existir nenhum atendimento ou recomendação vinculada, a Entidade será excluída definitivamente. Se houver histórico, ela será apenas inativada para preservar os registros.`,
+      confirmLabel: "Excluir entidade",
       tone: "danger",
       run: () => deleteEntity(entity),
     });

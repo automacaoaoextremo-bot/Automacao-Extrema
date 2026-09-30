@@ -95,7 +95,7 @@ type BotConversaRequestResult = {
 type BotConversaFieldConfig = {
   fieldId: string;
   label: string;
-  value: string;
+  value: string | number;
 };
 
 const DEFAULT_BASE_URL = "https://backend.botconversa.com.br";
@@ -176,6 +176,29 @@ function boolLabel(value: boolean) {
 function optionalValue(value: string | number | null | undefined) {
   if (value === null || value === undefined) return "";
   return String(value);
+}
+
+function botConversaDateValue(value: string) {
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+
+  // BotConversa Swagger: campos do tipo Date (type 2) exigem %d.%m.%Y.
+  // Ex.: 2026-10-06 ou 06/10/2026 -> 06.10.2026.
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(trimmed);
+  if (isoMatch) {
+    return `${isoMatch[3]}.${isoMatch[2]}.${isoMatch[1]}`;
+  }
+
+  const brMatch = /^(\d{2})[\/.](\d{2})[\/.](\d{4})$/.exec(trimmed);
+  if (brMatch) {
+    return `${brMatch[1]}.${brMatch[2]}.${brMatch[3]}`;
+  }
+
+  return trimmed;
+}
+
+function botConversaWait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export function buildCorrenteLeadBotConversaMessage(
@@ -990,10 +1013,12 @@ async function setCustomFields(
       subscriberId,
       fieldId: field.fieldId,
     });
+
     const response = await botconversaRequest(path, {
       method,
       body: customFieldBody(field),
     });
+
     results.push({
       step: `set_field_${field.label}`,
       ok: response.ok,
@@ -1003,9 +1028,25 @@ async function setCustomFields(
       data: response.data,
       responseText: response.ok ? undefined : response.text,
     });
+
+
   }
 
   return results;
+}
+
+function failedCustomFieldStep(steps: BotConversaStepResult[]) {
+  const nonDateFailure = steps.find(
+    (step) => step.ok === false && !step.step.includes("tucxa_data"),
+  );
+  if (nonDateFailure) return nonDateFailure;
+
+  const dateSteps = steps.filter((step) => step.step.includes("tucxa_data"));
+  if (dateSteps.length > 0 && !dateSteps.some((step) => step.ok === true)) {
+    return dateSteps[dateSteps.length - 1];
+  }
+
+  return undefined;
 }
 
 async function sendFlow(
@@ -1241,4 +1282,511 @@ export async function syncOrganizacaoLeadWithBotConversa(
       );
     },
   );
+}
+
+export type TucxaAppointmentBotConversaInput = {
+  fullName: string;
+  recipientName?: string;
+  whatsapp: string;
+  appointmentDate: string;
+  entityName: string;
+  confirmationUrl?: string;
+  reminderOffsetHours?: number | null;
+  appointmentOrder?: number | null;
+  individualNotice?: string;
+  kind: "confirmation" | "reminder";
+};
+
+export type TucxaEntityChangeBotConversaInput = {
+  fullName: string;
+  recipientName?: string;
+  whatsapp: string;
+  appointmentDate: string;
+  previousEntityName: string;
+  newEntityName: string;
+  reason: string;
+  appointmentOrder?: number | null;
+};
+
+export type TucxaAppointmentBotConversaResult = {
+  sent: boolean;
+  provider: "botconversa" | "disabled";
+  subscriberId?: string;
+  flowId?: string;
+  error?: string;
+  steps?: BotConversaStepResult[];
+};
+
+function tucxaAppointmentEnabled() {
+  return isEnabled() && env("BOTCONVERSA_TUCXA_ENABLED").toLowerCase() === "true";
+}
+
+function tucxaAppointmentFields(input: TucxaAppointmentBotConversaInput): BotConversaFieldConfig[] {
+  const fields: BotConversaFieldConfig[] = [
+    {
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME"),
+      label: "tucxa_nome",
+      value: input.fullName,
+    },
+    {
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE"),
+      label: "tucxa_data",
+      value: botConversaDateValue(input.appointmentDate),
+    },
+    {
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY"),
+      label: "tucxa_entidade",
+      value: input.entityName,
+    },
+    ...(input.appointmentOrder ? [{
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"),
+      label: "tucxa_ordem",
+      value: String(input.appointmentOrder),
+    }] : []),
+    ...(input.individualNotice ? [{
+      fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_INDIVIDUAL_NOTICE_ID", "BOTCONVERSA_TUCXA_FIELD_INDIVIDUAL_NOTICE"),
+      label: "tucxa_aviso_individual",
+      value: input.individualNotice,
+    }] : []),
+    ...(input.confirmationUrl
+      ? [{
+          fieldId: firstEnv(
+            "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
+            "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL",
+          ),
+          label: "tucxa_link_confirmacao",
+          value: input.confirmationUrl,
+        }]
+      : []),
+    ...(input.reminderOffsetHours !== null && input.reminderOffsetHours !== undefined
+      ? [{
+          fieldId: firstEnv(
+            "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS_ID",
+            "BOTCONVERSA_TUCXA_FIELD_REMINDER_HOURS",
+          ),
+          label: "tucxa_antecedencia_horas",
+          value: String(input.reminderOffsetHours),
+        }]
+      : []),
+  ];
+
+  return fields.filter((field) => isConfigured(field.fieldId));
+}
+
+async function findOrCreateTucxaSubscriber(input: TucxaAppointmentBotConversaInput) {
+  const phone = normalizePhoneForBotConversa(input.whatsapp);
+  if (!phone) {
+    return { subscriberId: "", steps: [] as BotConversaStepResult[], error: "WhatsApp inválido." };
+  }
+
+  const steps: BotConversaStepResult[] = [];
+  const lookupPath = `/api/v1/webhook/subscriber/get_by_phone/${encodeURIComponent(phone)}/`;
+  const lookup = await botconversaRequest(lookupPath, { method: "GET" });
+  const existingId = resolveSubscriberId(lookup.data);
+
+  steps.push({
+    step: "lookup_tucxa_subscriber",
+    ok: lookup.ok || lookup.status === 404,
+    status: lookup.status,
+    path: lookup.path,
+    method: lookup.method,
+    data: lookup.data,
+    responseText: lookup.ok || lookup.status === 404 ? undefined : lookup.text,
+  });
+
+  if (existingId) return { subscriberId: existingId, steps, error: "" };
+
+  const create = await botconversaRequest("/api/v1/webhook/subscriber/", {
+    method: "POST",
+    body: {
+      phone,
+      first_name: firstName(input.recipientName || input.fullName),
+      // A API do BotConversa exige last_name não vazio. Para nomes monônimos,
+      // repetimos o próprio nome apenas no cadastro do subscriber.
+      last_name: lastName(input.recipientName || input.fullName) || firstName(input.recipientName || input.fullName),
+      has_opt_in_whatsapp: true,
+    },
+  });
+  const createdId = resolveSubscriberId(create.data);
+
+  steps.push({
+    step: "create_tucxa_subscriber",
+    ok: create.ok && Boolean(createdId),
+    status: create.status,
+    path: create.path,
+    method: create.method,
+    data: create.data,
+    responseText: create.ok ? undefined : create.text,
+  });
+
+  return {
+    subscriberId: createdId,
+    steps,
+    error: createdId ? "" : create.text || "Não foi possível criar/localizar o contato no BotConversa.",
+  };
+}
+
+export async function sendTucxaAppointmentWhatsapp(
+  input: TucxaAppointmentBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: "BotConversa do Agendamento não habilitado.",
+    };
+  }
+
+  const requiredFieldIds = [
+    ["BOTCONVERSA_TUCXA_FIELD_NAME_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME")],
+    ["BOTCONVERSA_TUCXA_FIELD_DATE_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE")],
+    ["BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY")],
+    ...(input.appointmentOrder ? [[
+      "BOTCONVERSA_TUCXA_FIELD_ORDER_ID",
+      firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"),
+    ]] : []),
+    ...(input.kind === "confirmation"
+      ? [[
+          "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
+          firstEnv("BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID", "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL"),
+        ]]
+      : []),
+  ] as Array<[string, string]>;
+
+  const missingFields = requiredFieldIds.filter(([, value]) => !isConfigured(value)).map(([name]) => name);
+  if (missingFields.length) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: `Campos personalizados do BotConversa não configurados: ${missingFields.join(", ")}.`,
+    };
+  }
+
+  if (input.kind === "confirmation" && !input.confirmationUrl) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: "Link de confirmação não informado.",
+    };
+  }
+
+  const flowId = input.kind === "reminder"
+    ? firstEnv("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW")
+    : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
+
+  if (!isConfigured(flowId)) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: input.kind === "reminder"
+        ? "Fluxo BotConversa de lembrete não configurado."
+        : "Fluxo BotConversa de confirmação não configurado.",
+    };
+  }
+
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber(input);
+    if (!subscriber.subscriberId) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        error: subscriber.error,
+        steps: subscriber.steps,
+      };
+    }
+
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(input));
+    steps.push(...fieldSteps);
+
+    const failedFieldStep = failedCustomFieldStep(fieldSteps);
+    if (failedFieldStep) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        subscriberId: subscriber.subscriberId,
+        flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do envio (${failedFieldStep.step}).`,
+        steps,
+      };
+    }
+
+    await botConversaWait(900);
+
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    let flow = await botconversaRequest(flowPath, {
+      method: "POST",
+      body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+    });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
+
+    steps.push({
+      step: input.kind === "reminder" ? "send_tucxa_reminder_flow" : "send_tucxa_confirmation_flow",
+      ok: flow.ok,
+      status: flow.status,
+      path: flow.path,
+      method: flow.method,
+      data: flow.data,
+      responseText: flow.ok ? undefined : flow.text,
+    });
+
+    return {
+      sent: flow.ok,
+      provider: "botconversa",
+      subscriberId: subscriber.subscriberId,
+      flowId,
+      error: flow.ok ? undefined : flow.text || "Falha ao disparar fluxo no BotConversa.",
+      steps,
+    };
+  } catch (error) {
+    return {
+      sent: false,
+      provider: "botconversa",
+      error: error instanceof Error ? error.message : "Falha inesperada no BotConversa.",
+    };
+  }
+}
+
+export type TucxaReceptionConfirmationBotConversaInput = {
+  consulenteName: string;
+  appointmentDate: string;
+  entityName: string;
+  loginUrl: string;
+  receptionWhatsapp?: string;
+  appointmentOrder?: number | null;
+};
+
+export async function sendTucxaReceptionConfirmationWhatsapp(
+  input: TucxaReceptionConfirmationBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: "BotConversa do Agendamento não habilitado.",
+    };
+  }
+
+  const flowId = firstEnv(
+    "BOTCONVERSA_TUCXA_RECEPTION_CONFIRMATION_FLOW_ID",
+    "BOTCONVERSA_TUCXA_RECEPTION_CONFIRMATION_FLOW",
+  );
+  if (!isConfigured(flowId)) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: "Fluxo BotConversa de aviso à Recepção não configurado.",
+    };
+  }
+
+  const requiredFieldIds = [
+    ["BOTCONVERSA_TUCXA_FIELD_NAME_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME")],
+    ["BOTCONVERSA_TUCXA_FIELD_DATE_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE")],
+    ["BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY")],
+    [
+      "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
+      firstEnv("BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID", "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL"),
+    ],
+  ] as Array<[string, string]>;
+
+  const missingFields = requiredFieldIds.filter(([, value]) => !isConfigured(value)).map(([name]) => name);
+  if (missingFields.length) {
+    return {
+      sent: false,
+      provider: "disabled",
+      error: `Campos personalizados do BotConversa não configurados: ${missingFields.join(", ")}.`,
+    };
+  }
+
+  const receptionWhatsapp = input.receptionWhatsapp
+    || firstEnv("TUCXA_RECEPTION_WHATSAPP", "BOTCONVERSA_TUCXA_RECEPTION_WHATSAPP")
+    || "5519989045150";
+
+  const contactInput: TucxaAppointmentBotConversaInput = {
+    fullName: "Recepção TUCXA",
+    whatsapp: receptionWhatsapp,
+    appointmentDate: input.appointmentDate,
+    entityName: input.entityName,
+    confirmationUrl: input.loginUrl,
+    appointmentOrder: input.appointmentOrder,
+    kind: "confirmation",
+  };
+
+  const fieldInput: TucxaAppointmentBotConversaInput = {
+    ...contactInput,
+    fullName: input.consulenteName,
+  };
+
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber(contactInput);
+    if (!subscriber.subscriberId) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        error: subscriber.error,
+        steps: subscriber.steps,
+      };
+    }
+
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(fieldInput));
+    steps.push(...fieldSteps);
+
+    const failedFieldStep = failedCustomFieldStep(fieldSteps);
+    if (failedFieldStep) {
+      return {
+        sent: false,
+        provider: "botconversa",
+        subscriberId: subscriber.subscriberId,
+        flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do aviso à Recepção (${failedFieldStep.step}).`,
+        steps,
+      };
+    }
+
+    await botConversaWait(900);
+
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    let flow = await botconversaRequest(flowPath, {
+      method: "POST",
+      body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+    });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
+
+    steps.push({
+      step: "send_tucxa_reception_confirmation_flow",
+      ok: flow.ok,
+      status: flow.status,
+      path: flow.path,
+      method: flow.method,
+      data: flow.data,
+      responseText: flow.ok ? undefined : flow.text,
+    });
+
+    return {
+      sent: flow.ok,
+      provider: "botconversa",
+      subscriberId: subscriber.subscriberId,
+      flowId,
+      error: flow.ok ? undefined : flow.text || "Falha ao disparar aviso para a Recepção no BotConversa.",
+      steps,
+    };
+  } catch (error) {
+    return {
+      sent: false,
+      provider: "botconversa",
+      error: error instanceof Error ? error.message : "Falha inesperada ao avisar a Recepção pelo BotConversa.",
+    };
+  }
+}
+
+
+export async function sendTucxaEntityChangeWhatsapp(
+  input: TucxaEntityChangeBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return { sent: false, provider: "disabled", error: "BotConversa do Agendamento não habilitado." };
+  }
+
+  const previousEntityFieldId = firstEnv(
+    "BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY_ID",
+    "BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY",
+  );
+  const reasonFieldId = firstEnv(
+    "BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON_ID",
+    "BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON",
+  );
+  const flowId = firstEnv(
+    "BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW_ID",
+    "BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW",
+  );
+
+  const required = [
+    ["BOTCONVERSA_TUCXA_FIELD_NAME_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME")],
+    ["BOTCONVERSA_TUCXA_FIELD_DATE_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE")],
+    ["BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY")],
+    ["BOTCONVERSA_TUCXA_FIELD_PREVIOUS_ENTITY_ID", previousEntityFieldId],
+    ["BOTCONVERSA_TUCXA_FIELD_CHANGE_REASON_ID", reasonFieldId],
+    ["BOTCONVERSA_TUCXA_ENTITY_CHANGE_FLOW_ID", flowId],
+  ] as Array<[string, string]>;
+  const missing = required.filter(([, value]) => !isConfigured(value)).map(([name]) => name);
+  if (missing.length) {
+    return { sent: false, provider: "disabled", error: `Configuração BotConversa ausente: ${missing.join(", ")}.` };
+  }
+
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber({
+      kind: "reminder",
+      fullName: input.fullName,
+      recipientName: input.recipientName,
+      whatsapp: input.whatsapp,
+      appointmentDate: input.appointmentDate,
+      entityName: input.newEntityName,
+    });
+    if (!subscriber.subscriberId) {
+      return { sent: false, provider: "botconversa", error: subscriber.error, steps: subscriber.steps };
+    }
+
+    const fields: BotConversaFieldConfig[] = [
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_NAME_ID", "BOTCONVERSA_TUCXA_FIELD_NAME"), label: "tucxa_nome", value: input.fullName },
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_DATE_ID", "BOTCONVERSA_TUCXA_FIELD_DATE"), label: "tucxa_data", value: botConversaDateValue(input.appointmentDate) },
+      { fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ENTITY_ID", "BOTCONVERSA_TUCXA_FIELD_ENTITY"), label: "tucxa_entidade", value: input.newEntityName },
+      { fieldId: previousEntityFieldId, label: "tucxa_entidade_anterior", value: input.previousEntityName },
+      { fieldId: reasonFieldId, label: "tucxa_motivo_alteracao", value: input.reason },
+      ...(input.appointmentOrder ? [{ fieldId: firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"), label: "tucxa_ordem", value: String(input.appointmentOrder) }] : []),
+    ];
+
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, fields);
+    steps.push(...fieldSteps);
+    const failed = failedCustomFieldStep(fieldSteps);
+    if (failed) {
+      return {
+        sent: false, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId,
+        error: `Não foi possível atualizar todos os campos do BotConversa antes do envio (${failed.step}).`, steps,
+      };
+    }
+
+    await botConversaWait(900);
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    let flow = await botconversaRequest(flowPath, {
+      method: "POST",
+      body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+    });
+    if (!flow.ok && (flow.status === 409 || flow.status === 429 || flow.status >= 500)) {
+      await botConversaWait(1500);
+      flow = await botconversaRequest(flowPath, {
+        method: "POST",
+        body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId },
+      });
+    }
+    steps.push({
+      step: "send_tucxa_entity_change_flow", ok: flow.ok, status: flow.status,
+      path: flow.path, method: flow.method, data: flow.data, responseText: flow.ok ? undefined : flow.text,
+    });
+    return {
+      sent: flow.ok, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId,
+      error: flow.ok ? undefined : flow.text || "Não foi possível disparar o fluxo de alteração de Entidade.", steps,
+    };
+  } catch (error) {
+    return {
+      sent: false, provider: "botconversa",
+      error: error instanceof Error ? error.message : "Falha ao enviar alteração de Entidade pelo BotConversa.",
+    };
+  }
 }

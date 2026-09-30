@@ -1,0 +1,15 @@
+ARQUIVOS COMPLETOS - AGENDAMENTO 08
+
+ATUALIZADOS
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/components/organizacao-em-harmonia/annual-calendar-modal.tsx
+
+NOVOS
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-08.md
+LEIA-ME-TUCXA-AGENDAMENTO-08.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-08.txt
+
+SEM NOVA MIGRATION SUPABASE.
+SEM NOVA DEPENDENCIA NPM.
+SEM NOVA VARIAVEL DE AMBIENTE OBRIGATORIA.

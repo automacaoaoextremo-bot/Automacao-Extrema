@@ -1,0 +1,28 @@
+AUTOMAÇÃO EXTREMA — TUCXA — AGENDAMENTO 02
+Base recebida: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+Commit-base: 46b8862b1d5fb01630cd45ce7b7e9199edddc357
+
+ARQUIVOS NOVOS
+- LEIA-ME-TUCXA-AGENDAMENTO-02.txt
+- docs/tucxa/HOMOLOGACAO-AGENDAMENTO-02.md
+- src/components/organizacao-em-harmonia/tucxa-first-access-modal.tsx
+- src/app/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/acessos-piloto/page.tsx
+- supabase/migrations/20260924170000_oh_tucxa_agendamento_piloto_ajustes_02.sql
+
+ARQUIVOS ATUALIZADOS
+- src/app/solucoes/organizacao-em-harmonia/agendamento/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/agendamento/login/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/agendamento/primeiro-acesso/page.tsx
+- src/components/organizacao-em-harmonia/tucxa-public-header.tsx
+- src/app/api/organizacao-em-harmonia/agendamento/acesso/route.ts
+- src/lib/organizacao-em-harmonia/tucxa-appointment-pilot.ts
+- src/app/api/organizacao-em-harmonia/consulentes/agendamento-piloto/route.ts
+- src/app/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto/page.tsx
+- src/app/api/organizacao-em-harmonia/cliente/base-unica/route.ts
+- src/app/solucoes/organizacao-em-harmonia/cliente/validacoes/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/page.tsx
+- src/components/organizacao-client-shell.tsx
+
+OBSERVAÇÃO
+O ZIP de fontes recebido tinha um arquivo local não rastreado: ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-01.txt.
+Ele não faz parte desta implementação e não deve ser incluído automaticamente no commit.

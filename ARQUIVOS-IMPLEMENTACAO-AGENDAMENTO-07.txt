@@ -1,0 +1,18 @@
+ARQUIVOS PRINCIPAIS NOVOS/ATUALIZADOS - AGENDAMENTO 07
+
+ATUALIZADOS
+src/app/solucoes/organizacao-em-harmonia/agendamento/page.tsx
+src/lib/botconversa.ts
+src/lib/organizacao-em-harmonia/tucxa-appointment-pilot.ts
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/api/cron/tucxa-agendamento-reminders/route.ts
+src/app/api/organizacao-em-harmonia/consulentes/agendamento-piloto/route.ts
+src/app/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto/page.tsx
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+
+NOVOS
+supabase/migrations/20260926103000_oh_tucxa_agendamento_piloto_ajustes_07.sql
+docs/tucxa/CONFIGURACAO-BOTCONVERSA-AGENDAMENTO-07.md
+docs/tucxa/HOMOLOGACAO-AGENDAMENTO-07.md
+LEIA-ME-TUCXA-AGENDAMENTO-07.txt
+ARQUIVOS-IMPLEMENTACAO-AGENDAMENTO-07.txt

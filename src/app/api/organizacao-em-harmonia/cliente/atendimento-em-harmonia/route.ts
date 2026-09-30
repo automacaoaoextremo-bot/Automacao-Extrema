@@ -75,7 +75,7 @@ async function loadPayload(organizationId: string) {
       .order("full_name", { ascending: true }),
     supabaseAdmin
       .from("oh_consulente_appointments")
-      .select("id, consulente_name, whatsapp, email, appointment_date, appointment_time, status, is_recurring, entity_id, recommended_by_entity_id, scheduled_by_person_id, notes, metadata, created_at")
+      .select("id, consulente_name, whatsapp, email, appointment_date, appointment_time, status, is_recurring, entity_id, recommended_by_entity_id, scheduled_by_person_id, notes, metadata, confirmation_status, confirmed_at, arrival_status, arrived_at, cancelled_at, cancellation_reason, created_at")
       .eq("organization_id", organizationId)
       .order("appointment_date", { ascending: false })
       .limit(500),
@@ -123,6 +123,72 @@ export async function POST(request: Request) {
         .eq("id", appointmentId);
       if (error) throw error;
       return NextResponse.json({ ok: true, message: "Status atualizado." });
+    }
+
+    if (action === "deleteAppointment") {
+      const appointmentId = asText(body.appointmentId ?? body.id);
+      if (!appointmentId) {
+        return NextResponse.json({ error: "Agendamento não informado." }, { status: 400 });
+      }
+
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("*")
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id) {
+        return NextResponse.json({ error: "Agendamento não localizado." }, { status: 404 });
+      }
+
+      const status = asText(appointment.status).toLowerCase();
+      const arrivalStatus = asText(appointment.arrival_status).toLowerCase();
+      const hasAttendanceHistory =
+        ["atendido", "concluido", "presente", "ausente"].includes(status) ||
+        ["arrived", "absent"].includes(arrivalStatus) ||
+        Boolean(appointment.arrived_at);
+
+      if (hasAttendanceHistory) {
+        return NextResponse.json(
+          {
+            error:
+              "Este agendamento já possui histórico de atendimento/chegada e não pode ser excluído. Mantenha o registro para preservar o histórico.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const actorPersonId = asText(auth.context.person?.id) || null;
+      const { error: auditError } = await supabaseAdmin
+        .from("oh_appointment_audit_log")
+        .insert({
+          organization_id: auth.context.organizationId,
+          appointment_id: appointment.id,
+          actor_person_id: actorPersonId,
+          action: "delete_appointment_admin",
+          snapshot: appointment,
+          details: {
+            source: "atendimento-em-harmonia/agendamentos",
+            reason: "Exclusão manual pela área logada de gestão",
+          },
+        });
+
+      if (auditError) throw auditError;
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .delete()
+        .eq("organization_id", auth.context.organizationId)
+        .eq("id", appointmentId);
+
+      if (deleteError) throw deleteError;
+
+      return NextResponse.json({
+        ok: true,
+        message: "Agendamento excluído. O registro de auditoria foi preservado.",
+      });
     }
 
     throw new Error("Ação não reconhecida.");

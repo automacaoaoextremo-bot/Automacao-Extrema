@@ -44,6 +44,11 @@ const headerActions = [
     variant: "secondary" as const,
   },
   {
+    label: "Agendamento",
+    href: "/solucoes/organizacao-em-harmonia/agendamento",
+    variant: "secondary" as const,
+  },
+  {
     label: "Acessos",
     href: "#modulos",
     variant: "secondary" as const,

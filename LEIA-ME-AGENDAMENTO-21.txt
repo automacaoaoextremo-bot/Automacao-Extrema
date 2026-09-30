@@ -1,0 +1,20 @@
+AE - OeH - TUCXA - Agendamento-21
+
+Arquivos alterados:
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+
+Arquivo novo:
+- supabase/migrations/20260928114500_oh_tucxa_agendamento_piloto_ajustes_21.sql
+
+Principais ajustes:
+- agendamento para terceiro não usa o person_id do titular do WhatsApp como pessoa atendida;
+- o titular do WhatsApp fica registrado em source_contact_person_id;
+- confirmação/lembretes continuam indo para o WhatsApp do contato cadastrado;
+- cancelamento exige justificativa;
+- cancelamento aceita imagem ou PDF opcional de até 5 MB;
+- bucket privado: tucxa-agendamento-cancelamentos.
+
+BotConversa:
+- não são necessários novos fluxos; os fluxos atuais continuam recebendo os campos
+  do atendimento e o destinatário correto pelo código.

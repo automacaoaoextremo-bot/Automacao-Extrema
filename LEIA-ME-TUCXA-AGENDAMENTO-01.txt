@@ -1,0 +1,79 @@
+AUTOMAÇÃO EXTREMA — TUCXA EM HARMONIA
+AGENDAMENTO PILOTO — AJUSTES 01
+23/09/2026
+
+BRANCH
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+PRINCIPAIS ENTREGAS
+- Página pública persuasiva:
+  /solucoes/organizacao-em-harmonia/agendamento
+- Login único:
+  /solucoes/organizacao-em-harmonia/agendamento/login
+- Primeiro acesso único com confirmação cadastral, ciência LGPD e troca de senha.
+- Entrada Agendamento adicionada ao cabeçalho público do Tucxa.
+- Configurações da Recepção para visualização, Entidade padrão, troca de Entidade,
+  ordem de atendimento e lembretes.
+- Cadastro/atualização de Consulentes e Entidades pela Recepção.
+- WhatsApp direto a partir dos cadastros/agendamentos.
+- Marcação de chegada, ausência e ordem de chegada.
+- Preferências individuais de lembretes do Consulente.
+- Estrutura de preferências de resumo da Recepção por e-mail/SMS.
+- Endpoint protegido para lembretes de confirmação.
+- Provisionamento seguro dos acessos iniciais, sem senha e sem dados pessoais no Git.
+
+MIGRATION NOVA
+supabase/migrations/20260923143000_oh_tucxa_agendamento_piloto_ajustes_01.sql
+
+APLICAR SOMENTE DEPOIS DE:
+1. npm run lint
+2. npm run build
+3. conferir a branch correta
+
+PROVISIONAMENTO DOS ACESSOS
+O repositório contém apenas os scripts genéricos:
+- scripts/tucxa-provisionar-agendamento-piloto-01.mjs
+- scripts/tucxa-provisionar-agendamento-piloto-01.ps1
+
+Os nomes/telefones devem permanecer no arquivo LOCAL, fora do Git:
+C:\Users\lacos\Documents\scripts\tucxa-agendamento-piloto-01-acessos.local.json
+
+A senha temporária NÃO fica em arquivo. O PowerShell pede a senha no momento da execução.
+Apenas usuários sem auth_user_id recebem novo login. Logins existentes são preservados.
+
+ATENÇÃO — DADO A CONFIRMAR
+Um telefone do arquivo local de acessos resulta em 12 dígitos após normalização.
+O provisionador vai recusar esse registro até o número ser corrigido no arquivo local.
+O próprio JSON local marca o registro com `needsReview`; não foi feita nenhuma suposição sobre qual dígito deve ser removido.
+
+ENTIDADES SEM CALENDÁRIO INFORMADO
+- Mata Verde
+- Passe - Jupira
+- Passe - Araribóia
+
+Elas são cadastradas inicialmente sem disponibilidade para agendamento. A Recepção poderá
+cadastrar o calendário posteriormente na tela do piloto.
+
+RESUMOS DA RECEPÇÃO
+A preferência por e-mail/SMS e pelo agrupamento é salva nesta versão. O envio automático
+não foi agendado porque o requisito ainda não informa em que horário/frequência o resumo
+deve ser enviado.
+
+LEMBRETES SMS
+Endpoint:
+/api/cron/tucxa-agendamento-reminders
+
+Exige CRON_SECRET. O vercel.json não foi alterado automaticamente para frequência horária,
+pois a frequência suportada depende do plano Vercel. Configure o agendamento somente após
+confirmar o plano utilizado.
+
+HOMOLOGAÇÃO
+Ver docs/tucxa/HOMOLOGACAO-AGENDAMENTO-01.md
+
+SEGURANÇA
+Nunca versionar:
+- .env / .env.local
+- SUPABASE_SERVICE_ROLE_KEY
+- CRON_SECRET
+- senha temporária
+- tucxa-agendamento-piloto-01-acessos.local.json

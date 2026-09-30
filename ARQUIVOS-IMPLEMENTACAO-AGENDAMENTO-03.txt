@@ -1,0 +1,19 @@
+AUTOMAÇÃO EXTREMA — OeH / TUCXA — AGENDAMENTO 03
+
+Arquivos novos/atualizados desta entrega:
+
+- src/app/solucoes/organizacao-em-harmonia/agendamento/page.tsx
+- src/components/organizacao-em-harmonia/tucxa-public-header.tsx
+- src/lib/organizacao-em-harmonia/tucxa-pilot-membership.ts
+- src/app/solucoes/organizacao-em-harmonia/cliente/validacoes/page.tsx
+- src/app/solucoes/organizacao-em-harmonia/cliente/atendimento-em-harmonia/acessos-piloto/page.tsx
+- scripts/tucxa-provisionar-agendamento-piloto-01.mjs
+- supabase/migrations/20260925110000_oh_tucxa_agendamento_piloto_ajustes_03.sql
+- docs/tucxa/HOMOLOGACAO-AGENDAMENTO-03.md
+- LEIA-ME-TUCXA-AGENDAMENTO-03.txt
+
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Observação importante:
+- o arquivo local de provisionamento *.local.json NÃO faz parte deste ZIP e não deve ser versionado.
+- aplique a migration 20260925110000_oh_tucxa_agendamento_piloto_ajustes_03.sql antes da homologação final.
