@@ -303,9 +303,10 @@ async function loadEntityAvailableDatesIndex(
   }
 
   for (const date of dates) {
-    const deadline = confirmationDeadlineIso(date.date, confirmationCutoff);
-    if (isPastConfirmationDeadline(deadline)) continue;
-
+    // A Recepção pode criar novos agendamentos mesmo depois do horário limite
+    // de confirmação. O cutoff vale para a resposta do Consulente, não para
+    // ocultar vagas da operação interna.
+    void confirmationCutoff;
     const weekday = pilotWeekday(date.date);
     const occurrence = monthOccurrence(date.date);
     if (!weekday || occurrence < 1 || occurrence > 4) continue;
@@ -588,8 +589,6 @@ export async function POST(request: Request) {
 
       const dates = await loadPilotDates(context.organizationId, settings.daysAhead);
       for (const date of dates) {
-        const deadline = confirmationDeadlineIso(date.date, settings.confirmationCutoff);
-        if (isPastConfirmationDeadline(deadline)) continue;
         const dayEntities = await loadPilotDay(context.organizationId, date.date);
         const entity = dayEntities.find((item) => item.id === entityId);
         if (!entity || !entity.isAvailable || entity.available < 1) continue;
@@ -648,17 +647,21 @@ export async function POST(request: Request) {
 
         const defaultEntityName = asText(defaultEntityRow?.name) || "a Entidade padrão cadastrada";
 
-        if (!requiredEntity || !requiredEntity.isAvailable || requiredEntity.available < 1) {
+        const selectedEntity = dayEntities.find((item) => item.id === entityId);
+        const selectedIsPasse = /passe/i.test(asText(selectedEntity?.name));
+        const defaultUnavailable = !requiredEntity || !requiredEntity.isAvailable || requiredEntity.available < 1;
+
+        if (defaultUnavailable && !selectedIsPasse) {
           return NextResponse.json(
             {
-              error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não pode escolher outra Entidade. Essa Entidade não atende ou não possui vaga nesta data.`,
+              error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão, mas ela não atende ou não possui vaga nesta data. Se houver vaga, a Recepção pode selecionar Passe.`,
               requestId: code,
             },
             { status: 409 },
           );
         }
 
-        if (entityId !== personPreferences.defaultEntityId) {
+        if (!defaultUnavailable && entityId !== personPreferences.defaultEntityId) {
           return NextResponse.json(
             {
               error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não está autorizado a escolher outra Entidade.`,
@@ -1142,15 +1145,30 @@ export async function POST(request: Request) {
 
     if (action === "consulente-alphabet") {
       const requestedLetter = normalizeSearchText(body.letter).slice(0, 1).toUpperCase();
+      const appointmentDate = asText(body.appointmentDate);
       const people = await loadReceptionConsulentes(context.organizationId);
+      let eligiblePeople = people;
+
+      if (appointmentDate) {
+        const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
+        const passeAvailable = dayEntities.some((item) => /passe/i.test(item.name) && item.isAvailable && item.available > 0);
+        const availableEntityIds = new Set(dayEntities.filter((item) => item.isAvailable && item.available > 0).map((item) => item.id));
+        const eligibility = await Promise.all(people.map(async (person) => {
+          const preferences = await loadPilotPersonPreferences(context.organizationId, asText(person.id));
+          if (!preferences.defaultEntityId) return { person, eligible: passeAvailable || availableEntityIds.size > 0 };
+          return { person, eligible: availableEntityIds.has(preferences.defaultEntityId) || passeAvailable };
+        }));
+        eligiblePeople = eligibility.filter((item) => item.eligible).map((item) => item.person);
+      }
+
       const letters = Array.from(new Set<string>(
-        people
+        eligiblePeople
           .map((person) => normalizeSearchText(person.full_name).slice(0, 1).toUpperCase())
           .filter((letter): letter is string => /^[A-Z]$/.test(letter)),
       )).sort((left, right) => left.localeCompare(right, "pt-BR"));
 
       const selectedBasePeople = requestedLetter && /^[A-Z]$/.test(requestedLetter)
-        ? people.filter((person) => normalizeSearchText(person.full_name).startsWith(requestedLetter.toLowerCase()))
+        ? eligiblePeople.filter((person) => normalizeSearchText(person.full_name).startsWith(requestedLetter.toLowerCase()))
         : [];
 
       const selectedPeople = await Promise.all(

@@ -71,7 +71,7 @@ async function main() {
     ...previousProfile,
     pilotAccessKind: "recepcao",
     source: previousProfile.source || "tucxa_agendamento_piloto_28",
-    functions: Array.isArray(previousProfile.functions) ? previousProfile.functions : [{ slug: "recepcao", label: "Recepção" }],
+    functions: Array.from(new Map([...(Array.isArray(previousProfile.functions) ? previousProfile.functions : []), { slug: "recepcao", label: "Recepção" }].map((item) => [String(item?.slug ?? item?.label ?? ""), item])).values()),
   };
 
   if (membership?.id) {
@@ -85,9 +85,19 @@ async function main() {
   }
   console.log(`Membership OK: ${membership.id} / status=${membership.status}`);
 
-  const { data: authList, error: authListError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (authListError) throw authListError;
-  let authUser = (authList.users ?? []).find((item) => phoneMatches(item.phone)) || (person.auth_user_id ? (authList.users ?? []).find((item) => item.id === person.auth_user_id) : null);
+  let authUser = null;
+  if (person.auth_user_id) {
+    const { data: linkedAuth, error: linkedAuthError } = await supabase.auth.admin.getUserById(person.auth_user_id);
+    if (!linkedAuthError) authUser = linkedAuth?.user ?? null;
+  }
+  if (!authUser) {
+    for (let page = 1; page <= 20 && !authUser; page += 1) {
+      const { data: authList, error: authListError } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (authListError) throw authListError;
+      authUser = (authList.users ?? []).find((item) => phoneMatches(item.phone) || String(item.email ?? "").toLowerCase() === SYNTHETIC_EMAIL) ?? null;
+      if ((authList.users ?? []).length < 1000) break;
+    }
+  }
   if (authUser) {
     const { data, error } = await supabase.auth.admin.updateUserById(authUser.id, {
       email: SYNTHETIC_EMAIL,

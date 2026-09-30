@@ -685,7 +685,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   async function loadConsulenteAlphabet(letter = "") {
     setAlphabetLoading(true);
     try {
-      const result = await postPilot({ action: "consulente-alphabet", letter });
+      const result = await postPilot({ action: "consulente-alphabet", letter, appointmentDate: payload?.selectedDate || "" });
       const letters = Array.isArray(result.letters)
         ? result.letters.filter((item): item is string => typeof item === "string" && /^[A-Z]$/.test(item))
         : [];
@@ -1219,7 +1219,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
                 <button type="button" onClick={() => void refreshSummary(summaryMode, summaryDate || payload.selectedDate, summaryDateTo)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Atualizar indicadores</button>
               </section>
-              <div className="grid grid-cols-3 gap-2"><Summary label="Agendados" value={displayedSummary.scheduled} /><Summary label="Confirmados" value={displayedSummary.confirmed} /><Summary label="Chegaram" value={displayedSummary.arrived} /></div>
+              <div className="grid grid-cols-3 gap-2">
+                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirm", "arrived", "absent"]); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirm", "arrived"]); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultPage(1); setModal("consultar"); }} />
+              </div>
               <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
             </div>
           )}
@@ -1240,9 +1244,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               ) : bookingMode === "date" ? (
                 <label className="grid gap-1 text-sm font-black text-[#123D2C]">Data
-                  <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
-                    {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
-                  </select>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
+                      {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
+                    </select>
+                    <input type="date" value={payload.selectedDate} min={payload.dates[0]?.date} max={payload.dates.at(-1)?.date} onChange={(event) => { if (event.target.value) { setEntityId(""); void load(event.target.value); } }} aria-label="Escolher data pelo calendário" className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
+                  </div>
                 </label>
               ) : (
                 <div className="grid gap-2">
@@ -1901,7 +1908,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
-              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
+              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
               target="_blank"
               rel="noreferrer"
               className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"
@@ -1929,6 +1936,12 @@ function AlphabetConsulentePopup({
   onClose: () => void;
   onSelect: (person: FoundPerson) => void;
 }) {
+  const pageSize = 6;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
+  const effectivePage = Math.min(page, pageCount);
+  const pagePeople = people.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
@@ -1946,7 +1959,7 @@ function AlphabetConsulentePopup({
             <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhum Consulente ativo encontrado com esta inicial.</p>
           ) : (
             <div className="grid gap-2">
-              {people.map((person) => (
+              {pagePeople.map((person) => (
                 <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
                   <span className="block font-black text-[#123D2C]">{person.fullName}</span>
                   <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
@@ -1957,6 +1970,13 @@ function AlphabetConsulentePopup({
                   )}
                 </button>
               ))}
+            </div>
+          )}
+          {!loading && people.length > pageSize && (
+            <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <button type="button" disabled={effectivePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
+              <span className="text-xs font-black text-slate-600">{effectivePage} / {pageCount}</span>
+              <button type="button" disabled={effectivePage >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
             </div>
           )}
         </div>
@@ -2162,8 +2182,9 @@ function ActionButton({ title, subtitle, onClick }: { title: string; subtitle: s
   return <button type="button" onClick={onClick} className="rounded-[1.35rem] bg-white p-4 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 hover:shadow-lg"><span className="block text-base font-black text-[#123D2C] sm:text-lg">{title}</span><span className="mt-1 block text-xs font-bold text-slate-500">{subtitle}</span><span className="mt-2 block text-[10px] font-black uppercase tracking-[0.16em] text-[#2F6B43]">TOQUE PARA ABRIR</span></button>;
 }
 
-function Summary({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10"><span className="block text-lg font-black text-[#123D2C]">{value}</span><span className="text-[10px] uppercase tracking-[0.1em] text-slate-500">{label}</span></div>;
+function Summary({ label, value, onClick }: { label: string; value: number; onClick?: () => void }) {
+  const content = <><span className="block text-lg font-black text-[#123D2C]">{value}</span><span className="text-[10px] uppercase tracking-[0.1em] text-slate-500">{label}</span></>;
+  return onClick ? <button type="button" onClick={onClick} className="rounded-xl bg-[#F7FAF2] p-2 text-left ring-1 ring-[#123D2C]/10 transition hover:bg-[#E9F2E7]">{content}</button> : <div className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">{content}</div>;
 }
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {

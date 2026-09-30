@@ -49,14 +49,28 @@ function DateField({ label, value, onChange }: { label: string; value: string; o
   return (
     <label className="grid gap-1 text-sm font-bold">
       <span>{label}</span>
-      <input
-        inputMode="numeric"
-        value={value}
-        onChange={(event) => onChange(digitsToDate(event.target.value))}
-        placeholder="dd/mm/aaaa"
-        maxLength={10}
-        className="rounded-xl border p-3 font-normal"
-      />
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <input
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => onChange(digitsToDate(event.target.value))}
+          placeholder="dd/mm/aaaa"
+          maxLength={10}
+          className="min-w-0 rounded-xl border p-3 font-normal"
+        />
+        <input
+          type="date"
+          value={ptBrToIso(value)}
+          onChange={(event) => {
+            const iso = event.target.value;
+            if (!iso) return onChange("");
+            const [year, month, day] = iso.split("-");
+            onChange(`${day}/${month}/${year}`);
+          }}
+          aria-label={`${label} pelo calendário`}
+          className="rounded-xl border p-3 font-normal"
+        />
+      </div>
     </label>
   );
 }
@@ -184,10 +198,26 @@ export default function GestaoPage() {
         {error && <p className="mt-3 rounded-xl bg-red-50 p-3 font-bold text-red-700">{error}</p>}
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <button onClick={() => window.print()} className="rounded-xl border bg-white px-4 py-2 font-black">PDF / Imprimir</button>
+          <button onClick={() => {
+            if (!rows.length) return setError("Faça uma consulta antes de gerar o PDF.");
+            const headers = Object.keys(rows[0]);
+            const report = window.open("", "_blank");
+            if (!report) return setError("O navegador bloqueou a janela de impressão. Libere pop-ups e tente novamente.");
+            report.document.write(`<html><head><title>Relatório TUCXA</title><style>body{font-family:Arial,sans-serif;padding:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:7px;text-align:left;font-size:12px}h1{color:#123D2C}</style></head><body><h1>TUCXA · ${kind}</h1><table><thead><tr>${headers.map((h)=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((row)=>`<tr>${headers.map((h)=>`<td>${String(row[h] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`);
+            report.document.close();
+            report.focus();
+            window.setTimeout(() => report.print(), 250);
+          }} className="rounded-xl border bg-white px-4 py-2 font-black">PDF / Imprimir</button>
           <button onClick={exportCsv} className="rounded-xl border bg-white px-4 py-2 font-black">CSV</button>
           <button onClick={exportExcel} className="rounded-xl border bg-white px-4 py-2 font-black">Excel</button>
-          <button onClick={() => window.open("https://sheets.new", "_blank", "noopener,noreferrer")} className="rounded-xl border bg-white px-4 py-2 font-black">Abrir Google Sheets</button>
+          <button onClick={async () => {
+            if (!rows.length) return setError("Faça uma consulta antes de abrir o Google Sheets.");
+            const headers = Object.keys(rows[0]);
+            const tsv = [headers.join("\t"), ...rows.map((row) => headers.map((key) => String(row[key] ?? "").replaceAll("\t", " ")).join("\t"))].join("\n");
+            await navigator.clipboard?.writeText(tsv);
+            window.open("https://sheets.new", "_blank", "noopener,noreferrer");
+            setError("");
+          }} className="rounded-xl border bg-white px-4 py-2 font-black">Abrir Google Sheets</button>
         </div>
 
         <div className="mt-3 overflow-auto rounded-2xl bg-white p-3">
