@@ -198,6 +198,24 @@ export default function PresencaMensagensPage() {
     }
   }
 
+  async function generateDanielaReminders() {
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const token = await getToken();
+      const response = await fetch("/api/presenca-querida/cliente/messages/generate-reminders", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível gerar os lembretes.");
+      setMessage(`Lembretes gerados para revisão: ${result.generated ?? 0}. Confirmados: ${result.byAudience?.confirmado ?? 0}; talvez: ${result.byAudience?.talvez ?? 0}; pendentes: ${result.byAudience?.pendente ?? 0}.`);
+      await loadMessages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao gerar lembretes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function actionMessage(id: string, action: string, messageText?: string, kindLabel = "Mensagem") {
     setSaving(true);
     setError("");
@@ -301,6 +319,7 @@ export default function PresencaMensagensPage() {
               </div>
               <div className="flex flex-col gap-2 sm:items-end">
                 <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
+            <button type="button" onClick={generateDanielaReminders} disabled={saving} className="rounded-xl bg-[#E85D75] px-4 py-3 font-black text-white disabled:opacity-60">Gerar lembretes Daniela 50</button>
                 {publicApprovalUrl && (
                   <button type="button" onClick={copyPublicApprovalUrl} className="rounded-2xl bg-[#00334E] px-4 py-3 text-sm font-black text-white">Copiar link público</button>
                 )}
