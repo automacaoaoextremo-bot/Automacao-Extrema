@@ -1,0 +1,22 @@
+AE - OeH - TUCXA - Agendamento-26
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Incluído nesta rodada:
+- Acolhimento passa a abrir Painel/Gestão; tela operacional passa a Triagem.
+- Gestão com relatórios em tela, impressão/PDF, CSV, Excel compatível e atalho Google Sheets.
+- E-mails internos de auditoria para confirmação enviada, presença confirmada, lembrete, troca de Entidade e cancelamento.
+- WhatsApp preparado para ordem do agendamento e aviso de atendimento individual.
+- Registro de pessoa relacionada (nome, parentesco e Entidade padrão do primeiro agendamento).
+- Troca única de Entidade padrão com histórico.
+- Painel do Consulente restringe o próprio atendimento à Entidade padrão ou Passe.
+- Nomes de Entidade carregados no piloto incluem Cavalinho(s) quando houver vínculo cadastrado.
+- SQL operacional da Patricia e script local para senha temporária 12345678.
+
+PENDÊNCIA EXTERNA:
+- O PDF Deep Dive de Marcelo Bragion citado no documento não veio no ZIP nem como anexo nesta rodada.
+  O texto implementado usa reforço neutro da importância da confirmação; não atribui técnicas ao material ausente.
+- Para a ORDEM aparecer no fluxo BotConversa, criar o campo personalizado TUCXA - Ordem e configurar
+  BOTCONVERSA_TUCXA_FIELD_ORDER_ID no Vercel. O aviso individual também aceita campo opcional
+  BOTCONVERSA_TUCXA_FIELD_INDIVIDUAL_NOTICE_ID.
+
+Operação local: não versionar a pasta _operacao-local.

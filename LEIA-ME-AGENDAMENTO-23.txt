@@ -1,0 +1,16 @@
+AE - OeH - TUCXA - Agendamento-23
+
+Arquivos alterados:
+- page.tsx do Agendamento Piloto
+- route.ts da API do Agendamento Piloto
+
+Correções:
+1. Modal "Trocar Entidade de todos" passa a ficar acima do modal Acolhimento.
+2. A quantidade da troca em massa deixa de depender da paginação de 2 registros.
+3. O frontend monta a operação usando todos os agendamentos ativos da Entidade/data.
+4. O backend consulta novamente todos os agendamentos ativos da Entidade/data no momento da confirmação.
+5. A validação de capacidade e a troca transacional do Agendamento-22 permanecem preservadas.
+
+Não há migration nova.
+Não há novas variáveis de ambiente.
+Não há alteração necessária no fluxo BotConversa.

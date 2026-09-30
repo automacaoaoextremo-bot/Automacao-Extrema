@@ -1,0 +1,28 @@
+AE - OeH - TUCXA - Agendamento-25
+
+Branch:
+feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Escopo:
+- cutoff de confirmação configurável pela Recepção;
+- criação pela Recepção permitida mesmo depois do cutoff;
+- cancelamento automático de pendências após cutoff configurável;
+- padrão atual: cancelamento automático DESATIVADO;
+- link/painel do Consulente continuam impedindo confirmação depois do cutoff;
+- conferência/provisionamento local das 7 pessoas da Recepção e senha temporária 12345678.
+
+IMPORTANTE:
+O arquivo em _operacao-local contém dados pessoais e NÃO deve ser adicionado ao Git.
+Execute-o localmente para conferir/ajustar os acessos e depois mantenha-o fora do repositório.
+
+Arquivos para Git:
+src/lib/organizacao-em-harmonia/tucxa-appointment-pilot.ts
+src/lib/organizacao-em-harmonia/tucxa-confirmation.ts
+src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+src/app/api/organizacao-em-harmonia/consulentes/agendamento-piloto/route.ts
+src/app/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar/route.ts
+src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+supabase/migrations/20260928211500_oh_tucxa_agendamento_piloto_ajustes_25.sql
+
+Não há novas variáveis de ambiente.
+Não há alteração no BotConversa.

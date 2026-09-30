@@ -1,0 +1,8 @@
+AE - OeH - Tucxa - Agendamento 20
+Branch: feature/tucxa-em-harmonia-agendamentos-piloto-v1
+
+Arquivos alterados:
+- src/app/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/page.tsx
+- src/app/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/route.ts
+
+Não há migration nem arquivo novo de aplicação neste ajuste.
