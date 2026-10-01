@@ -8,6 +8,7 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -16,7 +17,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
@@ -1207,6 +1208,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
             </div>
           )}
 
+          {modal === "gestao" && (
+            <TucxaPilotReports />
+          )}
+
           {modal === "painel" && (
             <div className="grid gap-3">
               <section className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
@@ -1936,7 +1941,7 @@ function AlphabetConsulentePopup({
   onClose: () => void;
   onSelect: (person: FoundPerson) => void;
 }) {
-  const pageSize = 6;
+  const pageSize = 4;
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
@@ -2220,6 +2225,7 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "acolhimento") return "Acolhimento";
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
+  if (modal === "gestao") return "Gestão · Relatórios";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

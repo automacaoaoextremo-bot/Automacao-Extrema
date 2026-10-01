@@ -6,7 +6,6 @@ import {
   createConfirmationToken,
   currentPilotReception,
   expirePastPilotConfirmations,
-  isPastConfirmationDeadline,
   loadPilotAppointments,
   loadPilotDates,
   loadPilotDay,
