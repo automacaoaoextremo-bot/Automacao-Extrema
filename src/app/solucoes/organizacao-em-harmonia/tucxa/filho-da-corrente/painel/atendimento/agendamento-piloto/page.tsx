@@ -17,7 +17,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
@@ -54,6 +54,8 @@ type Appointment = {
   order: number | null;
   arrivalStatus: string;
   arrivalOrder: number | null;
+  forwardedAt: string;
+  forwardedByPersonId: string;
 };
 type Settings = {
   confirmationCutoff: string;
@@ -254,6 +256,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "caderno">("lista");
+  const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
@@ -387,12 +391,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      const first = alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
       if (first) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [effectiveConsultView, payload?.appointments]);
+  }, [payload?.appointments]);
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
@@ -406,15 +409,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
             ? consultStatuses.includes("absent")
             : consultStatuses.includes("confirm");
       if (!statusMatches) return false;
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      if (consultLetter && alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, effectiveConsultView, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
       if (effectiveConsultView === "day_entity") {
@@ -930,6 +932,38 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function saveCadernoArrival(appointmentId: string) {
+    const raw = (cadernoOrders[appointmentId] ?? "").trim();
+    const arrivalOrder = Number(raw);
+    if (!Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+      setErrorNotice({ title: "Ordem inválida", message: "Informe um número inteiro maior que zero." });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "set-caderno-arrival", appointmentId, arrivalOrder });
+      setSuccessNotice({ title: "Chegada registrada", message: typeof result.message === "string" ? result.message : "Chegada registrada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível salvar a ordem", message: actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markForwarded(appointmentId: string, forwarded: boolean) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "mark-forwarded", appointmentId, forwarded });
+      setSuccessNotice({ title: forwarded ? "Encaminhamento registrado" : "Encaminhamento desfeito", message: typeof result.message === "string" ? result.message : "Situação atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível atualizar o encaminhamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openIndividualEntityChange(appointment: Appointment) {
     setEntityChangeRequest({
       mode: "individual",
@@ -1202,6 +1236,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
               </button>
+              <button type="button" onClick={() => setModal("encaminhamento")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span><span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
+              </button>
               <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
               </Link>
@@ -1431,6 +1468,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setConsultDisplayMode("lista")} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista</button>
+                  <button type="button" onClick={() => { setConsultDisplayMode("caderno"); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Caderno</button>
+                </div>
+
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <input value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar por nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
                   <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
@@ -1444,7 +1486,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {groupedAppointments.map((group) => (
+              {consultDisplayMode === "caderno" && (
+                <div className="grid gap-3">
+                  {Array.from(new Set((payload.appointments ?? []).filter((item) => item.status !== "cancelado").map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                    <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
+                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityName}</h3>
+                      <div className="divide-y divide-[#123D2C]/10 bg-white">
+                        {(payload.appointments ?? []).filter((item) => item.status !== "cancelado" && item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
+                          <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
+                            <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p></div>
+                            <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
+                            <button type="button" disabled={saving} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {consultDisplayMode === "lista" && groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
                   <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
                     <span>{group.label}</span>
@@ -1515,13 +1576,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {consultPageCount > 1 && (
+              {consultDisplayMode === "lista" && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
                   <button type="button" disabled={effectiveConsultPage >= consultPageCount} onClick={() => { setConsultPage((current) => Math.min(consultPageCount, current + 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {modal === "encaminhamento" && (
+            <div className="grid gap-3">
+              <select value={payload.selectedDate} onChange={(event) => void load(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                {payload.dates.map((item) => <option key={`enc-data-${item.date}`} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+              </select>
+              <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
+              {(payload.appointments ?? []).filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").map((appointment) => (
+                <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{appointment.consulenteName}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
+                  <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
+                </article>
+              ))}
+              {!(payload.appointments ?? []).some((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived") && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum Consulente com chegada registrada nesta data.</p>}
             </div>
           )}
 
@@ -2225,6 +2302,7 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "acolhimento") return "Acolhimento";
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
+  if (modal === "encaminhamento") return "Encaminhamento";
   if (modal === "gestao") return "Gestão · Relatórios";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
