@@ -8,12 +8,20 @@ export const dynamic = "force-dynamic";
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function saoPauloTime() { return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date()); }
-function due(now: string, configured: string) { const [nh,nm]=now.split(":").map(Number); const [ch,cm]=configured.split(":").map(Number); const delta=(nh*60+nm)-(ch*60+cm); return delta >= 0 && delta < 15; }
+function due(now: string, configured: string) { const [nh,nm]=now.split(":").map(Number); const [ch,cm]=configured.split(":").map(Number); return (nh*60+nm) >= (ch*60+cm); }
 function firstName(name: string) { return name.trim().split(/\s+/)[0] || name; }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  const secret = process.env.TUCXA_SCHEDULER_SECRET?.trim();
+  if (!secret) {
+    return NextResponse.json(
+      { error: "Scheduler do TUCXA não configurado." },
+      { status: 503 },
+    );
+  }
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
   const date = todayInSaoPaulo();
   const now = saoPauloTime();
   const { data: organizations, error: orgError } = await supabaseAdmin.from("oh_organizations").select("id,name,slug").or("slug.eq.tucxa,name.ilike.%tucxa%");
@@ -53,8 +61,31 @@ export async function GET(request: Request) {
       const receptionIds=[...new Set((memberships ?? []).filter((item)=>{ const profile=record(item.agenda_viva_profile); const kind=text(profile.pilotAccessKind).toLowerCase(); const functions=Array.isArray(profile.functions)?profile.functions.map((v)=>text(record(v).slug || v).toLowerCase()):[]; return kind==="recepcao" || functions.some((v)=>v.includes("recepc")); }).map((item)=>text(item.person_id)).filter(Boolean))];
       const { data: people, error: peopleError } = receptionIds.length ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,active").in("id", receptionIds).eq("active", true) : { data: [], error: null };
       if (peopleError) throw peopleError;
+      const { data: preferences, error: preferenceError } = receptionIds.length
+        ? await supabaseAdmin
+            .from("oh_tucxa_pilot_person_preferences")
+            .select("person_id,reception_summary_channels")
+            .eq("organization_id", organizationId)
+            .in("person_id", receptionIds)
+        : { data: [], error: null };
+      if (preferenceError) throw preferenceError;
+      const receptionChannels = new Map(
+        (preferences ?? []).map((item) => [
+          text(item.person_id),
+          Array.isArray(item.reception_summary_channels)
+            ? item.reception_summary_channels.map((value) => text(value))
+            : [],
+        ]),
+      );
       const summary=[...grouped.entries()].sort((a,b)=>(entityNames.get(a[0])||"").localeCompare(entityNames.get(b[0])||"","pt-BR")).map(([entityId,list])=>`${entityNames.get(entityId)||"Entidade"}: ${list.map((item)=>text(item.consulente_name)).join(", ")}`).join("\n");
-      for (const person of people ?? []) { const personId=text(person.id); if (!text(person.whatsapp) || await alreadySent("reception",personId)) continue; const result=await sendTucxaOperationalSummaryWhatsapp({ recipientName:text(person.full_name), whatsapp:text(person.whatsapp), appointmentDate:date, entityName:"Resumo da Recepção", summary, audience:"reception" }); await markSent("reception",personId,result.sent,result.error || summary); results.push({audience:"reception",person:firstName(text(person.full_name)),sent:result.sent}); }
+      for (const person of people ?? []) {
+        const personId=text(person.id);
+        const channels=receptionChannels.get(personId) ?? [];
+        if (!channels.includes("whatsapp") || !text(person.whatsapp) || await alreadySent("reception",personId)) continue;
+        const result=await sendTucxaOperationalSummaryWhatsapp({ recipientName:text(person.full_name), whatsapp:text(person.whatsapp), appointmentDate:date, entityName:"Resumo da Recepção", summary, audience:"reception" });
+        await markSent("reception",personId,result.sent,result.error || summary);
+        results.push({audience:"reception",person:firstName(text(person.full_name)),sent:result.sent});
+      }
     }
   }
   return NextResponse.json({ ok: true, date, time: now, results });
