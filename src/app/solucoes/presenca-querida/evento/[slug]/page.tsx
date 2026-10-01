@@ -2,6 +2,8 @@ import { AeSolutionHeader, type SolutionHeaderAction, type SolutionSectionLink }
 import { PresencaPublicConfirmation, type PresencaPublicGuestPayload } from "@/components/presenca-public-confirmation";
 import {
   DANIELA50_FALLBACK_EVENT,
+  DANIELA50_SKY_BARTENDERS_INSTAGRAM,
+  DANIELA50_SKY_BARTENDERS_PHOTO,
   formatDaniela50Deadline,
   getPresencaPublicEventExtras,
   isDaniela50Event,
@@ -75,6 +77,7 @@ const MENU_ITEM_COPY: Record<string, string> = {
   Guaraná: "Opção refrescante para brindar o encontro em família.",
   "Água aromatizada": "Leveza e frescor para uma tarde de celebração diurna.",
   "Chopp Kremer": "Brinde artesanal para quem gosta de celebrar com sabor e boa companhia.",
+  "Drinks Sky Bartenders": "Drinks preparados na hora para brindar os 50 da Dani e deixar a tarde ainda mais especial.",
   Café: "Aquele fechamento acolhedor para acompanhar boas conversas depois do almoço.",
   Bolo: "Doçura especial para marcar os 50 anos com carinho.",
   "Doces finos": "Pequenos detalhes elegantes para deixar a memória da festa ainda mais gostosa.",
@@ -392,6 +395,26 @@ export default async function PresencaQueridaEventoPublicoPage({
                       <a href={extras.drinksProviderInstagramUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex font-black text-[#00334E] underline">
                         Conhecer o Chopp Kremer
                       </a>
+                    )}
+                    {item === "Drinks Sky Bartenders" && (
+                      <>
+                        <div className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#efe7d2]">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={DANIELA50_SKY_BARTENDERS_PHOTO}
+                            alt="Equipe da Sky Bartenders"
+                            className="h-56 w-full object-cover object-center sm:h-64"
+                          />
+                        </div>
+                        <a
+                          href={DANIELA50_SKY_BARTENDERS_INSTAGRAM}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-4 inline-flex font-black text-[#00334E] underline"
+                        >
+                          Conhecer a Sky Bartenders
+                        </a>
+                      </>
                     )}
                   </div>
                 ))}

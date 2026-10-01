@@ -48,6 +48,8 @@ export const DANIELA50_MENU_PHOTOS = [] as string[];
 export const DANIELA50_CHOPP_PHOTO = `${DANIELA_ASSET_BASE}/chopp-kremer.png`;
 export const DANIELA50_BAND_PHOTO = `${DANIELA_ASSET_BASE}/raca-de-quintal.png`;
 export const DANIELA50_DJ_PHOTO = `${DANIELA_ASSET_BASE}/dj-gabriel.png`;
+export const DANIELA50_SKY_BARTENDERS_PHOTO = `${DANIELA_ASSET_BASE}/sky-bartenders.png`;
+export const DANIELA50_SKY_BARTENDERS_INSTAGRAM = "https://www.instagram.com/skybartenders/";
 
 export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-19";
 
@@ -121,7 +123,8 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
       subtitle: "Drinks preparados na hora para brindar os 50 da Dani",
       time: "Durante a tarde de comemoração",
       description: "Uma novidade para deixar a tarde ainda mais especial: o pessoal da Sky Bartenders estará na festa preparando bebidas e drinks para acompanhar os encontros, a música e os brindes.",
-      instagramUrl: "https://www.instagram.com/skybartenders?stkn=MWdhcndwNmt6c3NoNg==",
+      instagramUrl: DANIELA50_SKY_BARTENDERS_INSTAGRAM,
+      imageUrl: DANIELA50_SKY_BARTENDERS_PHOTO,
     },
   ],
   menuSections: [
