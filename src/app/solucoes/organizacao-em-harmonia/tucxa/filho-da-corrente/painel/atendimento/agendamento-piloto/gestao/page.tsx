@@ -8,10 +8,10 @@ export default function GestaoPage() {
     <main className="min-h-screen bg-[#F7FAF2] p-4 text-[#10251C]">
       <section className="mx-auto max-w-6xl">
         <Link
-          href="../"
+          href="../?abrir=acolhimento"
           className="inline-flex rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
         >
-          ← Voltar
+          ← Fechar e voltar ao Acolhimento
         </Link>
         <h1 className="mt-4 text-3xl font-black">Gestão · Relatórios</h1>
         <div className="mt-4">

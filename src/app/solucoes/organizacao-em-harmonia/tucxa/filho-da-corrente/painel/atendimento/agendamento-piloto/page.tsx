@@ -73,6 +73,10 @@ type Settings = {
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -129,6 +133,10 @@ type SettingsDraft = {
   summaryWhatsapp: boolean;
   summaryViewMode: ViewMode;
   openAcolhimentoOnLogin: boolean;
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 
 function shortDate(value: string) {
@@ -313,7 +321,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const open = new URL(window.location.href).searchParams.get("abrir");
-      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes"].includes(open || "")) setModal(open as ModalKind);
+      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes", "acolhimento"].includes(open || "")) setModal(open as ModalKind);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -1062,6 +1070,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
       openAcolhimentoOnLogin: payload.receptionPreferences.receptionOpenAcolhimentoOnLogin,
+      cavalinhoDailyWhatsappEnabled: payload.settings.cavalinhoDailyWhatsappEnabled,
+      cavalinhoDailyWhatsappTime: payload.settings.cavalinhoDailyWhatsappTime,
+      receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
+      receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
     });
     setModal("configuracoes");
   }
@@ -1079,6 +1091,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
+        cavalinhoDailyWhatsappEnabled: settingsDraft.cavalinhoDailyWhatsappEnabled,
+        cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
+        receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
+        receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1224,6 +1240,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setCadastroMode("menu");
               return;
             }
+            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
+              setModal("acolhimento");
+              return;
+            }
             if (modal === "agendar") resetBookingForm();
             setModal(null);
           }}
@@ -1239,7 +1259,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => setModal("encaminhamento")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span><span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
               </button>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao?from=acolhimento" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
               </Link>
             </div>
@@ -1488,11 +1508,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
-                  {Array.from(new Set((payload.appointments ?? []).filter((item) => item.status !== "cancelado").map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                  {Array.from(new Set(filteredAppointments.filter((item) => item.status !== "cancelado").map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
                       <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityName}</h3>
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
-                        {(payload.appointments ?? []).filter((item) => item.status !== "cancelado" && item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
+                        {filteredAppointments.filter((item) => item.status !== "cancelado" && item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
                             <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p></div>
                             <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
@@ -1592,7 +1612,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 {payload.dates.map((item) => <option key={`enc-data-${item.date}`} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
               </select>
               <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
-              {(payload.appointments ?? []).filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").map((appointment) => (
+              {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
                 <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                   <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{appointment.consulenteName}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
                   <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
@@ -1879,6 +1899,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
                 <p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p>
                 <select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select>
+              </section>
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#123D2C]">Avisos do dia pelo WhatsApp</p>
+                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Programa os resumos operacionais do dia do atendimento. O envio aos Cavalinhos usa o WhatsApp associado a cada Entidade. Para a Recepção, o piloto envia individualmente aos contatos com perfil de Recepção; grupos do WhatsApp não são endereçáveis pela integração atual do BotConversa.</p>
+                <div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div>
+                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
+                <div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div>
+                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
               </section>
               <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
             </form>

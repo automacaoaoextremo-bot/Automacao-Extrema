@@ -40,6 +40,10 @@ export type PilotSettings = {
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 
 export type PilotPersonPreferences = {
@@ -227,6 +231,10 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
     serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
     confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
+    cavalinhoDailyWhatsappEnabled: settings.pilotCavalinhoDailyWhatsappEnabled === true,
+    cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: settings.pilotReceptionDailyWhatsappEnabled === true,
+    receptionDailyWhatsappTime: asText(settings.pilotReceptionDailyWhatsappTime) || "12:00",
   };
 }
 

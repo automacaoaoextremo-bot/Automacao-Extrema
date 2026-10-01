@@ -110,7 +110,13 @@ async function loadPilotExtraSettings(organizationId: string) {
   const { data, error } = await supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "atendimento-em-harmonia").maybeSingle();
   if (error) throw error;
   const raw = asRecord(data?.settings);
-  return { enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true) };
+  return {
+    enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true),
+    cavalinhoDailyWhatsappEnabled: asBoolean(raw.pilotCavalinhoDailyWhatsappEnabled, false),
+    cavalinhoDailyWhatsappTime: asText(raw.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: asBoolean(raw.pilotReceptionDailyWhatsappEnabled, false),
+    receptionDailyWhatsappTime: asText(raw.pilotReceptionDailyWhatsappTime) || "12:00",
+  };
 }
 
 function hourList(value: unknown) {
@@ -849,6 +855,13 @@ export async function POST(request: Request) {
       }
       const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
       const enforceArrivalWindow = asBoolean(body.enforceArrivalWindow, true);
+      const cavalinhoDailyWhatsappEnabled = asBoolean(body.cavalinhoDailyWhatsappEnabled, false);
+      const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
+      const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
+      const receptionDailyWhatsappTime = asText(body.receptionDailyWhatsappTime) || "12:00";
+      if (![cavalinhoDailyWhatsappTime, receptionDailyWhatsappTime].every((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value))) {
+        return NextResponse.json({ error: "Informe horários válidos no formato HH:MM para os avisos do dia.", requestId: code }, { status: 400 });
+      }
       const { data: row, error: selectError } = await supabaseAdmin
         .from("oh_module_settings")
         .select("settings")
@@ -867,6 +880,10 @@ export async function POST(request: Request) {
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotEnforceArrivalWindow: enforceArrivalWindow,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
+        pilotCavalinhoDailyWhatsappEnabled: cavalinhoDailyWhatsappEnabled,
+        pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
+        pilotReceptionDailyWhatsappEnabled: receptionDailyWhatsappEnabled,
+        pilotReceptionDailyWhatsappTime: receptionDailyWhatsappTime,
       };
       const { error: updateError } = await supabaseAdmin
         .from("oh_module_settings")
