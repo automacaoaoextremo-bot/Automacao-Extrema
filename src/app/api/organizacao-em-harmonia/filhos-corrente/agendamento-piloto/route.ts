@@ -637,10 +637,11 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
+      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
-      if (personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
+      if (contactMode !== "alternate" && personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
         const requiredEntity = dayEntities.find((item) => item.id === personPreferences.defaultEntityId);
         const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
           .from("oh_spiritual_entities")
@@ -686,7 +687,6 @@ export async function POST(request: Request) {
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
       const ownPhone = normalizeBrazilPhone(person.whatsapp);
-      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const alternateContactName = asText(body.contactName);
       const alternateContactRelationship = asText(body.contactRelationship);
       if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship)) {

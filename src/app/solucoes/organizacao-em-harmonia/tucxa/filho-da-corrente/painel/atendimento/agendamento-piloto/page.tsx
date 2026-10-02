@@ -1413,14 +1413,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <select
                         value={entityId}
                         onChange={(event) => setEntityId(event.target.value)}
-                        disabled={Boolean(foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
+                        disabled={Boolean(contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
                         className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         <option value="">Escolha uma Entidade</option>
                         {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                       </select>
-                      {foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                      {contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
                         <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro deste Consulente.</span>
+                      )}
+                      {contactMode === "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                        <span className="text-xs font-semibold text-emerald-700">Como o agendamento é para outra pessoa, a Recepção pode escolher a Entidade adequada para este atendimento.</span>
                       )}
                     </label>
                   ) : (
