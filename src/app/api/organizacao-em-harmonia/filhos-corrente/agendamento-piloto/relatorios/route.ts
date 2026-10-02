@@ -124,7 +124,7 @@ export async function GET(request: Request) {
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,confirmed_order,arrival_status,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
+        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
         .eq("organization_id", context.organizationId)
         .order("appointment_date", { ascending: true })
         .order("created_at", { ascending: true });
@@ -171,7 +171,7 @@ export async function GET(request: Request) {
             Data: dateLabel(item.appointment_date),
             Entidade: entity,
             Consulente: text(item.consulente_name),
-            Ordem: Number(item.confirmed_order ?? 0) || "",
+            Ordem: Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || "",
             Status: text(item.status),
             Confirmação: text(item.confirmation_status),
           };
