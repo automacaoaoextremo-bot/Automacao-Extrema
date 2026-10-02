@@ -101,7 +101,7 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
             <h3>${escapeHtml(entity)}</h3>
             <table>
               <tbody>
-                ${items.map((item) => `<tr><td class="order">${escapeHtml(item.Ordem || "")}</td><td>${escapeHtml(item.Consulente)}</td></tr>`).join("")}
+                ${items.map((item) => `<tr><td class="order">&nbsp;</td><td>${escapeHtml(item.Consulente)}</td></tr>`).join("")}
                 ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
               </tbody>
             </table>
