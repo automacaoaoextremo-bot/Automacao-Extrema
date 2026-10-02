@@ -284,19 +284,80 @@ export function TucxaPilotReports() {
         {rows.length > 0 && kind !== "caderno" && (
           <table className="min-w-full text-sm">
             <thead><tr>{visibleHeaders(rows[0]).map((header) => <th key={header} className="border-b p-2 text-left">{header}</th>)}{kind === "sem_whatsapp_terceiros" && <th className="border-b p-2 text-left">Ação</th>}</tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={index}>{visibleHeaders(rows[0]).map((header) => <td key={header} className="border-b p-2">{String(row[header] ?? "")}</td>)}{kind === "sem_whatsapp_terceiros" && <td className="border-b p-2"><button type="button" onClick={() => { setOwnWhatsappPersonId(String(row._personId || "")); setOwnWhatsappName(String(row.Consulente || "")); setOwnWhatsapp(""); setMessage(""); setError(""); }} className="whitespace-nowrap rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Informar WhatsApp próprio</button></td>}</tr>)}</tbody>
+            <tbody>{rows.map((row, index) => <tr key={index}>{visibleHeaders(rows[0]).map((header) => <td key={header} className="border-b p-2">{String(row[header] ?? "")}</td>)}{kind === "sem_whatsapp_terceiros" && <td className="border-b p-2"><button type="button" onClick={() => {
+              const personId = String(row._personId || "").trim();
+              if (!personId) {
+                setError("Não foi possível identificar o cadastro deste Consulente. Atualize a consulta e tente novamente.");
+                return;
+              }
+              setOwnWhatsappPersonId(personId);
+              setOwnWhatsappName(String(row.Consulente || ""));
+              setOwnWhatsapp("");
+              setMessage("");
+              setError("");
+            }} className="whitespace-nowrap rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Informar WhatsApp próprio</button></td>}</tr>)}</tbody>
           </table>
         )}
       </div>
 
       {ownWhatsappPersonId && (
-        <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-900/10">
-          <h3 className="font-black text-[#123D2C]">Atualizar WhatsApp próprio · {ownWhatsappName}</h3>
-          <p className="mt-1 text-sm font-semibold text-slate-700">A atualização passará os agendamentos anteriores e futuros para o contato próprio do Consulente. O contato responsável anterior será preservado no histórico de cada agendamento.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input value={ownWhatsapp} onChange={(event) => setOwnWhatsapp(event.target.value)} placeholder="WhatsApp com DDD" className="min-w-64 flex-1 rounded-xl border bg-white p-3" />
-            <button type="button" onClick={() => { setOwnWhatsappPersonId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); }} className="rounded-xl border bg-white px-4 py-2 font-black">Cancelar</button>
-            <button type="button" disabled={savingWhatsapp || !ownWhatsapp.trim()} onClick={() => void saveOwnWhatsapp()} className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-50">{savingWhatsapp ? "Atualizando..." : "Confirmar atualização"}</button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="own-whatsapp-title">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl ring-1 ring-black/10">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 id="own-whatsapp-title" className="text-lg font-black text-[#123D2C]">Atualizar WhatsApp próprio</h3>
+                <p className="mt-1 font-bold text-slate-700">{ownWhatsappName}</p>
+              </div>
+              <button
+                type="button"
+                disabled={savingWhatsapp}
+                onClick={() => { setOwnWhatsappPersonId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
+                className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm font-semibold leading-6 text-slate-700">
+              A atualização passará os agendamentos anteriores e futuros para o contato próprio do Consulente.
+              O contato responsável anterior será preservado no histórico de cada agendamento.
+            </p>
+
+            {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+
+            <label className="mt-4 grid gap-1 text-sm font-bold text-[#123D2C]">
+              <span>WhatsApp próprio</span>
+              <input
+                autoFocus
+                inputMode="tel"
+                value={ownWhatsapp}
+                onChange={(event) => setOwnWhatsapp(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && ownWhatsapp.trim() && !savingWhatsapp) void saveOwnWhatsapp();
+                }}
+                placeholder="Ex.: (19) 99999-9999"
+                className="rounded-xl border bg-white p-3 font-normal"
+              />
+            </label>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={savingWhatsapp}
+                onClick={() => { setOwnWhatsappPersonId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
+                className="rounded-xl border bg-white px-4 py-2 font-black disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingWhatsapp || !ownWhatsapp.trim()}
+                onClick={() => void saveOwnWhatsapp()}
+                className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-50"
+              >
+                {savingWhatsapp ? "Atualizando..." : "Confirmar atualização"}
+              </button>
+            </div>
           </div>
         </div>
       )}
