@@ -35,6 +35,80 @@ async function entityNames(organizationId: string, ids: string[]) {
   return new Map((data ?? []).map((item) => [text(item.id), text(item.name) || "Entidade"]));
 }
 
+
+
+export async function POST(request: Request) {
+  try {
+    const context = await currentPilotReception(request);
+    if (!context?.canManage) return NextResponse.json({ error: "Acesso não autorizado." }, { status: 403 });
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    if (text(body.action) !== "adopt-own-whatsapp") {
+      return NextResponse.json({ error: "Ação não reconhecida." }, { status: 400 });
+    }
+
+    const personId = text(body.personId);
+    const digits = text(body.whatsapp).replace(/\D/g, "");
+    const whatsapp = digits.startsWith("55") ? digits : `55${digits}`;
+    if (!personId) return NextResponse.json({ error: "Consulente não informado." }, { status: 400 });
+    if (whatsapp.length < 12 || whatsapp.length > 13) {
+      return NextResponse.json({ error: "Informe um WhatsApp válido com DDD." }, { status: 400 });
+    }
+
+    const { data: person, error: personError } = await supabaseAdmin
+      .from("oh_people")
+      .select("id,full_name,whatsapp")
+      .eq("organization_id", context.organizationId)
+      .eq("id", personId)
+      .eq("active", true)
+      .maybeSingle();
+    if (personError) throw personError;
+    if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
+
+    const { data: duplicate, error: duplicateError } = await supabaseAdmin
+      .from("oh_people")
+      .select("id,full_name")
+      .eq("organization_id", context.organizationId)
+      .eq("whatsapp", whatsapp)
+      .neq("id", personId)
+      .limit(1);
+    if (duplicateError) throw duplicateError;
+    if ((duplicate ?? []).length) {
+      return NextResponse.json(
+        { error: `Este WhatsApp já está vinculado ao cadastro de ${text(duplicate?.[0]?.full_name) || "outra pessoa"}.` },
+        { status: 409 },
+      );
+    }
+
+    const { data: changedCount, error: adoptError } = await supabaseAdmin.rpc(
+      "oh_tucxa_pilot_adopt_own_whatsapp",
+      {
+        p_organization_id: context.organizationId,
+        p_person_id: personId,
+        p_whatsapp: whatsapp,
+      },
+    );
+    if (adoptError) {
+      const message = String(adoptError.message || "");
+      if (message.includes("WHATSAPP_IN_USE")) {
+        return NextResponse.json({ error: "Este WhatsApp já está vinculado a outro cadastro." }, { status: 409 });
+      }
+      if (message.includes("PERSON_NOT_FOUND")) {
+        return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
+      }
+      throw adoptError;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: `WhatsApp próprio atualizado. ${Number(changedCount ?? 0)} agendamento(s) anterior(es) e futuro(s) foram desvinculados do contato responsável, preservando o histórico da alteração.`,
+    });
+  } catch (error) {
+    console.error("[TUCXA][pilot-reports][POST]", error);
+    return NextResponse.json({ error: "Não foi possível atualizar o WhatsApp próprio do Consulente." }, { status: 500 });
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const context = await currentPilotReception(request);
@@ -50,7 +124,7 @@ export async function GET(request: Request) {
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
+        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,confirmed_order,arrival_status,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
         .eq("organization_id", context.organizationId)
         .order("appointment_date", { ascending: true })
         .order("created_at", { ascending: true });
@@ -74,28 +148,43 @@ export async function GET(request: Request) {
         ? source.filter((item) => text(item.consulente_name).toLocaleLowerCase("pt-BR").includes(person))
         : source;
 
-      const rows = filtered.map((item) => {
+      const personIds = kind === "sem_whatsapp_terceiros"
+        ? Array.from(new Set(filtered.map((item) => text(item.person_id)).filter(Boolean)))
+        : [];
+      const { data: people, error: peopleError } = personIds.length
+        ? await supabaseAdmin
+            .from("oh_people")
+            .select("id,whatsapp")
+            .eq("organization_id", context.organizationId)
+            .in("id", personIds)
+        : { data: [], error: null };
+      if (peopleError) throw peopleError;
+      const ownWhatsapp = new Map((people ?? []).map((item) => [text(item.id), text(item.whatsapp)]));
+      const reportSource = kind === "sem_whatsapp_terceiros"
+        ? filtered.filter((item) => !ownWhatsapp.get(text(item.person_id)))
+        : filtered;
+
+      const rows = reportSource.map((item) => {
         const entity = names.get(text(item.entity_id)) || "Entidade";
         if (kind === "caderno") {
           return {
             Data: dateLabel(item.appointment_date),
             Entidade: entity,
             Consulente: text(item.consulente_name),
-            Ordem: Number((item.metadata as Record<string, unknown> | null)?.order ?? 0) || "",
+            Ordem: Number(item.confirmed_order ?? 0) || "",
             Status: text(item.status),
             Confirmação: text(item.confirmation_status),
           };
         }
         if (kind === "sem_whatsapp_terceiros") {
           return {
-            Consulente: text(item.consulente_name),
-            "WhatsApp próprio": "Não informado",
-            "Contato responsável": text(item.notification_contact_name),
-            "Parentesco / vínculo": text(item.notification_contact_relationship),
-            "WhatsApp do contato": phoneLabel(item.notification_contact_whatsapp || item.whatsapp),
-            "Próximo / último atendimento": dateLabel(item.appointment_date),
+            _personId: text(item.person_id),
+            Data: dateLabel(item.appointment_date),
             Entidade: entity,
-            Status: text(item.status),
+            Consulente: text(item.consulente_name),
+            "Contato responsável": text(item.notification_contact_name),
+            "WhatsApp do contato responsável": phoneLabel(item.notification_contact_whatsapp || item.whatsapp),
+            "Parentesco / vínculo": text(item.notification_contact_relationship),
           };
         }
         return {
