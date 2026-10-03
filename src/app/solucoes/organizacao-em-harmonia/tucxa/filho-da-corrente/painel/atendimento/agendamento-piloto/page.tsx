@@ -8,6 +8,7 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -16,7 +17,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
@@ -53,6 +54,8 @@ type Appointment = {
   order: number | null;
   arrivalStatus: string;
   arrivalOrder: number | null;
+  forwardedAt: string;
+  forwardedByPersonId: string;
 };
 type Settings = {
   confirmationCutoff: string;
@@ -70,6 +73,10 @@ type Settings = {
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -126,6 +133,10 @@ type SettingsDraft = {
   summaryWhatsapp: boolean;
   summaryViewMode: ViewMode;
   openAcolhimentoOnLogin: boolean;
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 
 function shortDate(value: string) {
@@ -230,7 +241,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
   const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
   const [alternateRelationshipOption, setAlternateRelationshipOption] = useState<"" | "Mãe" | "Filho" | "Outro">("");
-  const [newPerson, setNewPerson] = useState({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
@@ -253,6 +264,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "caderno">("caderno");
+  const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
@@ -308,7 +321,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const open = new URL(window.location.href).searchParams.get("abrir");
-      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes"].includes(open || "")) setModal(open as ModalKind);
+      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes", "acolhimento"].includes(open || "")) setModal(open as ModalKind);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -386,12 +399,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      const first = alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
       if (first) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [effectiveConsultView, payload?.appointments]);
+  }, [payload?.appointments]);
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
@@ -405,15 +417,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
             ? consultStatuses.includes("absent")
             : consultStatuses.includes("confirm");
       if (!statusMatches) return false;
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      if (consultLetter && alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, effectiveConsultView, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
       if (effectiveConsultView === "day_entity") {
@@ -497,7 +508,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
@@ -513,7 +524,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setContactMode("consulente");
     setAlternateContact({ name: "", relationship: "", whatsapp: "" });
     setAlternateRelationshipOption("");
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
     setBookingMode("date");
@@ -738,6 +749,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  function registrationDateInSaoPaulo() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
   async function createPerson(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -747,7 +767,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: "create-consulente",
         fullName: newPerson.fullName || (!searchHasPhone ? phone : ""),
         whatsapp: searchHasPhone ? (newPersonWhatsapp || phone) : newPersonWhatsapp,
-        birthDate: newPerson.birthDate,
+        birthDate: registrationDateInSaoPaulo(),
         email: newPerson.email,
         password: newPersonWhatsapp || phone ? newPerson.password : "",
         privacyAccepted: newPerson.privacyAccepted,
@@ -929,6 +949,38 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function saveCadernoArrival(appointmentId: string) {
+    const raw = (cadernoOrders[appointmentId] ?? "").trim();
+    const arrivalOrder = Number(raw);
+    if (!Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+      setErrorNotice({ title: "Ordem inválida", message: "Informe um número inteiro maior que zero." });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "set-caderno-arrival", appointmentId, arrivalOrder });
+      setSuccessNotice({ title: "Chegada registrada", message: typeof result.message === "string" ? result.message : "Chegada registrada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível salvar a ordem", message: actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markForwarded(appointmentId: string, forwarded: boolean) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "mark-forwarded", appointmentId, forwarded });
+      setSuccessNotice({ title: forwarded ? "Encaminhamento registrado" : "Encaminhamento desfeito", message: typeof result.message === "string" ? result.message : "Situação atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível atualizar o encaminhamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openIndividualEntityChange(appointment: Appointment) {
     setEntityChangeRequest({
       mode: "individual",
@@ -1027,6 +1079,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
       openAcolhimentoOnLogin: payload.receptionPreferences.receptionOpenAcolhimentoOnLogin,
+      cavalinhoDailyWhatsappEnabled: payload.settings.cavalinhoDailyWhatsappEnabled,
+      cavalinhoDailyWhatsappTime: payload.settings.cavalinhoDailyWhatsappTime,
+      receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
+      receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
     });
     setModal("configuracoes");
   }
@@ -1044,6 +1100,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
+        cavalinhoDailyWhatsappEnabled: settingsDraft.cavalinhoDailyWhatsappEnabled,
+        cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
+        receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
+        receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1189,6 +1249,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setCadastroMode("menu");
               return;
             }
+            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
+              setModal("acolhimento");
+              return;
+            }
             if (modal === "agendar") resetBookingForm();
             setModal(null);
           }}
@@ -1201,10 +1265,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
               </button>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <button type="button" onClick={() => setModal("encaminhamento")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span><span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
+              </button>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao?from=acolhimento" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
               </Link>
             </div>
+          )}
+
+          {modal === "gestao" && (
+            <TucxaPilotReports />
           )}
 
           {modal === "painel" && (
@@ -1311,7 +1382,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" aria-label="Data de nascimento" className="rounded-xl border border-amber-200 p-3" required />
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <div className="grid gap-1">
                     <div className="flex items-center justify-between gap-2">
@@ -1329,11 +1399,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {personNotFound && !searchHasPhone && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Cadastre o Consulente sem WhatsApp.</p>
-                  <p className="text-xs font-semibold text-amber-900">Para não identificar a pessoa somente pelo nome, informe também a data de nascimento. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
+                  <p className="text-xs font-semibold text-amber-900">A data do cadastro será registrada automaticamente. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
                   <input value={newPerson.fullName || phone} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                    <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
-                  </label>
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
@@ -1351,14 +1418,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <select
                         value={entityId}
                         onChange={(event) => setEntityId(event.target.value)}
-                        disabled={Boolean(foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
+                        disabled={Boolean(contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
                         className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         <option value="">Escolha uma Entidade</option>
                         {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                       </select>
-                      {foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                      {contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
                         <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro deste Consulente.</span>
+                      )}
+                      {contactMode === "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                        <span className="text-xs font-semibold text-emerald-700">Como o agendamento é para outra pessoa, a Recepção pode escolher a Entidade adequada para este atendimento.</span>
                       )}
                     </label>
                   ) : (
@@ -1426,6 +1496,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
                 </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setConsultDisplayMode("lista")} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista</button>
+                  <button type="button" onClick={() => { setConsultDisplayMode("caderno"); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Caderno</button>
+                </div>
+
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <input value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar por nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
                   <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
@@ -1439,7 +1514,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {groupedAppointments.map((group) => (
+              {consultDisplayMode === "caderno" && (
+                <div className="grid gap-3">
+                  {Array.from(new Set(filteredAppointments.filter((item) => item.status !== "cancelado").map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                    <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
+                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityName}</h3>
+                      <div className="divide-y divide-[#123D2C]/10 bg-white">
+                        {filteredAppointments.filter((item) => item.status !== "cancelado" && item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
+                          <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
+                            <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p></div>
+                            <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
+                            <button type="button" disabled={saving} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {consultDisplayMode === "lista" && groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
                   <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
                     <span>{group.label}</span>
@@ -1510,13 +1604,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {consultPageCount > 1 && (
+              {consultDisplayMode === "lista" && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
                   <button type="button" disabled={effectiveConsultPage >= consultPageCount} onClick={() => { setConsultPage((current) => Math.min(consultPageCount, current + 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {modal === "encaminhamento" && (
+            <div className="grid gap-3">
+              <select value={payload.selectedDate} onChange={(event) => void load(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                {payload.dates.map((item) => <option key={`enc-data-${item.date}`} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+              </select>
+              <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
+              {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
+                <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{appointment.consulenteName}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
+                  <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
+                </article>
+              ))}
+              {!(payload.appointments ?? []).some((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived") && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum Consulente com chegada registrada nesta data.</p>}
             </div>
           )}
 
@@ -1675,9 +1785,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <label className="grid gap-1 text-xs font-black text-amber-950">Nome completo
                         <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 p-3" required />
                       </label>
-                      <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                        <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
-                      </label>
                       <label className="grid gap-1 text-xs font-black text-amber-950">WhatsApp com DDD
                         <input value={newPersonWhatsapp} onChange={(event) => setNewPersonWhatsapp(event.target.value)} className="rounded-xl border border-amber-200 p-3" required />
                       </label>
@@ -1797,6 +1904,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
                 <p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p>
                 <select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select>
+              </section>
+              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <p className="font-black text-[#123D2C]">Avisos do dia pelo WhatsApp</p>
+                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Programa os resumos operacionais do dia do atendimento. O envio aos Cavalinhos usa o WhatsApp associado a cada Entidade. Para a Recepção, o piloto envia individualmente aos contatos com perfil de Recepção; grupos do WhatsApp não são endereçáveis pela integração atual do BotConversa.</p>
+                <div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div>
+                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
+                <div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div>
+                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
               </section>
               <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
             </form>
@@ -1936,7 +2051,7 @@ function AlphabetConsulentePopup({
   onClose: () => void;
   onSelect: (person: FoundPerson) => void;
 }) {
-  const pageSize = 6;
+  const pageSize = 4;
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
@@ -2220,6 +2335,8 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "acolhimento") return "Acolhimento";
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
+  if (modal === "encaminhamento") return "Encaminhamento";
+  if (modal === "gestao") return "Gestão · Relatórios";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

@@ -6,7 +6,6 @@ import {
   createConfirmationToken,
   currentPilotReception,
   expirePastPilotConfirmations,
-  isPastConfirmationDeadline,
   loadPilotAppointments,
   loadPilotDates,
   loadPilotDay,
@@ -111,7 +110,13 @@ async function loadPilotExtraSettings(organizationId: string) {
   const { data, error } = await supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "atendimento-em-harmonia").maybeSingle();
   if (error) throw error;
   const raw = asRecord(data?.settings);
-  return { enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true) };
+  return {
+    enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true),
+    cavalinhoDailyWhatsappEnabled: asBoolean(raw.pilotCavalinhoDailyWhatsappEnabled, false),
+    cavalinhoDailyWhatsappTime: asText(raw.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: asBoolean(raw.pilotReceptionDailyWhatsappEnabled, false),
+    receptionDailyWhatsappTime: asText(raw.pilotReceptionDailyWhatsappTime) || "12:00",
+  };
 }
 
 function hourList(value: unknown) {
@@ -632,10 +637,11 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
+      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
-      if (personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
+      if (contactMode !== "alternate" && personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
         const requiredEntity = dayEntities.find((item) => item.id === personPreferences.defaultEntityId);
         const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
           .from("oh_spiritual_entities")
@@ -681,7 +687,6 @@ export async function POST(request: Request) {
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
       const ownPhone = normalizeBrazilPhone(person.whatsapp);
-      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const alternateContactName = asText(body.contactName);
       const alternateContactRelationship = asText(body.contactRelationship);
       if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship)) {
@@ -850,6 +855,13 @@ export async function POST(request: Request) {
       }
       const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
       const enforceArrivalWindow = asBoolean(body.enforceArrivalWindow, true);
+      const cavalinhoDailyWhatsappEnabled = asBoolean(body.cavalinhoDailyWhatsappEnabled, false);
+      const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
+      const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
+      const receptionDailyWhatsappTime = asText(body.receptionDailyWhatsappTime) || "12:00";
+      if (![cavalinhoDailyWhatsappTime, receptionDailyWhatsappTime].every((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value))) {
+        return NextResponse.json({ error: "Informe horários válidos no formato HH:MM para os avisos do dia.", requestId: code }, { status: 400 });
+      }
       const { data: row, error: selectError } = await supabaseAdmin
         .from("oh_module_settings")
         .select("settings")
@@ -868,6 +880,10 @@ export async function POST(request: Request) {
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotEnforceArrivalWindow: enforceArrivalWindow,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
+        pilotCavalinhoDailyWhatsappEnabled: cavalinhoDailyWhatsappEnabled,
+        pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
+        pilotReceptionDailyWhatsappEnabled: receptionDailyWhatsappEnabled,
+        pilotReceptionDailyWhatsappTime: receptionDailyWhatsappTime,
       };
       const { error: updateError } = await supabaseAdmin
         .from("oh_module_settings")
@@ -964,6 +980,58 @@ export async function POST(request: Request) {
             ? "Ausência registrada."
             : "Situação de chegada redefinida.",
       });
+    }
+
+    if (action === "set-caderno-arrival") {
+      const appointmentId = asText(body.appointmentId);
+      const arrivalOrder = Number(body.arrivalOrder);
+      if (!appointmentId || !Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+        return NextResponse.json({ error: "Informe o agendamento e uma ordem de chegada válida.", requestId: code }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_set_arrival_order", {
+        p_organization_id: context.organizationId,
+        p_appointment_id: appointmentId,
+        p_actor_person_id: context.personId,
+        p_arrival_order: arrivalOrder,
+      });
+      if (error) {
+        if (String(error.message || "").includes("ARRIVAL_ORDER_IN_USE")) {
+          return NextResponse.json({ error: "Esta ordem de chegada já está sendo usada nesta data.", requestId: code }, { status: 409 });
+        }
+        throw error;
+      }
+      return NextResponse.json({ ok: true, arrival: Array.isArray(data) ? data[0] : data, message: `Chegada registrada na ordem ${arrivalOrder}.` });
+    }
+
+    if (action === "mark-forwarded") {
+      const appointmentId = asText(body.appointmentId);
+      const forwarded = body.forwarded !== false;
+      if (!appointmentId) {
+        return NextResponse.json({ error: "Informe o agendamento.", requestId: code }, { status: 400 });
+      }
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,arrival_status,status")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+      if (forwarded && asText(appointment.arrival_status) !== "arrived") {
+        return NextResponse.json({ error: "Registre primeiro a chegada do Consulente na Triagem.", requestId: code }, { status: 409 });
+      }
+      const { error } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .update({
+          forwarded_at: forwarded ? new Date().toISOString() : null,
+          forwarded_by_person_id: forwarded ? context.personId : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true, message: forwarded ? "Consulente marcado como encaminhado." : "Encaminhamento desfeito." });
     }
 
     if (action === "change-entity" || action === "change-entity-bulk") {

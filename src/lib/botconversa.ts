@@ -1790,3 +1790,53 @@ export async function sendTucxaEntityChangeWhatsapp(
     };
   }
 }
+
+export type TucxaOperationalSummaryBotConversaInput = {
+  recipientName: string;
+  whatsapp: string;
+  appointmentDate: string;
+  entityName: string;
+  summary: string;
+  audience: "cavalinho" | "reception";
+};
+
+/** Dispara o resumo operacional do dia usando os mesmos campos seguros do piloto. */
+export async function sendTucxaOperationalSummaryWhatsapp(
+  input: TucxaOperationalSummaryBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return { sent: false, provider: "disabled", error: "BotConversa do Agendamento não habilitado." };
+  }
+  const flowId = input.audience === "cavalinho"
+    ? firstEnv("BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW")
+    : firstEnv("BOTCONVERSA_TUCXA_RECEPTION_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_RECEPTION_DAILY_FLOW");
+  if (!flowId) {
+    return { sent: false, provider: "disabled", error: `Fluxo diário ${input.audience} não configurado.` };
+  }
+  const fieldInput: TucxaAppointmentBotConversaInput = {
+    fullName: input.recipientName,
+    recipientName: input.recipientName,
+    whatsapp: input.whatsapp,
+    appointmentDate: input.appointmentDate,
+    entityName: input.entityName,
+    individualNotice: input.summary,
+    kind: "reminder",
+  };
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber(fieldInput);
+    if (!subscriber.subscriberId) return { sent: false, provider: "botconversa", error: subscriber.error, steps: subscriber.steps };
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(fieldInput));
+    steps.push(...fieldSteps);
+    const failed = fieldSteps.find((step) => !step.ok);
+    if (failed) return { sent: false, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId, error: `Não foi possível preparar o resumo (${failed.step}).`, steps };
+    await botConversaWait(900);
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    const flow = await botconversaRequest(flowPath, { method: "POST", body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId } });
+    steps.push({ step: `send_tucxa_${input.audience}_daily_flow`, ok: flow.ok, status: flow.status, path: flow.path, method: flow.method, data: flow.data, responseText: flow.ok ? undefined : flow.text });
+    return { sent: flow.ok, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId, error: flow.ok ? undefined : flow.text || "Falha ao disparar resumo operacional.", steps };
+  } catch (error) {
+    return { sent: false, provider: "botconversa", flowId, error: error instanceof Error ? error.message : "Falha inesperada no resumo operacional." };
+  }
+}

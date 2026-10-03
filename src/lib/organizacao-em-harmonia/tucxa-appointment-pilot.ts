@@ -40,6 +40,10 @@ export type PilotSettings = {
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
 };
 
 export type PilotPersonPreferences = {
@@ -227,6 +231,10 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
     serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
     confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
+    cavalinhoDailyWhatsappEnabled: settings.pilotCavalinhoDailyWhatsappEnabled === true,
+    cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: settings.pilotReceptionDailyWhatsappEnabled === true,
+    receptionDailyWhatsappTime: asText(settings.pilotReceptionDailyWhatsappTime) || "12:00",
   };
 }
 
@@ -556,7 +564,7 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, metadata, notes, created_at")
+    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, metadata, notes, created_at")
     .eq("organization_id", organizationId)
     .gte("appointment_date", startDate)
     .lte("appointment_date", endDate)
@@ -592,6 +600,8 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
     arrivalStatus: asText(item.arrival_status) || "pending",
     arrivedAt: asText(item.arrived_at),
     arrivalOrder: Number(item.arrival_order ?? 0) || null,
+    forwardedAt: asText(item.forwarded_at),
+    forwardedByPersonId: asText(item.forwarded_by_person_id),
     notes: asText(item.notes),
     order: Number(asRecord(item.metadata).order ?? 0) || null,
   }));
