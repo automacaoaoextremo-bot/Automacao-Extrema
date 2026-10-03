@@ -47,33 +47,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Ação não reconhecida." }, { status: 400 });
     }
 
-    const personId = text(body.personId);
+    const appointmentId = text(body.appointmentId);
     const digits = text(body.whatsapp).replace(/\D/g, "");
     const whatsapp = digits.startsWith("55") ? digits : `55${digits}`;
-    if (!personId) return NextResponse.json({ error: "Consulente não informado." }, { status: 400 });
+    if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado." }, { status: 400 });
     if (whatsapp.length < 12 || whatsapp.length > 13) {
       return NextResponse.json({ error: "Informe um WhatsApp válido com DDD." }, { status: 400 });
     }
 
-    const { data: person, error: personError } = await supabaseAdmin
-      .from("oh_people")
-      .select("id,full_name,whatsapp")
+    const { data: appointment, error: appointmentError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id,person_id,consulente_name")
       .eq("organization_id", context.organizationId)
-      .eq("id", personId)
-      .eq("active", true)
+      .eq("id", appointmentId)
       .maybeSingle();
-    if (personError) throw personError;
-    if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
+    if (appointmentError) throw appointmentError;
+    if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado." }, { status: 404 });
 
     const { data: duplicate, error: duplicateError } = await supabaseAdmin
       .from("oh_people")
       .select("id,full_name")
       .eq("organization_id", context.organizationId)
       .eq("whatsapp", whatsapp)
-      .neq("id", personId)
+      .eq("active", true)
       .limit(1);
     if (duplicateError) throw duplicateError;
-    if ((duplicate ?? []).length) {
+
+    const appointmentPersonId = text(appointment.person_id);
+    if ((duplicate ?? []).length && text(duplicate?.[0]?.id) !== appointmentPersonId) {
       return NextResponse.json(
         { error: `Este WhatsApp já está vinculado ao cadastro de ${text(duplicate?.[0]?.full_name) || "outra pessoa"}.` },
         { status: 409 },
@@ -81,10 +82,10 @@ export async function POST(request: Request) {
     }
 
     const { data: changedCount, error: adoptError } = await supabaseAdmin.rpc(
-      "oh_tucxa_pilot_adopt_own_whatsapp",
+      "oh_tucxa_pilot_adopt_own_whatsapp_by_appointment",
       {
         p_organization_id: context.organizationId,
-        p_person_id: personId,
+        p_appointment_id: appointmentId,
         p_whatsapp: whatsapp,
       },
     );
@@ -93,12 +94,11 @@ export async function POST(request: Request) {
       if (message.includes("WHATSAPP_IN_USE")) {
         return NextResponse.json({ error: "Este WhatsApp já está vinculado a outro cadastro." }, { status: 409 });
       }
-      if (message.includes("PERSON_NOT_FOUND")) {
-        return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
+      if (message.includes("APPOINTMENT_NOT_FOUND")) {
+        return NextResponse.json({ error: "Agendamento não localizado." }, { status: 404 });
       }
       throw adoptError;
     }
-
     return NextResponse.json({
       ok: true,
       message: `WhatsApp próprio atualizado. ${Number(changedCount ?? 0)} agendamento(s) anterior(es) e futuro(s) foram desvinculados do contato responsável, preservando o histórico da alteração.`,
@@ -178,6 +178,7 @@ export async function GET(request: Request) {
         }
         if (kind === "sem_whatsapp_terceiros") {
           return {
+            _appointmentId: text(item.id),
             _personId: text(item.person_id),
             Data: dateLabel(item.appointment_date),
             Entidade: entity,

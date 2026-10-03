@@ -119,7 +119,7 @@ export function TucxaPilotReports() {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ownWhatsappPersonId, setOwnWhatsappPersonId] = useState("");
+  const [ownWhatsappAppointmentId, setOwnWhatsappAppointmentId] = useState("");
   const [ownWhatsappName, setOwnWhatsappName] = useState("");
   const [ownWhatsapp, setOwnWhatsapp] = useState("");
   const [savingWhatsapp, setSavingWhatsapp] = useState(false);
@@ -168,12 +168,12 @@ export function TucxaPilotReports() {
       const response = await fetch(API, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: "adopt-own-whatsapp", personId: ownWhatsappPersonId, whatsapp: ownWhatsapp }),
+        body: JSON.stringify({ action: "adopt-own-whatsapp", appointmentId: ownWhatsappAppointmentId, whatsapp: ownWhatsapp }),
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) return setError(json.error || "Falha ao atualizar o WhatsApp.");
       setMessage(json.message || "WhatsApp próprio atualizado.");
-      setOwnWhatsappPersonId("");
+      setOwnWhatsappAppointmentId("");
       setOwnWhatsappName("");
       setOwnWhatsapp("");
       await load();
@@ -285,12 +285,12 @@ export function TucxaPilotReports() {
           <table className="min-w-full text-sm">
             <thead><tr>{visibleHeaders(rows[0]).map((header) => <th key={header} className="border-b p-2 text-left">{header}</th>)}{kind === "sem_whatsapp_terceiros" && <th className="border-b p-2 text-left">Ação</th>}</tr></thead>
             <tbody>{rows.map((row, index) => <tr key={index}>{visibleHeaders(rows[0]).map((header) => <td key={header} className="border-b p-2">{String(row[header] ?? "")}</td>)}{kind === "sem_whatsapp_terceiros" && <td className="border-b p-2"><button type="button" onClick={() => {
-              const personId = String(row._personId || "").trim();
-              if (!personId) {
-                setError("Não foi possível identificar o cadastro deste Consulente. Atualize a consulta e tente novamente.");
+              const appointmentId = String(row._appointmentId || "").trim();
+              if (!appointmentId) {
+                setError("Não foi possível identificar o agendamento deste Consulente. Atualize a consulta e tente novamente.");
                 return;
               }
-              setOwnWhatsappPersonId(personId);
+              setOwnWhatsappAppointmentId(appointmentId);
               setOwnWhatsappName(String(row.Consulente || ""));
               setOwnWhatsapp("");
               setMessage("");
@@ -300,7 +300,7 @@ export function TucxaPilotReports() {
         )}
       </div>
 
-      {ownWhatsappPersonId && (
+      {ownWhatsappAppointmentId && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="own-whatsapp-title">
           <div className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl ring-1 ring-black/10">
             <div className="flex items-start justify-between gap-3">
@@ -311,7 +311,7 @@ export function TucxaPilotReports() {
               <button
                 type="button"
                 disabled={savingWhatsapp}
-                onClick={() => { setOwnWhatsappPersonId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
+                onClick={() => { setOwnWhatsappAppointmentId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
                 className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
               >
                 Fechar
@@ -344,7 +344,7 @@ export function TucxaPilotReports() {
               <button
                 type="button"
                 disabled={savingWhatsapp}
-                onClick={() => { setOwnWhatsappPersonId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
+                onClick={() => { setOwnWhatsappAppointmentId(""); setOwnWhatsappName(""); setOwnWhatsapp(""); setError(""); }}
                 className="rounded-xl border bg-white px-4 py-2 font-black disabled:opacity-50"
               >
                 Cancelar
