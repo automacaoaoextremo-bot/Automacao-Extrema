@@ -20,6 +20,7 @@ export function appointmentConfirmationMessage(input: {
     `Olá! O agendamento de ${input.fullName} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
+    "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
     input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
     TUCXA_INDIVIDUAL_NOTICE,
   ].filter(Boolean).join("\n\n");

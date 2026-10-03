@@ -57,3 +57,27 @@ export async function sendTucxaAppointmentAuditEmail(input: {
     return false;
   }
 }
+
+
+export async function sendTucxaOperationalSummaryEmail(input: {
+  to: string;
+  recipientName: string;
+  appointmentDate: string;
+  summary: string;
+}) {
+  const config = smtpConfig();
+  if (!config || !input.to.trim()) return false;
+  try {
+    const transporter = nodemailer.createTransport({ host: config.host, port: config.port, secure: config.secure, auth: config.auth });
+    await transporter.sendMail({
+      from: config.from,
+      to: input.to.trim(),
+      subject: `[TUCXA] Resumo dos agendamentos - ${input.appointmentDate}`,
+      text: [`Olá, ${input.recipientName}.`, "", "Resumo dos atendimentos do TUCXA:", "", input.summary].join("\n"),
+    });
+    return true;
+  } catch (error) {
+    console.error("[TUCXA resumo operacional e-mail]", error);
+    return false;
+  }
+}

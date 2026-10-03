@@ -21,7 +21,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
-import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -360,12 +360,13 @@ type ReceptionSummary = {
   fromDate: string;
   scheduled: number;
   confirmed: number;
+  unconfirmed: number;
   arrived: number;
 };
 
 function summarizeAppointments(appointments: Array<{ status?: string; confirmationStatus?: string; arrivalStatus?: string }>, mode: ReceptionSummary["mode"], date: string, fromDate: string): ReceptionSummary {
   const active = appointments.filter((item) => asText(item.status) !== "cancelado");
-  return { mode, date, fromDate, scheduled: active.length, confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length, arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length };
+  return { mode, date, fromDate, scheduled: active.length, confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length, unconfirmed: active.filter((item) => asText(item.confirmationStatus) !== "confirmed").length, arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length };
 }
 
 async function loadReceptionSummary(organizationId: string, mode: ReceptionSummary["mode"], requestedDate?: string, requestedDateTo?: string): Promise<ReceptionSummary> {
@@ -824,6 +825,59 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === "send-confirmation-reminder") {
+      const appointmentId = asText(body.appointmentId);
+      if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId: code }, { status: 400 });
+
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,person_id,entity_id,appointment_date,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,confirmation_status,metadata")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id || asText(appointment.status) === "cancelado") return NextResponse.json({ error: "Agendamento não localizado ou cancelado.", requestId: code }, { status: 404 });
+      if (asText(appointment.confirmation_status) === "confirmed") return NextResponse.json({ error: "Este agendamento já foi confirmado.", requestId: code }, { status: 409 });
+
+      const { data: entity, error: entityError } = await supabaseAdmin
+        .from("oh_spiritual_entities").select("id,name").eq("organization_id", context.organizationId).eq("id", appointment.entity_id).maybeSingle();
+      if (entityError) throw entityError;
+
+      const token = createConfirmationToken();
+      const tokenHash = confirmationTokenHash(token);
+      const deadline = confirmationDeadlineIso(asText(appointment.appointment_date), settings.confirmationCutoff);
+      const { error: tokenError } = await supabaseAdmin.from("oh_consulente_appointments").update({
+        confirmation_token_hash: tokenHash,
+        confirmation_expires_at: deadline,
+        confirmation_status: "pending",
+        updated_at: new Date().toISOString(),
+      }).eq("organization_id", context.organizationId).eq("id", appointmentId);
+      if (tokenError) throw tokenError;
+
+      const phone = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
+      if (!phone) return NextResponse.json({ error: "O contato deste agendamento não possui WhatsApp válido.", requestId: code }, { status: 409 });
+      const link = confirmationUrl(token);
+      const order = Number(asRecord(appointment.metadata).order ?? 0) || null;
+      const fullName = asText(appointment.consulente_name) || "Consulente";
+      const entityName = asText(entity?.name) || "Entidade";
+      const dispatch = await sendTucxaAppointmentWhatsapp({
+        kind: "reminder",
+        fullName,
+        recipientName: asText(appointment.notification_contact_name) || fullName,
+        whatsapp: phone,
+        appointmentDate: asText(appointment.appointment_date),
+        entityName,
+        confirmationUrl: link,
+        appointmentOrder: order,
+        individualNotice: `Sua presença ainda não foi confirmada. Confirme pelo link para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
+      });
+      if (!dispatch.sent) return NextResponse.json({ error: dispatch.error || "Não foi possível enviar o lembrete pelo WhatsApp.", requestId: code }, { status: 502 });
+
+      const message = appointmentReminderMessage({ fullName, appointmentDate: asText(appointment.appointment_date), entityName, order, confirmed: false, confirmationUrl: link });
+      void sendTucxaAppointmentAuditEmail({ event: "Lembrete manual de confirmação enviado", consulenteName: fullName, appointmentDate: asText(appointment.appointment_date), entityName, message });
+      return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${fullName}.` });
+    }
+
     if (action === "set-availability") {
       const entityId = asText(body.entityId);
       const startsOn = asText(body.startsOn);
@@ -906,6 +960,9 @@ export async function POST(request: Request) {
       const cavalinhoNoticeEntityIds = Array.isArray(body.cavalinhoNoticeEntityIds)
         ? Array.from(new Set(body.cavalinhoNoticeEntityIds.map(asText).filter(Boolean)))
         : [];
+      if (cavalinhoDailyWhatsappEnabled && cavalinhoNoticeEntityIds.length === 0) {
+        return NextResponse.json({ error: "Selecione pelo menos uma Entidade/Cavalinho para ativar o envio automático.", requestId: code }, { status: 400 });
+      }
       const { error: disableNoticeError } = await supabaseAdmin
         .from("oh_spiritual_entities")
         .update({ pilot_cavalinho_whatsapp_enabled: false, updated_at: new Date().toISOString() })
