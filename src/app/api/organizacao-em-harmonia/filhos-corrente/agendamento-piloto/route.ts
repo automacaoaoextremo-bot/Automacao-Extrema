@@ -405,7 +405,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes")
+      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -446,6 +446,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
       active: entity.active !== false,
       appointmentEnabled: entity.appointment_enabled !== false,
+      cavalinhoWhatsappEnabled: entity.pilot_cavalinho_whatsapp_enabled === true,
       mondayOccurrences: Array.from(new Set(schedule.mondayOccurrences)).sort((a, b) => a - b),
       tuesdayOccurrences: Array.from(new Set(schedule.tuesdayOccurrences)).sort((a, b) => a - b),
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -901,6 +902,24 @@ export async function POST(request: Request) {
         .eq("organization_id", context.organizationId)
         .eq("module_slug", "atendimento-em-harmonia");
       if (updateError) throw updateError;
+
+      const cavalinhoNoticeEntityIds = Array.isArray(body.cavalinhoNoticeEntityIds)
+        ? Array.from(new Set(body.cavalinhoNoticeEntityIds.map(asText).filter(Boolean)))
+        : [];
+      const { error: disableNoticeError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .update({ pilot_cavalinho_whatsapp_enabled: false, updated_at: new Date().toISOString() })
+        .eq("organization_id", context.organizationId);
+      if (disableNoticeError) throw disableNoticeError;
+      if (cavalinhoNoticeEntityIds.length) {
+        const { error: enableNoticeError } = await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .update({ pilot_cavalinho_whatsapp_enabled: true, updated_at: new Date().toISOString() })
+          .eq("organization_id", context.organizationId)
+          .in("id", cavalinhoNoticeEntityIds);
+        if (enableNoticeError) throw enableNoticeError;
+      }
+
       return NextResponse.json({ ok: true, message: "Configurações do piloto atualizadas." });
     }
 
@@ -1352,6 +1371,7 @@ export async function POST(request: Request) {
       const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const entityActive = body.active !== false;
+      const cavalinhoWhatsappEnabled = body.cavalinhoWhatsappEnabled === true;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
@@ -1369,6 +1389,7 @@ export async function POST(request: Request) {
             daily_capacity: capacity,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: entityActive,
+            pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             active: entityActive,
             updated_at: new Date().toISOString(),
           })
@@ -1406,6 +1427,7 @@ export async function POST(request: Request) {
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
             appointment_enabled: entityActive,
+            pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: entityActive,

@@ -31,6 +31,7 @@ type EntityCatalogItem = {
   capacity: number;
   active: boolean;
   appointmentEnabled: boolean;
+  cavalinhoWhatsappEnabled: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -78,6 +79,7 @@ type Settings = {
   receptionDailyWhatsappEnabled: boolean;
   receptionDailyWhatsappTime: string;
   automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -139,6 +141,7 @@ type SettingsDraft = {
   receptionDailyWhatsappEnabled: boolean;
   receptionDailyWhatsappTime: string;
   automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 
 function shortDate(value: string) {
@@ -281,6 +284,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
     active: true,
+    cavalinhoWhatsappEnabled: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -1087,6 +1091,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
       receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
       automaticDispatchWeekdays: payload.settings.automaticDispatchWeekdays,
+      cavalinhoNoticeEntityIds: payload.entityCatalog.filter((entity) => entity.cavalinhoWhatsappEnabled).map((entity) => entity.id),
     });
     setSettingsSection(null);
     setModal("configuracoes");
@@ -1110,6 +1115,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
         receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
         automaticDispatchWeekdays: settingsDraft.automaticDispatchWeekdays,
+        cavalinhoNoticeEntityIds: settingsDraft.cavalinhoNoticeEntityIds,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1163,6 +1169,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
       active: entity?.active !== false,
+      cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
     });
   }
 
@@ -1193,10 +1200,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
         active: editEntity.active,
+        cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
       });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
-      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true });
+      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true, cavalinhoWhatsappEnabled: false });
       await load(payload?.selectedDate);
       setModal("cadastros");
       setCadastroMode("entidades");
@@ -1249,6 +1257,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
           onClose={() => {
+            if (modal === "configuracoes" && settingsSection) {
+              setSettingsSection(null);
+              return;
+            }
             if (modal === "cadastros" && cadastroMode !== "menu") {
               clearPersonSearch();
               setPhone("");
@@ -1852,6 +1864,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </select>
                   </label>
                   {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
+                  <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
                   <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
                   <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
                   <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
@@ -1883,8 +1896,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  <button type="button" onClick={() => setSettingsSection(null)} className="w-fit rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">← Voltar às configurações</button>
-
+                  
                   {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
 
                   {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
@@ -1893,13 +1905,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                   {settingsSection === "lembretes" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes e confirmações</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Antecedência em horas<input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 68, 24, 4" /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">A antecedência é calculada a partir do início do atendimento ({payload.settings.appointmentTime}). Como o scheduler gratuito executa uma vez ao dia, cada limiar pendente é enviado na primeira execução diária em que entrar na janela, sem duplicidade.</p></section>}
 
-                  {settingsSection === "envios" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Dias dos envios automáticos</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Escolha em quais dias da semana a execução diária poderá enviar lembretes e avisos.</p><div className="mt-3 grid grid-cols-2 gap-2">{[[0,"Domingo"],[1,"Segunda"],[2,"Terça"],[3,"Quarta"],[4,"Quinta"],[5,"Sexta"],[6,"Sábado"]].map(([value,label]) => { const day=Number(value); const checked=settingsDraft.automaticDispatchWeekdays.includes(day); return <label key={day} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={checked} onChange={(event) => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: event.target.checked ? Array.from(new Set([...current.automaticDispatchWeekdays, day])).sort((a,b)=>a-b) : current.automaticDispatchWeekdays.filter((item)=>item!==day) } : current)} />{String(label)}</label>; })}</div></section>}
+                  {settingsSection === "envios" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Dias dos envios automáticos</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Escolha em quais dias da semana a execução diária poderá enviar lembretes e avisos.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [0,1,2,3,4,5,6] } : current)} className="rounded-lg bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">Selecionar tudo</button><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [] } : current)} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Deselecionar tudo</button></div><div className="mt-3 grid grid-cols-2 gap-2">{[[0,"Domingo"],[1,"Segunda"],[2,"Terça"],[3,"Quarta"],[4,"Quinta"],[5,"Sexta"],[6,"Sábado"]].map(([value,label]) => { const day=Number(value); const checked=settingsDraft.automaticDispatchWeekdays.includes(day); return <label key={day} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={checked} onChange={(event) => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: event.target.checked ? Array.from(new Set([...current.automaticDispatchWeekdays, day])).sort((a,b)=>a-b) : current.automaticDispatchWeekdays.filter((item)=>item!==day) } : current)} />{String(label)}</label>; })}</div></section>}
 
                   {settingsSection === "entrada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Ao entrar no sistema</p><div className="mt-2"><Toggle checked={settingsDraft.openAcolhimentoOnLogin} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)} label="Abrir Acolhimento automaticamente na próxima data de atendimento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal para cada integrante da Recepção.</p></section>}
 
                   {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
 
-                  {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
+                  {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Entidades/Cavalinhos que receberão</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, cavalinhoNoticeEntityIds: payload.entityCatalog.filter((entity) => entity.active && entity.mediums.length > 0).map((entity) => entity.id) } : current)} className="rounded-lg bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">Selecionar tudo</button><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, cavalinhoNoticeEntityIds: [] } : current)} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Deselecionar tudo</button></div><div className="mt-2 grid gap-2">{payload.entityCatalog.filter((entity) => entity.active).map((entity) => <label key={entity.id} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={settingsDraft.cavalinhoNoticeEntityIds.includes(entity.id)} disabled={entity.mediums.length === 0} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoNoticeEntityIds: event.target.checked ? Array.from(new Set([...current.cavalinhoNoticeEntityIds, entity.id])) : current.cavalinhoNoticeEntityIds.filter((id) => id !== entity.id) } : current)} /><span>{entity.name}{entity.mediums[0]?.name ? ` (${entity.mediums[0].name})` : ""}{entity.mediums.length === 0 ? " · sem Cavalinho associado" : ""}</span></label>)}</div><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
               )}
               <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>

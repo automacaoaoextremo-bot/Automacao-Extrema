@@ -40,22 +40,34 @@ export async function GET(request: Request) {
     if (appointmentError) throw appointmentError;
     if (!(appointments ?? []).length) continue;
     const entityIds = [...new Set((appointments ?? []).map((item) => text(item.entity_id)).filter(Boolean))];
-    const { data: entities, error: entityError } = entityIds.length ? await supabaseAdmin.from("oh_spiritual_entities").select("id,name").in("id", entityIds) : { data: [], error: null };
+    const { data: entities, error: entityError } = entityIds.length ? await supabaseAdmin.from("oh_spiritual_entities").select("id,name,pilot_cavalinho_whatsapp_enabled").in("id", entityIds) : { data: [], error: null };
     if (entityError) throw entityError;
     const entityNames = new Map((entities ?? []).map((item) => [text(item.id), text(item.name)]));
+    const cavalinhoNoticeEntityIds = new Set(
+      (entities ?? []).filter((item) => item.pilot_cavalinho_whatsapp_enabled === true).map((item) => text(item.id)).filter(Boolean),
+    );
     const grouped = new Map<string, NonNullable<typeof appointments>>();
     for (const item of appointments ?? []) { const id=text(item.entity_id); const list=grouped.get(id) ?? []; list.push(item); grouped.set(id,list); }
     const alreadySent = async (audience: string, personId: string) => { const { data } = await supabaseAdmin.from("oh_tucxa_pilot_daily_dispatches").select("id").eq("organization_id", organizationId).eq("dispatch_date", date).eq("audience", audience).eq("recipient_person_id", personId).maybeSingle(); return Boolean(data?.id); };
     const markSent = async (audience: string, personId: string, ok: boolean, detail: string) => { await supabaseAdmin.from("oh_tucxa_pilot_daily_dispatches").upsert({ organization_id: organizationId, dispatch_date: date, audience, recipient_person_id: personId, sent_at: ok ? new Date().toISOString() : null, status: ok ? "sent" : "error", detail }, { onConflict: "organization_id,dispatch_date,audience,recipient_person_id" }); };
 
     if (sendCavalinhos) {
-      const { data: prefs, error: prefError } = await supabaseAdmin.from("oh_tucxa_pilot_person_preferences").select("person_id,default_entity_id").eq("organization_id", organizationId).in("default_entity_id", entityIds);
-      if (prefError) throw prefError;
-      const personIds=[...new Set((prefs ?? []).map((item)=>text(item.person_id)).filter(Boolean))];
+      const enabledEntityIds = entityIds.filter((entityId) => cavalinhoNoticeEntityIds.has(entityId));
+      const { data: links, error: linkError } = enabledEntityIds.length
+        ? await supabaseAdmin
+            .from("oh_person_entity_links")
+            .select("person_id,entity_id")
+            .eq("organization_id", organizationId)
+            .eq("relationship_type", "recebe")
+            .eq("active", true)
+            .in("entity_id", enabledEntityIds)
+        : { data: [], error: null };
+      if (linkError) throw linkError;
+      const personIds=[...new Set((links ?? []).map((item)=>text(item.person_id)).filter(Boolean))];
       const { data: people, error: peopleError } = personIds.length ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,active").in("id", personIds).eq("active", true) : { data: [], error: null };
       if (peopleError) throw peopleError;
       const peopleMap=new Map((people ?? []).map((item)=>[text(item.id),item]));
-      for (const pref of prefs ?? []) { const personId=text(pref.person_id), entityId=text(pref.default_entity_id), person=peopleMap.get(personId), list=grouped.get(entityId) ?? []; if (!person || !text(person.whatsapp) || !list.length || await alreadySent("cavalinho",personId)) continue; const entityName=entityNames.get(entityId) || "Entidade"; const lines=list.map((item,index)=>`${index+1}. ${text(item.consulente_name)}`).join("\n"); const summary=`Atendimentos de hoje - ${entityName}\n${lines}`; const result=await sendTucxaOperationalSummaryWhatsapp({ recipientName:text(person.full_name), whatsapp:text(person.whatsapp), appointmentDate:date, entityName, summary, audience:"cavalinho" }); await markSent("cavalinho",personId,result.sent,result.error || summary); results.push({audience:"cavalinho",person:firstName(text(person.full_name)),sent:result.sent}); }
+      for (const link of links ?? []) { const personId=text(link.person_id), entityId=text(link.entity_id), person=peopleMap.get(personId), list=grouped.get(entityId) ?? []; if (!person || !text(person.whatsapp) || !list.length || await alreadySent("cavalinho",personId)) continue; const entityName=entityNames.get(entityId) || "Entidade"; const lines=list.map((item,index)=>`${index+1}. ${text(item.consulente_name)}`).join("\n"); const summary=`Atendimentos de hoje - ${entityName}\n${lines}`; const result=await sendTucxaOperationalSummaryWhatsapp({ recipientName:text(person.full_name), whatsapp:text(person.whatsapp), appointmentDate:date, entityName, summary, audience:"cavalinho" }); await markSent("cavalinho",personId,result.sent,result.error || summary); results.push({audience:"cavalinho",person:firstName(text(person.full_name)),entity:entityName,sent:result.sent}); }
     }
 
     if (sendReception) {

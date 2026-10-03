@@ -32,9 +32,33 @@ async function entityNames(organizationId: string, ids: string[]) {
     .eq("organization_id", organizationId)
     .in("id", ids);
   if (error) throw error;
-  return new Map((data ?? []).map((item) => [text(item.id), text(item.name) || "Entidade"]));
-}
 
+  const { data: links, error: linksError } = await supabaseAdmin
+    .from("oh_person_entity_links")
+    .select("entity_id,person_id,active,relationship_type")
+    .eq("organization_id", organizationId)
+    .eq("active", true)
+    .eq("relationship_type", "recebe")
+    .in("entity_id", ids);
+  if (linksError) throw linksError;
+
+  const personIds = Array.from(new Set((links ?? []).map((item) => text(item.person_id)).filter(Boolean)));
+  const { data: people, error: peopleError } = personIds.length
+    ? await supabaseAdmin.from("oh_people").select("id,full_name").eq("organization_id", organizationId).in("id", personIds)
+    : { data: [], error: null };
+  if (peopleError) throw peopleError;
+  const peopleMap = new Map((people ?? []).map((item) => [text(item.id), text(item.full_name)]));
+
+  return new Map((data ?? []).map((item) => {
+    const entityId = text(item.id);
+    const entityName = text(item.name) || "Entidade";
+    const cavalinhos = (links ?? [])
+      .filter((link) => text(link.entity_id) === entityId)
+      .map((link) => peopleMap.get(text(link.person_id)) || "")
+      .filter(Boolean);
+    return [entityId, cavalinhos.length ? `${entityName} (${cavalinhos.join(", ")})` : entityName];
+  }));
+}
 
 
 export async function POST(request: Request) {
@@ -164,12 +188,47 @@ export async function GET(request: Request) {
         ? filtered.filter((item) => !ownWhatsapp.get(text(item.person_id)))
         : filtered;
 
+      const cadernoLabels = new Map<string, string>();
+      if (kind === "caderno") {
+        const capacityIds = Array.from(new Set(reportSource.map((item) => text(item.entity_id)).filter(Boolean)));
+        const { data: capacityRows, error: capacityError } = capacityIds.length
+          ? await supabaseAdmin
+              .from("oh_spiritual_entities")
+              .select("id,daily_capacity")
+              .eq("organization_id", context.organizationId)
+              .in("id", capacityIds)
+          : { data: [], error: null };
+        if (capacityError) throw capacityError;
+        const capacityMap = new Map<string, number>((capacityRows ?? []).map((item) => [text(item.id), Math.max(1, Number(item.daily_capacity ?? 0) || 1)]));
+        const effectiveCapacityMap = new Map<string, number>();
+        const cadernoDates = Array.from(new Set(reportSource.map((item) => text(item.appointment_date)).filter(Boolean)));
+        for (const date of cadernoDates) {
+          const dayEntities = await loadPilotDay(context.organizationId, date);
+          for (const entity of dayEntities) {
+            effectiveCapacityMap.set(`${date}|${entity.id}`, Math.max(1, Number(entity.capacity ?? 0) || capacityMap.get(entity.id) || 1));
+          }
+        }
+        const bookedMap = new Map<string, number>();
+        for (const item of reportSource) {
+          const key = `${text(item.appointment_date)}|${text(item.entity_id)}`;
+          bookedMap.set(key, (bookedMap.get(key) ?? 0) + 1);
+        }
+        for (const item of reportSource) {
+          const entityId = text(item.entity_id);
+          const key = `${text(item.appointment_date)}|${entityId}`;
+          const base = names.get(entityId) || "Entidade";
+          const capacity = effectiveCapacityMap.get(key) ?? capacityMap.get(entityId) ?? 1;
+          cadernoLabels.set(key, `${base} ${bookedMap.get(key) ?? 0}/${capacity}`);
+        }
+      }
+
       let rows = reportSource.map((item) => {
-        const entity = names.get(text(item.entity_id)) || "Entidade";
+        const entityId = text(item.entity_id);
+        const entity = names.get(entityId) || "Entidade";
         if (kind === "caderno") {
           return {
             Data: dateLabel(item.appointment_date),
-            Entidade: entity,
+            Entidade: cadernoLabels.get(`${text(item.appointment_date)}|${entityId}`) || entity,
             Consulente: text(item.consulente_name),
             Ordem: Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || "",
             Status: text(item.status),
@@ -218,16 +277,19 @@ export async function GET(request: Request) {
         }
 
         const existing = new Set(rows.map((row) => `${String(row.Data)}|${String(row.Entidade)}`));
+        const existingEntityDate = new Set(reportSource.map((item) => `${dateLabel(item.appointment_date)}|${text(item.entity_id)}`));
         for (const date of dates) {
           const entities = await loadPilotDay(context.organizationId, date);
           const namesForDay = await entityNames(context.organizationId, entities.map((entity) => entity.id));
           for (const entity of entities) {
+            if (existingEntityDate.has(`${dateLabel(date)}|${entity.id}`)) continue;
             const entityName = namesForDay.get(entity.id) || entity.name;
-            const key = `${dateLabel(date)}|${entityName}`;
+            const cadernoEntityName = `${entityName} 0/${Math.max(1, Number(entity.capacity ?? 0) || 1)}`;
+            const key = `${dateLabel(date)}|${cadernoEntityName}`;
             if (existing.has(key)) continue;
             rows.push({
               Data: dateLabel(date),
-              Entidade: entityName,
+              Entidade: cadernoEntityName,
               Consulente: "",
               Ordem: "",
               Status: "",
@@ -290,17 +352,19 @@ export async function GET(request: Request) {
         : { data: [], error: null };
       if (peopleError) throw peopleError;
       const peopleMap = new Map((people ?? []).map((item) => [text(item.id), text(item.full_name)]));
-      const rows = (entities ?? []).map((entity) => ({
-        Entidade: text(entity.name),
-        Cavalinhos: (links ?? [])
+      const rows = (entities ?? []).map((entity) => {
+        const cavalinhos = (links ?? [])
           .filter((link) => text(link.entity_id) === text(entity.id))
           .map((link) => peopleMap.get(text(link.person_id)) || "")
-          .filter(Boolean)
-          .join(", "),
+          .filter(Boolean);
+        return {
+        Entidade: cavalinhos.length ? `${text(entity.name)} (${cavalinhos.join(", ")})` : text(entity.name),
+        Cavalinhos: cavalinhos.join(", "),
         "Capacidade padrão": Number(entity.daily_capacity ?? 0) || "",
         "Agendamento habilitado": entity.appointment_enabled === true ? "Sim" : "Não",
         Ativa: entity.active === true ? "Sim" : "Não",
-      }));
+        };
+      });
       return NextResponse.json({ rows });
     }
 
