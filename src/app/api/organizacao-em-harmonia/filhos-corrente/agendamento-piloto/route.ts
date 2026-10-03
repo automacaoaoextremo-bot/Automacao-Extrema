@@ -116,6 +116,9 @@ async function loadPilotExtraSettings(organizationId: string) {
     cavalinhoDailyWhatsappTime: asText(raw.pilotCavalinhoDailyWhatsappTime) || "12:00",
     receptionDailyWhatsappEnabled: asBoolean(raw.pilotReceptionDailyWhatsappEnabled, false),
     receptionDailyWhatsappTime: asText(raw.pilotReceptionDailyWhatsappTime) || "12:00",
+    automaticDispatchWeekdays: Array.isArray(raw.pilotAutomaticDispatchWeekdays)
+      ? Array.from(new Set(raw.pilotAutomaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+      : [0, 1, 2, 3, 4, 5, 6],
   };
 }
 
@@ -859,6 +862,12 @@ export async function POST(request: Request) {
       const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
       const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
       const receptionDailyWhatsappTime = asText(body.receptionDailyWhatsappTime) || "12:00";
+      const automaticDispatchWeekdays = Array.isArray(body.automaticDispatchWeekdays)
+        ? Array.from(new Set(body.automaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+        : [0, 1, 2, 3, 4, 5, 6];
+      if (!automaticDispatchWeekdays.length) {
+        return NextResponse.json({ error: "Selecione pelo menos um dia da semana para os envios automáticos.", requestId: code }, { status: 400 });
+      }
       if (![cavalinhoDailyWhatsappTime, receptionDailyWhatsappTime].every((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value))) {
         return NextResponse.json({ error: "Informe horários válidos no formato HH:MM para os avisos do dia.", requestId: code }, { status: 400 });
       }
@@ -884,6 +893,7 @@ export async function POST(request: Request) {
         pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
         pilotReceptionDailyWhatsappEnabled: receptionDailyWhatsappEnabled,
         pilotReceptionDailyWhatsappTime: receptionDailyWhatsappTime,
+        pilotAutomaticDispatchWeekdays: automaticDispatchWeekdays,
       };
       const { error: updateError } = await supabaseAdmin
         .from("oh_module_settings")

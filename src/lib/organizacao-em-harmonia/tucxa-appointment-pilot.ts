@@ -44,6 +44,7 @@ export type PilotSettings = {
   cavalinhoDailyWhatsappTime: string;
   receptionDailyWhatsappEnabled: boolean;
   receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
 };
 
 export type PilotPersonPreferences = {
@@ -235,6 +236,9 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
     receptionDailyWhatsappEnabled: settings.pilotReceptionDailyWhatsappEnabled === true,
     receptionDailyWhatsappTime: asText(settings.pilotReceptionDailyWhatsappTime) || "12:00",
+    automaticDispatchWeekdays: Array.isArray(settings.pilotAutomaticDispatchWeekdays)
+      ? Array.from(new Set(settings.pilotAutomaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+      : [0, 1, 2, 3, 4, 5, 6],
   };
 }
 

@@ -29,6 +29,18 @@ function authorize(request: Request) {
   return authorization === `Bearer ${secret}`;
 }
 
+
+function weekdaySaoPaulo() {
+  const label = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[label] ?? new Date().getDay();
+}
+
+function appointmentDateTime(date: string, time: string) {
+  const safeTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : "20:00";
+  return new Date(`${date}T${safeTime}:00-03:00`);
+}
+
 function todaySaoPaulo() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -310,11 +322,14 @@ async function processConfirmationOffsetReminders(
       : settings.confirmationReminderOffsetsHours;
 
     const offsets: number[] = [...new Set<number>(offsetSource)].sort((left, right) => left - right);
-    const remainingHours = (deadline.getTime() - now.getTime()) / (60 * 60 * 1000);
+    const appointmentAt = appointmentDateTime(appointment.appointment_date, asText(appointment.appointment_time) || settings.appointmentTime);
+    const remainingHours = (appointmentAt.getTime() - now.getTime()) / (60 * 60 * 1000);
 
+    // No plano Hobby o scheduler executa uma vez por dia. O lembrete vence quando
+    // a execução diária entra abaixo do limiar configurado; o log impede duplicidade.
     const dueOffset = offsets.find((offset) => {
       const alreadySent = sentKeys.has(`${appointment.id}:${offset}`);
-      return !alreadySent && remainingHours <= offset && remainingHours > Math.max(0, offset - 2);
+      return !alreadySent && remainingHours > 0 && remainingHours <= offset;
     });
 
     if (!dueOffset) {
@@ -387,6 +402,11 @@ export async function GET(request: Request) {
     }
 
     const today = todaySaoPaulo();
+    const settings = await loadPilotSettings(organization.id);
+    const weekday = weekdaySaoPaulo();
+    if (!settings.automaticDispatchWeekdays.includes(weekday)) {
+      return NextResponse.json({ ok: true, today, skippedByWeekday: true, weekday, sent: 0, skipped: 0, failed: 0, checked: 0 });
+    }
     const [dayReminder, confirmationReminder] = await Promise.all([
       processDayOfReminders(organization.id, today),
       processConfirmationOffsetReminders(organization.id, today),

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { currentPilotReception, todayInSaoPaulo } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import { currentPilotReception, loadPilotDates, loadPilotDay, loadPilotSettings, todayInSaoPaulo } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 
 export const dynamic = "force-dynamic";
 
@@ -164,7 +164,7 @@ export async function GET(request: Request) {
         ? filtered.filter((item) => !ownWhatsapp.get(text(item.person_id)))
         : filtered;
 
-      const rows = reportSource.map((item) => {
+      let rows = reportSource.map((item) => {
         const entity = names.get(text(item.entity_id)) || "Entidade";
         if (kind === "caderno") {
           return {
@@ -199,6 +199,53 @@ export async function GET(request: Request) {
           Chegada: text(item.arrival_status),
         };
       });
+
+      if (kind === "caderno" && !person) {
+        let dates: string[] = [];
+        if (dateMode === "specific" && dateFrom) {
+          dates = [dateFrom];
+        } else if (dateMode === "period" && dateFrom && dateTo) {
+          const start = new Date(`${dateFrom}T12:00:00Z`);
+          const end = new Date(`${dateTo}T12:00:00Z`);
+          for (let cursor = start; cursor <= end && dates.length < 180; cursor = new Date(cursor.getTime() + 86400000)) {
+            dates.push(cursor.toISOString().slice(0, 10));
+          }
+        } else if (dateMode === "from_today") {
+          const settings = await loadPilotSettings(context.organizationId);
+          dates = (await loadPilotDates(context.organizationId, settings.daysAhead)).map((item) => item.date);
+        } else {
+          dates = Array.from(new Set(reportSource.map((item) => text(item.appointment_date)).filter(Boolean)));
+        }
+
+        const existing = new Set(rows.map((row) => `${String(row.Data)}|${String(row.Entidade)}`));
+        for (const date of dates) {
+          const entities = await loadPilotDay(context.organizationId, date);
+          const namesForDay = await entityNames(context.organizationId, entities.map((entity) => entity.id));
+          for (const entity of entities) {
+            const entityName = namesForDay.get(entity.id) || entity.name;
+            const key = `${dateLabel(date)}|${entityName}`;
+            if (existing.has(key)) continue;
+            rows.push({
+              Data: dateLabel(date),
+              Entidade: entityName,
+              Consulente: "",
+              Ordem: "",
+              Status: "",
+              Confirmação: "",
+            });
+            existing.add(key);
+          }
+        }
+        rows = rows.sort((left, right) => {
+          const [ld, lm, ly] = String(left.Data).split("/");
+          const [rd, rm, ry] = String(right.Data).split("/");
+          const dateCompare = `${ly}-${lm}-${ld}`.localeCompare(`${ry}-${rm}-${rd}`);
+          if (dateCompare) return dateCompare;
+          const entityCompare = String(left.Entidade).localeCompare(String(right.Entidade), "pt-BR");
+          if (entityCompare) return entityCompare;
+          return String(left.Consulente).localeCompare(String(right.Consulente), "pt-BR");
+        });
+      }
       return NextResponse.json({ rows });
     }
 

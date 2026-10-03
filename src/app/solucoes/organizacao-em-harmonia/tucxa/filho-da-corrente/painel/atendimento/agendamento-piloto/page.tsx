@@ -77,6 +77,7 @@ type Settings = {
   cavalinhoDailyWhatsappTime: string;
   receptionDailyWhatsappEnabled: boolean;
   receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -137,6 +138,7 @@ type SettingsDraft = {
   cavalinhoDailyWhatsappTime: string;
   receptionDailyWhatsappEnabled: boolean;
   receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
 };
 
 function shortDate(value: string) {
@@ -268,6 +270,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
@@ -1083,7 +1086,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       cavalinhoDailyWhatsappTime: payload.settings.cavalinhoDailyWhatsappTime,
       receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
       receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
+      automaticDispatchWeekdays: payload.settings.automaticDispatchWeekdays,
     });
+    setSettingsSection(null);
     setModal("configuracoes");
   }
 
@@ -1104,6 +1109,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
         receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
         receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
+        automaticDispatchWeekdays: settingsDraft.automaticDispatchWeekdays,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1857,63 +1863,46 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
-                <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Prazo de confirmação</p>
-                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
-                  Horário-limite no dia do atendimento
-                  <input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required />
-                </label>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p>
-                <div className="mt-3">
-                  <Toggle
-                    checked={settingsDraft.autoCancelExpiredConfirmations}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)}
-                    label="Cancelar automaticamente agendamentos não confirmados após o prazo"
-                  />
+              {!settingsSection ? (
+                <div className="grid gap-2">
+                  {[
+                    ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
+                    ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
+                    ["chegada", "Registro de chegada", "Regra do botão Chegou"],
+                    ["lembretes", "Lembretes e confirmações", `Antecedência: ${settingsDraft.reminderOffsets || "não definida"} h`],
+                    ["envios", "Dias dos envios automáticos", "Escolha os dias da semana"],
+                    ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
+                    ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
+                    ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
+                  ].map(([key, title, subtitle]) => (
+                    <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                      <span><strong className="block text-sm text-[#123D2C]">{title}</strong><span className="text-xs font-semibold text-slate-500">{subtitle}</span></span>
+                      <span className="text-xl font-black text-[#2F6B43]">›</span>
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Por enquanto, deixe desativado para manter os agendamentos pendentes mesmo depois do horário-limite.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Registro de chegada</p>
-                <div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Desative temporariamente durante a homologação para testar a ordem de chegada fora da janela normal. Em produção, recomenda-se manter habilitado.</p>
-              </section>
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
-                <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
-                <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula. Os avisos do piloto serão enviados pelo WhatsApp/BotConversa.</span>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Ao entrar no sistema</p>
-                <div className="mt-2">
-                  <Toggle
-                    checked={settingsDraft.openAcolhimentoOnLogin}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)}
-                    label="Abrir Acolhimento automaticamente na próxima data de atendimento"
-                  />
+              ) : (
+                <div className="grid gap-3">
+                  <button type="button" onClick={() => setSettingsSection(null)} className="w-fit rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">← Voltar às configurações</button>
+
+                  {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
+
+                  {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
+
+                  {settingsSection === "chegada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Registro de chegada</p><div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div></section>}
+
+                  {settingsSection === "lembretes" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes e confirmações</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Antecedência em horas<input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 68, 24, 4" /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">A antecedência é calculada a partir do início do atendimento ({payload.settings.appointmentTime}). Como o scheduler gratuito executa uma vez ao dia, cada limiar pendente é enviado na primeira execução diária em que entrar na janela, sem duplicidade.</p></section>}
+
+                  {settingsSection === "envios" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Dias dos envios automáticos</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Escolha em quais dias da semana a execução diária poderá enviar lembretes e avisos.</p><div className="mt-3 grid grid-cols-2 gap-2">{[[0,"Domingo"],[1,"Segunda"],[2,"Terça"],[3,"Quarta"],[4,"Quinta"],[5,"Sexta"],[6,"Sábado"]].map(([value,label]) => { const day=Number(value); const checked=settingsDraft.automaticDispatchWeekdays.includes(day); return <label key={day} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={checked} onChange={(event) => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: event.target.checked ? Array.from(new Set([...current.automaticDispatchWeekdays, day])).sort((a,b)=>a-b) : current.automaticDispatchWeekdays.filter((item)=>item!==day) } : current)} />{String(label)}</label>; })}</div></section>}
+
+                  {settingsSection === "entrada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Ao entrar no sistema</p><div className="mt-2"><Toggle checked={settingsDraft.openAcolhimentoOnLogin} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)} label="Abrir Acolhimento automaticamente na próxima data de atendimento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal para cada integrante da Recepção.</p></section>}
+
+                  {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
+
+                  {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal: cada integrante da Recepção decide se deseja abrir o Acolhimento após o próprio login.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Receber resumo agendamentos</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" />
-                  <Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" />
-                </div>
-                <p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p>
-                <select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Avisos do dia pelo WhatsApp</p>
-                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Programa os resumos operacionais do dia do atendimento. O envio aos Cavalinhos usa o WhatsApp associado a cada Entidade. Para a Recepção, o piloto envia individualmente aos contatos com perfil de Recepção; grupos do WhatsApp não são endereçáveis pela integração atual do BotConversa.</p>
-                <div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current)} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div>
-                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
-                <div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div>
-                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label>
-              </section>
-              <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
+              )}
+              <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
             </form>
           )}
 

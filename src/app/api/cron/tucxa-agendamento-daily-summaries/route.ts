@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function saoPauloTime() { return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date()); }
+function weekdaySaoPaulo() { const label = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date()); const map: Record<string, number> = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }; return map[label] ?? new Date().getDay(); }
+
 function due(now: string, configured: string) { const [nh,nm]=now.split(":").map(Number); const [ch,cm]=configured.split(":").map(Number); return (nh*60+nm) >= (ch*60+cm); }
 function firstName(name: string) { return name.trim().split(/\s+/)[0] || name; }
 
@@ -30,6 +32,7 @@ export async function GET(request: Request) {
   for (const organization of organizations ?? []) {
     const organizationId = text(organization.id); if (!organizationId) continue;
     const settings = await loadPilotSettings(organizationId);
+    if (!settings.automaticDispatchWeekdays.includes(weekdaySaoPaulo())) continue;
     const sendCavalinhos = settings.cavalinhoDailyWhatsappEnabled && due(now, settings.cavalinhoDailyWhatsappTime);
     const sendReception = settings.receptionDailyWhatsappEnabled && due(now, settings.receptionDailyWhatsappTime);
     if (!sendCavalinhos && !sendReception) continue;
