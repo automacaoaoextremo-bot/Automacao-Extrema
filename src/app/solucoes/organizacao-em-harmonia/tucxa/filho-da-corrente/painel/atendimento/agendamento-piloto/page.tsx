@@ -19,7 +19,8 @@ const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filh
 type ViewMode = "entity_day" | "day_entity" | "both";
 type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
-type ConsultStatus = "confirm" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
+type ConsultStatus = "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
+const ALL_CONSULT_STATUSES: ConsultStatus[] = ["confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
@@ -265,7 +266,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityPage, setEntityPage] = useState(1);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
   const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
-  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(["confirm", "arrived", "absent", "cancelled"]);
+  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(ALL_CONSULT_STATUSES);
   const [consultPage, setConsultPage] = useState(1);
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
@@ -415,22 +416,42 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   }, [payload?.appointments]);
+  const selectedStatusLabel = useMemo(() => {
+    if (consultStatuses.length === ALL_CONSULT_STATUSES.length) return "todos";
+    if (consultStatuses.length === 0) return "nenhum status";
+    const labels: Record<ConsultStatus, string> = {
+      confirmed: "Confirmados",
+      unconfirmed: "Não confirmados",
+      arrived: "Chegaram",
+      absent: "Não chegaram",
+      cancelled: "Cancelados",
+    };
+    return consultStatuses.map((status) => labels[status]).join(" + ");
+  }, [consultStatuses]);
+
+  function entityHeading(entityName: string) {
+    const entity = payload?.entities.find((item) => item.name === entityName);
+    if (!entity) return entityName;
+    const cavalinho = entity.mediums?.[0]?.name?.trim();
+    const title = cavalinho ? `${entity.name} (${cavalinho.split(/\s+/)[0]})` : entity.name;
+    return `${title} ${entity.booked} / ${entity.capacity}`;
+  }
+
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
     const normalizedSearch = consultSearch.trim().toLocaleLowerCase("pt-BR");
     return appointments.filter((item) => {
-      const statusMatches = item.status === "cancelado"
-        ? consultStatuses.includes("cancelled")
-        : consultStatuses.includes("unconfirmed")
-          ? item.confirmationStatus !== "confirmed"
-          : consultStatuses.includes("confirmed")
-            ? item.confirmationStatus === "confirmed"
-            : item.arrivalStatus === "arrived"
-              ? consultStatuses.includes("arrived") || consultStatuses.includes("confirm")
-              : item.arrivalStatus === "absent"
-                ? consultStatuses.includes("absent") || consultStatuses.includes("confirm")
-                : consultStatuses.includes("confirm");
+      const statusBucket: ConsultStatus = item.status === "cancelado"
+        ? "cancelled"
+        : item.arrivalStatus === "arrived"
+          ? "arrived"
+          : item.arrivalStatus === "absent"
+            ? "absent"
+            : item.confirmationStatus === "confirmed"
+              ? "confirmed"
+              : "unconfirmed";
+      const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
       if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
@@ -1336,7 +1357,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               </section>
               <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-center text-xs font-black text-[#123D2C]">Indicadores considerando: {summaryMode === "date" ? formatDateInputPtBr(displayedSummary.date || effectiveSummaryDate) : summaryMode === "future" ? `a partir de ${formatDateInputPtBr(displayedSummary.fromDate)}` : summaryMode === "period" ? `${formatDateInputPtBr(displayedSummary.date)} a ${formatDateInputPtBr(summaryDateTo)}` : `anteriores a ${formatDateInputPtBr(summaryDateTo)}`}</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirm"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirmed", "unconfirmed", "arrived", "absent"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
                 <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirmed"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
                 <Summary label="Não Confirmados" value={displayedSummary.unconfirmed} onClick={() => { setConsultStatuses(["unconfirmed"]); setConsultDisplayMode("lista"); setConsultPage(1); setModal("consultar"); }} />
                 <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
@@ -1538,8 +1559,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
 
                 <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2">
-                  <span className="text-sm font-black text-[#123D2C]">Total agendado na data</span>
-                  <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
+                  <span className="text-sm font-black text-[#123D2C]">Total na data · {selectedStatusLabel}</span>
+                  <span className="text-sm font-black text-[#123D2C]">{filteredAppointments.length}</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1562,11 +1583,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
-                  {Array.from(new Set(filteredAppointments.filter((item) => item.status !== "cancelado").map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                  {Array.from(new Set(filteredAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
-                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityName}</h3>
+                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityHeading(entityName)}</h3>
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
-                        {filteredAppointments.filter((item) => item.status !== "cancelado" && item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
+                        {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
                             <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p></div>
                             <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
@@ -1582,7 +1603,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {consultDisplayMode === "lista" && groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
                   <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
-                    <span>{group.label}</span>
+                    <span>{effectiveConsultView === "entity_day" ? entityHeading(group.label) : group.label}</span>
                     {effectiveConsultView === "entity_day" && (() => {
                       const entity = payload.entities.find((item) => item.name === group.label);
                       if (!entity) return null;
@@ -1591,7 +1612,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       );
                       return (
                         <span className="flex items-center gap-2">
-                          <span className="text-xs">{entity.booked}/{entity.capacity}</span>
                           {activeEntityAppointments.length > 0 && (
                             <button
                               type="button"
@@ -1685,8 +1705,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" onClick={() => setShowConsultStatusFilter(false)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setConsultStatuses(ALL_CONSULT_STATUSES); setConsultPage(1); }} className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#2F6B43]/30">Selecionar tudo</button>
+                  <button type="button" onClick={() => { setConsultStatuses([]); setConsultPage(1); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Desselecionar tudo</button>
                   {([
-                    ["confirm", "Confirmado"],
+                    ["confirmed", "Confirmado"],
+                    ["unconfirmed", "Não Confirmado"],
                     ["arrived", "Chegou"],
                     ["absent", "Não Chegou"],
                     ["cancelled", "Cancelado"],
