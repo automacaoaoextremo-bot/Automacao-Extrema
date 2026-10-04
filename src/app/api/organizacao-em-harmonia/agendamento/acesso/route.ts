@@ -128,6 +128,56 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
   return (allPhones ?? []).find((item) => wanted.has(onlyDigits(item.whatsapp))) ?? null;
 }
 
+
+async function ensureConsulenteAuth(
+  person: { id: string; full_name?: string | null; auth_user_id?: string | null },
+  membership: { id?: string | null; agenda_viva_profile?: unknown } | null,
+) {
+  if (person.auth_user_id) return person.auth_user_id;
+  const profile = asRecord(membership?.agenda_viva_profile);
+  const kind = profileKind(profile);
+  let isConsulente = kind === "consulente";
+  if (!isConsulente) {
+    const { data: preference } = await supabaseAdmin
+      .from("oh_tucxa_pilot_person_preferences")
+      .select("person_id")
+      .eq("person_id", person.id)
+      .maybeSingle();
+    isConsulente = Boolean(preference?.person_id);
+  }
+  if (!isConsulente) return "";
+
+  const email = `tucxa-consulente-${person.id}@organizacao-em-harmonia.local`;
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password: "12345678",
+    email_confirm: true,
+    user_metadata: {
+      person_id: person.id,
+      full_name: asText(person.full_name) || "Consulente",
+      oh_profile: "consulente",
+      must_change_password: true,
+      temporary_access_source: "tucxa_agendamento_48",
+    },
+  });
+  if (error || !data.user?.id) throw error || new Error("Não foi possível preparar o primeiro acesso do Consulente.");
+
+  const now = new Date().toISOString();
+  const { error: personError } = await supabaseAdmin
+    .from("oh_people")
+    .update({ auth_user_id: data.user.id, updated_at: now })
+    .eq("id", person.id);
+  if (personError) throw personError;
+
+  const membershipId = asText((membership as Record<string, unknown> | null)?.id);
+  if (membershipId && kind !== "consulente") {
+    const nextProfile = { ...profile, accessType: "consulente", publico: "consulente", pilotAccessKind: "consulente", source: asText(profile.source) || "tucxa_agendamento_48" };
+    const { error: membershipError } = await supabaseAdmin.from("oh_memberships").update({ agenda_viva_profile: nextProfile, updated_at: now }).eq("id", membershipId);
+    if (membershipError) throw membershipError;
+  }
+  return data.user.id;
+}
+
 async function loadMembership(organizationId: string, personId: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_memberships")
@@ -157,14 +207,16 @@ export async function POST(request: Request) {
       const organization = await findTucxaOrganization();
       if (!organization) return NextResponse.json({ error: "Organização Tucxa não localizada." }, { status: 404 });
       const person = await findPersonByIdentifier(organization.id, identifier);
-      if (!person?.id || !person.auth_user_id) {
+      if (!person?.id) {
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
 
-      const [{ data: authData, error: authError }, membership] = await Promise.all([
-        supabaseAdmin.auth.admin.getUserById(person.auth_user_id as string),
-        loadMembership(organization.id, person.id as string),
-      ]);
+      const membership = await loadMembership(organization.id, person.id as string);
+      const authUserId = person.auth_user_id || await ensureConsulenteAuth(person, membership);
+      if (!authUserId) {
+        return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
+      }
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(authUserId as string);
       const membershipStatus = String(membership?.status || "").toLowerCase();
       if (authError || !authData.user || !membership?.id || !["ativo", "active"].includes(membershipStatus)) {
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
@@ -193,7 +245,8 @@ export async function POST(request: Request) {
       }
 
       const profile = asRecord(membership.agenda_viva_profile);
-      const kind = profileKind(profile);
+      const authProfile = asText(authData.user.user_metadata?.oh_profile);
+      const kind = authProfile === "consulente" ? "consulente" as const : profileKind(profile);
       const pilotSettings = await loadPilotSettings(organization.id);
       if (!rolloutAllows(kind, pilotSettings.rolloutStage)) {
         return NextResponse.json(

@@ -56,6 +56,7 @@ export type PilotPersonPreferences = {
   receptionSummaryChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
   receptionOpenAcolhimentoOnLogin: boolean;
+  consulenteOpenUpcomingOnLogin: boolean;
 };
 
 type PilotReceptionContext = {
@@ -245,7 +246,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -261,6 +262,7 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
       : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
     receptionOpenAcolhimentoOnLogin: data?.reception_open_acolhimento_on_login !== false,
+    consulenteOpenUpcomingOnLogin: data?.consulente_open_upcoming_on_login !== false,
   };
 }
 
@@ -284,6 +286,7 @@ export async function savePilotPersonPreferences(
       : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
     reception_open_acolhimento_on_login: input.receptionOpenAcolhimentoOnLogin ?? current.receptionOpenAcolhimentoOnLogin,
+    consulente_open_upcoming_on_login: input.consulenteOpenUpcomingOnLogin ?? current.consulenteOpenUpcomingOnLogin,
     updated_at: new Date().toISOString(),
   };
   const { error } = await supabaseAdmin
@@ -402,6 +405,48 @@ export async function currentPilotConsulente(request: Request): Promise<PilotCon
   };
 }
 
+function easterSundayUtc(year: number) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function isoFromUtcDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+/**
+ * Datas em que o piloto não deve oferecer atendimento.
+ * Inclui feriados nacionais, 9 de Julho (SP), 8 de Dezembro (Campinas),
+ * Sexta-feira da Paixão e Corpus Christi em Campinas.
+ */
+export function isCampinasHoliday(value: string) {
+  const year = Number(value.slice(0, 4));
+  if (!Number.isInteger(year)) return false;
+  const fixed = new Set([
+    `${year}-01-01`, `${year}-04-21`, `${year}-05-01`, `${year}-07-09`,
+    `${year}-09-07`, `${year}-10-12`, `${year}-11-02`, `${year}-11-15`,
+    `${year}-11-20`, `${year}-12-08`, `${year}-12-25`,
+  ]);
+  if (fixed.has(value)) return true;
+  const easter = easterSundayUtc(year);
+  const goodFriday = new Date(easter); goodFriday.setUTCDate(goodFriday.getUTCDate() - 2);
+  const corpusChristi = new Date(easter); corpusChristi.setUTCDate(corpusChristi.getUTCDate() + 60);
+  return value === isoFromUtcDate(goodFriday) || value === isoFromUtcDate(corpusChristi);
+}
+
 export async function loadPilotDates(organizationId: string, daysAhead: number): Promise<PilotDateOption[]> {
   const today = todayInSaoPaulo();
   const candidates: PilotDateOption[] = [];
@@ -409,7 +454,7 @@ export async function loadPilotDates(organizationId: string, daysAhead: number):
   for (let offset = 0; offset <= daysAhead; offset += 1) {
     const date = addDaysIso(today, offset);
     const weekday = pilotWeekday(date);
-    if (!weekday) continue;
+    if (!weekday || isCampinasHoliday(date)) continue;
     const occurrence = monthOccurrence(date);
     if (occurrence > 4) continue;
     candidates.push({

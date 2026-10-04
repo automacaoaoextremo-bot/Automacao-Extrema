@@ -1401,7 +1401,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                       {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
                     </select>
-                    <input type="date" value={payload.selectedDate} min={payload.dates[0]?.date} max={payload.dates.at(-1)?.date} onChange={(event) => { if (event.target.value) { setEntityId(""); void load(event.target.value); } }} aria-label="Escolher data pelo calendário" className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
                   </div>
                 </label>
               ) : (
