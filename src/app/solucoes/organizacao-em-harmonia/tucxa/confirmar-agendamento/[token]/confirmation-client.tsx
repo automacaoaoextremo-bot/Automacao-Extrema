@@ -93,7 +93,18 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
                 <Detail label="Início dos atendimentos" value={appointment.appointmentTime} />
                 <Detail label="Término previsto" value={appointment.endTime} />
                 <Detail label="Entidade" value={appointment.entityName} />
+                {typeof appointment.order === "number" && appointment.order > 0 && (
+                  <Detail label="Ordem de agendamento" value={String(appointment.order)} />
+                )}
               </div>
+
+              {!declined && !expired && (
+                <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-200">
+                  <p className="text-sm font-black leading-6">
+                    IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.
+                  </p>
+                </div>
+              )}
 
               {pending && (
                 <div className="mt-4 grid gap-2">
