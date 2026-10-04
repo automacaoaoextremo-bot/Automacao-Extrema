@@ -31,16 +31,27 @@ export async function GET(request: Request) {
   const { data: organizations, error: orgError } = await supabaseAdmin.from("oh_organizations").select("id,name,slug").or("slug.eq.tucxa,name.ilike.%tucxa%");
   if (orgError) throw orgError;
   const results: Array<Record<string, unknown>> = [];
+  const diagnostics: Array<Record<string, unknown>> = [];
   for (const organization of organizations ?? []) {
     const organizationId = text(organization.id); if (!organizationId) continue;
     const settings = await loadPilotSettings(organizationId);
-    if (!settings.automaticDispatchWeekdays.includes(weekdaySaoPaulo())) continue;
+    if (!settings.automaticDispatchWeekdays.includes(weekdaySaoPaulo())) {
+      diagnostics.push({ organization: text(organization.name) || text(organization.slug), status: "skipped", reason: "weekday_not_enabled", weekday: weekdaySaoPaulo(), configuredWeekdays: settings.automaticDispatchWeekdays });
+      continue;
+    }
     const sendCavalinhos = settings.cavalinhoDailyWhatsappEnabled && due(now, settings.cavalinhoDailyWhatsappTime);
     const sendReception = settings.receptionDailyWhatsappEnabled && due(now, settings.receptionDailyWhatsappTime);
-    if (!sendCavalinhos && !sendReception) continue;
+    if (!sendCavalinhos && !sendReception) {
+      diagnostics.push({ organization: text(organization.name) || text(organization.slug), status: "skipped", reason: "dispatch_not_due_or_disabled", time: now, cavalinhoTime: settings.cavalinhoDailyWhatsappTime, receptionTime: settings.receptionDailyWhatsappTime });
+      continue;
+    }
     const { data: appointments, error: appointmentError } = await supabaseAdmin.from("oh_consulente_appointments").select("id,entity_id,consulente_name,appointment_time,status,metadata").eq("organization_id", organizationId).eq("appointment_date", date).in("status", PILOT_ACTIVE_STATUSES).order("created_at");
     if (appointmentError) throw appointmentError;
-    if (!(appointments ?? []).length) continue;
+    if (!(appointments ?? []).length) {
+      diagnostics.push({ organization: text(organization.name) || text(organization.slug), status: "skipped", reason: "no_appointments_for_date", date });
+      continue;
+    }
+    diagnostics.push({ organization: text(organization.name) || text(organization.slug), status: "processing", date, appointmentsFound: (appointments ?? []).length, sendCavalinhos, sendReception });
     const entityIds = [...new Set((appointments ?? []).map((item) => text(item.entity_id)).filter(Boolean))];
     const { data: entities, error: entityError } = entityIds.length ? await supabaseAdmin.from("oh_spiritual_entities").select("id,name,daily_capacity,pilot_cavalinho_whatsapp_enabled").in("id", entityIds) : { data: [], error: null };
     if (entityError) throw entityError;
@@ -116,5 +127,5 @@ export async function GET(request: Request) {
       }
     }
   }
-  return NextResponse.json({ ok: true, date, time: now, results });
+  return NextResponse.json({ ok: true, date, time: now, weekday: weekdaySaoPaulo(), diagnostics, results });
 }

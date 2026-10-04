@@ -9,7 +9,7 @@
     },
     {
       "path": "/api/cron/tucxa-agendamento-daily-summaries",
-      "schedule": "0 2 * * *"
+      "schedule": "0 15 * * 1,2"
     }
   ]
 }
