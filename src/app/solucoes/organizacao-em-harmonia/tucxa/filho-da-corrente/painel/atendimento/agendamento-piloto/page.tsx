@@ -430,11 +430,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [consultStatuses]);
 
   function entityHeading(entityName: string) {
-    const entity = payload?.entities.find((item) => item.name === entityName);
-    if (!entity) return entityName;
-    const cavalinho = entity.mediums?.[0]?.name?.trim();
-    const title = cavalinho ? `${entity.name} (${cavalinho})` : entity.name;
-    return `${title} ${entity.booked} / ${entity.capacity}`;
+    const baseName = entityName.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const entity = payload?.entities.find((item) => item.name === entityName)
+      ?? payload?.entities.find((item) => item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === baseName);
+    const catalogEntity = payload?.entityCatalog.find((item) => item.id === entity?.id)
+      ?? payload?.entityCatalog.find((item) => item.name === baseName);
+    const cavalinho = catalogEntity?.mediums?.[0]?.name?.trim()
+      || entity?.mediums?.[0]?.name?.trim()
+      || entityName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()
+      || "";
+    const cleanEntityName = catalogEntity?.name || baseName || entityName;
+    const title = cavalinho ? `${cleanEntityName} (${cavalinho})` : cleanEntityName;
+    const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
+    const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
+    return `${title} ${booked}/${capacity}`;
   }
 
   const filteredAppointments = useMemo(() => {
