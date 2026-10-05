@@ -53,6 +53,7 @@ type Appointment = {
   status: string;
   confirmationStatus: string;
   confirmationExpiresAt: string;
+  createdAt: string;
   order: number | null;
   arrivalStatus: string;
   arrivalOrder: number | null;
@@ -487,16 +488,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
-      if (effectiveConsultView === "day_entity") {
-        const nameOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
-        if (nameOrder !== 0) return nameOrder;
-        return a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (effectiveConsultView !== "day_entity") {
+        const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+        if (entityOrder !== 0) return entityOrder;
       }
-      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
-      if (entityOrder !== 0) return entityOrder;
-      const bookingOrder = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
-      if (bookingOrder !== 0) return bookingOrder;
-      return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      const createdOrder = a.createdAt.localeCompare(b.createdAt);
+      if (createdOrder !== 0) return createdOrder;
+      return a.id.localeCompare(b.id);
     });
   }, [effectiveConsultView, filteredAppointments]);
   const consultPageSize = 2;
@@ -1616,7 +1614,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
                       <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityHeading(entityName)}</h3>
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
-                        {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
+                        {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
                             <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span></div>
                             <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />

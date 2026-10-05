@@ -652,6 +652,7 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
     forwardedAt: asText(item.forwarded_at),
     forwardedByPersonId: asText(item.forwarded_by_person_id),
     notes: asText(item.notes),
+    createdAt: asText(item.created_at),
     order: Number(asRecord(item.metadata).order ?? 0) || null,
   }));
 }
