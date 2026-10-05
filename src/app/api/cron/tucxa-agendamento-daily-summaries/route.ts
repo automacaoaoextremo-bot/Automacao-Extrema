@@ -5,6 +5,7 @@ import { sendTucxaOperationalSummaryWhatsapp } from "@/lib/botconversa";
 import { sendTucxaOperationalSummaryEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }

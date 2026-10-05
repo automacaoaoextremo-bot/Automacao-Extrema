@@ -36,11 +36,6 @@ function weekdaySaoPaulo() {
   return map[label] ?? new Date().getDay();
 }
 
-function appointmentDateTime(date: string, time: string) {
-  const safeTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : "20:00";
-  return new Date(`${date}T${safeTime}:00-03:00`);
-}
-
 function todaySaoPaulo() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -69,7 +64,6 @@ type AppointmentRow = {
 type PreferenceRow = {
   person_id: string | null;
   reminder_whatsapp_enabled: boolean | null;
-  reminder_offsets_hours: unknown;
 };
 
 type EntityRow = {
@@ -102,7 +96,7 @@ async function loadPreferencesAndEntities(
     personIds.length
       ? supabaseAdmin
           .from("oh_tucxa_pilot_person_preferences")
-          .select("person_id,reminder_whatsapp_enabled,reminder_offsets_hours")
+          .select("person_id,reminder_whatsapp_enabled")
           .eq("organization_id", organizationId)
           .in("person_id", personIds)
       : Promise.resolve({ data: [], error: null }),
@@ -250,146 +244,6 @@ async function processDayOfReminders(
   return { sent, skipped, failed, checked: rows.length };
 }
 
-async function processConfirmationOffsetReminders(
-  organizationId: string,
-  today: string,
-): Promise<ReminderSummary> {
-  const settings = await loadPilotSettings(organizationId);
-  const now = new Date();
-  const nowIso = now.toISOString();
-
-  const { data: appointments, error: appointmentsError } = await supabaseAdmin
-    .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,metadata")
-    .eq("organization_id", organizationId)
-    .eq("confirmation_status", "pending")
-    .gt("confirmation_expires_at", nowIso)
-    .neq("appointment_date", today)
-    .in("status", ["solicitado", "confirmado", "aprovado"])
-    .order("confirmation_expires_at", { ascending: true })
-    .limit(500);
-
-  if (appointmentsError) throw appointmentsError;
-
-  const rows = (appointments ?? []) as AppointmentRow[];
-  if (!rows.length) return { sent: 0, skipped: 0, failed: 0, checked: 0 };
-
-  const appointmentIds = rows.map((item) => item.id);
-  const [{ preferences, entityNames }, logsResult] = await Promise.all([
-    loadPreferencesAndEntities(organizationId, rows),
-    supabaseAdmin
-      .from("oh_tucxa_pilot_notification_log")
-      .select("appointment_id,scheduled_offset_hours,status")
-      .eq("organization_id", organizationId)
-      .eq("channel", "whatsapp")
-      .eq("notification_type", "confirmation_reminder")
-      .in("appointment_id", appointmentIds),
-  ]);
-
-  if (logsResult.error) throw logsResult.error;
-
-  const sentKeys = new Set(
-    ((logsResult.data ?? []) as NotificationLogRow[])
-      .filter((item) => item.status === "sent")
-      .map((item) => `${item.appointment_id}:${Number(item.scheduled_offset_hours)}`),
-  );
-
-  let sent = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const appointment of rows) {
-    const deadline = new Date(asText(appointment.confirmation_expires_at));
-    if (Number.isNaN(deadline.getTime()) || deadline <= now) {
-      skipped += 1;
-      continue;
-    }
-
-    const preference = preferences.get(asText(appointment.person_id));
-    if (preference?.reminder_whatsapp_enabled === false) {
-      skipped += 1;
-      continue;
-    }
-
-    const customOffsets = Array.isArray(preference?.reminder_offsets_hours)
-      ? preference.reminder_offsets_hours
-          .map((value: unknown) => Number(value))
-          .filter((value: number) => Number.isFinite(value) && value > 0)
-      : [];
-
-    const offsetSource: number[] = customOffsets.length
-      ? customOffsets
-      : settings.confirmationReminderOffsetsHours;
-
-    const offsets: number[] = [...new Set<number>(offsetSource)].sort((left, right) => left - right);
-    const appointmentAt = appointmentDateTime(appointment.appointment_date, asText(appointment.appointment_time) || settings.appointmentTime);
-    const remainingHours = (appointmentAt.getTime() - now.getTime()) / (60 * 60 * 1000);
-
-    // No plano Hobby o scheduler executa uma vez por dia. O lembrete vence quando
-    // a execução diária entra abaixo do limiar configurado; o log impede duplicidade.
-    const dueOffset = offsets.find((offset) => {
-      const alreadySent = sentKeys.has(`${appointment.id}:${offset}`);
-      return !alreadySent && remainingHours > 0 && remainingHours <= offset;
-    });
-
-    if (!dueOffset) {
-      skipped += 1;
-      continue;
-    }
-
-    const phone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
-    if (!phone) {
-      skipped += 1;
-      continue;
-    }
-
-    const entityName = entityNames.get(asText(appointment.entity_id)) || "Entidade";
-    const result = await sendTucxaAppointmentWhatsapp({
-      kind: "reminder",
-      fullName: asText(appointment.consulente_name) || "Consulente",
-      recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
-      whatsapp: phone,
-      appointmentDate: appointment.appointment_date,
-      entityName,
-      reminderOffsetHours: dueOffset,
-      appointmentOrder: appointmentOrder(appointment.metadata),
-      individualNotice: `Sua presença ainda não foi confirmada. Confirme para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
-    });
-
-    const logPayload = {
-      organization_id: organizationId,
-      appointment_id: appointment.id,
-      person_id: appointment.person_id || null,
-      channel: "whatsapp",
-      notification_type: "confirmation_reminder",
-      scheduled_offset_hours: dueOffset,
-      status: result.sent ? "sent" : "failed",
-      provider: result.provider,
-      provider_message_id: result.subscriberId || null,
-      error: result.error || null,
-      sent_at: result.sent ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error: logError } = await supabaseAdmin
-      .from("oh_tucxa_pilot_notification_log")
-      .upsert(logPayload, {
-        onConflict: "appointment_id,channel,notification_type,scheduled_offset_hours",
-      });
-
-    if (logError) throw logError;
-
-    if (result.sent) {
-      sent += 1;
-      sentKeys.add(`${appointment.id}:${dueOffset}`);
-    } else {
-      failed += 1;
-    }
-  }
-
-  return { sent, skipped, failed, checked: rows.length };
-}
-
 export async function GET(request: Request) {
   if (!authorize(request)) {
     return NextResponse.json({ error: "Cron não autorizado." }, { status: 401 });
@@ -407,20 +261,20 @@ export async function GET(request: Request) {
     if (!settings.automaticDispatchWeekdays.includes(weekday)) {
       return NextResponse.json({ ok: true, today, skippedByWeekday: true, weekday, sent: 0, skipped: 0, failed: 0, checked: 0 });
     }
-    const [dayReminder, confirmationReminder] = await Promise.all([
-      processDayOfReminders(organization.id, today),
-      processConfirmationOffsetReminders(organization.id, today),
-    ]);
+    // Ajuste 50: o cron diario envia SOMENTE os lembretes dos agendamentos
+    // da data local corrente de Campinas/Brasilia. Os antigos lembretes por
+    // antecedencia nao sao processados por este scheduler diario.
+    const dayReminder = await processDayOfReminders(organization.id, today);
 
     return NextResponse.json({
       ok: true,
       today,
+      mode: "today_only",
       dayReminder,
-      confirmationReminder,
-      sent: dayReminder.sent + confirmationReminder.sent,
-      skipped: dayReminder.skipped + confirmationReminder.skipped,
-      failed: dayReminder.failed + confirmationReminder.failed,
-      checked: dayReminder.checked + confirmationReminder.checked,
+      sent: dayReminder.sent,
+      skipped: dayReminder.skipped,
+      failed: dayReminder.failed,
+      checked: dayReminder.checked,
     });
   } catch (error) {
     console.error("[TUCXA cron agendamento reminders]", error);
