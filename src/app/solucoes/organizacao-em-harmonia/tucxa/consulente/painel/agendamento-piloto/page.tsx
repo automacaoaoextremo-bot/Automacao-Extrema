@@ -12,7 +12,14 @@ type Payload = { profile: { fullName: string; whatsapp: string; email: string };
 type Modal = "agendar" | "agendamentos" | "cadastro" | "configuracoes" | null;
 
 function shortDate(value: string) { const [y,m,d] = value.split("-"); return y && m && d ? `${d}/${m}/${y}` : value; }
-function statusLabel(value: string) { return ({ solicitado: "Aguardando confirmação", confirmado: "Confirmado", cancelado: "Cancelado", presente: "Presente", concluido: "Concluído" } as Record<string,string>)[value] || value; }
+function statusLabel(value: string) { return ({ solicitado: "Solicitado", confirmado: "Confirmado", cancelado: "Cancelado", presente: "Presente", concluido: "Concluído", ausente: "Não Chegou" } as Record<string,string>)[value] || value; }
+function statusClasses(value: string) {
+  if (["confirmado", "presente", "concluido"].includes(value)) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (value === "cancelado") return "bg-red-50 text-red-700 ring-red-200";
+  if (value === "ausente") return "bg-orange-50 text-orange-800 ring-orange-200";
+  if (value === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
 
 export default function ConsulenteAgendamentoPilotoPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -103,7 +110,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
           {!payload.dates.length ? <p className="font-semibold text-amber-800">Não há datas com vaga disponíveis no período.</p> : payload.dates.map((item) => <label key={item.date} className="flex cursor-pointer gap-3 rounded-2xl border border-[#123D2C]/15 p-4"><input type="radio" name="date" checked={selectedDate === item.date} onChange={() => setSelectedDate(item.date)} /><span><strong>{shortDate(item.date)}</strong><br/><span className="text-sm text-slate-600">{item.entity.name} · {item.entity.available} vaga(s)</span></span></label>)}
           <button disabled={!selectedDate || saving} onClick={() => void book()} className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-50">{saving ? "Agendando..." : "Confirmar agendamento"}</button>
         </div>}
-        {modal === "agendamentos" && <div className="mt-5 grid gap-3">{payload.appointments.length ? payload.appointments.map((item) => <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><strong className="text-[#123D2C]">{shortDate(item.appointmentDate)} · {item.appointmentTime}</strong><p className="mt-1 font-semibold">{item.entityName}</p><p className="text-sm text-slate-600">{statusLabel(item.status)}{item.order ? ` · Ordem ${item.order}` : ""}</p></article>) : <p className="font-semibold">Você não possui próximos agendamentos.</p>}</div>}
+        {modal === "agendamentos" && <div className="mt-5 grid gap-3">{payload.appointments.length ? payload.appointments.map((item) => <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><strong className="text-[#123D2C]">{shortDate(item.appointmentDate)} · {item.appointmentTime}</strong><p className="mt-1 font-semibold">{item.entityName}</p><p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(item.status)}`}>{statusLabel(item.status)}</span>{item.order ? <span>{`Ordem ${item.order}`}</span> : null}</p></article>) : <p className="font-semibold">Você não possui próximos agendamentos.</p>}</div>}
         {modal === "cadastro" && <form onSubmit={saveProfile} className="mt-5 grid gap-3"><input value={profile.fullName} onChange={(e) => setProfile((v) => ({...v, fullName:e.target.value}))} placeholder="Nome completo" className="rounded-xl border p-3" required/><input value={profile.whatsapp} onChange={(e) => setProfile((v) => ({...v, whatsapp:e.target.value}))} placeholder="WhatsApp com DDD" className="rounded-xl border p-3" required/><input value={profile.email} onChange={(e) => setProfile((v) => ({...v, email:e.target.value}))} placeholder="E-mail (opcional)" type="email" className="rounded-xl border p-3"/><button disabled={saving} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Salvar dados pessoais</button></form>}
         {modal === "configuracoes" && <form onSubmit={saveSettings} className="mt-5 grid gap-4"><label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 font-semibold"><input type="checkbox" checked={openUpcoming} onChange={(e) => setOpenUpcoming(e.target.checked)} className="mt-1"/><span>Abrir meus próximos agendamentos automaticamente quando eu entrar no sistema.</span></label><button disabled={saving} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Salvar configuração</button></form>}
       </section>

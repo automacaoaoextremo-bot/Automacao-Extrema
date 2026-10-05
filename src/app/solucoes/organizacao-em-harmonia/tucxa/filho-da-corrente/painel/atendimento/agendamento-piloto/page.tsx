@@ -19,8 +19,8 @@ const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filh
 type ViewMode = "entity_day" | "day_entity" | "both";
 type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
-type ConsultStatus = "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
-const ALL_CONSULT_STATUSES: ConsultStatus[] = ["confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
+type ConsultStatus = "requested" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
+const ALL_CONSULT_STATUSES: ConsultStatus[] = ["requested", "confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
@@ -199,11 +199,23 @@ function todaySaoPaulo() {
 function statusLabel(item: Appointment) {
   if (item.status === "cancelado") return "Cancelado";
   if (item.arrivalStatus === "arrived") return item.arrivalOrder ? `Chegou · ordem ${item.arrivalOrder}` : "Chegou";
-  if (item.arrivalStatus === "absent") return "Ausente";
+  if (item.arrivalStatus === "absent") return "Não Chegou";
   if (item.confirmationStatus === "confirmed") return "Confirmado";
   if (item.confirmationStatus === "expired") return "Prazo encerrado";
   if (item.confirmationStatus === "declined") return "Não comparecerá";
-  return "Aguardando confirmação";
+  if (item.status === "solicitado") return "Solicitado";
+  return "Não Confirmado";
+}
+
+function statusClasses(item: Appointment) {
+  if (item.status === "cancelado") return "bg-red-50 text-red-700 ring-red-200";
+  if (item.arrivalStatus === "arrived") return "bg-blue-50 text-blue-800 ring-blue-200";
+  if (item.arrivalStatus === "absent") return "bg-orange-50 text-orange-800 ring-orange-200";
+  if (item.confirmationStatus === "confirmed") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (item.confirmationStatus === "expired") return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (item.confirmationStatus === "declined") return "bg-rose-50 text-rose-800 ring-rose-200";
+  if (item.status === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  return "bg-violet-50 text-violet-800 ring-violet-200";
 }
 
 function displayWhatsapp(phone: string) {
@@ -420,6 +432,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     if (consultStatuses.length === ALL_CONSULT_STATUSES.length) return "todos";
     if (consultStatuses.length === 0) return "nenhum status";
     const labels: Record<ConsultStatus, string> = {
+      requested: "Solicitados",
       confirmed: "Confirmados",
       unconfirmed: "Não confirmados",
       arrived: "Chegaram",
@@ -459,7 +472,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
             ? "absent"
             : item.confirmationStatus === "confirmed"
               ? "confirmed"
-              : "unconfirmed";
+              : item.status === "solicitado" && item.confirmationStatus === "pending"
+                ? "requested"
+                : "unconfirmed";
       const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
       if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
@@ -1603,7 +1618,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
                         {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
-                            <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p></div>
+                            <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span></div>
                             <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
                             <button type="button" disabled={saving} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
                           </div>
@@ -1652,7 +1667,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <h4 className="truncate font-black text-[#123D2C]">{appointment.consulenteName}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{statusLabel(appointment)}</span>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                         </div>
                         <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
                         {actionsOpen && (
@@ -1722,6 +1737,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" onClick={() => { setConsultStatuses(ALL_CONSULT_STATUSES); setConsultPage(1); }} className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#2F6B43]/30">Selecionar tudo</button>
                   <button type="button" onClick={() => { setConsultStatuses([]); setConsultPage(1); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Desselecionar tudo</button>
                   {([
+                    ["requested", "Solicitado"],
                     ["confirmed", "Confirmado"],
                     ["unconfirmed", "Não Confirmado"],
                     ["arrived", "Chegou"],

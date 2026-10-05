@@ -98,6 +98,14 @@ function statusLabel(value: string) {
   return labels[value] || value || "Não informado";
 }
 
+function statusClasses(value: string) {
+  if (["confirmado", "aprovado", "presente", "concluido"].includes(value)) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (value === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  if (["cancelado", "cancelamento_solicitado"].includes(value)) return "bg-red-50 text-red-700 ring-red-200";
+  if (value === "ausente") return "bg-orange-50 text-orange-800 ring-orange-200";
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
 function channelLabel(value: string) {
   const labels: Record<string, string> = {
     recepcao: "Recepção",
@@ -528,7 +536,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                               <div className="mt-2 grid gap-1 text-xs font-semibold text-slate-700">
                                 {groupBy === "entity" && <p><span className="font-black text-[#2F6B43]">Quando:</span> {longDate(appointment.appointmentDate)} · {appointment.appointmentTime}</p>}
                                 {groupBy === "date" && <p><span className="font-black text-[#2F6B43]">Entidade:</span> {appointment.entity.name}</p>}
-                                <p><span className="font-black text-[#2F6B43]">Situação:</span> {statusLabel(appointment.status)} · {channelLabel(appointment.bookingChannel)}</p>
+                                <p className="flex flex-wrap items-center gap-2"><span className="font-black text-[#2F6B43]">Situação:</span><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(appointment.status)}`}>{statusLabel(appointment.status)}</span><span>· {channelLabel(appointment.bookingChannel)}</span></p>
                               </div>
                               {appointment.access.mode === "manage" && (
                                 <div className="mt-3 grid grid-cols-3 gap-2">

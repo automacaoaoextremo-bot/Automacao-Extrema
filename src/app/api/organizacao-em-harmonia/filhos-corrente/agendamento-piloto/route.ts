@@ -1260,6 +1260,19 @@ export async function POST(request: Request) {
         }, { status: 500 });
       }
 
+      const { data: reorderedAppointments, error: reorderedAppointmentsError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,metadata")
+        .eq("organization_id", context.organizationId)
+        .in("id", appointmentIds);
+      if (reorderedAppointmentsError) throw reorderedAppointmentsError;
+      const changedOrderByAppointmentId = new Map(
+        (reorderedAppointments ?? []).map((item) => [
+          asText(item.id),
+          Number(asRecord(item.metadata).order ?? 0) || null,
+        ]),
+      );
+
       let sent = 0;
       const failures: string[] = [];
       if (notify) {
@@ -1277,7 +1290,7 @@ export async function POST(request: Request) {
             previousEntityName: entityNames.get(asText(appointment.entity_id)) || "Entidade anterior",
             newEntityName,
             reason,
-            appointmentOrder: Number((appointment.metadata as Record<string, unknown> | null)?.order ?? 0) || null,
+            appointmentOrder: changedOrderByAppointmentId.get(asText(appointment.id)) ?? null,
           });
           if (dispatch.sent) sent += 1;
           else failures.push(`${asText(appointment.consulente_name) || "Consulente"}: ${dispatch.error || "falha no envio"}`);
