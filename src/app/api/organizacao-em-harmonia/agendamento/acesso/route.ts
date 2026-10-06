@@ -217,8 +217,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(authUserId as string);
-      const membershipStatus = String(membership?.status || "").toLowerCase();
-      if (authError || !authData.user || !membership?.id || !["ativo", "active"].includes(membershipStatus)) {
+      if (authError || !authData.user || !membership?.id) {
+        console.warn("[TUCXA agendamento acesso] vínculo/auth inválido", {
+          personId: person.id,
+          authUserId,
+          hasMembership: Boolean(membership?.id),
+          membershipStatus: asText(membership?.status),
+          authError: authError?.message || "",
+        });
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
 
@@ -241,6 +247,13 @@ export async function POST(request: Request) {
       }
       const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword(credentials);
       if (signInError || !signInData.session) {
+        console.warn("[TUCXA agendamento acesso] falha no Supabase Auth", {
+          personId: person.id,
+          authUserId,
+          credentialType: authEmail ? "email" : "phone",
+          authPhone: authPhone ? `${authPhone.slice(0, 4)}***${authPhone.slice(-4)}` : "",
+          signInError: signInError?.message || "sessão não retornada",
+        });
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
 
