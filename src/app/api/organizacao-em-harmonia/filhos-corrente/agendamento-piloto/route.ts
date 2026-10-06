@@ -1083,7 +1083,7 @@ export async function POST(request: Request) {
       });
       if (error) {
         if (String(error.message || "").includes("ARRIVAL_ORDER_IN_USE")) {
-          return NextResponse.json({ error: "Esta ordem de chegada já está sendo usada nesta data.", requestId: code }, { status: 409 });
+          return NextResponse.json({ error: "Esta ordem de atendimento já está sendo usada para esta Entidade nesta data.", requestId: code }, { status: 409 });
         }
         throw error;
       }
