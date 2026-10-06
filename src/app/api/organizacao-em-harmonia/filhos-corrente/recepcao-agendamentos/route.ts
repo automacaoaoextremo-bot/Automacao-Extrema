@@ -429,6 +429,36 @@ export async function GET(request: Request) {
     if (appointmentsError) throw appointmentsError;
 
     const appointmentsSource = (appointmentRows ?? []) as AppointmentRow[];
+    const appointmentIds = appointmentsSource.map((appointment) => appointment.id).filter(Boolean);
+    const { data: changeRows, error: changeError } = appointmentIds.length
+      ? await supabaseAdmin
+          .from("oh_tucxa_appointment_entity_changes")
+          .select("appointment_id,previous_entity_id,new_entity_id,reason,change_mode,changed_at")
+          .eq("organization_id", context.organizationId)
+          .in("appointment_id", appointmentIds)
+          .order("changed_at", { ascending: false })
+      : { data: [], error: null };
+    if (changeError) throw changeError;
+
+    const latestChangeByAppointment = new Map<string, Record<string, unknown>>();
+    for (const change of changeRows ?? []) {
+      const appointmentId = asText(change.appointment_id);
+      if (!appointmentId || latestChangeByAppointment.has(appointmentId)) continue;
+      latestChangeByAppointment.set(appointmentId, asRecord(change));
+    }
+    const previousEntityIds = Array.from(new Set(
+      (changeRows ?? []).map((change) => asText(change.previous_entity_id)).filter(Boolean),
+    ));
+    const { data: previousEntities, error: previousEntitiesError } = previousEntityIds.length
+      ? await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,name")
+          .eq("organization_id", context.organizationId)
+          .in("id", previousEntityIds)
+      : { data: [], error: null };
+    if (previousEntitiesError) throw previousEntitiesError;
+    const previousEntityNameById = new Map((previousEntities ?? []).map((entity) => [asText(entity.id), asText(entity.name)]));
+
     const personById = new Map<string, PersonRow>(people.map((person) => [person.id, person]));
     const entityById = new Map<string, EntityRow>(allEntities.map((entity) => [entity.id, entity]));
     const cutoffMinutes = await editCutoffMinutes(context.organizationId);
@@ -436,6 +466,8 @@ export async function GET(request: Request) {
     const appointments = appointmentsSource.map((appointment) => {
       const person = appointment.person_id ? personById.get(appointment.person_id) : null;
       const entity = appointment.entity_id ? entityById.get(appointment.entity_id) : null;
+      const change = latestChangeByAppointment.get(appointment.id);
+      const previousEntityId = asText(change?.previous_entity_id);
       return {
         id: appointment.id,
         appointmentDate: appointment.appointment_date,
@@ -443,6 +475,12 @@ export async function GET(request: Request) {
         status: appointment.status,
         bookingChannel: appointment.booking_channel || "consulente",
         order: appointmentOrder(appointment.metadata),
+        cancelledAt: asText(appointment.cancelled_at),
+        cancellationReason: asText(appointment.cancellation_reason),
+        previousEntityId,
+        previousEntityName: previousEntityId ? previousEntityNameById.get(previousEntityId) || "Entidade anterior" : "",
+        entityChangeReason: asText(change?.reason),
+        entityChangedAt: asText(change?.changed_at),
         person: {
           id: appointment.person_id,
           fullName: asText(person?.full_name) || asText(appointment.consulente_name) || "Consulente",

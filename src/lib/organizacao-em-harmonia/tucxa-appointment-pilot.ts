@@ -613,7 +613,7 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, metadata, notes, created_at")
+    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, cancelled_at, cancellation_reason, metadata, notes, created_at")
     .eq("organization_id", organizationId)
     .gte("appointment_date", startDate)
     .lte("appointment_date", endDate)
@@ -623,38 +623,70 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
   const { data: appointments, error } = await query;
   if (error) throw error;
 
-  const entityIds = Array.from(new Set((appointments ?? []).map((item) => asText(item.entity_id)).filter(Boolean)));
+  const appointmentIds = (appointments ?? []).map((item) => asText(item.id)).filter(Boolean);
+  const { data: entityChanges, error: entityChangesError } = appointmentIds.length
+    ? await supabaseAdmin
+        .from("oh_tucxa_appointment_entity_changes")
+        .select("appointment_id,previous_entity_id,new_entity_id,reason,change_mode,changed_at")
+        .eq("organization_id", organizationId)
+        .in("appointment_id", appointmentIds)
+        .order("changed_at", { ascending: false })
+    : { data: [], error: null };
+  if (entityChangesError) throw entityChangesError;
+
+  const latestChangeByAppointment = new Map<string, Record<string, unknown>>();
+  for (const change of entityChanges ?? []) {
+    const appointmentId = asText(change.appointment_id);
+    if (!appointmentId || latestChangeByAppointment.has(appointmentId)) continue;
+    latestChangeByAppointment.set(appointmentId, asRecord(change));
+  }
+
+  const entityIds = Array.from(new Set([
+    ...(appointments ?? []).map((item) => asText(item.entity_id)),
+    ...(entityChanges ?? []).flatMap((item) => [asText(item.previous_entity_id), asText(item.new_entity_id)]),
+  ].filter(Boolean)));
   const { data: entities, error: entityError } = entityIds.length
     ? await supabaseAdmin.from("oh_spiritual_entities").select("id, name").in("id", entityIds)
     : { data: [], error: null };
   if (entityError) throw entityError;
   const entityMap = new Map((entities ?? []).map((item) => [asText(item.id), asText(item.name) || "Entidade"]));
 
-  return (appointments ?? []).map((item) => ({
-    id: asText(item.id),
-    personId: asText(item.person_id),
-    entityId: asText(item.entity_id),
-    entityName: entityMap.get(asText(item.entity_id)) || "Entidade",
-    consulenteName: asText(item.consulente_name) || "Filho de Fora/Consulente",
-    whatsapp: asText(item.whatsapp),
-    appointmentDate: asText(item.appointment_date),
-    appointmentTime: asText(item.appointment_time) || "20:00",
-    status: asText(item.status),
-    bookingChannel: asText(item.booking_channel),
-    confirmationStatus: asText(item.confirmation_status) || "not_required",
-    confirmationExpiresAt: asText(item.confirmation_expires_at),
-    confirmationSentAt: asText(item.confirmation_sent_at),
-    confirmationChannel: asText(item.confirmation_channel),
-    confirmedAt: asText(item.confirmed_at),
-    arrivalStatus: asText(item.arrival_status) || "pending",
-    arrivedAt: asText(item.arrived_at),
-    arrivalOrder: Number(item.arrival_order ?? 0) || null,
-    forwardedAt: asText(item.forwarded_at),
-    forwardedByPersonId: asText(item.forwarded_by_person_id),
-    notes: asText(item.notes),
-    createdAt: asText(item.created_at),
-    order: Number(asRecord(item.metadata).order ?? 0) || null,
-  }));
+  return (appointments ?? []).map((item) => {
+    const change = latestChangeByAppointment.get(asText(item.id));
+    const previousEntityId = asText(change?.previous_entity_id);
+    return {
+      id: asText(item.id),
+      personId: asText(item.person_id),
+      entityId: asText(item.entity_id),
+      entityName: entityMap.get(asText(item.entity_id)) || "Entidade",
+      consulenteName: asText(item.consulente_name) || "Filho de Fora/Consulente",
+      whatsapp: asText(item.whatsapp),
+      appointmentDate: asText(item.appointment_date),
+      appointmentTime: asText(item.appointment_time) || "20:00",
+      status: asText(item.status),
+      bookingChannel: asText(item.booking_channel),
+      confirmationStatus: asText(item.confirmation_status) || "not_required",
+      confirmationExpiresAt: asText(item.confirmation_expires_at),
+      confirmationSentAt: asText(item.confirmation_sent_at),
+      confirmationChannel: asText(item.confirmation_channel),
+      confirmedAt: asText(item.confirmed_at),
+      arrivalStatus: asText(item.arrival_status) || "pending",
+      arrivedAt: asText(item.arrived_at),
+      arrivalOrder: Number(item.arrival_order ?? 0) || null,
+      forwardedAt: asText(item.forwarded_at),
+      forwardedByPersonId: asText(item.forwarded_by_person_id),
+      cancelledAt: asText(item.cancelled_at),
+      cancellationReason: asText(item.cancellation_reason),
+      previousEntityId,
+      previousEntityName: previousEntityId ? entityMap.get(previousEntityId) || "Entidade anterior" : "",
+      entityChangeReason: asText(change?.reason),
+      entityChangeMode: asText(change?.change_mode),
+      entityChangedAt: asText(change?.changed_at),
+      notes: asText(item.notes),
+      createdAt: asText(item.created_at),
+      order: Number(asRecord(item.metadata).order ?? 0) || null,
+    };
+  });
 }
 
 export function pilotReservationError(error: unknown) {

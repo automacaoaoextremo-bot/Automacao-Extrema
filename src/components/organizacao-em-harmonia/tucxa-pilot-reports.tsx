@@ -92,7 +92,7 @@ function cadernoStatus(row: Row): CadernoStatus | null {
   const confirmation = String(row["Confirmação"] ?? "").trim().toLowerCase();
   const arrival = String(row.Chegada ?? "").trim().toLowerCase();
 
-  if (status === "cancelado") return { label: "Cancelado", className: "bg-red-50 text-red-700 ring-red-200", printClass: "status-cancelled" };
+  if (status === "cancelado") return { label: "Cancelado · vaga liberada", className: "bg-red-50 text-red-700 ring-red-200", printClass: "status-cancelled" };
   if (arrival === "arrived") return { label: "Chegou", className: "bg-blue-50 text-blue-800 ring-blue-200", printClass: "status-arrived" };
   if (arrival === "absent") return { label: "Não Chegou", className: "bg-orange-50 text-orange-800 ring-orange-200", printClass: "status-absent" };
   if (confirmation === "confirmed") return { label: "Confirmado", className: "bg-emerald-50 text-emerald-800 ring-emerald-200", printClass: "status-confirmed" };
@@ -105,20 +105,44 @@ function cadernoStatus(row: Row): CadernoStatus | null {
 function cadernoSummary(entities: Map<string, Row[]>) {
   const counts = new Map<string, number>();
   let total = 0;
+  let vacancies = 0;
   for (const items of entities.values()) {
+    const entityMeta = items.find((item) => String(item._entityId ?? "").trim()) ?? items[0];
+    vacancies += Math.max(0, Number(entityMeta?._availableSlots ?? 0) || 0);
     for (const item of items) {
       const status = cadernoStatus(item);
       if (!status) continue;
-      total += 1;
+      if (String(item.Status ?? "").trim().toLowerCase() !== "cancelado") total += 1;
       counts.set(status.label, (counts.get(status.label) ?? 0) + 1);
     }
   }
-  return { total, counts };
+  return { total, vacancies, counts };
 }
 
 function summaryEntries(summary: ReturnType<typeof cadernoSummary>) {
-  const order = ["Confirmado", "Solicitado", "Não Confirmado", "Prazo encerrado", "Não comparecerá", "Chegou", "Não Chegou", "Cancelado"];
+  const order = ["Confirmado", "Solicitado", "Não Confirmado", "Prazo encerrado", "Não comparecerá", "Chegou", "Não Chegou", "Cancelado · vaga liberada"];
   return order.filter((label) => summary.counts.has(label)).map((label) => [label, summary.counts.get(label) ?? 0] as const);
+}
+
+function cadernoEntityState(items: Row[]) {
+  const meta = items.find((item) => String(item._entityId ?? "").trim()) ?? items[0];
+  return {
+    unavailable: String(meta?._entityAvailable ?? "1") === "0",
+    reason: String(meta?._entitySuspendedReason ?? "").trim(),
+  };
+}
+
+function cadernoRowNote(row: Row) {
+  const cancellation = String(row._cancellationReason ?? "").trim();
+  const previousEntity = String(row._previousEntityName ?? "").trim();
+  const changeReason = String(row._entityChangeReason ?? "").trim();
+  if (String(row.Status ?? "").trim().toLowerCase() === "cancelado") {
+    return cancellation ? `Motivo: ${cancellation}` : "Vaga liberada para a Triagem.";
+  }
+  if (previousEntity) {
+    return `Realocado de: ${previousEntity}${changeReason ? ` · ${changeReason}` : ""}`;
+  }
+  return "";
 }
 
 function printableTable(rows: Row[], title: string, grouped: boolean) {
@@ -134,21 +158,26 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
     return `
     <section class="caderno-page">
       <h2>${escapeHtml(date)}</h2>
-      <div class="day-summary"><strong>Total previsto: ${summary.total}</strong>${summaryEntries(summary).map(([label, count]) => `<span>${escapeHtml(label)}: ${count}</span>`).join("")}</div>
+      <div class="day-summary"><strong>Total previsto: ${summary.total}</strong><span>Vagas disponíveis: ${summary.vacancies}</span>${summaryEntries(summary).map(([label, count]) => `<span>${escapeHtml(label)}: ${count}</span>`).join("")}</div>
       <div class="entity-grid">
-        ${[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => `
-          <div class="entity-card">
+        ${[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
+          const state = cadernoEntityState(items);
+          return `
+          <div class="entity-card ${state.unavailable ? "entity-unavailable" : ""}">
             <h3>${escapeHtml(entity)}</h3>
+            ${state.unavailable ? `<div class="entity-alert"><strong>INDISPONÍVEL NESTA DATA</strong>${state.reason ? `<br>${escapeHtml(state.reason)}` : ""}</div>` : ""}
             <table>
               <tbody>
                 ${items.map((item) => {
                   const status = cadernoStatus(item);
-                  return `<tr><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}</td></tr>`;
+                  const note = cadernoRowNote(item);
+                  return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">${escapeHtml(item.Ordem || "")}</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
                 }).join("")}
                 ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
               </tbody>
             </table>
-          </div>`).join("")}
+          </div>`;
+        }).join("")}
       </div>
     </section>`;
   }).join("")}`;
@@ -261,7 +290,7 @@ export function TucxaPilotReports() {
         <button onClick={() => void load()} disabled={loading} className="self-end rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-60">{loading ? "Consultando..." : "Consultar"}</button>
       </div>
 
-      {kind === "caderno" && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">Visão do Caderno da Triagem organizada por Data → Entidade → Consulentes. Agendamentos cancelados não entram nesta visão.</p>}
+      {kind === "caderno" && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">Visão do Caderno da Triagem organizada por Data → Entidade → Consulentes. Cancelamentos permanecem visíveis como histórico e liberam vaga; Entidades indisponíveis na data são destacadas.</p>}
       {kind === "sem_whatsapp_terceiros" && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-950">Lista atendimentos cadastrados como realizados por outro contato/familiar/responsável, exibindo quem recebe as comunicações.</p>}
       {error && <p className="rounded-xl bg-red-50 p-3 font-bold text-red-700">{error}</p>}
 
@@ -284,6 +313,17 @@ export function TucxaPilotReports() {
             .entity-card{break-inside:avoid}
             .entity-card td{height:18px;padding:3px 5px}
             .entity-card .order{width:20px;text-align:center}
+            .day-summary{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:0 0 10px;font-size:10px}
+            .day-summary span,.day-summary strong{border:1px solid #c8d5cc;border-radius:10px;padding:3px 6px}
+            .entity-unavailable{border:2px solid #b42318}
+            .entity-unavailable h3{background:#fff0ed;color:#8a1c13}
+            .entity-alert{border:1px solid #f1a99f;background:#fff4f2;color:#8a1c13;padding:5px;font-size:9px;text-align:center}
+            .status-badge{display:inline-block;margin-top:2px;border:1px solid #bbb;border-radius:8px;padding:1px 5px;font-size:8px;font-weight:bold}
+            .status-cancelled{border-color:#ef9a9a;background:#fff0f0;color:#9b1c1c}
+            .status-confirmed{border-color:#a7d7b5;background:#edf9f0;color:#146b34}
+            .status-requested{border-color:#e5c56f;background:#fff8df;color:#725000}
+            .row-note{margin-top:2px;font-size:8px;color:#555}
+            .cancelled-row .consulente-name{text-decoration:line-through;color:#777}
           </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno")}</body></html>`);
           report.document.close(); report.focus(); window.setTimeout(() => report.print(), 250);
         }} className="rounded-xl border bg-white px-4 py-2 font-black">PDF / Imprimir</button>
@@ -309,29 +349,44 @@ export function TucxaPilotReports() {
                 <h3 className="rounded-xl bg-[#123D2C] px-3 py-2 text-center font-black text-white">{date}</h3>
                 <div className="flex flex-wrap items-center justify-center gap-2 rounded-xl bg-[#F7FAF2] px-3 py-2 text-xs font-bold ring-1 ring-[#123D2C]/10">
                   <span className="font-black text-[#123D2C]">Total previsto: {summary.total}</span>
+                  <span className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">Vagas disponíveis: {summary.vacancies}</span>
                   {summaryEntries(summary).map(([label, count]) => <span key={label} className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">{label}: {count}</span>)}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => (
-                    <div key={`${date}-${entity}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
-                      <h4 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entity}</h4>
-                      <div className="divide-y divide-[#123D2C]/10">
-                        {items.map((item, index) => (
-                          <div key={`${date}-${entity}-${index}`} className="grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2">
-                            <span className="text-center text-xs font-black text-slate-500">{String(item.Ordem || "")}</span>
-                            <div>
-                              <div className="font-bold text-[#123D2C]">{String(item.Consulente || "")}</div>
-                              {cadernoStatus(item) && (
-                                <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${cadernoStatus(item)!.className}`}>
-                                  {cadernoStatus(item)!.label}
-                                </span>
-                              )}
-                            </div>
+                  {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
+                    const state = cadernoEntityState(items);
+                    return (
+                      <div key={`${date}-${entity}`} className={`overflow-hidden rounded-2xl ring-1 ${state.unavailable ? "ring-2 ring-red-300" : "ring-[#123D2C]/15"}`}>
+                        <h4 className={`px-3 py-2 text-center text-sm font-black uppercase ${state.unavailable ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>{entity}</h4>
+                        {state.unavailable && (
+                          <div className="bg-red-50 px-3 py-2 text-center text-[10px] font-black text-red-800">
+                            ⚠ INDISPONÍVEL NESTA DATA{state.reason ? ` · ${state.reason}` : ""}
                           </div>
-                        ))}
+                        )}
+                        <div className="divide-y divide-[#123D2C]/10">
+                          {items.map((item, index) => {
+                            const status = cadernoStatus(item);
+                            const note = cadernoRowNote(item);
+                            const cancelled = String(item.Status ?? "").trim().toLowerCase() === "cancelado";
+                            return (
+                              <div key={`${date}-${entity}-${index}`} className={`grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2 ${cancelled ? "bg-red-50/40" : ""}`}>
+                                <span className="text-center text-xs font-black text-slate-500">{String(item.Ordem || "")}</span>
+                                <div>
+                                  <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{String(item.Consulente || "")}</div>
+                                  {status && (
+                                    <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${status.className}`}>
+                                      {status.label}
+                                    </span>
+                                  )}
+                                  {note && <p className="mt-1 text-[10px] font-semibold text-slate-600">{note}</p>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
               );

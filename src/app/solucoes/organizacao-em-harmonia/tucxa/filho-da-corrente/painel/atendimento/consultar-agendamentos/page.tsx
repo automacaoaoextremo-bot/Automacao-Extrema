@@ -21,6 +21,12 @@ type Appointment = {
   status: string;
   bookingChannel: string;
   order: number | null;
+  cancelledAt: string;
+  cancellationReason: string;
+  previousEntityId: string;
+  previousEntityName: string;
+  entityChangeReason: string;
+  entityChangedAt: string;
   person: { id: string | null; fullName: string; whatsapp: string; email: string };
   entity: { id: string | null; name: string };
   access: {
@@ -84,6 +90,20 @@ function longDate(value: string) {
   );
 }
 
+function dateTimeLabel(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function statusLabel(value: string) {
   const labels: Record<string, string> = {
     confirmado: "Confirmado",
@@ -91,7 +111,7 @@ function statusLabel(value: string) {
     aprovado: "Aprovado",
     presente: "Presente",
     concluido: "Concluído",
-    cancelado: "Cancelado",
+    cancelado: "Cancelado · vaga liberada",
     cancelamento_solicitado: "Cancelamento solicitado",
     ausente: "Ausente",
   };
@@ -399,6 +419,9 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                 ? "Cavalinho: seus Agendamentos possuem gestão própria; os Atendimentos da entidade vinculada ficam em modo somente leitura."
                 : "Cambono: consulta todos em modo somente leitura e pode gerir somente os próprios agendamentos."}
           </p>
+          <p className="mt-2 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-[#EEF7EA]">
+            Cancelamentos permanecem visíveis para a Triagem. Eles não ocupam vaga e são sinalizados como “vaga liberada”.
+          </p>
         </header>
 
         <section className="mt-3 rounded-[1.5rem] bg-white p-3 shadow ring-1 ring-[#123D2C]/10 sm:mt-4 sm:rounded-[2rem] sm:p-5">
@@ -537,6 +560,19 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                 {groupBy === "entity" && <p><span className="font-black text-[#2F6B43]">Quando:</span> {longDate(appointment.appointmentDate)} · {appointment.appointmentTime}</p>}
                                 {groupBy === "date" && <p><span className="font-black text-[#2F6B43]">Entidade:</span> {appointment.entity.name}</p>}
                                 <p className="flex flex-wrap items-center gap-2"><span className="font-black text-[#2F6B43]">Situação:</span><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(appointment.status)}`}>{statusLabel(appointment.status)}</span><span>· {channelLabel(appointment.bookingChannel)}</span></p>
+                                {appointment.status === "cancelado" && (
+                                  <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                                    Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                                    {appointment.cancelledAt ? ` · ${dateTimeLabel(appointment.cancelledAt)}` : ""}
+                                  </p>
+                                )}
+                                {appointment.previousEntityName && (
+                                  <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                                    Realocado de: {appointment.previousEntityName}
+                                    {appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                                    {appointment.entityChangedAt ? ` · ${dateTimeLabel(appointment.entityChangedAt)}` : ""}
+                                  </p>
+                                )}
                               </div>
                               {appointment.access.mode === "manage" && (
                                 <div className="mt-3 grid grid-cols-3 gap-2">

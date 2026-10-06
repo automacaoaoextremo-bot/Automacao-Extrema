@@ -59,6 +59,13 @@ type Appointment = {
   arrivalOrder: number | null;
   forwardedAt: string;
   forwardedByPersonId: string;
+  cancelledAt: string;
+  cancellationReason: string;
+  previousEntityId: string;
+  previousEntityName: string;
+  entityChangeReason: string;
+  entityChangeMode: string;
+  entityChangedAt: string;
 };
 type Settings = {
   confirmationCutoff: string;
@@ -457,7 +464,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const title = cavalinho ? `${cleanEntityName} (${cavalinho})` : cleanEntityName;
     const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
     const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
-    return `${title} ${booked}/${capacity}`;
+    return `${title} ${booked}/${capacity}${entity?.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
   }
 
   const filteredAppointments = useMemo(() => {
@@ -1071,6 +1078,79 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }
 
+
+  async function setEntityAvailabilityForSelectedDate(entity: Entity, available: boolean) {
+    const appointmentDate = payload?.selectedDate || "";
+    if (!appointmentDate) return;
+
+    const activeAppointments = (payload?.appointments ?? []).filter(
+      (item) => item.entityId === entity.id && item.status !== "cancelado",
+    );
+    const defaultReason = available
+      ? "Disponibilidade reativada pela Recepção."
+      : "Cavalinho não poderá comparecer.";
+    const reason = window.prompt(
+      available
+        ? `Informe a observação para reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`
+        : `Informe o motivo da indisponibilidade de ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`,
+      defaultReason,
+    )?.trim() ?? "";
+    if (!reason) return;
+
+    if (!available) {
+      const detail = activeAppointments.length
+        ? `\n\nHá ${activeAppointments.length} agendamento(s) ativo(s). Depois de marcar a indisponibilidade, a tela abrirá a troca em massa para realocá-los.`
+        : "";
+      if (!window.confirm(`Marcar ${entity.name} como indisponível em ${formatDateInputPtBr(appointmentDate)}?${detail}`)) return;
+    } else if (!window.confirm(`Reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}?`)) {
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({
+        action: "set-availability",
+        entityId: entity.id,
+        startsOn: appointmentDate,
+        endsOn: appointmentDate,
+        available,
+        reason,
+      });
+      await load(appointmentDate);
+
+      if (!available && activeAppointments.length > 0) {
+        setEntityChangeRequest({
+          mode: "bulk",
+          appointmentIds: activeAppointments.map((item) => item.id),
+          consulenteName: `${activeAppointments.length} agendamento(s)`,
+          currentEntityId: entity.id,
+          currentEntityName: entity.name,
+          newEntityId: "",
+          reason: `Entidade indisponível em ${formatDateInputPtBr(appointmentDate)}. ${reason}`,
+          notify: true,
+          attachment: null,
+        });
+        setSuccessNotice({
+          title: "Entidade sinalizada como indisponível",
+          message: `${entity.name} foi bloqueada para novos agendamentos nesta data. Agora escolha a Entidade de destino para realocar ${activeAppointments.length} atendimento(s).`,
+        });
+      } else {
+        setSuccessNotice({
+          title: available ? "Entidade reativada" : "Entidade sinalizada como indisponível",
+          message: typeof result.message === "string" ? result.message : (available ? "Disponibilidade reativada." : "Atendimento suspenso para esta data."),
+        });
+      }
+    } catch (actionError) {
+      setErrorNotice({
+        title: available ? "Não foi possível reativar a Entidade" : "Não foi possível sinalizar a indisponibilidade",
+        message: actionError instanceof Error ? actionError.message : "Tente novamente.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submitEntityChange(event: FormEvent) {
     event.preventDefault();
     if (!entityChangeRequest) return;
@@ -1608,17 +1688,64 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
+              {(payload.entities ?? []).some((entity) => entity.isAvailable === false) && (
+                <div className="grid gap-2 rounded-2xl bg-red-50 p-3 ring-1 ring-red-200">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-red-800">⚠ Entidades indisponíveis nesta data</p>
+                  {(payload.entities ?? []).filter((entity) => entity.isAvailable === false).map((entity) => {
+                    const activeCount = (payload.appointments ?? []).filter((item) => item.entityId === entity.id && item.status !== "cancelado").length;
+                    return (
+                      <div key={`unavailable-${entity.id}`} className="rounded-xl bg-white p-3 ring-1 ring-red-100">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-black text-red-900">{entity.name}</p>
+                            <p className="mt-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Atendimento suspenso para esta data."}</p>
+                            <p className="mt-1 text-xs font-black text-red-900">{activeCount} atendimento(s) ainda vinculado(s) · novos agendamentos bloqueados.</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {activeCount > 0 && (
+                              <button type="button" disabled={saving} onClick={() => openBulkEntityChange(entity)} className="rounded-lg bg-red-800 px-3 py-2 text-[10px] font-black text-white disabled:opacity-50">Realocar todos</button>
+                            )}
+                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(entity, true)} className="rounded-lg bg-white px-3 py-2 text-[10px] font-black text-red-800 ring-1 ring-red-200 disabled:opacity-50">Reativar</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
                   {Array.from(new Set(filteredAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
-                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-center text-sm font-black uppercase text-[#123D2C]">{entityHeading(entityName)}</h3>
+                      {(() => {
+                        const entity = payload.entities.find((item) => item.name === entityName);
+                        return (
+                          <>
+                            <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
+                              <h3 className="text-sm font-black uppercase">{entityHeading(entityName)}</h3>
+                              {entity && (
+                                <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(entity, entity.isAvailable === false)} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black ring-1 ring-current/20 disabled:opacity-50">
+                                  {entity.isAvailable === false ? "Reativar" : "Indisponível hoje"}
+                                </button>
+                              )}
+                            </div>
+                            {entity?.isAvailable === false && <p className="bg-red-50 px-3 pb-2 text-center text-[10px] font-bold text-red-800">⚠ {entity.suspendedReason || "Atendimento suspenso para esta data."}</p>}
+                          </>
+                        );
+                      })()}
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
                         {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
-                          <div key={`caderno-row-${appointment.id}`} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2">
-                            <div className="min-w-0"><p className="truncate text-sm font-black text-[#123D2C]">{appointment.consulenteName}</p><p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.order ?? "-"}</p><span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span></div>
-                            <input aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black" placeholder="Ordem" />
-                            <button type="button" disabled={saving} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                          <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
+                            <div className="min-w-0">
+                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{appointment.consulenteName}</p>
+                              <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
+                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${appointment.cancellationReason}` : ""}</p>}
+                              {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
+                            </div>
+                            <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
+                            <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
                           </div>
                         ))}
                       </div>
@@ -1638,7 +1765,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         (item) => item.entityId === entity.id && item.status !== "cancelado",
                       );
                       return (
-                        <span className="flex items-center gap-2">
+                        <span className="flex flex-wrap items-center justify-end gap-2">
                           {activeEntityAppointments.length > 0 && (
                             <button
                               type="button"
@@ -1649,6 +1776,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               Trocar todos
                             </button>
                           )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void setEntityAvailabilityForSelectedDate(entity, entity.isAvailable === false)}
+                            className={`rounded-lg px-2 py-1 text-[10px] font-black ring-1 disabled:opacity-50 ${entity.isAvailable === false ? "bg-white text-red-800 ring-red-200" : "bg-red-50 text-red-800 ring-red-100"}`}
+                          >
+                            {entity.isAvailable === false ? "Reativar" : "Indisponível hoje"}
+                          </button>
                         </span>
                       );
                     })()}
@@ -1667,6 +1802,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           </div>
                           <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                         </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
                         <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
                         {actionsOpen && (
                           <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
@@ -1761,6 +1906,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 .filter((entity) => paginatedEntityCatalog.some((pageEntity) => pageEntity.id === entity.id))
                 .map((entity) => {
                   const overview = entityOverview[entity.id];
+                  const currentDayEntity = payload.entities.find((item) => item.id === entity.id);
                   return (
                     <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10">
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
@@ -1773,6 +1919,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <button type="button" onClick={() => openEntityCadastro(entity.id)} className="rounded-xl bg-white px-2.5 py-2 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Cadastro</button>
                         <button type="button" disabled={saving || (!overview?.nextDate && !entityOverviewLoading)} onClick={() => void openEntityBookingCalendar(entity)} className="rounded-xl bg-[#123D2C] px-2.5 py-2 text-[11px] font-black text-white disabled:opacity-40">Agendar</button>
                       </div>
+                      {currentDayEntity && (
+                        <div className={`mt-2 rounded-xl px-3 py-2 ${currentDayEntity.isAvailable === false ? "bg-red-50 text-red-800 ring-1 ring-red-100" : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-[0.12em]">{formatDateInputPtBr(payload.selectedDate)}</p>
+                              <p className="text-xs font-bold">{currentDayEntity.isAvailable === false ? `⚠ Indisponível · ${currentDayEntity.suspendedReason || "Atendimento suspenso"}` : `${currentDayEntity.available} vaga(s) disponível(is) de ${currentDayEntity.capacity}`}</p>
+                            </div>
+                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(currentDayEntity, currentDayEntity.isAvailable === false)} className={`rounded-lg px-3 py-2 text-[10px] font-black disabled:opacity-50 ${currentDayEntity.isAvailable === false ? "bg-white text-red-800 ring-1 ring-red-200" : "bg-red-50 text-red-800 ring-1 ring-red-100"}`}>
+                              {currentDayEntity.isAvailable === false ? "Reativar na data" : "Indisponível na data"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {entity.mediums.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           {entity.mediums.map((medium) => (

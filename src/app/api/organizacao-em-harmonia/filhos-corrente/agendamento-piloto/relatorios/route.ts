@@ -148,7 +148,7 @@ export async function GET(request: Request) {
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
+        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,cancelled_at,cancellation_reason,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
         .eq("organization_id", context.organizationId)
         .order("appointment_date", { ascending: true })
         .order("created_at", { ascending: true });
@@ -159,15 +159,35 @@ export async function GET(request: Request) {
       else if (dateMode === "before" && dateTo) query = query.lt("appointment_date", dateTo);
       else if (dateMode !== "all") query = query.gte("appointment_date", today);
       if (kind === "sem_whatsapp_terceiros") query = query.eq("notification_contact_type", "alternate");
-      if (kind === "caderno") query = query.neq("status", "cancelado");
 
       const { data, error } = await query;
       if (error) throw error;
       const source = (data ?? []) as DbRow[];
-      const names = await entityNames(
-        context.organizationId,
-        Array.from(new Set(source.map((item) => text(item.entity_id)).filter(Boolean))),
-      );
+
+      const sourceAppointmentIds = source.map((item) => text(item.id)).filter(Boolean);
+      const { data: entityChanges, error: entityChangesError } = sourceAppointmentIds.length
+        ? await supabaseAdmin
+            .from("oh_tucxa_appointment_entity_changes")
+            .select("appointment_id,previous_entity_id,new_entity_id,reason,change_mode,changed_at")
+            .eq("organization_id", context.organizationId)
+            .in("appointment_id", sourceAppointmentIds)
+            .order("changed_at", { ascending: false })
+        : { data: [], error: null };
+      if (entityChangesError) throw entityChangesError;
+
+      const latestChangeByAppointment = new Map<string, DbRow>();
+      for (const change of (entityChanges ?? []) as DbRow[]) {
+        const appointmentId = text(change.appointment_id);
+        if (!appointmentId || latestChangeByAppointment.has(appointmentId)) continue;
+        latestChangeByAppointment.set(appointmentId, change);
+      }
+
+      const allEntityIds = Array.from(new Set([
+        ...source.map((item) => text(item.entity_id)),
+        ...(entityChanges ?? []).flatMap((item) => [text(item.previous_entity_id), text(item.new_entity_id)]),
+      ].filter(Boolean)));
+      const names = await entityNames(context.organizationId, allEntityIds);
+
       const filtered = person
         ? source.filter((item) => text(item.consulente_name).toLocaleLowerCase("pt-BR").includes(person))
         : source;
@@ -188,7 +208,15 @@ export async function GET(request: Request) {
         ? filtered.filter((item) => !ownWhatsapp.get(text(item.person_id)))
         : filtered;
 
+      type CadernoAvailability = {
+        capacity: number;
+        booked: number;
+        available: number;
+        isAvailable: boolean;
+        suspendedReason: string;
+      };
       const cadernoLabels = new Map<string, string>();
+      const cadernoAvailability = new Map<string, CadernoAvailability>();
       if (kind === "caderno") {
         const capacityIds = Array.from(new Set(reportSource.map((item) => text(item.entity_id)).filter(Boolean)));
         const { data: capacityRows, error: capacityError } = capacityIds.length
@@ -200,16 +228,22 @@ export async function GET(request: Request) {
           : { data: [], error: null };
         if (capacityError) throw capacityError;
         const capacityMap = new Map<string, number>((capacityRows ?? []).map((item) => [text(item.id), Math.max(1, Number(item.daily_capacity ?? 0) || 1)]));
-        const effectiveCapacityMap = new Map<string, number>();
         const cadernoDates = Array.from(new Set(reportSource.map((item) => text(item.appointment_date)).filter(Boolean)));
         for (const date of cadernoDates) {
           const dayEntities = await loadPilotDay(context.organizationId, date);
           for (const entity of dayEntities) {
-            effectiveCapacityMap.set(`${date}|${entity.id}`, Math.max(1, Number(entity.capacity ?? 0) || capacityMap.get(entity.id) || 1));
+            cadernoAvailability.set(`${date}|${entity.id}`, {
+              capacity: Math.max(1, Number(entity.capacity ?? 0) || capacityMap.get(entity.id) || 1),
+              booked: Math.max(0, Number(entity.booked ?? 0) || 0),
+              available: Math.max(0, Number(entity.available ?? 0) || 0),
+              isAvailable: entity.isAvailable !== false,
+              suspendedReason: text(entity.suspendedReason),
+            });
           }
         }
         const bookedMap = new Map<string, number>();
         for (const item of reportSource) {
+          if (text(item.status) === "cancelado") continue;
           const key = `${text(item.appointment_date)}|${text(item.entity_id)}`;
           bookedMap.set(key, (bookedMap.get(key) ?? 0) + 1);
         }
@@ -217,20 +251,39 @@ export async function GET(request: Request) {
           const entityId = text(item.entity_id);
           const key = `${text(item.appointment_date)}|${entityId}`;
           const base = names.get(entityId) || "Entidade";
-          const capacity = effectiveCapacityMap.get(key) ?? capacityMap.get(entityId) ?? 1;
-          cadernoLabels.set(key, `${base} ${bookedMap.get(key) ?? 0}/${capacity}`);
+          const availability = cadernoAvailability.get(key);
+          const capacity = availability?.capacity ?? capacityMap.get(entityId) ?? 1;
+          const booked = bookedMap.get(key) ?? availability?.booked ?? 0;
+          cadernoLabels.set(key, `${base} ${booked}/${capacity}${availability?.isAvailable === false ? " · INDISPONÍVEL" : ""}`);
         }
       }
 
       let rows = reportSource.map((item) => {
         const entityId = text(item.entity_id);
         const entity = names.get(entityId) || "Entidade";
+        const change = latestChangeByAppointment.get(text(item.id));
+        const previousEntityId = text(change?.previous_entity_id);
+        const previousEntityName = previousEntityId ? names.get(previousEntityId) || "Entidade anterior" : "";
+        const changeReason = text(change?.reason);
+        const cancellationReason = text(item.cancellation_reason);
         if (kind === "caderno") {
+          const key = `${text(item.appointment_date)}|${entityId}`;
+          const availability = cadernoAvailability.get(key);
           return {
+            _appointmentId: text(item.id),
+            _entityId: entityId,
+            _entityAvailable: availability?.isAvailable === false ? "0" : "1",
+            _entitySuspendedReason: availability?.suspendedReason || "",
+            _capacity: availability?.capacity ?? "",
+            _bookedActive: availability?.booked ?? "",
+            _availableSlots: availability?.available ?? "",
+            _previousEntityName: previousEntityName,
+            _entityChangeReason: changeReason,
+            _cancellationReason: cancellationReason,
             Data: dateLabel(item.appointment_date),
-            Entidade: cadernoLabels.get(`${text(item.appointment_date)}|${entityId}`) || entity,
+            Entidade: cadernoLabels.get(key) || entity,
             Consulente: text(item.consulente_name),
-            Ordem: Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || "",
+            Ordem: text(item.status) === "cancelado" ? "" : (Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || ""),
             Status: text(item.status),
             Confirmação: text(item.confirmation_status),
             Chegada: text(item.arrival_status),
@@ -257,6 +310,9 @@ export async function GET(request: Request) {
           Status: text(item.status),
           Confirmação: text(item.confirmation_status),
           Chegada: text(item.arrival_status),
+          "Motivo do cancelamento": cancellationReason,
+          "Realocado de": previousEntityName,
+          "Motivo da realocação": changeReason,
         };
       });
 
@@ -277,18 +333,33 @@ export async function GET(request: Request) {
           dates = Array.from(new Set(reportSource.map((item) => text(item.appointment_date)).filter(Boolean)));
         }
 
-        const existing = new Set(rows.map((row) => `${String(row.Data)}|${String(row.Entidade)}`));
         const existingEntityDate = new Set(reportSource.map((item) => `${dateLabel(item.appointment_date)}|${text(item.entity_id)}`));
         for (const date of dates) {
           const entities = await loadPilotDay(context.organizationId, date);
           const namesForDay = await entityNames(context.organizationId, entities.map((entity) => entity.id));
           for (const entity of entities) {
+            const keyIso = `${date}|${entity.id}`;
+            cadernoAvailability.set(keyIso, {
+              capacity: Math.max(1, Number(entity.capacity ?? 0) || 1),
+              booked: Math.max(0, Number(entity.booked ?? 0) || 0),
+              available: Math.max(0, Number(entity.available ?? 0) || 0),
+              isAvailable: entity.isAvailable !== false,
+              suspendedReason: text(entity.suspendedReason),
+            });
             if (existingEntityDate.has(`${dateLabel(date)}|${entity.id}`)) continue;
             const entityName = namesForDay.get(entity.id) || entity.name;
-            const cadernoEntityName = `${entityName} 0/${Math.max(1, Number(entity.capacity ?? 0) || 1)}`;
-            const key = `${dateLabel(date)}|${cadernoEntityName}`;
-            if (existing.has(key)) continue;
+            const cadernoEntityName = `${entityName} ${Math.max(0, Number(entity.booked ?? 0) || 0)}/${Math.max(1, Number(entity.capacity ?? 0) || 1)}${entity.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
             rows.push({
+              _appointmentId: "",
+              _entityId: entity.id,
+              _entityAvailable: entity.isAvailable === false ? "0" : "1",
+              _entitySuspendedReason: text(entity.suspendedReason),
+              _capacity: Math.max(1, Number(entity.capacity ?? 0) || 1),
+              _bookedActive: Math.max(0, Number(entity.booked ?? 0) || 0),
+              _availableSlots: Math.max(0, Number(entity.available ?? 0) || 0),
+              _previousEntityName: "",
+              _entityChangeReason: "",
+              _cancellationReason: "",
               Data: dateLabel(date),
               Entidade: cadernoEntityName,
               Consulente: "",
@@ -297,7 +368,6 @@ export async function GET(request: Request) {
               Confirmação: "",
               Chegada: "",
             });
-            existing.add(key);
           }
         }
         rows = rows.sort((left, right) => {
@@ -307,6 +377,9 @@ export async function GET(request: Request) {
           if (dateCompare) return dateCompare;
           const entityCompare = String(left.Entidade).localeCompare(String(right.Entidade), "pt-BR");
           if (entityCompare) return entityCompare;
+          const leftCancelled = String(left.Status) === "cancelado" ? 1 : 0;
+          const rightCancelled = String(right.Status) === "cancelado" ? 1 : 0;
+          if (leftCancelled !== rightCancelled) return leftCancelled - rightCancelled;
           return String(left.Consulente).localeCompare(String(right.Consulente), "pt-BR");
         });
       }
