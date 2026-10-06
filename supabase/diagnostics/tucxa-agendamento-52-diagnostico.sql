@@ -63,7 +63,7 @@ with tucxa as (
     on m.organization_id = p.organization_id
    and m.person_id = p.id
   where
-    lower(unaccent(coalesce(m.agenda_viva_profile::text, ''))) like '%recepc%'
+    lower(coalesce(m.agenda_viva_profile::text, '')) like '%recep%'
 )
 select
   m.full_name,

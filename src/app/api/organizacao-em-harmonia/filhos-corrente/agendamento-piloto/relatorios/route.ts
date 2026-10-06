@@ -233,6 +233,7 @@ export async function GET(request: Request) {
             Ordem: Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || "",
             Status: text(item.status),
             Confirmação: text(item.confirmation_status),
+            Chegada: text(item.arrival_status),
           };
         }
         if (kind === "sem_whatsapp_terceiros") {
@@ -294,6 +295,7 @@ export async function GET(request: Request) {
               Ordem: "",
               Status: "",
               Confirmação: "",
+              Chegada: "",
             });
             existing.add(key);
           }

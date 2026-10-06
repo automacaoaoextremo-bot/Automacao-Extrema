@@ -84,6 +84,43 @@ function cadernoGroups(rows: Row[]) {
   return groups;
 }
 
+type CadernoStatus = { label: string; className: string; printClass: string };
+
+function cadernoStatus(row: Row): CadernoStatus | null {
+  if (!String(row.Consulente ?? "").trim()) return null;
+  const status = String(row.Status ?? "").trim().toLowerCase();
+  const confirmation = String(row["Confirmação"] ?? "").trim().toLowerCase();
+  const arrival = String(row.Chegada ?? "").trim().toLowerCase();
+
+  if (status === "cancelado") return { label: "Cancelado", className: "bg-red-50 text-red-700 ring-red-200", printClass: "status-cancelled" };
+  if (arrival === "arrived") return { label: "Chegou", className: "bg-blue-50 text-blue-800 ring-blue-200", printClass: "status-arrived" };
+  if (arrival === "absent") return { label: "Não Chegou", className: "bg-orange-50 text-orange-800 ring-orange-200", printClass: "status-absent" };
+  if (confirmation === "confirmed") return { label: "Confirmado", className: "bg-emerald-50 text-emerald-800 ring-emerald-200", printClass: "status-confirmed" };
+  if (confirmation === "expired") return { label: "Prazo encerrado", className: "bg-slate-100 text-slate-700 ring-slate-200", printClass: "status-expired" };
+  if (confirmation === "declined") return { label: "Não comparecerá", className: "bg-rose-50 text-rose-800 ring-rose-200", printClass: "status-declined" };
+  if (status === "solicitado") return { label: "Solicitado", className: "bg-amber-50 text-amber-900 ring-amber-200", printClass: "status-requested" };
+  return { label: "Não Confirmado", className: "bg-violet-50 text-violet-800 ring-violet-200", printClass: "status-unconfirmed" };
+}
+
+function cadernoSummary(entities: Map<string, Row[]>) {
+  const counts = new Map<string, number>();
+  let total = 0;
+  for (const items of entities.values()) {
+    for (const item of items) {
+      const status = cadernoStatus(item);
+      if (!status) continue;
+      total += 1;
+      counts.set(status.label, (counts.get(status.label) ?? 0) + 1);
+    }
+  }
+  return { total, counts };
+}
+
+function summaryEntries(summary: ReturnType<typeof cadernoSummary>) {
+  const order = ["Confirmado", "Solicitado", "Não Confirmado", "Prazo encerrado", "Não comparecerá", "Chegou", "Não Chegou", "Cancelado"];
+  return order.filter((label) => summary.counts.has(label)).map((label) => [label, summary.counts.get(label) ?? 0] as const);
+}
+
 function printableTable(rows: Row[], title: string, grouped: boolean) {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
@@ -92,22 +129,29 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   }
 
   const groups = cadernoGroups(rows);
-  return `<h1>${escapeHtml(title)}</h1>${[...groups.entries()].map(([date, entities]) => `
+  return `<h1>${escapeHtml(title)}</h1>${[...groups.entries()].map(([date, entities]) => {
+    const summary = cadernoSummary(entities);
+    return `
     <section class="caderno-page">
       <h2>${escapeHtml(date)}</h2>
+      <div class="day-summary"><strong>Total previsto: ${summary.total}</strong>${summaryEntries(summary).map(([label, count]) => `<span>${escapeHtml(label)}: ${count}</span>`).join("")}</div>
       <div class="entity-grid">
         ${[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => `
           <div class="entity-card">
             <h3>${escapeHtml(entity)}</h3>
             <table>
               <tbody>
-                ${items.map((item) => `<tr><td class="order">&nbsp;</td><td>${escapeHtml(item.Consulente)}</td></tr>`).join("")}
+                ${items.map((item) => {
+                  const status = cadernoStatus(item);
+                  return `<tr><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}</td></tr>`;
+                }).join("")}
                 ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
               </tbody>
             </table>
           </div>`).join("")}
       </div>
-    </section>`).join("")}`;
+    </section>`;
+  }).join("")}`;
 }
 
 export function TucxaPilotReports() {
@@ -258,9 +302,15 @@ export function TucxaPilotReports() {
 
         {rows.length > 0 && kind === "caderno" && (
           <div className="grid gap-5">
-            {[...cadernoGroups(rows).entries()].map(([date, entities]) => (
+            {[...cadernoGroups(rows).entries()].map(([date, entities]) => {
+              const summary = cadernoSummary(entities);
+              return (
               <section key={date} className="grid gap-3">
                 <h3 className="rounded-xl bg-[#123D2C] px-3 py-2 text-center font-black text-white">{date}</h3>
+                <div className="flex flex-wrap items-center justify-center gap-2 rounded-xl bg-[#F7FAF2] px-3 py-2 text-xs font-bold ring-1 ring-[#123D2C]/10">
+                  <span className="font-black text-[#123D2C]">Total previsto: {summary.total}</span>
+                  {summaryEntries(summary).map(([label, count]) => <span key={label} className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">{label}: {count}</span>)}
+                </div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => (
                     <div key={`${date}-${entity}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
@@ -269,7 +319,14 @@ export function TucxaPilotReports() {
                         {items.map((item, index) => (
                           <div key={`${date}-${entity}-${index}`} className="grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2">
                             <span className="text-center text-xs font-black text-slate-500">{String(item.Ordem || "")}</span>
-                            <span className="font-bold text-[#123D2C]">{String(item.Consulente || "")}</span>
+                            <div>
+                              <div className="font-bold text-[#123D2C]">{String(item.Consulente || "")}</div>
+                              {cadernoStatus(item) && (
+                                <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${cadernoStatus(item)!.className}`}>
+                                  {cadernoStatus(item)!.label}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -277,7 +334,8 @@ export function TucxaPilotReports() {
                   ))}
                 </div>
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
 
