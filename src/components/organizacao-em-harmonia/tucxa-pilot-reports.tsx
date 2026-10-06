@@ -145,6 +145,25 @@ function cadernoRowNote(row: Row) {
   return "";
 }
 
+function printableEntityCard(entity: string, items: Row[]) {
+  const state = cadernoEntityState(items);
+  return `
+    <div class="entity-card ${state.unavailable ? "entity-unavailable" : ""}">
+      <h3>${escapeHtml(entity)}</h3>
+      ${state.unavailable ? `<div class="entity-alert"><strong>INDISPONÍVEL NESTA DATA</strong>${state.reason ? `<br>${escapeHtml(state.reason)}` : ""}</div>` : ""}
+      <table class="entity-table">
+        <tbody>
+          ${items.map((item) => {
+            const status = cadernoStatus(item);
+            const note = cadernoRowNote(item);
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+          }).join("")}
+          ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 function printableTable(rows: Row[], title: string, grouped: boolean) {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
@@ -153,34 +172,38 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   }
 
   const groups = cadernoGroups(rows);
-  return `<h1>${escapeHtml(title)}</h1>${[...groups.entries()].map(([date, entities]) => {
+  return [...groups.entries()].map(([date, entities], dateIndex, dateEntries) => {
     const summary = cadernoSummary(entities);
+    const sortedEntities = [...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
+    const entityRows: Array<Array<[string, Row[]]>> = [];
+    for (let index = 0; index < sortedEntities.length; index += 3) {
+      entityRows.push(sortedEntities.slice(index, index + 3));
+    }
+
+    const header = `
+      <div class="report-header-content">
+        <div class="report-title">${escapeHtml(title)}</div>
+        <div class="report-date">${escapeHtml(date)}</div>
+        <div class="day-summary"><strong>Total previsto: ${summary.total}</strong><span>Vagas disponíveis: ${summary.vacancies}</span>${summaryEntries(summary).map(([label, count]) => `<span>${escapeHtml(label)}: ${count}</span>`).join("")}</div>
+      </div>`;
+
     return `
-    <section class="caderno-page">
-      <h2>${escapeHtml(date)}</h2>
-      <div class="day-summary"><strong>Total previsto: ${summary.total}</strong><span>Vagas disponíveis: ${summary.vacancies}</span>${summaryEntries(summary).map(([label, count]) => `<span>${escapeHtml(label)}: ${count}</span>`).join("")}</div>
-      <div class="entity-grid">
-        ${[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
-          const state = cadernoEntityState(items);
-          return `
-          <div class="entity-card ${state.unavailable ? "entity-unavailable" : ""}">
-            <h3>${escapeHtml(entity)}</h3>
-            ${state.unavailable ? `<div class="entity-alert"><strong>INDISPONÍVEL NESTA DATA</strong>${state.reason ? `<br>${escapeHtml(state.reason)}` : ""}</div>` : ""}
-            <table>
-              <tbody>
-                ${items.map((item) => {
-                  const status = cadernoStatus(item);
-                  const note = cadernoRowNote(item);
-                  return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">${escapeHtml(item.Ordem || "")}</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
-                }).join("")}
-                ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
-              </tbody>
-            </table>
-          </div>`;
-        }).join("")}
-      </div>
-    </section>`;
-  }).join("")}`;
+      <table class="print-date-report ${dateIndex === dateEntries.length - 1 ? "last-date-report" : ""}">
+        <thead>
+          <tr><th class="repeat-header">${header}</th></tr>
+        </thead>
+        <tbody>
+          ${entityRows.map((entityRow) => `
+            <tr class="entity-grid-row">
+              <td class="entity-grid-cell">
+                <div class="entity-grid">
+                  ${entityRow.map(([entity, items]) => printableEntityCard(entity, items)).join("")}
+                </div>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  }).join("");
 }
 
 export function TucxaPilotReports() {
@@ -305,13 +328,20 @@ export function TucxaPilotReports() {
             table{border-collapse:collapse;width:100%}
             th,td{border:1px solid #aaa;padding:6px;text-align:left;font-size:11px}
             h1{color:#123D2C;font-size:18px;margin:0 0 12px}
-            h2{color:#123D2C;font-size:14px;text-align:center;margin:8px 0 10px}
             h3{color:#123D2C;font-size:11px;text-align:center;text-transform:uppercase;border:1px solid #888;margin:0;padding:5px;background:#f3f6ef}
-            .caderno-page{break-after:page}
-            .caderno-page:last-child{break-after:auto}
-            .entity-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-            .entity-card{break-inside:avoid}
-            .entity-card td{height:18px;padding:3px 5px}
+            .print-date-report{width:100%;border-collapse:collapse;break-after:page;page-break-after:always}
+            .print-date-report.last-date-report{break-after:auto;page-break-after:auto}
+            .print-date-report>thead{display:table-header-group}
+            .print-date-report>thead>tr>.repeat-header{border:0;padding:0 0 10px;background:#fff}
+            .print-date-report>tbody>tr>.entity-grid-cell{border:0;padding:0 0 10px}
+            .report-header-content{background:#fff}
+            .report-title{color:#123D2C;font-size:18px;font-weight:700;text-align:left;margin:0 0 12px}
+            .report-date{color:#123D2C;font-size:14px;font-weight:700;text-align:center;margin:8px 0 10px}
+            .entity-grid-row{break-inside:avoid;page-break-inside:avoid}
+            .entity-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:start}
+            .entity-card{break-inside:avoid;page-break-inside:avoid}
+            .entity-table{border-collapse:collapse;width:100%}
+            .entity-card td{border:1px solid #aaa;height:18px;padding:3px 5px}
             .entity-card .order{width:20px;text-align:center}
             .day-summary{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:0 0 10px;font-size:10px}
             .day-summary span,.day-summary strong{border:1px solid #c8d5cc;border-radius:10px;padding:3px 6px}
@@ -370,7 +400,7 @@ export function TucxaPilotReports() {
                             const cancelled = String(item.Status ?? "").trim().toLowerCase() === "cancelado";
                             return (
                               <div key={`${date}-${entity}-${index}`} className={`grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2 ${cancelled ? "bg-red-50/40" : ""}`}>
-                                <span className="text-center text-xs font-black text-slate-500">{String(item.Ordem || "")}</span>
+                                <span aria-hidden="true">&nbsp;</span>
                                 <div>
                                   <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{String(item.Consulente || "")}</div>
                                   {status && (

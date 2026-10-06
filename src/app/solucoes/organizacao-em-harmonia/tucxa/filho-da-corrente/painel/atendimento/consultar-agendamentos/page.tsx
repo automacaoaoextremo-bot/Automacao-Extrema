@@ -149,7 +149,6 @@ function whatsappConversationUrl(appointment: Appointment) {
     `Período: ${appointment.appointmentTime}`,
     `Entidade: ${appointment.entity.name}`,
     `Situação: ${statusLabel(appointment.status)}`,
-    appointment.order ? `Ordem prevista: ${appointment.order}` : "",
     "",
     "Podemos prosseguir por aqui?",
   ].filter(Boolean).join("\n");
@@ -550,9 +549,6 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                       : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
                                   }`}>
                                     {appointment.access.isOwn ? "Meu agendamento" : "Atendimento"}
-                                  </span>
-                                  <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                                    Ordem {appointment.order ?? "a confirmar"}
                                   </span>
                                 </div>
                               </div>
