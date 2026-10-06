@@ -132,6 +132,18 @@ function cadernoEntityState(items: Row[]) {
   };
 }
 
+function cadernoVisibleItems(items: Row[]) {
+  return items.filter((item) =>
+    Boolean(String(item._appointmentId ?? "").trim() || String(item.Consulente ?? "").trim()),
+  );
+}
+
+function cadernoBlankSlots(items: Row[]) {
+  const meta = items.find((item) => String(item._entityId ?? "").trim()) ?? items[0];
+  if (String(meta?._entityAvailable ?? "1") === "0") return 0;
+  return Math.max(0, Number(meta?._availableSlots ?? 0) || 0);
+}
+
 function cadernoRowNote(row: Row) {
   const cancellation = String(row._cancellationReason ?? "").trim();
   const previousEntity = String(row._previousEntityName ?? "").trim();
@@ -147,18 +159,20 @@ function cadernoRowNote(row: Row) {
 
 function printableEntityCard(entity: string, items: Row[]) {
   const state = cadernoEntityState(items);
+  const visibleItems = cadernoVisibleItems(items);
+  const blankSlots = cadernoBlankSlots(items);
   return `
     <div class="entity-card ${state.unavailable ? "entity-unavailable" : ""}">
       <h3>${escapeHtml(entity)}</h3>
       ${state.unavailable ? `<div class="entity-alert"><strong>INDISPONÍVEL NESTA DATA</strong>${state.reason ? `<br>${escapeHtml(state.reason)}` : ""}</div>` : ""}
       <table class="entity-table">
         <tbody>
-          ${items.map((item) => {
+          ${visibleItems.map((item) => {
             const status = cadernoStatus(item);
             const note = cadernoRowNote(item);
             return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
-          ${Array.from({ length: Math.max(0, 8 - items.length) }).map(() => `<tr><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
+          ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
       </table>
     </div>`;
@@ -385,6 +399,8 @@ export function TucxaPilotReports() {
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
                     const state = cadernoEntityState(items);
+                    const visibleItems = cadernoVisibleItems(items);
+                    const blankSlots = cadernoBlankSlots(items);
                     return (
                       <div key={`${date}-${entity}`} className={`overflow-hidden rounded-2xl ring-1 ${state.unavailable ? "ring-2 ring-red-300" : "ring-[#123D2C]/15"}`}>
                         <h4 className={`px-3 py-2 text-center text-sm font-black uppercase ${state.unavailable ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>{entity}</h4>
@@ -394,7 +410,7 @@ export function TucxaPilotReports() {
                           </div>
                         )}
                         <div className="divide-y divide-[#123D2C]/10">
-                          {items.map((item, index) => {
+                          {visibleItems.map((item, index) => {
                             const status = cadernoStatus(item);
                             const note = cadernoRowNote(item);
                             const cancelled = String(item.Status ?? "").trim().toLowerCase() === "cancelado";
@@ -413,6 +429,12 @@ export function TucxaPilotReports() {
                               </div>
                             );
                           })}
+                          {Array.from({ length: blankSlots }).map((_, index) => (
+                            <div key={`${date}-${entity}-vaga-${index}`} className="grid min-h-9 grid-cols-[2.5rem_1fr] gap-2 px-3 py-2" aria-label="Vaga disponível">
+                              <span aria-hidden="true">&nbsp;</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
