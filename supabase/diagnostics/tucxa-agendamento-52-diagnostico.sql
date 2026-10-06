@@ -80,7 +80,7 @@ select
   u.email_confirmed_at,
   u.phone_confirmed_at,
   u.last_sign_in_at,
-  u.user_metadata->>'must_change_password' as must_change_password,
+  u.raw_user_meta_data->>'must_change_password' as must_change_password,
   m.agenda_viva_profile
 from memberships m
 left join auth.users u on u.id = m.auth_user_id

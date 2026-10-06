@@ -39,7 +39,9 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
           confirmationStatus: "confirmed",
           confirmedAt: new Date().toISOString(),
         } : current);
-        setMessage(data.message || "Presença confirmada conforme os dados abaixo.");
+        // O próprio estado confirmado e os dados abaixo já dão o retorno visual necessário.
+        // Evita repetir ordem de agendamento e orientação sobre ordem de chegada no topo.
+        setMessage("");
       } else {
         setAppointment((current) => current ? {
           ...current,

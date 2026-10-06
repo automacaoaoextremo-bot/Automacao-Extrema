@@ -130,12 +130,9 @@ export async function POST(request: Request) {
           loginUrl: receptionLoginUrl(),
         }) : undefined,
       });
-      const order = confirmedDetails?.order && confirmedDetails.order > 0
-        ? ` Ordem do agendamento: ${confirmedDetails.order}.`
-        : "";
       return NextResponse.json({
         ok: true,
-        message: `Presença confirmada conforme os dados abaixo.${order} Mesmo com o agendamento, no dia do atendimento a ordem de atendimento será definida pela ordem de chegada.`,
+        message: "Presença confirmada com sucesso.",
       });
     }
 
