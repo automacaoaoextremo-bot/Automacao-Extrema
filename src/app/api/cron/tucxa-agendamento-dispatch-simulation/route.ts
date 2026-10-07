@@ -111,12 +111,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Organização TUCXA não localizada." }, { status: 404 });
     }
 
+    // A rota de homologação pode localizar a Entidade Teste mesmo quando ela
+    // permanece inativa na operação real. Assim, não precisamos ativá-la no
+    // cadastro apenas para validar os disparos automáticos.
     const { data: entity, error: entityError } = await supabaseAdmin
       .from("oh_spiritual_entities")
       .select("id,name,daily_capacity,active")
       .eq("organization_id", organization.id)
-      .ilike("name", `%${requestedEntity}%`)
-      .eq("active", true)
+      .ilike("name", requestedEntity)
       .order("name")
       .limit(1)
       .maybeSingle();
@@ -200,7 +202,7 @@ export async function GET(request: Request) {
         weekday,
         allowedTestWeekday,
         holiday: false,
-        entity: { id: entity.id, name: entityName, capacity },
+        entity: { id: entity.id, name: entityName, capacity, activeInRealOperation: Boolean(entity.active) },
         target: {
           personId: testPerson.id,
           name: recipientName,
