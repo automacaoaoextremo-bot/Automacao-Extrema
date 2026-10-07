@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   findTucxaOrganization,
+  isCampinasHoliday,
   loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
@@ -23,15 +24,19 @@ function appointmentOrder(metadata: unknown) {
 }
 
 function authorize(request: Request) {
-  const secret = process.env.CRON_SECRET || "";
-  if (!secret) return false;
+  const secrets = [process.env.CRON_SECRET, process.env.TUCXA_SCHEDULER_SECRET]
+    .map((value) => value?.trim())
+    .filter(Boolean) as string[];
+  if (!secrets.length) return false;
   const authorization = request.headers.get("authorization") || request.headers.get("Authorization") || "";
-  return authorization === `Bearer ${secret}`;
+  return secrets.some((secret) => authorization === `Bearer ${secret}`);
 }
 
-
 function weekdaySaoPaulo() {
-  const label = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
+  const label = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+  }).format(new Date());
   const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return map[label] ?? new Date().getDay();
 }
@@ -256,14 +261,39 @@ export async function GET(request: Request) {
     }
 
     const today = todaySaoPaulo();
+
+    // Segurança operacional: feriado/data sem atendimento é bloqueado antes
+    // de qualquer consulta de envio, gravação de log ou contato com provedor.
+    if (isCampinasHoliday(today)) {
+      return NextResponse.json({
+        ok: true,
+        today,
+        blocked: true,
+        reason: "holiday_or_no_service_date",
+        sent: 0,
+        skipped: 0,
+        failed: 0,
+        checked: 0,
+      });
+    }
+
     const settings = await loadPilotSettings(organization.id);
     const weekday = weekdaySaoPaulo();
     if (!settings.automaticDispatchWeekdays.includes(weekday)) {
-      return NextResponse.json({ ok: true, today, skippedByWeekday: true, weekday, sent: 0, skipped: 0, failed: 0, checked: 0 });
+      return NextResponse.json({
+        ok: true,
+        today,
+        skippedByWeekday: true,
+        weekday,
+        sent: 0,
+        skipped: 0,
+        failed: 0,
+        checked: 0,
+      });
     }
-    // Ajuste 50: o cron diario envia SOMENTE os lembretes dos agendamentos
-    // da data local corrente de Campinas/Brasilia. Os antigos lembretes por
-    // antecedencia nao sao processados por este scheduler diario.
+
+    // Ajuste 50: o cron diário envia SOMENTE os lembretes dos agendamentos
+    // da data local corrente de Campinas/Brasília.
     const dayReminder = await processDayOfReminders(organization.id, today);
 
     return NextResponse.json({
