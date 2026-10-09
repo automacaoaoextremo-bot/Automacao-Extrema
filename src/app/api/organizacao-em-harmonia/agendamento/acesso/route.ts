@@ -12,10 +12,15 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const CONSULENTE_DESTINATION = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto";
-const RECEPTION_DESTINATION = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto";
+const CONSULENTE_PANEL = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel";
+const CONSULENTE_APPOINTMENT = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto";
+const FILHO_PANEL = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
+const RECEPTION_APPOINTMENT = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto";
 const CAVALINHO_DESTINATION = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/entidades";
-const FILHO_DESTINATION = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
+
+type BaseKind = "filho-da-corrente" | "consulente";
+type OperationalKind = "recepcao" | "cavalinho" | null;
+type RolloutStage = "reception" | "consulente" | "all";
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -46,88 +51,153 @@ function syntheticEmail(email: string) {
   return email.endsWith("@organizacao-em-harmonia.local");
 }
 
-function profileKind(profile: Record<string, unknown>) {
-  if (profileHasReception(profile)) return "recepcao" as const;
-  if (profileHasCavalinho(profile)) return "cavalinho" as const;
+function normalizeToken(value: unknown) {
+  return asText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function canonicalPhone(value: unknown) {
+  const digits = onlyDigits(value);
+  if (!digits) return "";
+  const withoutCountry = digits.startsWith("55") && digits.length > 11 ? digits.slice(2) : digits;
+  return withoutCountry.length > 11 ? withoutCountry.slice(-11) : withoutCountry;
+}
+
+function profileSuggestsConsulente(profile: Record<string, unknown>) {
   const text = [profile.accessType, profile.publico, profile.pilotAccessKind]
     .map(asText)
     .join(" ")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-  if (text.includes("consulente") || text.includes("filho-de-fora") || text.includes("filho de fora")) {
-    return "consulente" as const;
-  }
-  return "filho-da-corrente" as const;
+
+  return text.includes("consulente") || text.includes("filho-de-fora") || text.includes("filho de fora");
 }
 
-function destinationFor(kind: ReturnType<typeof profileKind>) {
-  if (kind === "recepcao") return RECEPTION_DESTINATION;
-  if (kind === "cavalinho") return CAVALINHO_DESTINATION;
-  if (kind === "consulente") return CONSULENTE_DESTINATION;
-  return FILHO_DESTINATION;
+function operationalKind(profile: Record<string, unknown>): OperationalKind {
+  if (profileHasReception(profile)) return "recepcao";
+  if (profileHasCavalinho(profile)) return "cavalinho";
+  return null;
 }
 
-function rolloutAllows(kind: ReturnType<typeof profileKind>, stage: "reception" | "consulente" | "all") {
-  if (stage === "all") return true;
-  if (kind === "recepcao") return true;
-  if (stage === "consulente" && kind === "consulente") return true;
-  return false;
+function defaultDestination(
+  baseKind: BaseKind,
+  profile: Record<string, unknown>,
+  context: string,
+  rolloutStage: RolloutStage = "all",
+) {
+  if (context === "portal") {
+    return baseKind === "consulente" ? CONSULENTE_PANEL : FILHO_PANEL;
+  }
+
+  if (baseKind === "consulente") {
+    return rolloutStage === "consulente" || rolloutStage === "all"
+      ? CONSULENTE_APPOINTMENT
+      : CONSULENTE_PANEL;
+  }
+
+  const operation = operationalKind(profile);
+  if (operation === "recepcao") return RECEPTION_APPOINTMENT;
+  if (operation === "cavalinho" && rolloutStage === "all") return CAVALINHO_DESTINATION;
+  return FILHO_PANEL;
 }
 
-function rolloutMessage(kind: ReturnType<typeof profileKind>, stage: "reception" | "consulente" | "all") {
-  if (stage === "reception" && kind === "consulente") {
-    return "Nesta etapa do piloto, os agendamentos são feitos pela Recepção. Você receberá um SMS para confirmar sua presença quando houver um atendimento agendado.";
+async function resolveBaseKind(input: {
+  organizationId: string;
+  membership: { role_id?: string | null; agenda_viva_profile?: unknown };
+  authUser?: { user_metadata?: Record<string, unknown> | null } | null;
+}) : Promise<BaseKind> {
+  const authProfile = normalizeToken(input.authUser?.user_metadata?.oh_profile);
+  if (authProfile.includes("consulente") || authProfile.includes("filho-de-fora")) return "consulente";
+  if (authProfile.includes("filho-da-corrente") || authProfile.includes("filho-corrente")) return "filho-da-corrente";
+
+  const profile = asRecord(input.membership.agenda_viva_profile);
+  if (profileSuggestsConsulente(profile)) return "consulente";
+
+  const roleId = asText(input.membership.role_id);
+  if (roleId) {
+    const { data: role, error: roleError } = await supabaseAdmin
+      .from("oh_roles")
+      .select("slug, name")
+      .eq("organization_id", input.organizationId)
+      .eq("id", roleId)
+      .maybeSingle();
+    if (roleError) throw roleError;
+
+    const roleToken = normalizeToken(`${asText(role?.slug)} ${asText(role?.name)}`);
+    if (roleToken.includes("consulente") || roleToken.includes("filho-de-fora") || roleToken.includes("visitante")) {
+      return "consulente";
+    }
+    if (roleToken.includes("filho-da-corrente") || roleToken.includes("filho-corrente")) {
+      return "filho-da-corrente";
+    }
   }
-  if (stage !== "all") {
-    return "Seu acesso ao Agendamento ainda não foi liberado nesta etapa do piloto. A implantação está sendo feita gradualmente pelo Tucxa.";
-  }
-  return "Seu acesso ao Agendamento ainda não está liberado.";
+
+  return "filho-da-corrente";
 }
 
 async function findPersonByIdentifier(organizationId: string, identifier: string) {
   const value = asText(identifier);
   if (!value) return null;
 
+  const selectColumns =
+    "id, full_name, email, notification_email, whatsapp, auth_user_id, active, registration_source, privacy_notice_accepted_at";
+
   if (value.includes("@")) {
+    const normalizedEmail = value.toLowerCase();
     const { data, error } = await supabaseAdmin
       .from("oh_people")
-      .select("id, full_name, email, notification_email, whatsapp, auth_user_id, active, registration_source, privacy_notice_accepted_at")
+      .select(selectColumns)
       .eq("organization_id", organizationId)
-      .or(`email.ilike.${value.toLowerCase()},notification_email.ilike.${value.toLowerCase()}`)
+      .or(`email.ilike.${normalizedEmail},notification_email.ilike.${normalizedEmail}`)
       .eq("active", true)
       .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(5);
     if (error) throw error;
-    return data;
+
+    const unique = Array.from(new Map((data ?? []).map((item) => [String(item.id), item])).values());
+    if (unique.length > 1) {
+      throw new Error("Mais de um cadastro ativo usa este e-mail. Entre com o WhatsApp ou procure a administração do Tucxa.");
+    }
+    return unique[0] ?? null;
   }
 
-  const candidates = phoneCandidates(value);
-  if (!candidates.length) return null;
+  const wantedPhone = canonicalPhone(value);
+  if (!wantedPhone || wantedPhone.length < 10) return null;
 
-  const { data, error } = await supabaseAdmin
+  const candidates = phoneCandidates(value);
+  const { data: directRows, error: directError } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, email, notification_email, whatsapp, auth_user_id, active, registration_source, privacy_notice_accepted_at")
+    .select(selectColumns)
     .eq("organization_id", organizationId)
     .in("whatsapp", candidates)
     .eq("active", true)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (data?.id) return data;
+    .limit(20);
+  if (directError) throw directError;
 
-  const { data: allPhones, error: allPhonesError } = await supabaseAdmin
-    .from("oh_people")
-    .select("id, full_name, email, notification_email, whatsapp, auth_user_id, active, registration_source, privacy_notice_accepted_at")
-    .eq("organization_id", organizationId)
-    .eq("active", true);
-  if (allPhonesError) throw allPhonesError;
-  const wanted = new Set(candidates);
-  return (allPhones ?? []).find((item) => wanted.has(onlyDigits(item.whatsapp))) ?? null;
+  let matches = (directRows ?? []).filter((item) => canonicalPhone(item.whatsapp) === wantedPhone);
+
+  if (!matches.length) {
+    const { data: allPhones, error: allPhonesError } = await supabaseAdmin
+      .from("oh_people")
+      .select(selectColumns)
+      .eq("organization_id", organizationId)
+      .eq("active", true);
+    if (allPhonesError) throw allPhonesError;
+    matches = (allPhones ?? []).filter((item) => canonicalPhone(item.whatsapp) === wantedPhone);
+  }
+
+  const unique = Array.from(new Map(matches.map((item) => [String(item.id), item])).values());
+  if (unique.length > 1) {
+    throw new Error("Mais de um cadastro ativo usa este celular. Procure a administração do Tucxa antes de continuar.");
+  }
+  return unique[0] ?? null;
 }
-
 
 async function ensureConsulenteAuth(
   person: { id: string; full_name?: string | null; auth_user_id?: string | null },
@@ -135,8 +205,7 @@ async function ensureConsulenteAuth(
 ) {
   if (person.auth_user_id) return person.auth_user_id;
   const profile = asRecord(membership?.agenda_viva_profile);
-  const kind = profileKind(profile);
-  let isConsulente = kind === "consulente";
+  let isConsulente = profileSuggestsConsulente(profile);
   if (!isConsulente) {
     const { data: preference } = await supabaseAdmin
       .from("oh_tucxa_pilot_person_preferences")
@@ -170,7 +239,7 @@ async function ensureConsulenteAuth(
   if (personError) throw personError;
 
   const membershipId = asText((membership as Record<string, unknown> | null)?.id);
-  if (membershipId && kind !== "consulente") {
+  if (membershipId && !profileSuggestsConsulente(profile)) {
     const nextProfile = { ...profile, accessType: "consulente", publico: "consulente", pilotAccessKind: "consulente", source: asText(profile.source) || "tucxa_agendamento_48" };
     const { error: membershipError } = await supabaseAdmin.from("oh_memberships").update({ agenda_viva_profile: nextProfile, updated_at: now }).eq("id", membershipId);
     if (membershipError) throw membershipError;
@@ -181,7 +250,7 @@ async function ensureConsulenteAuth(
 async function loadMembership(organizationId: string, personId: string) {
   const { data, error } = await supabaseAdmin
     .from("oh_memberships")
-    .select("id, active, status, agenda_viva_profile")
+    .select("id, role_id, active, status, module_slugs, agenda_viva_profile")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .eq("active", true)
@@ -200,6 +269,7 @@ export async function POST(request: Request) {
     if (action === "login") {
       const identifier = asText(body.identifier);
       const password = asText(body.password);
+      const context = asText(body.context) === "portal" ? "portal" : "agendamento";
       if (!identifier || !password) {
         return NextResponse.json({ error: "Informe seu WhatsApp/e-mail e sua senha." }, { status: 400 });
       }
@@ -237,44 +307,44 @@ export async function POST(request: Request) {
       });
       const authEmail = asText(authData.user.email);
       const authPhone = onlyDigits(authData.user.phone);
-      if (!authEmail) {
-        console.warn("[TUCXA agendamento acesso] Auth sem e-mail técnico", {
+      const credentials = authEmail
+        ? { email: authEmail, password }
+        : authPhone
+          ? { phone: authPhone.startsWith("55") ? `+${authPhone}` : `+55${authPhone}`, password }
+          : null;
+
+      if (!credentials) {
+        console.warn("[TUCXA acesso único] Auth sem e-mail/telefone de autenticação", {
           personId: person.id,
           authUserId,
-          hasPhone: Boolean(authPhone),
-          authPhone: authPhone ? `${authPhone.slice(0, 4)}***${authPhone.slice(-4)}` : "",
         });
         return NextResponse.json(
-          { error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." },
+          { error: "Seu cadastro está sem uma credencial de autenticação válida. Procure a administração do Tucxa." },
           { status: 401 },
         );
       }
 
-      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({
-        email: authEmail,
-        password,
-      });
+      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword(credentials);
       if (signInError || !signInData.session) {
-        console.warn("[TUCXA agendamento acesso] falha no Supabase Auth", {
+        console.warn("[TUCXA acesso único] falha no Supabase Auth", {
           personId: person.id,
           authUserId,
-          credentialType: "email",
-          authEmail: syntheticEmail(authEmail) ? "synthetic" : "regular",
+          credentialType: authEmail ? "email" : "phone",
+          authEmail: authEmail ? (syntheticEmail(authEmail) ? "synthetic" : "regular") : "",
+          authPhone: authPhone ? `${authPhone.slice(0, 4)}***${authPhone.slice(-4)}` : "",
           signInError: signInError?.message || "sessão não retornada",
         });
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });
       }
 
       const profile = asRecord(membership.agenda_viva_profile);
-      const authProfile = asText(authData.user.user_metadata?.oh_profile);
-      const kind = authProfile === "consulente" ? "consulente" as const : profileKind(profile);
+      const baseKind = await resolveBaseKind({
+        organizationId: organization.id,
+        membership,
+        authUser: authData.user,
+      });
+      const operation = operationalKind(profile);
       const pilotSettings = await loadPilotSettings(organization.id);
-      if (!rolloutAllows(kind, pilotSettings.rolloutStage)) {
-        return NextResponse.json(
-          { error: rolloutMessage(kind, pilotSettings.rolloutStage), rolloutStage: pilotSettings.rolloutStage },
-          { status: 403 },
-        );
-      }
       const metadata = asRecord(authData.user.user_metadata);
       const registrationSource = asText(person.registration_source);
       const pilotSeed = registrationSource === "tucxa_agendamento_piloto_01" || asText(profile.source) === "tucxa_agendamento_piloto_01";
@@ -288,11 +358,51 @@ export async function POST(request: Request) {
           refreshToken: signInData.session.refresh_token,
         },
         profile: {
-          kind,
-          destination: destinationFor(kind),
+          kind: baseKind,
+          operationalKind: operation,
+          destination: defaultDestination(baseKind, profile, context, pilotSettings.rolloutStage),
           onboardingRequired: mustChangePassword || (pilotSeed && !onboardingCompleted),
         },
       });
+    }
+
+    if (action === "resolve-recovery") {
+      const identifier = asText(body.identifier);
+      if (!identifier) {
+        return NextResponse.json({ error: "Informe seu WhatsApp ou e-mail." }, { status: 400 });
+      }
+
+      const organization = await findTucxaOrganization();
+      if (!organization) return NextResponse.json({ error: "Organização Tucxa não localizada." }, { status: 404 });
+
+      const person = await findPersonByIdentifier(organization.id, identifier);
+      if (!person?.id || !person.auth_user_id) {
+        return NextResponse.json(
+          { error: "Não foi possível localizar uma credencial de acesso para este cadastro." },
+          { status: 404 },
+        );
+      }
+
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(person.auth_user_id);
+      if (authError || !authData.user) {
+        return NextResponse.json(
+          { error: "A credencial de autenticação deste cadastro não foi localizada." },
+          { status: 404 },
+        );
+      }
+
+      const authEmail = asText(authData.user.email).toLowerCase();
+      if (!authEmail || syntheticEmail(authEmail)) {
+        return NextResponse.json(
+          {
+            error:
+              "Seu acesso não possui um e-mail real vinculado para recuperação automática. Procure a administração do Tucxa para redefinir a senha com segurança.",
+          },
+          { status: 409 },
+        );
+      }
+
+      return NextResponse.json({ ok: true, authEmail });
     }
 
     if (action === "complete-first-access") {
@@ -368,8 +478,20 @@ export async function POST(request: Request) {
         },
       });
 
-      const kind = profileKind(nextProfile);
-      return NextResponse.json({ ok: true, destination: destinationFor(kind) });
+      const membershipForKind = {
+        ...membership,
+        agenda_viva_profile: nextProfile,
+      };
+      const baseKind = await resolveBaseKind({
+        organizationId: organization.id,
+        membership: membershipForKind,
+        authUser: authData.user,
+      });
+      const pilotSettings = await loadPilotSettings(organization.id);
+      return NextResponse.json({
+        ok: true,
+        destination: defaultDestination(baseKind, nextProfile, "agendamento", pilotSettings.rolloutStage),
+      });
     }
 
     return NextResponse.json({ error: "Ação inválida." }, { status: 400 });
@@ -402,7 +524,13 @@ export async function GET(request: Request) {
     const membership = await loadMembership(organization.id, person.id as string);
     if (!membership?.id) return NextResponse.json({ error: "Vínculo de acesso não localizado." }, { status: 404 });
     const profile = asRecord(membership.agenda_viva_profile);
-    const kind = profileKind(profile);
+    const baseKind = await resolveBaseKind({
+      organizationId: organization.id,
+      membership,
+      authUser: authData.user,
+    });
+    const operation = operationalKind(profile);
+    const pilotSettings = await loadPilotSettings(organization.id);
     const metadata = asRecord(authData.user.user_metadata);
     const registrationSource = asText(person.registration_source);
     const pilotSeed = registrationSource === "tucxa_agendamento_piloto_01" || asText(profile.source) === "tucxa_agendamento_piloto_01";
@@ -416,8 +544,9 @@ export async function GET(request: Request) {
         whatsapp: asText(person.whatsapp),
         email: asText(person.notification_email) || (syntheticEmail(asText(person.email)) ? "" : asText(person.email)),
         privacyAccepted: Boolean(person.privacy_notice_accepted_at),
-        kind,
-        destination: destinationFor(kind),
+        kind: baseKind,
+        operationalKind: operation,
+        destination: defaultDestination(baseKind, profile, "agendamento", pilotSettings.rolloutStage),
         onboardingRequired: mustChangePassword || (pilotSeed && !onboardingCompleted),
       },
     });
