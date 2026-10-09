@@ -237,21 +237,29 @@ export async function POST(request: Request) {
       });
       const authEmail = asText(authData.user.email);
       const authPhone = onlyDigits(authData.user.phone);
-      const credentials = authEmail
-        ? { email: authEmail, password }
-        : authPhone
-          ? { phone: authPhone.startsWith("55") ? `+${authPhone}` : `+55${authPhone}`, password }
-          : null;
-      if (!credentials) {
-        return NextResponse.json({ error: "Acesso sem e-mail/WhatsApp vinculado no Supabase Auth. Procure a Recepção." }, { status: 401 });
+      if (!authEmail) {
+        console.warn("[TUCXA agendamento acesso] Auth sem e-mail técnico", {
+          personId: person.id,
+          authUserId,
+          hasPhone: Boolean(authPhone),
+          authPhone: authPhone ? `${authPhone.slice(0, 4)}***${authPhone.slice(-4)}` : "",
+        });
+        return NextResponse.json(
+          { error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." },
+          { status: 401 },
+        );
       }
-      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword(credentials);
+
+      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({
+        email: authEmail,
+        password,
+      });
       if (signInError || !signInData.session) {
         console.warn("[TUCXA agendamento acesso] falha no Supabase Auth", {
           personId: person.id,
           authUserId,
-          credentialType: authEmail ? "email" : "phone",
-          authPhone: authPhone ? `${authPhone.slice(0, 4)}***${authPhone.slice(-4)}` : "",
+          credentialType: "email",
+          authEmail: syntheticEmail(authEmail) ? "synthetic" : "regular",
           signInError: signInError?.message || "sessão não retornada",
         });
         return NextResponse.json({ error: "Não foi possível entrar. Confira WhatsApp/e-mail e senha." }, { status: 401 });

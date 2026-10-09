@@ -8,6 +8,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 type AccessResponse = {
   ok?: boolean;
   authEmail?: string;
+  authPhone?: string;
   error?: string;
 };
 
@@ -35,7 +36,7 @@ export default function LoginFilhoDaCorrentePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function resolveLoginEmail() {
+  async function resolveLoginCredential() {
     const value = identifier.trim();
     if (!value) throw new Error("Informe seu WhatsApp ou e-mail.");
 
@@ -46,11 +47,11 @@ export default function LoginFilhoDaCorrentePage() {
     });
     const result = (await response.json()) as AccessResponse;
 
-    if (!response.ok || !result.authEmail) {
+    if (!response.ok || (!result.authEmail && !result.authPhone)) {
       throw new Error(result.error || "Não foi possível localizar seu cadastro liberado pelo Tucxa.");
     }
 
-    return result.authEmail;
+    return { authEmail: result.authEmail || "", authPhone: result.authPhone || "" };
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -59,11 +60,16 @@ export default function LoginFilhoDaCorrentePage() {
     setLoading(true);
 
     try {
-      const authEmail = await resolveLoginEmail();
-      const { error: authError } = await supabaseBrowser.auth.signInWithPassword({
-        email: authEmail,
-        password,
-      });
+      const credential = await resolveLoginCredential();
+      const { error: authError } = credential.authEmail
+        ? await supabaseBrowser.auth.signInWithPassword({
+            email: credential.authEmail,
+            password,
+          })
+        : await supabaseBrowser.auth.signInWithPassword({
+            phone: credential.authPhone,
+            password,
+          });
 
       if (authError) {
         setError("Não foi possível entrar. Confira WhatsApp/e-mail e senha.");
