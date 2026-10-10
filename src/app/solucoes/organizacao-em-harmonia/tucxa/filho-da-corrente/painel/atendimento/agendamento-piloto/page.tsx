@@ -9,7 +9,7 @@ import {
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
-import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
+import { disambiguatedPersonDisplayNames, firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -312,6 +312,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
   const [alphabetLetters, setAlphabetLetters] = useState<string[]>([]);
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
+  const [alphabetReturnLetter, setAlphabetReturnLetter] = useState("");
   const [alphabetLoading, setAlphabetLoading] = useState(false);
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
@@ -767,6 +768,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
   function openBookingModal(returnToTriagem = false) {
     resetBookingForm();
+    setAlphabetReturnLetter("");
     setBookingResult(null);
     setBookingReturnToTriagem(returnToTriagem);
     setError("");
@@ -1029,6 +1031,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
           ? result.people.filter((item): item is FoundPerson => Boolean(item && typeof item === "object"))
           : [];
         setAlphabetPicker({ letter, people });
+        if (modal === "cadastros" && cadastroMode === "consulentes") {
+          setAlphabetReturnLetter(letter);
+        }
       }
     } catch (alphabetError) {
       setErrorNotice({
@@ -1041,6 +1046,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   async function selectAlphabetPerson(person: FoundPerson) {
+    if (alphabetPicker?.letter && modal === "cadastros" && cadastroMode === "consulentes") {
+      setAlphabetReturnLetter(alphabetPicker.letter);
+    }
     setAlphabetPicker(null);
     setPhone(person.fullName);
     await selectPerson(person);
@@ -1050,6 +1058,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setAlphabetReturnLetter("");
     clearPersonSearch();
     try {
       const result = await postLegacy({ action: "search-consulente", query: phone, whatsapp: phone });
@@ -1575,8 +1584,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
         defaultEntityName: payload?.entityCatalog.find((entity) => entity.id === editPerson.defaultEntityId)?.name || "",
         allowDifferentEntity: editPerson.allowDifferentEntity,
       });
-      setModal(null);
-      setCadastroMode("menu");
+
+      if (alphabetReturnLetter) {
+        const returnLetter = alphabetReturnLetter;
+        clearPersonSearch();
+        setPhone("");
+        await loadConsulenteAlphabet(returnLetter);
+      } else {
+        setModal(null);
+        setCadastroMode("menu");
+      }
+
       setSuccessNotice({ title: "Cadastro de Consulente salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível atualizar o Consulente.");
@@ -1694,9 +1712,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setSettingsSection(null);
               return;
             }
+            if (modal === "cadastros" && cadastroMode === "consulentes" && foundPerson && alphabetReturnLetter) {
+              const returnLetter = alphabetReturnLetter;
+              clearPersonSearch();
+              setPhone("");
+              void loadConsulenteAlphabet(returnLetter);
+              return;
+            }
             if (modal === "cadastros" && cadastroMode !== "menu") {
               clearPersonSearch();
               setPhone("");
+              setAlphabetReturnLetter("");
               setCadastroMode("menu");
               return;
             }
@@ -1847,7 +1873,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                   {searchResults.map((person) => (
                     <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                      <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
+                      <span className="block font-black text-[#123D2C]">{disambiguatedPersonDisplayNames(searchResults).get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                       <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                     </button>
                   ))}
@@ -2561,7 +2587,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <div className="grid gap-4">
               {cadastroMode === "menu" && (
                 <div className="grid grid-cols-2 gap-3">
-                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setCadastroMode("consulentes"); void loadConsulenteAlphabet(); }} className="rounded-2xl bg-[#E9F2E7] p-5 text-left ring-1 ring-[#123D2C]/10">
+                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setAlphabetReturnLetter(""); setCadastroMode("consulentes"); void loadConsulenteAlphabet(); }} className="rounded-2xl bg-[#E9F2E7] p-5 text-left ring-1 ring-[#123D2C]/10">
                     <span className="block text-lg font-black text-[#123D2C]">Consulentes</span>
                     <span className="mt-1 block text-sm font-semibold text-slate-600">Buscar, atualizar ou cadastrar Filho de Fora/Consulente.</span>
                   </button>
@@ -2986,6 +3012,7 @@ function AlphabetConsulentePopup({
   const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
   const pagePeople = people.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+  const displayNames = disambiguatedPersonDisplayNames(people);
 
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
@@ -3006,7 +3033,7 @@ function AlphabetConsulentePopup({
             <div className="grid gap-2">
               {pagePeople.map((person) => (
                 <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                  <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
+                  <span className="block font-black text-[#123D2C]">{displayNames.get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                   <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                   {person.defaultEntityName && (
                     <span className="mt-1 block text-xs font-black text-[#2F6B43]">

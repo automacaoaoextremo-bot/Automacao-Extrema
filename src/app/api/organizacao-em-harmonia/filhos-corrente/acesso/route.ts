@@ -241,6 +241,50 @@ function errorToMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function firstAccessErrorResponse(error: unknown) {
+  const raw = errorToMessage(error, "Erro ao processar Primeiro Acesso.");
+  const normalized = raw.toLowerCase();
+  const candidate = error && typeof error === "object"
+    ? error as { code?: unknown; constraint?: unknown }
+    : {};
+  const code = typeof candidate.code === "string" ? candidate.code : "";
+  const constraint = typeof candidate.constraint === "string" ? candidate.constraint.toLowerCase() : "";
+
+  if (
+    code === "23505" ||
+    normalized.includes("duplicate key") ||
+    normalized.includes("unique constraint")
+  ) {
+    if (
+      constraint.includes("email") ||
+      normalized.includes("email") ||
+      normalized.includes("oh_people_email_lower_unique")
+    ) {
+      return {
+        status: 409,
+        message:
+          "Este e-mail já está vinculado a outro cadastro. Confira o e-mail informado ou procure a administração do Tucxa para revisar o vínculo antes de tentar novamente.",
+      };
+    }
+
+    if (constraint.includes("whatsapp") || normalized.includes("whatsapp")) {
+      return {
+        status: 409,
+        message:
+          "Este WhatsApp já está vinculado a outro cadastro. Use o número correto ou procure a administração do Tucxa.",
+      };
+    }
+
+    return {
+      status: 409,
+      message:
+        "Já existe um cadastro com uma das informações fornecidas. Confira WhatsApp e e-mail ou procure a administração do Tucxa.",
+    };
+  }
+
+  return { status: 500, message: raw };
+}
+
 async function findTucxaOrganizationId() {
   const { data: bySlug } = await supabaseAdmin.from("oh_organizations").select("id, name").eq("slug", "tucxa").maybeSingle();
   if (bySlug?.id) return { id: bySlug.id as string, name: (bySlug.name as string) || "Tucxa" };
@@ -375,59 +419,89 @@ async function reviewerEmails(organizationId: string) {
   return Array.from(new Set(emails.map((email) => email.toLowerCase()).filter(Boolean)));
 }
 
-async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: string; password: string; fullName: string; whatsapp: string; organizationId: string }) {
+async function findAuthUserByEmail(email: string) {
+  const wanted = email.trim().toLowerCase();
+  if (!wanted) return null;
+
+  for (let page = 1; page <= 100; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    const users = data?.users ?? [];
+    const found = users.find((item) => asText(item.email).toLowerCase() === wanted);
+    if (found) return found;
+    if (users.length < 1000) break;
+  }
+
+  return null;
+}
+
+async function ensureAuthUser(input: {
+  person: PersonRow | null;
+  emailForAuth: string;
+  password: string;
+  fullName: string;
+  whatsapp: string;
+  organizationId: string;
+}) {
+  const metadata = {
+    full_name: input.fullName,
+    whatsapp: input.whatsapp,
+    organization_id: input.organizationId,
+    oh_profile: "filho-da-corrente",
+    oh_access_status: "pendente_validacao",
+  };
+
   if (input.person?.auth_user_id) {
     const { error } = await supabaseAdmin.auth.admin.updateUserById(input.person.auth_user_id, {
       password: input.password,
       email_confirm: true,
-      user_metadata: {
-        full_name: input.fullName,
-        whatsapp: input.whatsapp,
-        organization_id: input.organizationId,
-        oh_profile: "filho-da-corrente",
-        oh_access_status: "pendente_validacao",
-      },
+      user_metadata: metadata,
     });
     if (error) throw error;
     return input.person.auth_user_id;
+  }
+
+  const existingAuth = await findAuthUserByEmail(input.emailForAuth);
+  if (existingAuth?.id) {
+    const existingMetadata = (existingAuth.user_metadata as Record<string, unknown> | undefined) ?? {};
+    const metadataWhatsapp = canonicalPhone(existingMetadata.whatsapp);
+    const authPhone = canonicalPhone(existingAuth.phone);
+    const metadataOrganizationId = asText(existingMetadata.organization_id);
+    const isSyntheticCredential = input.emailForAuth === syntheticEmailFromPhone(input.whatsapp);
+    const sameWhatsapp =
+      canonicalPhone(input.whatsapp) !== "" &&
+      (metadataWhatsapp === canonicalPhone(input.whatsapp) ||
+        authPhone === canonicalPhone(input.whatsapp));
+    const sameOrganization = metadataOrganizationId === input.organizationId;
+
+    // Recupera com segurança um Auth órfão criado por uma tentativa anterior
+    // deste mesmo Primeiro Acesso (mesmo celular + mesma organização). Nunca
+    // "toma posse" de um Auth real apenas porque o e-mail digitado coincide.
+    if (!(isSyntheticCredential || (sameWhatsapp && sameOrganization))) {
+      throw new Error(
+        "Este e-mail já possui uma credencial de acesso vinculada a outro cadastro. Confira o e-mail informado ou procure a administração do Tucxa.",
+      );
+    }
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existingAuth.id, {
+      password: input.password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (updateError) throw updateError;
+    return existingAuth.id;
   }
 
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email: input.emailForAuth,
     password: input.password,
     email_confirm: true,
-    user_metadata: {
-      full_name: input.fullName,
-      whatsapp: input.whatsapp,
-      organization_id: input.organizationId,
-      oh_profile: "filho-da-corrente",
-      oh_access_status: "pendente_validacao",
-    },
+    user_metadata: metadata,
   });
 
-  if (error) {
-    if (error.message.toLowerCase().includes("already")) {
-      const { data: found } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      const user = found.users.find((item: { email?: string | null; id: string }) => item.email?.toLowerCase() === input.emailForAuth.toLowerCase());
-      if (user?.id) {
-        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
-          password: input.password,
-          email_confirm: true,
-          user_metadata: {
-            full_name: input.fullName,
-            whatsapp: input.whatsapp,
-            organization_id: input.organizationId,
-            oh_profile: "filho-da-corrente",
-            oh_access_status: "pendente_validacao",
-          },
-        });
-        if (updateError) throw updateError;
-        return user.id;
-      }
-    }
-    throw error;
-  }
-
+  if (error) throw error;
+  if (!data.user?.id) throw new Error("Não foi possível criar a credencial de acesso.");
   return data.user.id;
 }
 
@@ -984,20 +1058,42 @@ async function submitFirstAccess(body: AccessBody) {
     notes,
     statusToken,
   };
-  const { error: validationError } = await supabaseAdmin
+  const validationPayload = {
+    organization_id: organization.id,
+    person_id: personId,
+    status: "pendente_validacao",
+    full_name: fullName,
+    whatsapp,
+    email: displayEmail(emailForAuth) || null,
+    function_slugs: functionSlugs,
+    agenda_slugs: agendaSlugs,
+    summary,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingValidation, error: existingValidationError } = await supabaseAdmin
     .from("oh_first_access_validation_requests")
-    .insert({
-      organization_id: organization.id,
-      person_id: personId,
-      status: "pendente_validacao",
-      full_name: fullName,
-      whatsapp,
-      email: displayEmail(emailForAuth) || null,
-      function_slugs: functionSlugs,
-      agenda_slugs: agendaSlugs,
-      summary,
-    });
-  if (validationError) throw validationError;
+    .select("id, status")
+    .eq("organization_id", organization.id)
+    .eq("person_id", personId)
+    .in("status", ["pendente_validacao", "ajuste_solicitado"])
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingValidationError) throw existingValidationError;
+
+  if (existingValidation?.id) {
+    const { error: validationError } = await supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .update(validationPayload)
+      .eq("id", existingValidation.id);
+    if (validationError) throw validationError;
+  } else {
+    const { error: validationError } = await supabaseAdmin
+      .from("oh_first_access_validation_requests")
+      .insert(validationPayload);
+    if (validationError) throw validationError;
+  }
 
   const validationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/validacoes?personId=${encodeURIComponent(personId)}`;
   const simulationUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/cliente/simular-acesso/${encodeURIComponent(personId)}`;
@@ -1126,6 +1222,8 @@ export async function POST(request: Request) {
     const result = await submitFirstAccess(body);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    return NextResponse.json({ error: errorToMessage(error, "Erro ao processar Primeiro Acesso.") }, { status: 500 });
+    console.error("[TUCXA][filhos-corrente/acesso]", error);
+    const friendly = firstAccessErrorResponse(error);
+    return NextResponse.json({ error: friendly.message }, { status: friendly.status });
   }
 }
