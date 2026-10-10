@@ -116,7 +116,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
   const [{ data: relationships, error: relationshipError }, { data: appointments, error: appointmentError }] = await Promise.all([
     supabaseAdmin
       .from("oh_tucxa_consulente_relationships")
-      .select("id,related_person_id,related_name,relationship,default_entity_id,updated_at")
+      .select("id,related_person_id,related_name,relationship,default_entity_id,allow_different_entity,updated_at")
       .eq("organization_id", organizationId)
       .eq("owner_person_id", ownerPersonId)
       .order("updated_at", { ascending: false }),
@@ -137,12 +137,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     ...(appointments ?? []).map((item) => asText(item.person_id)),
   ].filter(Boolean)));
 
-  const entityIds = Array.from(new Set([
-    ...(relationships ?? []).map((item) => asText(item.default_entity_id)),
-    ...(appointments ?? []).map((item) => asText(item.entity_id)),
-  ].filter(Boolean)));
-
-  const [{ data: relatedPeople, error: peopleError }, { data: entities, error: entityError }] = await Promise.all([
+  const [{ data: relatedPeople, error: peopleError }, { data: relatedPreferences, error: preferenceError }] = await Promise.all([
     relatedPersonIds.length
       ? supabaseAdmin
           .from("oh_people")
@@ -150,30 +145,55 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
           .eq("organization_id", organizationId)
           .in("id", relatedPersonIds)
       : Promise.resolve({ data: [], error: null }),
-    entityIds.length
+    relatedPersonIds.length
       ? supabaseAdmin
-          .from("oh_spiritual_entities")
-          .select("id,name")
+          .from("oh_tucxa_pilot_person_preferences")
+          .select("person_id,default_entity_id,allow_different_entity")
           .eq("organization_id", organizationId)
-          .in("id", entityIds)
+          .in("person_id", relatedPersonIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (peopleError) throw peopleError;
+  if (preferenceError) throw preferenceError;
+
+  const preferenceMap = new Map<string, { defaultEntityId: string; allowDifferentEntity: boolean }>((relatedPreferences ?? []).map((item) => [
+    asText(item.person_id),
+    {
+      defaultEntityId: asText(item.default_entity_id),
+      allowDifferentEntity: item.allow_different_entity === true,
+    },
+  ]));
+
+  const entityIds = Array.from(new Set([
+    ...(relationships ?? []).map((item) => asText(item.default_entity_id)),
+    ...(appointments ?? []).map((item) => asText(item.entity_id)),
+    ...(relatedPreferences ?? []).map((item) => asText(item.default_entity_id)),
+  ].filter(Boolean)));
+
+  const { data: entities, error: entityError } = entityIds.length
+    ? await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,name")
+        .eq("organization_id", organizationId)
+        .in("id", entityIds)
+    : { data: [], error: null };
   if (entityError) throw entityError;
 
-  const peopleMap = new Map((relatedPeople ?? []).map((item) => [
+  const peopleMap = new Map<string, { name: string; active: boolean }>((relatedPeople ?? []).map((item) => [
     asText(item.id),
     { name: asText(item.full_name), active: item.active !== false },
   ]));
-  const entityMap = new Map((entities ?? []).map((item) => [asText(item.id), asText(item.name)]));
+  const entityMap = new Map<string, string>((entities ?? []).map((item) => [asText(item.id), asText(item.name)]));
 
   type RelatedOption = {
     relationshipId: string;
+    historyAppointmentId: string;
     relatedPersonId: string;
     fullName: string;
     relationship: string;
     defaultEntityId: string;
     defaultEntityName: string;
+    allowDifferentEntity: boolean;
     source: "relationship" | "history";
   };
 
@@ -182,7 +202,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
 
   function keyFor(personId: string, name: string, relationship: string) {
     if (personId) return `person:${personId}`;
-    return `name:${normalizeSearchText(name)}|relationship:${normalizeSearchText(relationship)}`;
+    return `snapshot:${normalizeSearchText(name)}|relationship:${normalizeSearchText(relationship)}`;
   }
 
   function addOption(option: RelatedOption) {
@@ -199,6 +219,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     options[existingIndex] = {
       ...current,
       relationshipId: current.relationshipId || option.relationshipId,
+      historyAppointmentId: current.historyAppointmentId || option.historyAppointmentId,
       relatedPersonId: current.relatedPersonId || option.relatedPersonId,
       fullName: option.relatedPersonId && peopleMap.get(option.relatedPersonId)?.name
         ? peopleMap.get(option.relatedPersonId)!.name
@@ -206,6 +227,9 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
       relationship: current.relationship || option.relationship,
       defaultEntityId: current.defaultEntityId || option.defaultEntityId,
       defaultEntityName: current.defaultEntityName || option.defaultEntityName,
+      allowDifferentEntity: current.source === "relationship"
+        ? current.allowDifferentEntity
+        : option.allowDifferentEntity,
       source: current.source === "relationship" ? current.source : option.source,
     };
   }
@@ -214,14 +238,22 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const relatedPersonId = asText(item.related_person_id);
     const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
     if (relatedPersonId && currentPerson?.active === false) continue;
-    const defaultEntityId = asText(item.default_entity_id);
+
+    const personPreference = relatedPersonId ? preferenceMap.get(relatedPersonId) : null;
+    const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.default_entity_id);
+    const allowDifferentEntity = personPreference
+      ? personPreference.allowDifferentEntity
+      : item.allow_different_entity === true;
+
     addOption({
       relationshipId: asText(item.id),
+      historyAppointmentId: "",
       relatedPersonId,
       fullName: currentPerson?.name || asText(item.related_name),
       relationship: asText(item.relationship),
       defaultEntityId,
       defaultEntityName: entityMap.get(defaultEntityId) || "",
+      allowDifferentEntity,
       source: "relationship",
     });
   }
@@ -230,14 +262,19 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const relatedPersonId = asText(item.person_id);
     const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
     if (relatedPersonId && currentPerson?.active === false) continue;
-    const defaultEntityId = asText(item.entity_id);
+
+    const personPreference = relatedPersonId ? preferenceMap.get(relatedPersonId) : null;
+    const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.entity_id);
+
     addOption({
       relationshipId: "",
+      historyAppointmentId: asText(item.id),
       relatedPersonId,
       fullName: currentPerson?.name || asText(item.consulente_name),
       relationship: asText(item.notification_contact_relationship),
       defaultEntityId,
       defaultEntityName: entityMap.get(defaultEntityId) || "",
+      allowDifferentEntity: personPreference?.allowDifferentEntity === true,
       source: "history",
     });
   }
@@ -783,28 +820,44 @@ export async function POST(request: Request) {
 
       const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const requestedRelatedPersonId = contactMode === "alternate" ? asText(body.relatedPersonId) : "";
+      const requestedRelationshipId = contactMode === "alternate" ? asText(body.relatedRelationshipId) : "";
+      const requestedHistoryAppointmentId = contactMode === "alternate" ? asText(body.relatedHistoryAppointmentId) : "";
       let selectedRelatedOption: Awaited<ReturnType<typeof loadRelatedConsulentes>>[number] | null = null;
       let relatedPerson: { id: string; full_name: string } | null = null;
-      if (requestedRelatedPersonId) {
+
+      if (requestedRelatedPersonId || requestedRelationshipId || requestedHistoryAppointmentId) {
         const relatedOptions = await loadRelatedConsulentes(context.organizationId, person.id);
-        const allowedRelated = relatedOptions.find((item) => item.relatedPersonId === requestedRelatedPersonId);
+        const allowedRelated = relatedOptions.find((item) => (
+          (requestedRelationshipId && item.relationshipId === requestedRelationshipId)
+          || (requestedHistoryAppointmentId && item.historyAppointmentId === requestedHistoryAppointmentId)
+          || (
+            !requestedRelationshipId
+            && !requestedHistoryAppointmentId
+            && requestedRelatedPersonId
+            && item.relatedPersonId === requestedRelatedPersonId
+          )
+        ));
         if (!allowedRelated) {
           return NextResponse.json({ error: "A pessoa escolhida não está vinculada a este contato responsável.", requestId: code }, { status: 409 });
         }
+
         selectedRelatedOption = allowedRelated;
-        const { data: relatedRow, error: relatedError } = await supabaseAdmin
-          .from("oh_people")
-          .select("id,full_name")
-          .eq("organization_id", context.organizationId)
-          .eq("id", requestedRelatedPersonId)
-          .eq("active", true)
-          .maybeSingle();
-        if (relatedError) throw relatedError;
-        if (!relatedRow?.id) {
-          return NextResponse.json({ error: "O cadastro da pessoa vinculada não está mais ativo.", requestId: code }, { status: 409 });
+        if (allowedRelated.relatedPersonId) {
+          const { data: relatedRow, error: relatedError } = await supabaseAdmin
+            .from("oh_people")
+            .select("id,full_name")
+            .eq("organization_id", context.organizationId)
+            .eq("id", allowedRelated.relatedPersonId)
+            .eq("active", true)
+            .maybeSingle();
+          if (relatedError) throw relatedError;
+          if (!relatedRow?.id) {
+            return NextResponse.json({ error: "O cadastro da pessoa vinculada não está mais ativo.", requestId: code }, { status: 409 });
+          }
+          relatedPerson = { id: asText(relatedRow.id), full_name: asText(relatedRow.full_name) };
         }
-        relatedPerson = { id: asText(relatedRow.id), full_name: asText(relatedRow.full_name) };
       }
+
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
@@ -819,7 +872,6 @@ export async function POST(request: Request) {
         if (defaultEntityError) throw defaultEntityError;
 
         const defaultEntityName = asText(defaultEntityRow?.name) || "a Entidade padrão cadastrada";
-
         const selectedEntity = dayEntities.find((item) => item.id === entityId);
         const selectedIsPasse = /passe/i.test(asText(selectedEntity?.name));
         const defaultUnavailable = !requiredEntity || !requiredEntity.isAvailable || requiredEntity.available < 1;
@@ -838,6 +890,38 @@ export async function POST(request: Request) {
           return NextResponse.json(
             {
               error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não está autorizado a escolher outra Entidade.`,
+              requestId: code,
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      if (
+        contactMode === "alternate"
+        && selectedRelatedOption?.defaultEntityId
+        && selectedRelatedOption.allowDifferentEntity === false
+      ) {
+        const requiredEntity = dayEntities.find((item) => item.id === selectedRelatedOption!.defaultEntityId);
+        const selectedEntity = dayEntities.find((item) => item.id === entityId);
+        const selectedIsPasse = /passe/i.test(asText(selectedEntity?.name));
+        const defaultUnavailable = !requiredEntity || !requiredEntity.isAvailable || requiredEntity.available < 1;
+        const defaultEntityName = selectedRelatedOption.defaultEntityName || "a Entidade padrão cadastrada";
+
+        if (defaultUnavailable && !selectedIsPasse) {
+          return NextResponse.json(
+            {
+              error: `${selectedRelatedOption.fullName} possui ${defaultEntityName} como Entidade padrão, mas ela não atende ou não possui vaga nesta data. Se houver vaga, a Recepção pode selecionar Passe.`,
+              requestId: code,
+            },
+            { status: 409 },
+          );
+        }
+
+        if (!defaultUnavailable && entityId !== selectedRelatedOption.defaultEntityId) {
+          return NextResponse.json(
+            {
+              error: `${selectedRelatedOption.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade.`,
               requestId: code,
             },
             { status: 409 },
@@ -868,11 +952,25 @@ export async function POST(request: Request) {
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
       const ownPhone = normalizeBrazilPhone(person.whatsapp);
-      const alternateContactName = asText(body.contactName);
-      const alternateContactRelationship = asText(body.contactRelationship);
+      const alternateContactName = selectedRelatedOption?.fullName || asText(body.contactName);
+      const alternateContactRelationship = selectedRelatedOption?.relationship || asText(body.contactRelationship);
       if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship)) {
         return NextResponse.json({ error: "Informe o nome e o parentesco/vínculo da pessoa para quem o agendamento será realizado.", requestId: code }, { status: 400 });
       }
+
+      if (contactMode === "alternate" && !selectedRelatedOption && alternateContactName) {
+        const knownRelated = await loadRelatedConsulentes(context.organizationId, person.id);
+        const duplicatedSnapshot = knownRelated.find((item) => (
+          normalizeSearchText(item.fullName) === normalizeSearchText(alternateContactName)
+        ));
+        if (duplicatedSnapshot) {
+          return NextResponse.json({
+            error: `${firstTwoPersonNames(duplicatedSnapshot.fullName)} já está vinculada a este contato. Escolha a pessoa na lista em vez de cadastrá-la novamente pelo nome.`,
+            requestId: code,
+          }, { status: 409 });
+        }
+      }
+
       if (ownPhone.length < 10) {
         return NextResponse.json({ error: "O Consulente já cadastrado precisa possuir um WhatsApp válido para receber as informações do agendamento.", requestId: code }, { status: 400 });
       }
@@ -935,11 +1033,23 @@ export async function POST(request: Request) {
       }
 
       if (contactMode === "alternate") {
+        const effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || entityId;
+        const effectiveAllowDifferentEntity = selectedRelatedOption?.allowDifferentEntity === true;
+        const effectiveRelatedPersonId = relatedPerson?.id || selectedRelatedOption?.relatedPersonId || "";
+
+        if (effectiveRelatedPersonId && !selectedRelatedOption?.defaultEntityId) {
+          await savePilotPersonPreferences(context.organizationId, effectiveRelatedPersonId, {
+            defaultEntityId: entityId,
+            allowDifferentEntity: effectiveAllowDifferentEntity,
+          });
+        }
+
         const relationshipPayload = {
-          related_person_id: relatedPerson?.id || null,
+          related_person_id: effectiveRelatedPersonId || null,
           related_name: appointmentPersonName,
           relationship: alternateContactRelationship,
-          default_entity_id: entityId,
+          default_entity_id: effectiveDefaultEntityId || null,
+          allow_different_entity: effectiveAllowDifferentEntity,
           updated_at: new Date().toISOString(),
         };
 
@@ -1648,6 +1758,185 @@ export async function POST(request: Request) {
           relatedConsulentes,
           whatsappUrl: whatsappUrl(asText(person.whatsapp)),
         },
+      });
+    }
+
+    if (action === "update-related-consulente") {
+      const ownerPersonId = asText(body.ownerPersonId);
+      const requestedRelationshipId = asText(body.relationshipId);
+      const historyAppointmentId = asText(body.historyAppointmentId);
+      const defaultEntityId = asText(body.defaultEntityId);
+      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, false);
+
+      if (!ownerPersonId || (!requestedRelationshipId && !historyAppointmentId)) {
+        return NextResponse.json({
+          error: "Informe o contato responsável e a pessoa vinculada.",
+          requestId: code,
+        }, { status: 400 });
+      }
+
+      const { data: ownerPerson, error: ownerError } = await supabaseAdmin
+        .from("oh_people")
+        .select("id,active")
+        .eq("organization_id", context.organizationId)
+        .eq("id", ownerPersonId)
+        .eq("active", true)
+        .maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!ownerPerson?.id) {
+        return NextResponse.json({ error: "Contato responsável não localizado.", requestId: code }, { status: 404 });
+      }
+
+      if (defaultEntityId) {
+        const { data: defaultEntity, error: defaultEntityError } = await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,active,appointment_enabled")
+          .eq("organization_id", context.organizationId)
+          .eq("id", defaultEntityId)
+          .maybeSingle();
+        if (defaultEntityError) throw defaultEntityError;
+        if (!defaultEntity?.id || defaultEntity.active === false || defaultEntity.appointment_enabled === false) {
+          return NextResponse.json({ error: "A Entidade padrão escolhida não está ativa para agendamentos.", requestId: code }, { status: 409 });
+        }
+      }
+
+      let relationshipId = requestedRelationshipId;
+      let relatedPersonId = "";
+      let relatedName = "";
+      let relationship = "";
+
+      if (relationshipId) {
+        const { data: relationshipRow, error: relationshipError } = await supabaseAdmin
+          .from("oh_tucxa_consulente_relationships")
+          .select("id,related_person_id,related_name,relationship")
+          .eq("organization_id", context.organizationId)
+          .eq("owner_person_id", ownerPersonId)
+          .eq("id", relationshipId)
+          .maybeSingle();
+        if (relationshipError) throw relationshipError;
+        if (!relationshipRow?.id) {
+          return NextResponse.json({ error: "Vínculo da pessoa não localizado para este contato.", requestId: code }, { status: 404 });
+        }
+
+        relatedPersonId = asText(relationshipRow.related_person_id);
+        relatedName = asText(relationshipRow.related_name);
+        relationship = asText(relationshipRow.relationship);
+      } else {
+        const { data: historyRow, error: historyError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .select("id,person_id,consulente_name,notification_contact_relationship")
+          .eq("organization_id", context.organizationId)
+          .eq("source_contact_person_id", ownerPersonId)
+          .eq("notification_contact_type", "alternate")
+          .eq("id", historyAppointmentId)
+          .maybeSingle();
+        if (historyError) throw historyError;
+        if (!historyRow?.id) {
+          return NextResponse.json({ error: "Histórico da pessoa vinculada não localizado.", requestId: code }, { status: 404 });
+        }
+
+        relatedPersonId = asText(historyRow.person_id);
+        relatedName = asText(historyRow.consulente_name);
+        relationship = asText(historyRow.notification_contact_relationship) || "Consulente";
+
+        const { data: ownerRelationships, error: existingError } = await supabaseAdmin
+          .from("oh_tucxa_consulente_relationships")
+          .select("id,related_person_id,related_name,relationship")
+          .eq("organization_id", context.organizationId)
+          .eq("owner_person_id", ownerPersonId);
+        if (existingError) throw existingError;
+
+        const relatedByPerson = relatedPersonId
+          ? (ownerRelationships ?? []).filter((item) => asText(item.related_person_id) === relatedPersonId)
+          : [];
+        const sameNameRelationships = (ownerRelationships ?? []).filter((item) => (
+          normalizeSearchText(item.related_name) === normalizeSearchText(relatedName)
+        ));
+        const relatedBySnapshot = sameNameRelationships.filter((item) => (
+          normalizeSearchText(item.relationship) === normalizeSearchText(relationship)
+        ));
+        const existingCandidates = relatedByPerson.length ? relatedByPerson : relatedBySnapshot;
+
+        if (!relatedByPerson.length && !relatedBySnapshot.length && sameNameRelationships.length) {
+          return NextResponse.json({
+            error: "Já existe uma pessoa vinculada com este mesmo nome, mas com outro vínculo. Revise o cadastro antes de salvar para evitar juntar pessoas diferentes apenas pelo nome.",
+            requestId: code,
+          }, { status: 409 });
+        }
+
+        if (existingCandidates.length > 1) {
+          return NextResponse.json({
+            error: "Há mais de um vínculo compatível com este histórico. Revise o cadastro antes de salvar.",
+            requestId: code,
+          }, { status: 409 });
+        }
+
+        if (existingCandidates[0]?.id) {
+          relationshipId = asText(existingCandidates[0].id);
+        } else {
+          const { data: insertedRelationship, error: insertRelationshipError } = await supabaseAdmin
+            .from("oh_tucxa_consulente_relationships")
+            .insert({
+              organization_id: context.organizationId,
+              owner_person_id: ownerPersonId,
+              related_person_id: relatedPersonId || null,
+              related_name: relatedName,
+              relationship,
+              default_entity_id: defaultEntityId || null,
+              allow_different_entity: allowDifferentEntity,
+              created_by_person_id: context.personId,
+              updated_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+          if (insertRelationshipError) throw insertRelationshipError;
+          relationshipId = asText(insertedRelationship?.id);
+        }
+      }
+
+      if (!relationshipId || !relatedName) {
+        return NextResponse.json({ error: "Não foi possível identificar a pessoa vinculada.", requestId: code }, { status: 409 });
+      }
+
+      if (relatedPersonId) {
+        const { data: relatedPerson, error: relatedPersonError } = await supabaseAdmin
+          .from("oh_people")
+          .select("id,active")
+          .eq("organization_id", context.organizationId)
+          .eq("id", relatedPersonId)
+          .eq("active", true)
+          .maybeSingle();
+        if (relatedPersonError) throw relatedPersonError;
+        if (!relatedPerson?.id) {
+          return NextResponse.json({ error: "O cadastro da pessoa vinculada não está ativo.", requestId: code }, { status: 409 });
+        }
+
+        await savePilotPersonPreferences(context.organizationId, relatedPersonId, {
+          defaultEntityId,
+          allowDifferentEntity,
+        });
+      }
+
+      const { error: relationshipUpdateError } = await supabaseAdmin
+        .from("oh_tucxa_consulente_relationships")
+        .update({
+          related_person_id: relatedPersonId || null,
+          related_name: relatedName,
+          relationship,
+          default_entity_id: defaultEntityId || null,
+          allow_different_entity: allowDifferentEntity,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("owner_person_id", ownerPersonId)
+        .eq("id", relationshipId);
+      if (relationshipUpdateError) throw relationshipUpdateError;
+
+      const relatedConsulentes = await loadRelatedConsulentes(context.organizationId, ownerPersonId);
+      return NextResponse.json({
+        ok: true,
+        message: "Preferências da pessoa vinculada atualizadas.",
+        relatedConsulentes,
       });
     }
 

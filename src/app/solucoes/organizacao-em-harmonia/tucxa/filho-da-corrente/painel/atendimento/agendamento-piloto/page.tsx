@@ -74,12 +74,21 @@ type Appointment = {
 };
 type RelatedConsulente = {
   relationshipId: string;
+  historyAppointmentId: string;
   relatedPersonId: string;
   fullName: string;
   relationship: string;
   defaultEntityId: string;
   defaultEntityName: string;
+  allowDifferentEntity: boolean;
 };
+
+function relatedConsulenteKey(item: RelatedConsulente) {
+  if (item.relationshipId) return `relationship:${item.relationshipId}`;
+  if (item.historyAppointmentId) return `history:${item.historyAppointmentId}`;
+  if (item.relatedPersonId) return `person:${item.relatedPersonId}`;
+  return `snapshot:${item.fullName}|${item.relationship}`;
+}
 
 type Settings = {
   confirmationCutoff: string;
@@ -309,8 +318,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityId, setEntityId] = useState("");
   const [notes, setNotes] = useState("");
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
-  const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "", relatedPersonId: "" });
+  const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
   const [alternateRelationshipOption, setAlternateRelationshipOption] = useState("");
+  const [selectedRelatedKey, setSelectedRelatedKey] = useState("");
+  const [relatedPreferenceKey, setRelatedPreferenceKey] = useState("");
+  const [relatedPreferenceDraft, setRelatedPreferenceDraft] = useState({ defaultEntityId: "", allowDifferentEntity: false });
   const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
@@ -437,6 +449,21 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [modal]);
 
   const usableEntities = useMemo(() => (payload?.entities ?? []).filter((item) => item.isAvailable && item.available > 0), [payload?.entities]);
+  const selectedRelatedForBooking = useMemo(
+    () => foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === selectedRelatedKey) ?? null,
+    [foundPerson?.relatedConsulentes, selectedRelatedKey],
+  );
+  const selectedRelatedDefaultAvailable = useMemo(
+    () => Boolean(
+      selectedRelatedForBooking?.defaultEntityId
+      && usableEntities.some((entity) => entity.id === selectedRelatedForBooking.defaultEntityId),
+    ),
+    [selectedRelatedForBooking, usableEntities],
+  );
+  const selectedRelatedForPreferences = useMemo(
+    () => foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === relatedPreferenceKey) ?? null,
+    [foundPerson?.relatedConsulentes, relatedPreferenceKey],
+  );
   const activeEntityCatalog = useMemo(
     () => (payload?.entityCatalog ?? []).filter((entity) => entity.active && entity.appointmentEnabled),
     [payload?.entityCatalog],
@@ -713,6 +740,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
+    setRelatedPreferenceKey("");
+    setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
   }
 
   function resetBookingForm() {
@@ -723,8 +752,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityId("");
     setNotes("");
     setContactMode("consulente");
-    setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "" });
+    setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
     setAlternateRelationshipOption("");
+    setSelectedRelatedKey("");
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
@@ -850,7 +880,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setFoundPerson(detailedPerson);
       const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
-      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "" });
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
     setAlternateRelationshipOption("");
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
@@ -868,6 +898,96 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : "Não foi possível selecionar o cadastro.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function selectRelatedForBooking(value: string) {
+    setSelectedRelatedKey(value);
+    setErrorNotice(null);
+
+    if (!value || value === "__manual__") {
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+      setAlternateRelationshipOption("");
+      return;
+    }
+
+    const related = foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === value);
+    if (!related) {
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+      setAlternateRelationshipOption("");
+      return;
+    }
+
+    const knownRelationship = ["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].includes(related.relationship);
+    setAlternateRelationshipOption(knownRelationship ? related.relationship : "Outro");
+    setAlternateContact({
+      name: related.fullName,
+      relationship: related.relationship,
+      whatsapp: "",
+      relatedPersonId: related.relatedPersonId,
+      relationshipId: related.relationshipId,
+      historyAppointmentId: related.historyAppointmentId,
+    });
+
+    if (related.defaultEntityId) {
+      const defaultAvailable = usableEntities.some((entity) => entity.id === related.defaultEntityId);
+      if (!bookingContextLocked && bookingMode === "date" && defaultAvailable) {
+        // A Entidade padrão é sempre a sugestão inicial. Quando a permissão estiver
+        // liberada, a Recepção ainda poderá escolher outra Entidade.
+        setEntityId(related.defaultEntityId);
+      } else if (
+        related.allowDifferentEntity === false
+        && bookingContextLocked
+        && entityId
+        && defaultAvailable
+        && entityId !== related.defaultEntityId
+      ) {
+        setErrorNotice({
+          title: "Entidade padrão diferente",
+          message: `${firstTwoPersonNames(related.fullName)} possui ${related.defaultEntityName || "outra Entidade"} como Entidade padrão e não está autorizado(a) a escolher outra Entidade.`,
+        });
+      }
+    }
+  }
+
+  async function saveRelatedConsulentePreferences() {
+    if (!foundPerson || !relatedPreferenceKey) return;
+
+    const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === relatedPreferenceKey);
+    if (!related) return;
+
+    setSaving(true);
+    setError("");
+    setErrorNotice(null);
+
+    try {
+      const result = await postPilot({
+        action: "update-related-consulente",
+        ownerPersonId: foundPerson.id,
+        relationshipId: related.relationshipId,
+        historyAppointmentId: related.historyAppointmentId,
+        defaultEntityId: relatedPreferenceDraft.defaultEntityId,
+        allowDifferentEntity: relatedPreferenceDraft.allowDifferentEntity,
+      });
+
+      const relatedConsulentes = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : foundPerson.relatedConsulentes ?? [];
+
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
+      setRelatedPreferenceKey("");
+      setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
+      setSuccessNotice({
+        title: "Pessoa vinculada atualizada",
+        message: typeof result.message === "string" ? result.message : "Preferências da pessoa vinculada atualizadas.",
+      });
+    } catch (saveError) {
+      setErrorNotice({
+        title: "Não foi possível salvar a pessoa vinculada",
+        message: saveError instanceof Error ? saveError.message : "Não foi possível atualizar a pessoa vinculada.",
+      });
     } finally {
       setSaving(false);
     }
@@ -1011,6 +1131,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
         contactName: contactMode === "alternate" ? alternateContact.name : "",
         contactRelationship: contactMode === "alternate" ? alternateContact.relationship : "",
         relatedPersonId: contactMode === "alternate" ? alternateContact.relatedPersonId : "",
+        relatedRelationshipId: contactMode === "alternate" ? alternateContact.relationshipId : "",
+        relatedHistoryAppointmentId: contactMode === "alternate" ? alternateContact.historyAppointmentId : "",
         contactWhatsapp: "",
       }) as BookingResult;
       const selectedDate = payload.selectedDate;
@@ -1444,7 +1566,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const result = await postPilot({ action: "update-consulente", personId: foundPerson.id, ...editPerson });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro de Consulente atualizado com sucesso.";
       setMessage("");
-      setFoundPerson({ id: foundPerson.id, fullName: editPerson.fullName, whatsapp: editPerson.whatsapp, email: editPerson.email });
+      setFoundPerson({
+        ...foundPerson,
+        fullName: editPerson.fullName,
+        whatsapp: editPerson.whatsapp,
+        email: editPerson.email,
+        defaultEntityId: editPerson.defaultEntityId,
+        defaultEntityName: payload?.entityCatalog.find((entity) => entity.id === editPerson.defaultEntityId)?.name || "",
+        allowDifferentEntity: editPerson.allowDifferentEntity,
+      });
       setModal(null);
       setCadastroMode("menu");
       setSuccessNotice({ title: "Cadastro de Consulente salvo", message: successMessage });
@@ -1764,7 +1894,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <select
                         value={entityId}
                         onChange={(event) => setEntityId(event.target.value)}
-                        disabled={Boolean(contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
+                        disabled={Boolean(
+                          (contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)
+                          || (
+                            contactMode === "alternate"
+                            && selectedRelatedForBooking?.defaultEntityId
+                            && selectedRelatedForBooking.allowDifferentEntity === false
+                            && selectedRelatedDefaultAvailable
+                          )
+                        )}
                         className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         <option value="">Escolha uma Entidade</option>
@@ -1773,8 +1911,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       {contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
                         <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro deste Consulente.</span>
                       )}
-                      {contactMode === "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
-                        <span className="text-xs font-semibold text-emerald-700">Como o agendamento é para outra pessoa, a Recepção pode escolher a Entidade adequada para este atendimento.</span>
+                      {contactMode === "alternate" && selectedRelatedForBooking?.defaultEntityId && selectedRelatedForBooking.allowDifferentEntity === false && selectedRelatedDefaultAvailable && (
+                        <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro da pessoa que será atendida.</span>
+                      )}
+                      {contactMode === "alternate" && selectedRelatedForBooking?.defaultEntityId && selectedRelatedForBooking.allowDifferentEntity === false && !selectedRelatedDefaultAvailable && (
+                        <span className="text-xs font-semibold text-amber-700">A Entidade padrão desta pessoa não atende ou não possui vaga nesta data. Se houver vaga, a Recepção pode selecionar Passe.</span>
                       )}
                     </label>
                   ) : (
@@ -1789,8 +1930,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         checked={contactMode === "consulente"}
                         onChange={() => {
                           setContactMode("consulente");
-                          setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "" });
+                          setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
                           setAlternateRelationshipOption("");
+                          setSelectedRelatedKey("");
                         }}
                         disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10}
                       />
@@ -1808,66 +1950,94 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     {contactMode === "alternate" && (
                       <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <p className="text-sm font-black text-[#123D2C]">Pessoa que será atendida</p>
-                        {(foundPerson.relatedConsulentes?.length ?? 0) > 0 && (
-                          <div className="grid gap-1.5">
-                            <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#2F6B43]">Pessoas já vinculadas a este contato</p>
-                            {foundPerson.relatedConsulentes!.map((related) => (
-                              <button
-                                key={related.relationshipId || `${related.relatedPersonId}-${related.fullName}-${related.relationship}`}
-                                type="button"
-                                onClick={() => {
-                                  const knownRelationship = ["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].includes(related.relationship);
-                                  setAlternateRelationshipOption(knownRelationship ? related.relationship : "Outro");
-                                  setAlternateContact({
-                                    name: related.fullName,
-                                    relationship: related.relationship,
-                                    whatsapp: "",
-                                    relatedPersonId: related.relatedPersonId,
-                                  });
-                                  if (!bookingContextLocked && related.defaultEntityId && usableEntities.some((entity) => entity.id === related.defaultEntityId)) {
-                                    setEntityId(related.defaultEntityId);
-                                  }
-                                }}
-                                className={`rounded-xl p-2.5 text-left ring-1 ${alternateContact.relatedPersonId === related.relatedPersonId && related.relatedPersonId
-                                  ? "bg-[#E9F2E7] text-[#123D2C] ring-[#2F6B43]/30"
-                                  : "bg-white text-[#123D2C] ring-[#123D2C]/10"}`}
-                              >
-                                <span className="block text-sm font-black">{firstTwoPersonNames(related.fullName)}</span>
-                                <span className="mt-0.5 block text-[11px] font-semibold text-slate-600">
-                                  {[related.relationship, related.defaultEntityName].filter(Boolean).join(" · ") || "Vínculo já utilizado em agendamento anterior"}
-                                </span>
-                              </button>
-                            ))}
+
+                        {(foundPerson.relatedConsulentes?.length ?? 0) > 0 ? (
+                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                            Escolher pessoa
+                            <select
+                              value={selectedRelatedKey}
+                              onChange={(event) => selectRelatedForBooking(event.target.value)}
+                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold"
+                            >
+                              <option value="">Abra para escolher</option>
+                              {foundPerson.relatedConsulentes!.map((related) => (
+                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
+                                  {firstTwoPersonNames(related.fullName)}
+                                  {related.relationship ? ` · ${related.relationship}` : ""}
+                                  {related.defaultEntityName ? ` · ${related.defaultEntityName}` : ""}
+                                </option>
+                              ))}
+                              <option value="__manual__">Outra pessoa</option>
+                            </select>
+                          </label>
+                        ) : (
+                          <p className="text-xs font-semibold text-slate-600">Ainda não há pessoas vinculadas a este contato. Informe a pessoa abaixo.</p>
+                        )}
+
+                        {selectedRelatedForBooking && selectedRelatedKey !== "__manual__" && (
+                          <div className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                            <p className="text-sm font-black text-[#123D2C]">{firstTwoPersonNames(selectedRelatedForBooking.fullName)}</p>
+                            <p className="mt-1 text-xs font-semibold text-slate-600">
+                              {[selectedRelatedForBooking.relationship, selectedRelatedForBooking.defaultEntityName || "Sem Entidade padrão"].filter(Boolean).join(" · ")}
+                            </p>
+                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                              {selectedRelatedForBooking.allowDifferentEntity
+                                ? "Pode agendar com Entidade diferente da padrão."
+                                : "Usa a Entidade padrão, salvo a regra de Passe quando ela não atende ou está sem vaga."}
+                            </p>
                           </div>
                         )}
-                        <input
-                          value={alternateContact.name}
-                          onChange={(event) => setAlternateContact((current) => ({ ...current, name: event.target.value, relatedPersonId: "" }))}
-                          placeholder="Nome da pessoa atendida"
-                          className="rounded-xl border border-[#123D2C]/15 p-2.5"
-                        />
-                        <select
-                          value={alternateRelationshipOption}
-                          onChange={(event) => {
-                            const option = event.target.value;
-                            setAlternateRelationshipOption(option);
-                            setAlternateContact((current) => ({ ...current, relationship: option === "Outro" ? "" : option }));
-                          }}
-                          className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
-                        >
-                          <option value="">Escolha o parentesco/vínculo</option>
-                          {["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].map((relationship) => (
-                            <option key={relationship} value={relationship}>{relationship}</option>
-                          ))}
-                          <option value="Outro">Outro</option>
-                        </select>
-                        {alternateRelationshipOption === "Outro" && (
-                          <input
-                            value={alternateContact.relationship}
-                            onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))}
-                            placeholder="Informe o parentesco/vínculo"
-                            className="rounded-xl border border-[#123D2C]/15 p-2.5"
-                          />
+
+                        {((foundPerson.relatedConsulentes?.length ?? 0) === 0 || selectedRelatedKey === "__manual__") && (
+                          <>
+                            <input
+                              value={alternateContact.name}
+                              onChange={(event) => setAlternateContact((current) => ({
+                                ...current,
+                                name: event.target.value,
+                                relatedPersonId: "",
+                                relationshipId: "",
+                                historyAppointmentId: "",
+                              }))}
+                              placeholder="Nome da pessoa atendida"
+                              className="rounded-xl border border-[#123D2C]/15 p-2.5"
+                            />
+                            <select
+                              value={alternateRelationshipOption}
+                              onChange={(event) => {
+                                const option = event.target.value;
+                                setAlternateRelationshipOption(option);
+                                setAlternateContact((current) => ({
+                                  ...current,
+                                  relationship: option === "Outro" ? "" : option,
+                                  relatedPersonId: "",
+                                  relationshipId: "",
+                                  historyAppointmentId: "",
+                                }));
+                              }}
+                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
+                            >
+                              <option value="">Escolha o parentesco/vínculo</option>
+                              {["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].map((relationship) => (
+                                <option key={relationship} value={relationship}>{relationship}</option>
+                              ))}
+                              <option value="Outro">Outro</option>
+                            </select>
+                            {alternateRelationshipOption === "Outro" && (
+                              <input
+                                value={alternateContact.relationship}
+                                onChange={(event) => setAlternateContact((current) => ({
+                                  ...current,
+                                  relationship: event.target.value,
+                                  relatedPersonId: "",
+                                  relationshipId: "",
+                                  historyAppointmentId: "",
+                                }))}
+                                placeholder="Informe o parentesco/vínculo"
+                                className="rounded-xl border border-[#123D2C]/15 p-2.5"
+                              />
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -1878,7 +2048,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     )}
                   </div>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Observação opcional" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
-                  <button type="button" onClick={() => void book()} disabled={saving || !entityId} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
+                  <button type="button" onClick={() => void book()} disabled={saving || !entityId || (contactMode === "alternate" && (!alternateContact.name.trim() || !alternateContact.relationship.trim()))} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
                 </div>
               )}
 
@@ -2506,6 +2676,72 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </label>
                       <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
                       <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
+
+                      {(foundPerson.relatedConsulentes?.length ?? 0) > 0 && (
+                        <section className="mt-1 grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                          <p className="text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Pessoas vinculadas a este contato</p>
+                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                            Pessoa sem WhatsApp / dependente
+                            <select
+                              value={relatedPreferenceKey}
+                              onChange={(event) => {
+                                const key = event.target.value;
+                                setRelatedPreferenceKey(key);
+                                const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === key);
+                                setRelatedPreferenceDraft({
+                                  defaultEntityId: related?.defaultEntityId || "",
+                                  allowDifferentEntity: related?.allowDifferentEntity === true,
+                                });
+                              }}
+                              className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
+                            >
+                              <option value="">Escolha uma pessoa vinculada</option>
+                              {foundPerson.relatedConsulentes!.map((related) => (
+                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
+                                  {firstTwoPersonNames(related.fullName)}
+                                  {related.relationship ? ` · ${related.relationship}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {selectedRelatedForPreferences && (
+                            <>
+                              <p className="text-xs font-semibold text-slate-600">
+                                Configurações de {firstTwoPersonNames(selectedRelatedForPreferences.fullName)}.
+                                Estas opções não alteram a Entidade padrão do contato responsável.
+                              </p>
+                              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                                Entidade padrão da pessoa vinculada
+                                <select
+                                  value={relatedPreferenceDraft.defaultEntityId}
+                                  onChange={(event) => setRelatedPreferenceDraft((current) => ({ ...current, defaultEntityId: event.target.value }))}
+                                  className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
+                                >
+                                  <option value="">Sem Entidade padrão</option>
+                                  {payload.entityCatalog
+                                    .filter((entity) => entity.active && entity.appointmentEnabled)
+                                    .map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                                </select>
+                              </label>
+                              <Toggle
+                                checked={relatedPreferenceDraft.allowDifferentEntity}
+                                onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: checked }))}
+                                label="Permitir que esta pessoa agende com Entidade diferente da padrão"
+                              />
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void saveRelatedConsulentePreferences()}
+                                className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-60"
+                              >
+                                Salvar pessoa vinculada
+                              </button>
+                            </>
+                          )}
+                        </section>
+                      )}
+
                       <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">Salvar Consulente</button>
                     </form>
                   )}
