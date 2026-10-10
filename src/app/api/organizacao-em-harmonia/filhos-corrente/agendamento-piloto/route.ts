@@ -111,6 +111,140 @@ async function loadReceptionConsulentes(organizationId: string) {
     .sort((left, right) => asText(left.full_name).localeCompare(asText(right.full_name), "pt-BR"));
 }
 
+
+async function loadRelatedConsulentes(organizationId: string, ownerPersonId: string) {
+  const [{ data: relationships, error: relationshipError }, { data: appointments, error: appointmentError }] = await Promise.all([
+    supabaseAdmin
+      .from("oh_tucxa_consulente_relationships")
+      .select("id,related_person_id,related_name,relationship,default_entity_id,updated_at")
+      .eq("organization_id", organizationId)
+      .eq("owner_person_id", ownerPersonId)
+      .order("updated_at", { ascending: false }),
+    supabaseAdmin
+      .from("oh_consulente_appointments")
+      .select("id,person_id,entity_id,consulente_name,notification_contact_relationship,appointment_date,created_at")
+      .eq("organization_id", organizationId)
+      .eq("source_contact_person_id", ownerPersonId)
+      .eq("notification_contact_type", "alternate")
+      .order("appointment_date", { ascending: false })
+      .order("created_at", { ascending: false }),
+  ]);
+  if (relationshipError) throw relationshipError;
+  if (appointmentError) throw appointmentError;
+
+  const relatedPersonIds = Array.from(new Set([
+    ...(relationships ?? []).map((item) => asText(item.related_person_id)),
+    ...(appointments ?? []).map((item) => asText(item.person_id)),
+  ].filter(Boolean)));
+
+  const entityIds = Array.from(new Set([
+    ...(relationships ?? []).map((item) => asText(item.default_entity_id)),
+    ...(appointments ?? []).map((item) => asText(item.entity_id)),
+  ].filter(Boolean)));
+
+  const [{ data: relatedPeople, error: peopleError }, { data: entities, error: entityError }] = await Promise.all([
+    relatedPersonIds.length
+      ? supabaseAdmin
+          .from("oh_people")
+          .select("id,full_name,active")
+          .eq("organization_id", organizationId)
+          .in("id", relatedPersonIds)
+      : Promise.resolve({ data: [], error: null }),
+    entityIds.length
+      ? supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,name")
+          .eq("organization_id", organizationId)
+          .in("id", entityIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (peopleError) throw peopleError;
+  if (entityError) throw entityError;
+
+  const peopleMap = new Map((relatedPeople ?? []).map((item) => [
+    asText(item.id),
+    { name: asText(item.full_name), active: item.active !== false },
+  ]));
+  const entityMap = new Map((entities ?? []).map((item) => [asText(item.id), asText(item.name)]));
+
+  type RelatedOption = {
+    relationshipId: string;
+    relatedPersonId: string;
+    fullName: string;
+    relationship: string;
+    defaultEntityId: string;
+    defaultEntityName: string;
+    source: "relationship" | "history";
+  };
+
+  const options: RelatedOption[] = [];
+  const indexByKey = new Map<string, number>();
+
+  function keyFor(personId: string, name: string, relationship: string) {
+    if (personId) return `person:${personId}`;
+    return `name:${normalizeSearchText(name)}|relationship:${normalizeSearchText(relationship)}`;
+  }
+
+  function addOption(option: RelatedOption) {
+    if (!option.fullName) return;
+    const key = keyFor(option.relatedPersonId, option.fullName, option.relationship);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, options.length);
+      options.push(option);
+      return;
+    }
+
+    const current = options[existingIndex];
+    options[existingIndex] = {
+      ...current,
+      relationshipId: current.relationshipId || option.relationshipId,
+      relatedPersonId: current.relatedPersonId || option.relatedPersonId,
+      fullName: option.relatedPersonId && peopleMap.get(option.relatedPersonId)?.name
+        ? peopleMap.get(option.relatedPersonId)!.name
+        : current.fullName || option.fullName,
+      relationship: current.relationship || option.relationship,
+      defaultEntityId: current.defaultEntityId || option.defaultEntityId,
+      defaultEntityName: current.defaultEntityName || option.defaultEntityName,
+      source: current.source === "relationship" ? current.source : option.source,
+    };
+  }
+
+  for (const item of relationships ?? []) {
+    const relatedPersonId = asText(item.related_person_id);
+    const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
+    if (relatedPersonId && currentPerson?.active === false) continue;
+    const defaultEntityId = asText(item.default_entity_id);
+    addOption({
+      relationshipId: asText(item.id),
+      relatedPersonId,
+      fullName: currentPerson?.name || asText(item.related_name),
+      relationship: asText(item.relationship),
+      defaultEntityId,
+      defaultEntityName: entityMap.get(defaultEntityId) || "",
+      source: "relationship",
+    });
+  }
+
+  for (const item of appointments ?? []) {
+    const relatedPersonId = asText(item.person_id);
+    const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
+    if (relatedPersonId && currentPerson?.active === false) continue;
+    const defaultEntityId = asText(item.entity_id);
+    addOption({
+      relationshipId: "",
+      relatedPersonId,
+      fullName: currentPerson?.name || asText(item.consulente_name),
+      relationship: asText(item.notification_contact_relationship),
+      defaultEntityId,
+      defaultEntityName: entityMap.get(defaultEntityId) || "",
+      source: "history",
+    });
+  }
+
+  return options.sort((left, right) => left.fullName.localeCompare(right.fullName, "pt-BR", { sensitivity: "base" }));
+}
+
 async function loadPilotExtraSettings(organizationId: string) {
   const { data, error } = await supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "atendimento-em-harmonia").maybeSingle();
   if (error) throw error;
@@ -648,6 +782,29 @@ export async function POST(request: Request) {
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
       const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
+      const requestedRelatedPersonId = contactMode === "alternate" ? asText(body.relatedPersonId) : "";
+      let selectedRelatedOption: Awaited<ReturnType<typeof loadRelatedConsulentes>>[number] | null = null;
+      let relatedPerson: { id: string; full_name: string } | null = null;
+      if (requestedRelatedPersonId) {
+        const relatedOptions = await loadRelatedConsulentes(context.organizationId, person.id);
+        const allowedRelated = relatedOptions.find((item) => item.relatedPersonId === requestedRelatedPersonId);
+        if (!allowedRelated) {
+          return NextResponse.json({ error: "A pessoa escolhida não está vinculada a este contato responsável.", requestId: code }, { status: 409 });
+        }
+        selectedRelatedOption = allowedRelated;
+        const { data: relatedRow, error: relatedError } = await supabaseAdmin
+          .from("oh_people")
+          .select("id,full_name")
+          .eq("organization_id", context.organizationId)
+          .eq("id", requestedRelatedPersonId)
+          .eq("active", true)
+          .maybeSingle();
+        if (relatedError) throw relatedError;
+        if (!relatedRow?.id) {
+          return NextResponse.json({ error: "O cadastro da pessoa vinculada não está mais ativo.", requestId: code }, { status: 409 });
+        }
+        relatedPerson = { id: asText(relatedRow.id), full_name: asText(relatedRow.full_name) };
+      }
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
@@ -720,15 +877,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "O Consulente já cadastrado precisa possuir um WhatsApp válido para receber as informações do agendamento.", requestId: code }, { status: 400 });
       }
 
-      const appointmentPersonName = contactMode === "alternate" ? alternateContactName : (asText(person.full_name) || "Consulente");
+      const appointmentPersonName = contactMode === "alternate"
+        ? (asText(relatedPerson?.full_name) || alternateContactName)
+        : (asText(person.full_name) || "Consulente");
       const notificationPhone = ownPhone;
       const notificationName = asText(person.full_name) || "Consulente";
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
-        // Quando o agendamento é para outra pessoa, o titular do WhatsApp é
-        // somente o contato de referência. person_id fica nulo para que a
-        // regra de unicidade por pessoa/data não confunda os dois atendimentos.
-        p_person_id: contactMode === "alternate" ? null : person.id,
+        // Quando a pessoa atendida já possui cadastro próprio e está vinculada
+        // ao contato responsável, preservamos person_id. Para vínculos apenas
+        // históricos (sem cadastro próprio), person_id permanece nulo.
+        p_person_id: contactMode === "alternate" ? (relatedPerson?.id || null) : person.id,
         p_entity_id: entityId,
         p_appointment_date: appointmentDate,
         p_scheduled_by_person_id: context.personId,
@@ -776,16 +935,31 @@ export async function POST(request: Request) {
       }
 
       if (contactMode === "alternate") {
-        const { error: relationshipError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships").upsert({
-          organization_id: context.organizationId,
-          owner_person_id: person.id,
-          related_name: alternateContactName,
+        const relationshipPayload = {
+          related_person_id: relatedPerson?.id || null,
+          related_name: appointmentPersonName,
           relationship: alternateContactRelationship,
           default_entity_id: entityId,
-          created_by_person_id: context.personId,
           updated_at: new Date().toISOString(),
-        }, { onConflict: "organization_id,owner_person_id,related_name" });
-        if (relationshipError) console.error("[TUCXA vínculo de terceiro]", relationshipError);
+        };
+
+        const relationshipResult = selectedRelatedOption?.relationshipId
+          ? await supabaseAdmin
+              .from("oh_tucxa_consulente_relationships")
+              .update(relationshipPayload)
+              .eq("organization_id", context.organizationId)
+              .eq("owner_person_id", person.id)
+              .eq("id", selectedRelatedOption.relationshipId)
+          : await supabaseAdmin
+              .from("oh_tucxa_consulente_relationships")
+              .upsert({
+                organization_id: context.organizationId,
+                owner_person_id: person.id,
+                ...relationshipPayload,
+                created_by_person_id: context.personId,
+              }, { onConflict: "organization_id,owner_person_id,related_name" });
+
+        if (relationshipResult.error) console.error("[TUCXA vínculo de terceiro]", relationshipResult.error);
       }
 
       const link = confirmationUrl(token);
@@ -946,6 +1120,7 @@ export async function POST(request: Request) {
       const triageEntityPaginationEnabled = asBoolean(body.triageEntityPaginationEnabled, true);
       const triageConsulentePaginationEnabled = asBoolean(body.triageConsulentePaginationEnabled, true);
       const triageCadernoPaginationEnabled = asBoolean(body.triageCadernoPaginationEnabled, false);
+      const forwardingPaginationEnabled = asBoolean(body.forwardingPaginationEnabled, true);
       const cavalinhoDailyWhatsappEnabled = asBoolean(body.cavalinhoDailyWhatsappEnabled, false);
       const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
       const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
@@ -979,6 +1154,7 @@ export async function POST(request: Request) {
         pilotTriageEntityPaginationEnabled: triageEntityPaginationEnabled,
         pilotTriageConsulentePaginationEnabled: triageConsulentePaginationEnabled,
         pilotTriageCadernoPaginationEnabled: triageCadernoPaginationEnabled,
+        pilotForwardingPaginationEnabled: forwardingPaginationEnabled,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
         pilotCavalinhoDailyWhatsappEnabled: cavalinhoDailyWhatsappEnabled,
         pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
@@ -1457,6 +1633,8 @@ export async function POST(request: Request) {
         defaultEntityName = asText(defaultEntity?.name);
       }
 
+      const relatedConsulentes = await loadRelatedConsulentes(context.organizationId, person.id);
+
       return NextResponse.json({
         ok: true,
         person: {
@@ -1467,6 +1645,7 @@ export async function POST(request: Request) {
           defaultEntityId: preferences.defaultEntityId,
           defaultEntityName,
           allowDifferentEntity: preferences.allowDifferentEntity,
+          relatedConsulentes,
           whatsappUrl: whatsappUrl(asText(person.whatsapp)),
         },
       });

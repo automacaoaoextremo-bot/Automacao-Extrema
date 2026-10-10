@@ -42,6 +42,7 @@ export type PilotSettings = {
   triageEntityPaginationEnabled: boolean;
   triageConsulentePaginationEnabled: boolean;
   triageCadernoPaginationEnabled: boolean;
+  forwardingPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
   cavalinhoDailyWhatsappEnabled: boolean;
   cavalinhoDailyWhatsappTime: string;
@@ -371,6 +372,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     triageCadernoPaginationEnabled: settings.pilotTriageCadernoPaginationEnabled !== undefined
       ? settings.pilotTriageCadernoPaginationEnabled === true
       : settings.pilotTriagePaginationEnabled === true,
+    forwardingPaginationEnabled: settings.pilotForwardingPaginationEnabled !== false,
     confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
     cavalinhoDailyWhatsappEnabled: settings.pilotCavalinhoDailyWhatsappEnabled === true,
     cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
@@ -790,6 +792,17 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
   if (entityError) throw entityError;
   const entityMap = new Map((entities ?? []).map((item) => [asText(item.id), asText(item.name) || "Entidade"]));
 
+  const personIds = Array.from(new Set((appointments ?? []).map((item) => asText(item.person_id)).filter(Boolean)));
+  const { data: people, error: peopleError } = personIds.length
+    ? await supabaseAdmin
+        .from("oh_people")
+        .select("id,full_name")
+        .eq("organization_id", organizationId)
+        .in("id", personIds)
+    : { data: [], error: null };
+  if (peopleError) throw peopleError;
+  const personNameMap = new Map((people ?? []).map((item) => [asText(item.id), asText(item.full_name)]));
+
   return (appointments ?? []).map((item) => {
     const change = latestChangeByAppointment.get(asText(item.id));
     const previousEntityId = asText(change?.previous_entity_id);
@@ -800,7 +813,7 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
       personId: asText(item.person_id),
       entityId: asText(item.entity_id),
       entityName: entityMap.get(asText(item.entity_id)) || "Entidade",
-      consulenteName: asText(item.consulente_name) || "Filho de Fora/Consulente",
+      consulenteName: personNameMap.get(asText(item.person_id)) || asText(item.consulente_name) || "Filho de Fora/Consulente",
       whatsapp: asText(item.whatsapp),
       appointmentDate: asText(item.appointment_date),
       appointmentTime: asText(item.appointment_time) || "20:00",

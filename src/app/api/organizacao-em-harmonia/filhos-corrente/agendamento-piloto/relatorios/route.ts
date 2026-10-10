@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { currentPilotReception, loadPilotDates, loadPilotDay, loadPilotSettings, todayInSaoPaulo } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
 
@@ -188,22 +189,24 @@ export async function GET(request: Request) {
       ].filter(Boolean)));
       const names = await entityNames(context.organizationId, allEntityIds);
 
-      const filtered = person
-        ? source.filter((item) => text(item.consulente_name).toLocaleLowerCase("pt-BR").includes(person))
-        : source;
-
-      const personIds = kind === "sem_whatsapp_terceiros"
-        ? Array.from(new Set(filtered.map((item) => text(item.person_id)).filter(Boolean)))
-        : [];
-      const { data: people, error: peopleError } = personIds.length
+      const sourcePersonIds = Array.from(new Set(source.map((item) => text(item.person_id)).filter(Boolean)));
+      const { data: people, error: peopleError } = sourcePersonIds.length
         ? await supabaseAdmin
             .from("oh_people")
-            .select("id,whatsapp")
+            .select("id,full_name,whatsapp")
             .eq("organization_id", context.organizationId)
-            .in("id", personIds)
+            .in("id", sourcePersonIds)
         : { data: [], error: null };
       if (peopleError) throw peopleError;
+
+      const currentPersonName = new Map((people ?? []).map((item) => [text(item.id), text(item.full_name)]));
       const ownWhatsapp = new Map((people ?? []).map((item) => [text(item.id), text(item.whatsapp)]));
+      const resolvedName = (item: DbRow) => currentPersonName.get(text(item.person_id)) || text(item.consulente_name);
+
+      const filtered = person
+        ? source.filter((item) => resolvedName(item).toLocaleLowerCase("pt-BR").includes(person))
+        : source;
+
       const reportSource = kind === "sem_whatsapp_terceiros"
         ? filtered.filter((item) => !ownWhatsapp.get(text(item.person_id)))
         : filtered;
@@ -261,6 +264,7 @@ export async function GET(request: Request) {
       let rows = reportSource.map((item) => {
         const entityId = text(item.entity_id);
         const entity = names.get(entityId) || "Entidade";
+        const consulenteName = resolvedName(item);
         const change = latestChangeByAppointment.get(text(item.id));
         const previousEntityId = text(change?.previous_entity_id);
         const previousEntityName = previousEntityId ? names.get(previousEntityId) || "Entidade anterior" : "";
@@ -283,7 +287,7 @@ export async function GET(request: Request) {
             _firstTimeIndicatorActive: (item.metadata as Record<string, unknown> | null)?.firstTimeIndicatorActive === true ? "1" : "0",
             Data: dateLabel(item.appointment_date),
             Entidade: cadernoLabels.get(key) || entity,
-            Consulente: text(item.consulente_name),
+            Consulente: firstTwoPersonNames(consulenteName),
             Ordem: text(item.status) === "cancelado" ? "" : (Number((item.metadata as Record<string, unknown> | null)?.confirmed_order ?? (item.metadata as Record<string, unknown> | null)?.order ?? 0) || ""),
             Status: text(item.status),
             Confirmação: text(item.confirmation_status),
@@ -296,7 +300,7 @@ export async function GET(request: Request) {
             _personId: text(item.person_id),
             Data: dateLabel(item.appointment_date),
             Entidade: entity,
-            Consulente: text(item.consulente_name),
+            Consulente: firstTwoPersonNames(consulenteName),
             "Contato responsável": text(item.notification_contact_name),
             "WhatsApp do contato responsável": phoneLabel(item.notification_contact_whatsapp || item.whatsapp),
             "Parentesco / vínculo": text(item.notification_contact_relationship),
@@ -305,7 +309,7 @@ export async function GET(request: Request) {
         return {
           Data: dateLabel(item.appointment_date),
           Horário: text(item.appointment_time),
-          Consulente: text(item.consulente_name),
+          Consulente: firstTwoPersonNames(consulenteName),
           Entidade: entity,
           WhatsApp: phoneLabel(item.whatsapp),
           Status: text(item.status),
@@ -399,7 +403,7 @@ export async function GET(request: Request) {
       const rows = (data ?? [])
         .filter((item) => !person || text(item.full_name).toLocaleLowerCase("pt-BR").includes(person))
         .map((item) => ({
-          Consulente: text(item.full_name),
+          Consulente: firstTwoPersonNames(item.full_name),
           WhatsApp: phoneLabel(item.whatsapp),
           "E-mail": text(item.email).endsWith("@organizacao-em-harmonia.local") ? "" : text(item.email),
         }));
