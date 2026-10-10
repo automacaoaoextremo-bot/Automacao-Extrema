@@ -8,6 +8,7 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const atendimentoPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
 const agendamentosPath = `${atendimentoPath}/agendamentos`;
@@ -142,7 +143,7 @@ function whatsappConversationUrl(appointment: Appointment) {
   const phone = digits.startsWith("55") ? digits : `55${digits}`;
   const subject = appointment.access.isOwn ? "agendamento" : "atendimento";
   const message = [
-    `Olá, ${appointment.person.fullName}.`,
+    `Olá, ${firstTwoPersonNames(appointment.person.fullName)}.`,
     "",
     `Estou entrando em contato sobre seu ${subject} no TUCXA:`,
     `Data: ${longDate(appointment.appointmentDate)}`,
@@ -378,7 +379,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
   }
 
   function cancelAppointment(appointment: Appointment) {
-    const reason = window.prompt(`Informe o motivo do cancelamento de ${appointment.person.fullName}:`, "Cancelado pela Recepção.") ?? "";
+    const reason = window.prompt(`Informe o motivo do cancelamento de ${firstTwoPersonNames(appointment.person.fullName)}:`, "Cancelado pela Recepção.") ?? "";
     if (!reason.trim()) return;
     if (!window.confirm("Confirmar o cancelamento? O registro permanecerá no histórico.")) return;
     void mutateAppointment("PATCH", { action: "cancel", appointmentId: appointment.id, reason });
@@ -386,7 +387,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
 
   function deleteAppointment(appointment: Appointment) {
     const firstConfirmation = window.confirm(
-      `Excluir o agendamento de ${appointment.person.fullName}?\n\nExcluir é uma ação definitiva e não pode ser desfeita.`,
+      `Excluir o agendamento de ${firstTwoPersonNames(appointment.person.fullName)}?\n\nExcluir é uma ação definitiva e não pode ser desfeita.`,
     );
     if (!firstConfirmation) return;
     const typed = window.prompt("Para confirmar a exclusão definitiva, digite EXCLUIR:");
@@ -532,7 +533,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                             <div key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className="break-words font-black text-[#123D2C]">{appointment.person.fullName}</p>
+                                  <p className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.person.fullName)}</p>
                                   <div className="mt-1 flex flex-wrap items-center gap-2">
                                     <p className="text-xs font-semibold text-slate-600">{formatPhone(appointment.person.whatsapp)}</p>
                                     {whatsappConversationUrl(appointment) && (

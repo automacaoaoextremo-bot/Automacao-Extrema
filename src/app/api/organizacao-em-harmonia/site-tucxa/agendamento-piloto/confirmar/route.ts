@@ -9,6 +9,7 @@ import { loadTucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/
 import { sendTucxaReceptionConfirmationWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { receptionConfirmationMessage } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
         const details = await loadTucxaConfirmationAppointment(token);
         if (details) {
           const notification = await sendTucxaReceptionConfirmationWhatsapp({
-            consulenteName: details.fullName || details.firstName,
+            consulenteName: firstTwoPersonNames(details.fullName || details.firstName),
             appointmentDate: details.appointmentDate,
             entityName: details.entityName,
             loginUrl: receptionLoginUrl(),

@@ -9,6 +9,7 @@ import {
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -272,6 +273,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
+  const [bookingReturnToTriagem, setBookingReturnToTriagem] = useState(false);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
@@ -291,7 +293,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
-  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "caderno">("caderno");
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno">("caderno");
   const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
@@ -504,12 +506,25 @@ export default function AgendamentoPilotoRecepcaoPage() {
       return a.id.localeCompare(b.id);
     });
   }, [effectiveConsultView, filteredAppointments]);
+  const orderedConsulenteAppointments = useMemo(
+    () => [...filteredAppointments].sort((a, b) => {
+      const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      if (personOrder !== 0) return personOrder;
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
+      return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+    }),
+    [filteredAppointments],
+  );
+  const activeListAppointments = consultDisplayMode === "lista_consulente"
+    ? orderedConsulenteAppointments
+    : orderedConsultAppointments;
   const consultPageSize = 2;
-  const consultPageCount = Math.max(1, Math.ceil(orderedConsultAppointments.length / consultPageSize));
+  const consultPageCount = Math.max(1, Math.ceil(activeListAppointments.length / consultPageSize));
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
   const paginatedAppointments = useMemo(
-    () => orderedConsultAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
-    [effectiveConsultPage, orderedConsultAppointments],
+    () => activeListAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
+    [activeListAppointments, effectiveConsultPage],
   );
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
@@ -599,9 +614,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setAlphabetPicker(null);
   }
 
-  function openBookingModal() {
+  function openBookingModal(returnToTriagem = false) {
     resetBookingForm();
     setBookingResult(null);
+    setBookingReturnToTriagem(returnToTriagem);
     setError("");
     setModal("agendar");
     void loadConsulenteAlphabet();
@@ -695,7 +711,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setEntityId("");
           setErrorNotice({
             title: "Consulente indisponível para esta data",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
           });
           return;
         }
@@ -704,7 +720,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setFoundPerson(null);
           setErrorNotice({
             title: "Entidade padrão diferente",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
           });
           return;
         }
@@ -880,7 +896,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
       setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: foundPerson.fullName, alternateContact: contactMode === "alternate" });
       resetBookingForm();
-      setModal(null);
+      const returnToTriagem = bookingReturnToTriagem;
+      setBookingReturnToTriagem(false);
+      setModal(returnToTriagem ? "consultar" : null);
     } catch (bookError) {
       setError("");
       setErrorNotice({
@@ -1210,7 +1228,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setError("");
     try {
       const result = await postPilot({ action: "send-confirmation-reminder", appointmentId: appointment.id });
-      setSuccessNotice({ title: "Lembrete enviado", message: typeof result.message === "string" ? result.message : `Lembrete enviado para ${appointment.consulenteName}.` });
+      setSuccessNotice({ title: "Lembrete enviado", message: typeof result.message === "string" ? result.message : `Lembrete enviado para ${firstTwoPersonNames(appointment.consulenteName)}.` });
       await load(payload?.selectedDate);
     } catch (actionError) {
       setErrorNotice({ title: "Não foi possível enviar o lembrete", message: actionError instanceof Error ? actionError.message : "Tente novamente em instantes." });
@@ -1405,6 +1423,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
+          headerAction={modal === "consultar" ? (
+            <button type="button" onClick={() => openBookingModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
+              <span className="block text-xs font-black">Agendar</span>
+              <span className="block text-[8px] font-black uppercase tracking-[0.08em]">Toque para abrir</span>
+            </button>
+          ) : undefined}
           onClose={() => {
             if (modal === "configuracoes" && settingsSection) {
               setSettingsSection(null);
@@ -1420,7 +1444,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setModal("acolhimento");
               return;
             }
-            if (modal === "agendar") resetBookingForm();
+            if (modal === "agendar") {
+              resetBookingForm();
+              if (bookingReturnToTriagem) {
+                setBookingReturnToTriagem(false);
+                setModal("consultar");
+                return;
+              }
+            }
             setModal(null);
           }}
         >
@@ -1545,7 +1576,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                   {searchResults.map((person) => (
                     <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                      <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                      <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                       <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                     </button>
                   ))}
@@ -1584,7 +1615,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {foundPerson && (
                 <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <p className="font-black text-[#123D2C]">{foundPerson.fullName}</p>
+                  <p className="font-black text-[#123D2C]">{firstTwoPersonNames(foundPerson.fullName)}</p>
                   <p className="text-sm font-semibold text-slate-600">{displayWhatsapp(foundPerson.whatsapp)}{foundPerson.email ? ` · ${foundPerson.email}` : ""}</p>
                   <a href={whatsappHref(foundPerson.whatsapp, "Olá! Estou falando pela Recepção do Tucxa sobre seu agendamento.")} target="_blank" rel="noreferrer" className="text-sm font-black text-[#176A3A] underline">Falar no WhatsApp</a>
                   {bookingMode === "date" ? (
@@ -1659,7 +1690,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
                     {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
                   </select>
-                  <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
+                  <select value={effectiveConsultView} onChange={(event) => { const nextView = event.target.value as "entity_day" | "day_entity"; setConsultView(nextView); if (consultDisplayMode !== "caderno") setConsultDisplayMode(nextView === "entity_day" ? "lista" : "lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
                     <option value="entity_day">Entidade</option>
                     <option value="day_entity">Consulente</option>
                   </select>
@@ -1670,9 +1701,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <span className="text-sm font-black text-[#123D2C]">{filteredAppointments.length}</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setConsultDisplayMode("lista")} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista</button>
-                  <button type="button" onClick={() => { setConsultDisplayMode("caderno"); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-3 py-2 text-xs font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Caderno</button>
+                <div className="grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista/Entidade</button>
+                  <button type="button" onClick={() => { setConsultView("day_entity"); setConsultDisplayMode("lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista_consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista/Consulente</button>
+                  <button type="button" onClick={() => { setConsultDisplayMode("caderno"); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Caderno</button>
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -1738,13 +1770,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
                             <div className="min-w-0">
-                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{appointment.consulenteName}</p>
+                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
                               <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
                               <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${appointment.cancellationReason}` : ""}</p>}
                               {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
                             </div>
-                            <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${appointment.consulenteName}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
+                            <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
                             <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
                           </div>
                         ))}
@@ -1797,7 +1829,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <article key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{appointment.consulenteName}</h4>
+                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
                           <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
@@ -1820,7 +1852,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
-                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${appointment.consulenteName}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -1841,9 +1873,56 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               ))}
 
+              {consultDisplayMode === "lista_consulente" && (
+                <section className="grid gap-2">
+                  {paginatedAppointments.map((appointment) => {
+                    const actionsOpen = openAppointmentActions[appointment.id] === true;
+                    return (
+                      <article key={`lista-consulente-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h4 className="truncate font-black text-[#123D2C]">{appointment.entityName} · {firstTwoPersonNames(appointment.consulenteName)}</h4>
+                            {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                        </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
+                        <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
+                        {actionsOpen && (
+                          <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                            </div>
+                            {appointment.status !== "cancelado" && (
+                              <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
+                                Trocar Entidade
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {consultDisplayMode === "lista" && consultPageCount > 1 && (
+              {(consultDisplayMode === "lista" || consultDisplayMode === "lista_consulente") && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
@@ -1859,9 +1938,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 {payload.dates.map((item) => <option key={`enc-data-${item.date}`} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
               </select>
               <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
-              {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
+              {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" }) || (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
                 <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{appointment.consulenteName}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
                   <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
                 </article>
               ))}
@@ -2011,7 +2090,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                       {searchResults.map((person) => (
                         <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                          <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                          <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                           <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                         </button>
                       ))}
@@ -2275,13 +2354,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
         <Modal title="Agendamento criado" onClose={() => setBookingResult(null)}>
           <div className="grid gap-3">
             <section className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="text-lg font-black text-[#123D2C]">{bookingResult.appointment.personName}</p>
+              <p className="text-lg font-black text-[#123D2C]">{firstTwoPersonNames(bookingResult.appointment.personName)}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
               {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
-              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
+              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${firstTwoPersonNames(bookingResult.contactName || "")}. Você está recebendo esta mensagem como contato de ${firstTwoPersonNames(bookingResult.appointment.personName)}. O atendimento de ${firstTwoPersonNames(bookingResult.appointment.personName)} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${firstTwoPersonNames(bookingResult.appointment.personName)}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
               target="_blank"
               rel="noreferrer"
               className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"
@@ -2334,7 +2413,7 @@ function AlphabetConsulentePopup({
             <div className="grid gap-2">
               {pagePeople.map((person) => (
                 <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                  <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                  <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                   <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                   {person.defaultEntityName && (
                     <span className="mt-1 block text-xs font-black text-[#2F6B43]">
@@ -2385,7 +2464,7 @@ function EntityChangePopup({
         </div>
         <div className="grid gap-4 p-5">
           <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold text-[#123D2C]">
-            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : request.consulenteName}</strong></p>
+            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : firstTwoPersonNames(request.consulenteName)}</strong></p>
             <p className="mt-1">Entidade atual: <strong>{request.currentEntityName}</strong></p>
             {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
           </div>
@@ -2485,7 +2564,7 @@ function CancelAppointmentPopup({
         </header>
         <form onSubmit={onSubmit} className="grid gap-3 p-4 sm:p-5">
           <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-800 ring-1 ring-red-100">
-            Você está cancelando o atendimento de {request.consulenteName}. A vaga será liberada e o motivo ficará registrado no histórico.
+            Você está cancelando o atendimento de {firstTwoPersonNames(request.consulenteName)}. A vaga será liberada e o motivo ficará registrado no histórico.
           </p>
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
             Motivo do cancelamento
@@ -2580,8 +2659,8 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
   );
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
+function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><div className="flex items-center gap-2">{headerAction}<button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></div></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {

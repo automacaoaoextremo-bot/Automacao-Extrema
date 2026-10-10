@@ -1,3 +1,5 @@
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
+
 export const TUCXA_INDIVIDUAL_NOTICE = "Este agendamento é individual. Se você comparecer acompanhado de outra pessoa que também necessite de atendimento, é necessário fazer um agendamento específico para cada acompanhante.";
 
 function datePtBr(value: string) {
@@ -6,7 +8,7 @@ function datePtBr(value: string) {
 }
 
 function orderLine(order?: number | null) {
-  return order && order > 0 ? `Ordem do agendamento: ${order}.` : "";
+  return order && order > 0 ? `Ordem de Agendamento: ${order}.` : "";
 }
 
 export function appointmentConfirmationMessage(input: {
@@ -17,7 +19,7 @@ export function appointmentConfirmationMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Olá! O agendamento de ${input.fullName} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Olá! O agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
     "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
@@ -35,7 +37,7 @@ export function appointmentReminderMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Lembrete do agendamento de ${input.fullName} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Lembrete do agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     input.confirmed
       ? "Sua presença já está confirmada. Agradecemos por avisar com antecedência; isso ajuda a Recepção a organizar o atendimento de todos."
@@ -53,7 +55,7 @@ export function receptionConfirmationMessage(input: {
   loginUrl?: string;
 }) {
   return [
-    `Confirmação recebida: ${input.fullName} confirmou presença no TUCXA para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Confirmação recebida: ${firstTwoPersonNames(input.fullName)} confirmou presença no TUCXA para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     input.loginUrl ? `Acesse o painel da Recepção: ${input.loginUrl}` : "",
   ].filter(Boolean).join("\n\n");

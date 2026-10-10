@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 type Row = Record<string, string | number | null>;
 type DateMode = "from_today" | "specific" | "period" | "before" | "all";
@@ -13,11 +14,15 @@ function visibleHeaders(row: Row) {
   return Object.keys(row).filter((key) => !key.startsWith("_"));
 }
 
+function reportValue(key: string, value: unknown) {
+  return key === "Consulente" ? firstTwoPersonNames(value) : String(value ?? "");
+}
+
 function csv(rows: Row[]) {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
   const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  return [headers.map(escape).join(";"), ...rows.map((row) => headers.map((key) => escape(row[key])).join(";"))].join("\r\n");
+  return [headers.map(escape).join(";"), ...rows.map((row) => headers.map((key) => escape(reportValue(key, row[key]))).join(";"))].join("\r\n");
 }
 
 function download(name: string, body: string, type: string) {
@@ -170,7 +175,7 @@ function printableEntityCard(entity: string, items: Row[]) {
           ${visibleItems.map((item) => {
             const status = cadernoStatus(item);
             const note = cadernoRowNote(item);
-            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(item.Consulente)}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
           ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
@@ -182,7 +187,7 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
   if (!grouped) {
-    return `<h1>${escapeHtml(title)}</h1><table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((h) => `<td>${escapeHtml(row[h])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    return `<h1>${escapeHtml(title)}</h1><table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((h) => `<td>${escapeHtml(reportValue(h, row[h]))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   }
 
   const groups = cadernoGroups(rows);
@@ -302,7 +307,7 @@ export function TucxaPilotReports() {
   const exportExcel = () => {
     if (!rows.length) return;
     const headers = visibleHeaders(rows[0]);
-    const html = `<table><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>${rows.map((row) => `<tr>${headers.map((key) => `<td>${String(row[key] ?? "")}</td>`).join("")}</tr>`).join("")}</table>`;
+    const html = `<table><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>${rows.map((row) => `<tr>${headers.map((key) => `<td>${reportValue(key, row[key])}</td>`).join("")}</tr>`).join("")}</table>`;
     download(`tucxa-${kind}.xls`, html, "application/vnd.ms-excel");
   };
 
@@ -376,7 +381,7 @@ export function TucxaPilotReports() {
         <button onClick={async () => {
           if (!rows.length) return setError("Faça uma consulta antes de abrir o Google Sheets.");
           const headers = visibleHeaders(rows[0]);
-          const tsv = [headers.join("\t"), ...rows.map((row) => headers.map((key) => String(row[key] ?? "").replaceAll("\t", " ")).join("\t"))].join("\n");
+          const tsv = [headers.join("\t"), ...rows.map((row) => headers.map((key) => reportValue(key, row[key]).replaceAll("\t", " ")).join("\t"))].join("\n");
           await navigator.clipboard?.writeText(tsv); window.open("https://sheets.new", "_blank", "noopener,noreferrer"); setError("");
         }} className="rounded-xl border bg-white px-4 py-2 font-black">Abrir Google Sheets</button>
       </div>
@@ -418,7 +423,7 @@ export function TucxaPilotReports() {
                               <div key={`${date}-${entity}-${index}`} className={`grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2 ${cancelled ? "bg-red-50/40" : ""}`}>
                                 <span aria-hidden="true">&nbsp;</span>
                                 <div>
-                                  <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{String(item.Consulente || "")}</div>
+                                  <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(item.Consulente)}</div>
                                   {status && (
                                     <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${status.className}`}>
                                       {status.label}
@@ -449,14 +454,14 @@ export function TucxaPilotReports() {
         {rows.length > 0 && kind !== "caderno" && (
           <table className="min-w-full text-sm">
             <thead><tr>{visibleHeaders(rows[0]).map((header) => <th key={header} className="border-b p-2 text-left">{header}</th>)}{kind === "sem_whatsapp_terceiros" && <th className="border-b p-2 text-left">Ação</th>}</tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={index}>{visibleHeaders(rows[0]).map((header) => <td key={header} className="border-b p-2">{String(row[header] ?? "")}</td>)}{kind === "sem_whatsapp_terceiros" && <td className="border-b p-2"><button type="button" onClick={() => {
+            <tbody>{rows.map((row, index) => <tr key={index}>{visibleHeaders(rows[0]).map((header) => <td key={header} className="border-b p-2">{reportValue(header, row[header])}</td>)}{kind === "sem_whatsapp_terceiros" && <td className="border-b p-2"><button type="button" onClick={() => {
               const appointmentId = String(row._appointmentId || "").trim();
               if (!appointmentId) {
                 setError("Não foi possível identificar o agendamento deste Consulente. Atualize a consulta e tente novamente.");
                 return;
               }
               setOwnWhatsappAppointmentId(appointmentId);
-              setOwnWhatsappName(String(row.Consulente || ""));
+              setOwnWhatsappName(firstTwoPersonNames(row.Consulente));
               setOwnWhatsapp("");
               setMessage("");
               setError("");

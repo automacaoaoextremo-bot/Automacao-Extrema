@@ -22,6 +22,7 @@ import {
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
 
@@ -762,7 +763,7 @@ export async function POST(request: Request) {
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
-            fullName: appointmentPersonName,
+            fullName: firstTwoPersonNames(appointmentPersonName),
             recipientName: notificationName,
             whatsapp: notificationPhone,
             appointmentDate,
@@ -862,7 +863,7 @@ export async function POST(request: Request) {
       const entityName = asText(entity?.name) || "Entidade";
       const dispatch = await sendTucxaAppointmentWhatsapp({
         kind: "reminder",
-        fullName,
+        fullName: firstTwoPersonNames(fullName),
         recipientName: asText(appointment.notification_contact_name) || fullName,
         whatsapp: phone,
         appointmentDate: asText(appointment.appointment_date),
@@ -875,7 +876,7 @@ export async function POST(request: Request) {
 
       const message = appointmentReminderMessage({ fullName, appointmentDate: asText(appointment.appointment_date), entityName, order, confirmed: false, confirmationUrl: link });
       void sendTucxaAppointmentAuditEmail({ event: "Lembrete manual de confirmação enviado", consulenteName: fullName, appointmentDate: asText(appointment.appointment_date), entityName, message });
-      return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${fullName}.` });
+      return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${firstTwoPersonNames(fullName)}.` });
     }
 
     if (action === "set-availability") {
@@ -1057,11 +1058,15 @@ export async function POST(request: Request) {
         }
       }
 
+      const arrival = (Array.isArray(data) ? data[0] : data) as { confirmed_arrival_order?: number | null } | null;
+      const confirmedArrivalOrder = Number(arrival?.confirmed_arrival_order ?? 0) || null;
       return NextResponse.json({
         ok: true,
-        arrival: Array.isArray(data) ? data[0] : data,
+        arrival,
         message: arrivalStatus === "arrived"
-          ? "Chegada registrada."
+          ? confirmedArrivalOrder
+            ? `Chegada registrada na ordem ${confirmedArrivalOrder} desta Entidade.`
+            : "Chegada registrada."
           : arrivalStatus === "absent"
             ? "Ausência registrada."
             : "Situação de chegada redefinida.",
@@ -1083,7 +1088,7 @@ export async function POST(request: Request) {
       });
       if (error) {
         if (String(error.message || "").includes("ARRIVAL_ORDER_IN_USE")) {
-          return NextResponse.json({ error: "Esta ordem de atendimento já está sendo usada para esta Entidade nesta data.", requestId: code }, { status: 409 });
+          return NextResponse.json({ error: "Esta ordem de chegada já está sendo usada para esta Entidade nesta data.", requestId: code }, { status: 409 });
         }
         throw error;
       }
@@ -1283,7 +1288,7 @@ export async function POST(request: Request) {
             continue;
           }
           const dispatch = await sendTucxaEntityChangeWhatsapp({
-            fullName: asText(appointment.consulente_name) || "Consulente",
+            fullName: firstTwoPersonNames(asText(appointment.consulente_name) || "Consulente"),
             recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name),
             whatsapp: phone,
             appointmentDate: asText(appointment.appointment_date),

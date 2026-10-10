@@ -7,6 +7,7 @@ import {
   type PanelHeaderAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const FILHO_PANEL_BASE =
   "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel";
@@ -873,7 +874,7 @@ function AgendamentosFilhoCorrenteContent() {
             <section className="mt-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-100">
               <p className="font-black text-emerald-900">Cadastro localizado</p>
               <p className="mt-1 text-sm font-semibold text-emerald-900">
-                {foundPerson.fullName}<br />
+                {firstTwoPersonNames(foundPerson.fullName)}<br />
                 {foundPerson.whatsapp}<br />
                 {foundPerson.email || "E-mail não informado"}
               </p>
@@ -907,7 +908,7 @@ function AgendamentosFilhoCorrenteContent() {
       {modal === "confirmReception" && selectedPeriod && selectedEntity && selectedAvailability && foundPerson && payload && (
         <Modal title="Confirmar agendamento" onClose={() => setModal("lookup")}>
           <div className="grid gap-2 text-sm font-semibold text-slate-700">
-            <CompactPair leftLabel="Consulente" leftValue={foundPerson.fullName} rightLabel="WhatsApp" rightValue={foundPerson.whatsapp} />
+            <CompactPair leftLabel="Consulente" leftValue={firstTwoPersonNames(foundPerson.fullName)} rightLabel="WhatsApp" rightValue={foundPerson.whatsapp} />
             <CompactPair leftLabel="Data" leftValue={longDate(selectedPeriod.appointmentDate)} rightLabel="Período" rightValue={selectedPeriod.label} />
             <CompactPair leftLabel="Entidade" leftValue={selectedEntity.name || "Entidade"} rightLabel="Ordem prevista" rightValue={selectedAvailability.nextOrder} />
             {selectedPeriod.weekday === "quarta" && (
@@ -945,7 +946,7 @@ function AgendamentosFilhoCorrenteContent() {
                 : "O agendamento foi confirmado."}
           </p>
           <div className="mt-2 grid gap-2 text-sm font-semibold text-slate-700">
-            {confirmation.personName && <Info label="Consulente">{confirmation.personName}</Info>}
+            {confirmation.personName && <Info label="Consulente">{firstTwoPersonNames(confirmation.personName)}</Info>}
             {(confirmationAppointments.length > 0 ? confirmationAppointments : [confirmation]).map((appointment, index) => (
               <article key={appointment.id || `${appointment.appointmentDate}-${index}`} className="rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                 {confirmationAppointments.length > 1 && (

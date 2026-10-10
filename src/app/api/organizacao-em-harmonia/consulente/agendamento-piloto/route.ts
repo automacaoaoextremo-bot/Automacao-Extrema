@@ -16,6 +16,7 @@ import {
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
@@ -152,7 +153,7 @@ export async function POST(request: Request) {
       const link = confirmationUrl(token);
       const dispatch = context.whatsapp ? await sendTucxaAppointmentWhatsapp({
         kind: "confirmation",
-        fullName: context.fullName,
+        fullName: firstTwoPersonNames(context.fullName),
         recipientName: context.fullName,
         whatsapp: context.whatsapp,
         appointmentDate,
