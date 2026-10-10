@@ -959,6 +959,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
     const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === relatedPreferenceKey);
     if (!related) return;
+    if (!relatedPreferenceDraft.defaultEntityId) {
+      setErrorNotice({
+        title: "Entidade padrão obrigatória",
+        message: "Selecione a Entidade padrão desta pessoa vinculada antes de salvar.",
+      });
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -1569,6 +1576,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
   async function updateConsulente(event: FormEvent) {
     event.preventDefault();
     if (!foundPerson) return;
+    if (!editPerson.defaultEntityId) {
+      setErrorNotice({
+        title: "Entidade padrão obrigatória",
+        message: "Selecione a Entidade padrão do Consulente antes de salvar.",
+      });
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -2640,7 +2654,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                       {searchResults.map((person) => (
                         <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                          <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
+                          <span className="block font-black text-[#123D2C]">{disambiguatedPersonDisplayNames(searchResults).get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                           <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                         </button>
                       ))}
@@ -2695,8 +2709,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" type="email" />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
-                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
-                          <option value="">Sem Entidade padrão</option>
+                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required>
+                          <option value="">Selecione a Entidade padrão</option>
                           {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
                         </select>
                       </label>
@@ -2743,8 +2757,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                   value={relatedPreferenceDraft.defaultEntityId}
                                   onChange={(event) => setRelatedPreferenceDraft((current) => ({ ...current, defaultEntityId: event.target.value }))}
                                   className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
+                                  required
                                 >
-                                  <option value="">Sem Entidade padrão</option>
+                                  <option value="">Selecione a Entidade padrão</option>
                                   {payload.entityCatalog
                                     .filter((entity) => entity.active && entity.appointmentEnabled)
                                     .map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}

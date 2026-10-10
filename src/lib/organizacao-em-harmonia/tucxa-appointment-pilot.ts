@@ -436,6 +436,54 @@ export async function savePilotPersonPreferences(
   if (error) throw error;
 }
 
+export async function firstPilotAppointmentEntityId(
+  organizationId: string,
+  personId: string,
+) {
+  if (!organizationId || !personId) return "";
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,entity_id,appointment_date,created_at,notification_contact_type,source_contact_person_id")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .not("entity_id", "is", null)
+    .order("appointment_date", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) throw error;
+
+  // Alguns históricos legados de "Agendar para outra pessoa" usavam o
+  // person_id do titular do WhatsApp. Esses registros não podem definir a
+  // Entidade padrão do contato responsável.
+  const first = (data ?? []).find((appointment) => !(
+    asText(appointment.notification_contact_type) === "alternate"
+    && asText(appointment.source_contact_person_id) === personId
+  ));
+
+  return asText(first?.entity_id);
+}
+
+export async function ensurePilotDefaultEntityFromFirstAppointment(
+  organizationId: string,
+  personId: string,
+) {
+  if (!organizationId || !personId) return "";
+
+  const current = await loadPilotPersonPreferences(organizationId, personId);
+  if (current.defaultEntityId) return current.defaultEntityId;
+
+  const firstEntityId = await firstPilotAppointmentEntityId(organizationId, personId);
+  if (!firstEntityId) return "";
+
+  await savePilotPersonPreferences(organizationId, personId, {
+    defaultEntityId: firstEntityId,
+  });
+
+  return firstEntityId;
+}
+
 export async function currentPilotReception(request: Request): Promise<PilotReceptionContext | null> {
   const token = bearerToken(request);
   if (!token) return null;

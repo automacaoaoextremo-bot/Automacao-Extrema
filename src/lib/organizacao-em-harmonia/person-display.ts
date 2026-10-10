@@ -16,24 +16,32 @@ function personNameParts(value: unknown) {
 
 function personDisplayBase(value: unknown) {
   const parts = personNameParts(value);
-  if (parts.length <= 2) return { label: parts.join(" "), parts, consumed: parts.length };
+  if (parts.length <= 2) return { label: parts.join(" "), parts };
 
   const second = normalizeNamePart(parts[1]);
   const consumed = PERSON_NAME_PARTICLES.has(second) ? Math.min(3, parts.length) : 2;
   return {
     label: parts.slice(0, consumed).join(" "),
     parts,
-    consumed,
   };
 }
 
-function disambiguationToken(parts: string[], consumed: number) {
-  for (let index = consumed; index < parts.length; index += 1) {
+function lastMeaningfulName(parts: string[]) {
+  for (let index = parts.length - 1; index >= 1; index -= 1) {
     if (!PERSON_NAME_PARTICLES.has(normalizeNamePart(parts[index]))) {
       return parts[index];
     }
   }
-  return parts[consumed] ?? "";
+  return parts.at(-1) ?? "";
+}
+
+function collisionLabel(parts: string[]) {
+  const first = parts[0] ?? "";
+  const last = lastMeaningfulName(parts);
+  if (!first || !last || normalizeNamePart(first) === normalizeNamePart(last)) {
+    return parts.join(" ");
+  }
+  return `${first} ${last}`;
 }
 
 export function firstTwoPersonNames(value: unknown) {
@@ -46,7 +54,7 @@ export function disambiguatedPersonDisplayNames<T extends { id: string; fullName
   const result = new Map<string, string>();
   const grouped = new Map<
     string,
-    Array<{ person: T; label: string; token: string }>
+    Array<{ person: T; label: string; parts: string[] }>
   >();
 
   for (const person of people) {
@@ -56,7 +64,7 @@ export function disambiguatedPersonDisplayNames<T extends { id: string; fullName
     group.push({
       person,
       label: base.label,
-      token: disambiguationToken(base.parts, base.consumed),
+      parts: base.parts,
     });
     grouped.set(key, group);
   }
@@ -68,32 +76,27 @@ export function disambiguatedPersonDisplayNames<T extends { id: string; fullName
       continue;
     }
 
-    const normalizedTokens = group.map((item) => normalizeNamePart(item.token));
+    const collisionLabels = group.map((item) => collisionLabel(item.parts));
+    const normalizedCollisionLabels = collisionLabels.map(normalizeNamePart);
 
     group.forEach((item, index) => {
-      const normalizedToken = normalizedTokens[index];
-      if (!normalizedToken) {
-        result.set(item.person.id, item.label);
-        return;
-      }
+      const candidate = collisionLabels[index];
+      const normalizedCandidate = normalizedCollisionLabels[index];
 
-      let prefixLength = 1;
-      while (
-        prefixLength < normalizedToken.length &&
-        normalizedTokens.some(
-          (other, otherIndex) =>
-            otherIndex !== index &&
-            other.slice(0, prefixLength) === normalizedToken.slice(0, prefixLength),
-        )
-      ) {
-        prefixLength += 1;
-      }
+      const candidateIsUnique = normalizedCollisionLabels.every(
+        (other, otherIndex) => otherIndex === index || other !== normalizedCandidate,
+      );
 
-      // O requisito pede uma letra e, se necessário, duas. Em colisões ainda
-      // maiores avançamos só o mínimo indispensável para não voltar a mostrar
-      // duas pessoas com o mesmo rótulo.
-      const suffix = item.token.slice(0, Math.max(1, prefixLength));
-      result.set(item.person.id, `${item.label} ${suffix}`);
+      // Ajuste 65: quando o nome curto colide, mostramos primeiro + último nome.
+      // Ex.: "Ana Maria da Silva Horta" -> "Ana Horta" e
+      // "Ana Maria Silva Baldo" -> "Ana Baldo".
+      //
+      // Se até primeiro + último ainda colidir, exibimos o nome completo para
+      // não voltar a apresentar duas pessoas com o mesmo rótulo.
+      result.set(
+        item.person.id,
+        candidateIsUnique ? candidate : item.parts.join(" "),
+      );
     });
   }
 

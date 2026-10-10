@@ -7,6 +7,7 @@ import {
   currentPilotReception,
   expirePastPilotConfirmations,
   closePreviousPilotFirstTimeIndicators,
+  ensurePilotDefaultEntityFromFirstAppointment,
   isPilotFirstTimeEntity,
   loadPilotAppointments,
   loadPilotDates,
@@ -126,8 +127,9 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
       .eq("organization_id", organizationId)
       .eq("source_contact_person_id", ownerPersonId)
       .eq("notification_contact_type", "alternate")
-      .order("appointment_date", { ascending: false })
-      .order("created_at", { ascending: false }),
+      .order("appointment_date", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
   ]);
   if (relationshipError) throw relationshipError;
   if (appointmentError) throw appointmentError;
@@ -1021,6 +1023,16 @@ export async function POST(request: Request) {
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
 
+      if (contactMode !== "alternate" && !personPreferences.defaultEntityId) {
+        // Ajuste 65: ao concluir o primeiro agendamento de uma pessoa ainda
+        // sem Entidade padrão, persistimos a Entidade do PRIMEIRO agendamento
+        // histórico. O helper é determinístico por data, criação e id.
+        await ensurePilotDefaultEntityFromFirstAppointment(
+          context.organizationId,
+          person.id,
+        );
+      }
+
       if (contactMode !== "alternate") {
         if (firstTimeBooking) {
           await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
@@ -1033,15 +1045,44 @@ export async function POST(request: Request) {
       }
 
       if (contactMode === "alternate") {
-        const effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || entityId;
+        let effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || entityId;
         const effectiveAllowDifferentEntity = selectedRelatedOption?.allowDifferentEntity === true;
         const effectiveRelatedPersonId = relatedPerson?.id || selectedRelatedOption?.relatedPersonId || "";
 
-        if (effectiveRelatedPersonId && !selectedRelatedOption?.defaultEntityId) {
-          await savePilotPersonPreferences(context.organizationId, effectiveRelatedPersonId, {
-            defaultEntityId: entityId,
-            allowDifferentEntity: effectiveAllowDifferentEntity,
-          });
+        if (effectiveRelatedPersonId) {
+          const relatedPreferences = await loadPilotPersonPreferences(
+            context.organizationId,
+            effectiveRelatedPersonId,
+          );
+
+          if (!relatedPreferences.defaultEntityId) {
+            if (selectedRelatedOption?.defaultEntityId) {
+              // O histórico de pessoa vinculada é carregado em ordem crescente;
+              // portanto este valor representa o primeiro agendamento conhecido.
+              await savePilotPersonPreferences(context.organizationId, effectiveRelatedPersonId, {
+                defaultEntityId: selectedRelatedOption.defaultEntityId,
+                allowDifferentEntity: effectiveAllowDifferentEntity,
+              });
+              effectiveDefaultEntityId = selectedRelatedOption.defaultEntityId;
+            } else {
+              const derivedDefaultEntityId = await ensurePilotDefaultEntityFromFirstAppointment(
+                context.organizationId,
+                effectiveRelatedPersonId,
+              );
+
+              if (derivedDefaultEntityId) {
+                effectiveDefaultEntityId = derivedDefaultEntityId;
+              } else {
+                await savePilotPersonPreferences(context.organizationId, effectiveRelatedPersonId, {
+                  defaultEntityId: entityId,
+                  allowDifferentEntity: effectiveAllowDifferentEntity,
+                });
+                effectiveDefaultEntityId = entityId;
+              }
+            }
+          } else {
+            effectiveDefaultEntityId = relatedPreferences.defaultEntityId;
+          }
         }
 
         const relationshipPayload = {
@@ -1360,23 +1401,14 @@ export async function POST(request: Request) {
 
       if (arrivalStatus === "arrived") {
         const personId = asText(appointment.person_id);
-        const entityId = asText(appointment.entity_id);
-        if (personId && entityId) {
-          const preferences = await loadPilotPersonPreferences(context.organizationId, personId);
-          if (!preferences.defaultEntityId) {
-            const { data: entityRow, error: entityError } = await supabaseAdmin
-              .from("oh_spiritual_entities")
-              .select("id,name,slug")
-              .eq("organization_id", context.organizationId)
-              .eq("id", entityId)
-              .maybeSingle();
-            if (entityError) throw entityError;
-            const passToken = `${asText(entityRow?.slug)} ${asText(entityRow?.name)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-            const firstTimeAppointment = asRecord(appointment.metadata).firstTimeAppointment === true || isPilotFirstTimeEntity(entityRow);
-            if (entityRow?.id && !passToken.includes("passe") && !firstTimeAppointment) {
-              await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
-            }
-          }
+        if (personId) {
+          // Fallback de segurança do Ajuste 65: se um cadastro antigo ainda
+          // chegar sem Entidade padrão, resolvemos pelo primeiro agendamento
+          // histórico, sem trocar uma preferência já existente.
+          await ensurePilotDefaultEntityFromFirstAppointment(
+            context.organizationId,
+            personId,
+          );
         }
       }
 
@@ -1774,6 +1806,12 @@ export async function POST(request: Request) {
           requestId: code,
         }, { status: 400 });
       }
+      if (!defaultEntityId) {
+        return NextResponse.json({
+          error: "Selecione a Entidade padrão da pessoa vinculada.",
+          requestId: code,
+        }, { status: 400 });
+      }
 
       const { data: ownerPerson, error: ownerError } = await supabaseAdmin
         .from("oh_people")
@@ -1949,6 +1987,21 @@ export async function POST(request: Request) {
       const allowDifferentEntity = asBoolean(body.allowDifferentEntity, false);
       if (!personId || !fullName || whatsapp.length < 10) return NextResponse.json({ error: "Informe pessoa, nome e telefone válidos.", requestId: code }, { status: 400 });
       if (email && !email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
+      if (!defaultEntityId) {
+        return NextResponse.json({ error: "Selecione a Entidade padrão do Consulente.", requestId: code }, { status: 400 });
+      }
+
+      const { data: defaultEntity, error: defaultEntityError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,active,appointment_enabled")
+        .eq("organization_id", context.organizationId)
+        .eq("id", defaultEntityId)
+        .maybeSingle();
+      if (defaultEntityError) throw defaultEntityError;
+      if (!defaultEntity?.id || defaultEntity.active === false || defaultEntity.appointment_enabled === false) {
+        return NextResponse.json({ error: "A Entidade padrão escolhida não está ativa para agendamentos.", requestId: code }, { status: 409 });
+      }
+
       const { data: person, error: personError } = await supabaseAdmin
         .from("oh_people")
         .update({ full_name: fullName, whatsapp, notification_email: email || null, updated_at: new Date().toISOString() })
