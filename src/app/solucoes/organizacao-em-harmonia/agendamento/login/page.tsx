@@ -125,10 +125,7 @@ export default function AgendamentoLoginPage() {
       <section className="mx-auto max-w-3xl px-4 py-5 sm:px-6 lg:px-8">
         <article className="overflow-hidden rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.26em] text-[#CFE2C7]">Tucxa · acesso único</p>
-          <h1 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">Entre uma vez. O sistema identifica o seu acesso.</h1>
-          <p className="mt-3 text-sm font-semibold leading-6 text-[#E6F0E2] sm:text-base">
-            Use o mesmo WhatsApp/celular ou e-mail e a sua senha. Depois de autenticar, o sistema identifica se você é Filho da Corrente ou Filho de Fora/Consulente e direciona para o painel correto.
-          </p>
+          <h1 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">Acesse o Tucxa</h1>
 
           <form onSubmit={submit} className="mt-6 grid gap-4 rounded-[1.75rem] bg-white p-4 text-[#10251C] shadow-2xl shadow-green-950/20 ring-1 ring-[#123D2C]/10 sm:p-5">
             <label className="grid min-w-0 gap-2">

@@ -149,12 +149,24 @@ function cadernoBlankSlots(items: Row[]) {
   return Math.max(0, Number(meta?._availableSlots ?? 0) || 0);
 }
 
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
+}
+
 function cadernoRowNote(row: Row) {
   const cancellation = String(row._cancellationReason ?? "").trim();
   const previousEntity = String(row._previousEntityName ?? "").trim();
   const changeReason = String(row._entityChangeReason ?? "").trim();
   if (String(row.Status ?? "").trim().toLowerCase() === "cancelado") {
-    return cancellation ? `Motivo: ${cancellation}` : "Vaga liberada para a Triagem.";
+    return cancellation ? `Vaga liberada · ${cancellationDisplayReason(cancellation)}` : "Vaga liberada para a Triagem.";
   }
   if (previousEntity) {
     return `Realocado de: ${previousEntity}${changeReason ? ` · ${changeReason}` : ""}`;
@@ -175,7 +187,10 @@ function printableEntityCard(entity: string, items: Row[]) {
           ${visibleItems.map((item) => {
             const status = cadernoStatus(item);
             const note = cadernoRowNote(item);
-            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+            const firstTimeBadge = String(item._firstTimeIndicatorActive ?? "0") === "1"
+              ? `<span class="status-badge status-first-time">Primeira vez</span>`
+              : "";
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
           ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
@@ -369,6 +384,7 @@ export function TucxaPilotReports() {
             .entity-alert{border:1px solid #f1a99f;background:#fff4f2;color:#8a1c13;padding:5px;font-size:9px;text-align:center}
             .status-badge{display:inline-block;margin-top:2px;border:1px solid #bbb;border-radius:8px;padding:1px 5px;font-size:8px;font-weight:bold}
             .status-cancelled{border-color:#ef9a9a;background:#fff0f0;color:#9b1c1c}
+            .status-first-time{border-color:#e879f9;background:#fae8ff;color:#86198f}
             .status-confirmed{border-color:#a7d7b5;background:#edf9f0;color:#146b34}
             .status-requested{border-color:#e5c56f;background:#fff8df;color:#725000}
             .row-note{margin-top:2px;font-size:8px;color:#555}
@@ -427,6 +443,11 @@ export function TucxaPilotReports() {
                                   {status && (
                                     <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${status.className}`}>
                                       {status.label}
+                                    </span>
+                                  )}
+                                  {String(item._firstTimeIndicatorActive ?? "0") === "1" && (
+                                    <span className="ml-1 mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[10px] font-black text-fuchsia-800 ring-1 ring-fuchsia-200">
+                                      Primeira vez
                                     </span>
                                   )}
                                   {note && <p className="mt-1 text-[10px] font-semibold text-slate-600">{note}</p>}

@@ -39,6 +39,9 @@ export type PilotSettings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
   cavalinhoDailyWhatsappEnabled: boolean;
   cavalinhoDailyWhatsappTime: string;
@@ -89,6 +92,133 @@ function normalize(value: unknown) {
     .toLowerCase()
     .replace(/_/g, "-")
     .trim();
+}
+
+export function isPilotFirstTimeEntity(entity: { name?: unknown; slug?: unknown } | string | null | undefined) {
+  const token = typeof entity === "string"
+    ? normalize(entity)
+    : normalize(`${asText(entity?.slug)} ${asText(entity?.name)}`);
+  return /(^|[\s-])primeira[\s-]+vez($|[\s-])/.test(token);
+}
+
+function firstTimeMetadata(value: unknown) {
+  const metadata = asRecord(value);
+  return {
+    isFirstTimeAppointment: metadata.firstTimeAppointment === true,
+    indicatorActive: metadata.firstTimeIndicatorActive === true,
+    originalEntityId: asText(metadata.firstTimeOriginalEntityId),
+    originalEntityName: asText(metadata.firstTimeOriginalEntityName),
+  };
+}
+
+async function firstTimeEntityRows(organizationId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .select("id,name,slug")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return (data ?? []).filter((entity) => isPilotFirstTimeEntity(entity));
+}
+
+export async function personHasUsedPilotFirstTimeEntity(organizationId: string, personId: string) {
+  if (!personId) return false;
+
+  const firstTimeEntities = await firstTimeEntityRows(organizationId);
+  const firstTimeEntityIds = new Set(firstTimeEntities.map((item) => asText(item.id)).filter(Boolean));
+
+  const { data: appointments, error: appointmentError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,entity_id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (appointmentError) throw appointmentError;
+
+  for (const appointment of appointments ?? []) {
+    if (firstTimeMetadata(appointment.metadata).isFirstTimeAppointment) return true;
+    if (firstTimeEntityIds.has(asText(appointment.entity_id))) return true;
+  }
+
+  const appointmentIds = (appointments ?? []).map((item) => asText(item.id)).filter(Boolean);
+  if (!appointmentIds.length || !firstTimeEntityIds.size) return false;
+
+  const { data: changes, error: changesError } = await supabaseAdmin
+    .from("oh_tucxa_appointment_entity_changes")
+    .select("appointment_id,previous_entity_id")
+    .eq("organization_id", organizationId)
+    .in("appointment_id", appointmentIds);
+  if (changesError) throw changesError;
+
+  return (changes ?? []).some((change) => firstTimeEntityIds.has(asText(change.previous_entity_id)));
+}
+
+export async function markPilotFirstTimeAppointment(
+  organizationId: string,
+  appointmentId: string,
+  originalEntity: { id?: unknown; name?: unknown },
+) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("id", appointmentId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) throw new Error("Agendamento de Primeira Vez não localizado.");
+
+  const now = new Date().toISOString();
+  const currentMetadata = asRecord(data.metadata);
+  const metadata = {
+    ...currentMetadata,
+    firstTimeAppointment: true,
+    firstTimeIndicatorActive: true,
+    firstTimeOriginalEntityId: asText(originalEntity.id),
+    firstTimeOriginalEntityName: asText(originalEntity.name) || "Primeira Vez",
+    firstTimeMarkedAt: asText(currentMetadata.firstTimeMarkedAt) || now,
+  };
+
+  const { error: updateError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .update({ metadata, updated_at: now })
+    .eq("organization_id", organizationId)
+    .eq("id", appointmentId);
+  if (updateError) throw updateError;
+}
+
+export async function closePreviousPilotFirstTimeIndicators(
+  organizationId: string,
+  personId: string,
+  newAppointmentId: string,
+) {
+  if (!personId) return;
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .neq("id", newAppointmentId);
+  if (error) throw error;
+
+  const now = new Date().toISOString();
+  for (const appointment of data ?? []) {
+    const metadata = asRecord(appointment.metadata);
+    if (metadata.firstTimeAppointment !== true || metadata.firstTimeIndicatorActive !== true) continue;
+
+    const { error: updateError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .update({
+        metadata: {
+          ...metadata,
+          firstTimeIndicatorActive: false,
+          firstTimeIndicatorClosedAt: now,
+          firstTimeIndicatorClosedByAppointmentId: newAppointmentId,
+        },
+        updated_at: now,
+      })
+      .eq("organization_id", organizationId)
+      .eq("id", appointment.id);
+    if (updateError) throw updateError;
+  }
 }
 
 export function bearerToken(request: Request) {
@@ -232,6 +362,15 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     useDefaultEntity: settings.pilotUseDefaultEntity === true,
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
     serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
+    triageEntityPaginationEnabled: settings.pilotTriageEntityPaginationEnabled !== undefined
+      ? settings.pilotTriageEntityPaginationEnabled !== false
+      : settings.pilotTriagePaginationEnabled !== false,
+    triageConsulentePaginationEnabled: settings.pilotTriageConsulentePaginationEnabled !== undefined
+      ? settings.pilotTriageConsulentePaginationEnabled !== false
+      : settings.pilotTriagePaginationEnabled !== false,
+    triageCadernoPaginationEnabled: settings.pilotTriageCadernoPaginationEnabled !== undefined
+      ? settings.pilotTriageCadernoPaginationEnabled === true
+      : settings.pilotTriagePaginationEnabled === true,
     confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
     cavalinhoDailyWhatsappEnabled: settings.pilotCavalinhoDailyWhatsappEnabled === true,
     cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
@@ -654,6 +793,8 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
   return (appointments ?? []).map((item) => {
     const change = latestChangeByAppointment.get(asText(item.id));
     const previousEntityId = asText(change?.previous_entity_id);
+    const metadata = asRecord(item.metadata);
+    const firstTime = firstTimeMetadata(metadata);
     return {
       id: asText(item.id),
       personId: asText(item.person_id),
@@ -684,7 +825,11 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
       entityChangedAt: asText(change?.changed_at),
       notes: asText(item.notes),
       createdAt: asText(item.created_at),
-      order: Number(asRecord(item.metadata).order ?? 0) || null,
+      order: Number(metadata.order ?? 0) || null,
+      isFirstTimeAppointment: firstTime.isFirstTimeAppointment,
+      firstTimeIndicatorActive: firstTime.indicatorActive,
+      firstTimeOriginalEntityId: firstTime.originalEntityId,
+      firstTimeOriginalEntityName: firstTime.originalEntityName,
     };
   });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
+  closePreviousPilotFirstTimeIndicators,
   confirmationDeadlineIso,
   confirmationTokenHash,
   createConfirmationToken,
@@ -10,8 +11,11 @@ import {
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
+  isPilotFirstTimeEntity,
   loadPilotSettings,
+  markPilotFirstTimeAppointment,
   normalizeBrazilPhone,
+  personHasUsedPilotFirstTimeEntity,
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
@@ -129,6 +133,11 @@ export async function POST(request: Request) {
       if (!entity) entity = entities.find((item) => /passe/i.test(item.name) && item.isAvailable && item.available > 0);
       if (!entity) return NextResponse.json({ error: "Sua Entidade padrão não possui vaga nesta data e não há Passe disponível." }, { status: 409 });
 
+      const firstTimeBooking = isPilotFirstTimeEntity(entity);
+      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, context.personId)) {
+        return NextResponse.json({ error: "Você já possui um atendimento de Primeira Vez registrado e não pode utilizar esta Entidade novamente." }, { status: 409 });
+      }
+
       const token = createConfirmationToken();
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
@@ -149,6 +158,15 @@ export async function POST(request: Request) {
       if (reservationError) throw reservationError;
       const reservation = (Array.isArray(reservationData) ? reservationData[0] : reservationData) as { appointment_id?: string; confirmed_order?: number } | null;
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
+
+      if (firstTimeBooking) {
+        await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
+          id: entity.id,
+          name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
+        });
+      } else {
+        await closePreviousPilotFirstTimeIndicators(context.organizationId, context.personId, reservation.appointment_id);
+      }
 
       const link = confirmationUrl(token);
       const dispatch = context.whatsapp ? await sendTucxaAppointmentWhatsapp({

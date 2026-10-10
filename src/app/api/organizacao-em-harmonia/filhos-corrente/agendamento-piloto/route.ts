@@ -6,11 +6,15 @@ import {
   createConfirmationToken,
   currentPilotReception,
   expirePastPilotConfirmations,
+  closePreviousPilotFirstTimeIndicators,
+  isPilotFirstTimeEntity,
   loadPilotAppointments,
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
   loadPilotSettings,
+  markPilotFirstTimeAppointment,
+  personHasUsedPilotFirstTimeEntity,
   monthOccurrence,
   normalizeBrazilPhone,
   PILOT_ACTIVE_STATUSES,
@@ -689,6 +693,20 @@ export async function POST(request: Request) {
       if (!entity.isAvailable) return NextResponse.json({ error: entity.suspendedReason || "Atendimento suspenso para esta Entidade.", requestId: code }, { status: 409 });
       if (entity.available < 1) return NextResponse.json({ error: "Não há vagas disponíveis para esta Entidade nesta data.", requestId: code }, { status: 409 });
 
+      const firstTimeBooking = isPilotFirstTimeEntity(entity);
+      if (firstTimeBooking && contactMode === "alternate") {
+        return NextResponse.json({
+          error: "A Entidade Primeira Vez exige o cadastro da própria pessoa atendida para controlar que este atendimento ocorra somente uma vez.",
+          requestId: code,
+        }, { status: 409 });
+      }
+      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, person.id)) {
+        return NextResponse.json({
+          error: `${asText(person.full_name) || "Este Consulente"} já possui um atendimento de Primeira Vez registrado e não pode ser agendado novamente nesta Entidade.`,
+          requestId: code,
+        }, { status: 409 });
+      }
+
       const token = createConfirmationToken();
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
@@ -745,6 +763,17 @@ export async function POST(request: Request) {
         .eq("organization_id", context.organizationId)
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
+
+      if (contactMode !== "alternate") {
+        if (firstTimeBooking) {
+          await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
+            id: entity.id,
+            name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
+          });
+        } else {
+          await closePreviousPilotFirstTimeIndicators(context.organizationId, person.id, reservation.appointment_id);
+        }
+      }
 
       if (contactMode === "alternate") {
         const { error: relationshipError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships").upsert({
@@ -914,6 +943,9 @@ export async function POST(request: Request) {
       }
       const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
       const enforceArrivalWindow = asBoolean(body.enforceArrivalWindow, true);
+      const triageEntityPaginationEnabled = asBoolean(body.triageEntityPaginationEnabled, true);
+      const triageConsulentePaginationEnabled = asBoolean(body.triageConsulentePaginationEnabled, true);
+      const triageCadernoPaginationEnabled = asBoolean(body.triageCadernoPaginationEnabled, false);
       const cavalinhoDailyWhatsappEnabled = asBoolean(body.cavalinhoDailyWhatsappEnabled, false);
       const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
       const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
@@ -944,6 +976,9 @@ export async function POST(request: Request) {
         pilotConfirmationCutoff: confirmationCutoff,
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotEnforceArrivalWindow: enforceArrivalWindow,
+        pilotTriageEntityPaginationEnabled: triageEntityPaginationEnabled,
+        pilotTriageConsulentePaginationEnabled: triageConsulentePaginationEnabled,
+        pilotTriageCadernoPaginationEnabled: triageCadernoPaginationEnabled,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
         pilotCavalinhoDailyWhatsappEnabled: cavalinhoDailyWhatsappEnabled,
         pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
@@ -1001,7 +1036,7 @@ export async function POST(request: Request) {
 
       const { data: appointment, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,entity_id,appointment_date,status")
+        .select("id,person_id,entity_id,appointment_date,status,metadata")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
@@ -1051,7 +1086,8 @@ export async function POST(request: Request) {
               .maybeSingle();
             if (entityError) throw entityError;
             const passToken = `${asText(entityRow?.slug)} ${asText(entityRow?.name)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-            if (entityRow?.id && !passToken.includes("passe")) {
+            const firstTimeAppointment = asRecord(appointment.metadata).firstTimeAppointment === true || isPilotFirstTimeEntity(entityRow);
+            if (entityRow?.id && !passToken.includes("passe") && !firstTimeAppointment) {
               await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
             }
           }
@@ -1185,7 +1221,7 @@ export async function POST(request: Request) {
       const entityIds = Array.from(new Set([...sourceEntityIds, entityId]));
       const { data: entityRows, error: entityError } = await supabaseAdmin
         .from("oh_spiritual_entities")
-        .select("id,name")
+        .select("id,name,slug")
         .eq("organization_id", context.organizationId)
         .in("id", entityIds);
       if (entityError) throw entityError;
@@ -1263,6 +1299,25 @@ export async function POST(request: Request) {
           error: "Não foi possível concluir a troca de Entidade no banco de dados.",
           requestId: code,
         }, { status: 500 });
+      }
+
+      const entityRowsById = new Map((entityRows ?? []).map((item) => [asText(item.id), item]));
+      for (const appointment of appointments) {
+        const personId = asText(appointment.person_id);
+        if (!personId) continue;
+
+        const sourceEntity = entityRowsById.get(asText(appointment.entity_id));
+        const metadata = asRecord(appointment.metadata);
+        const wasFirstTime = metadata.firstTimeAppointment === true || isPilotFirstTimeEntity(sourceEntity);
+        if (!wasFirstTime) continue;
+
+        if (metadata.firstTimeAppointment !== true) {
+          await markPilotFirstTimeAppointment(context.organizationId, asText(appointment.id), {
+            id: asText(appointment.entity_id),
+            name: asText(sourceEntity?.name) || "Primeira Vez",
+          });
+        }
+        await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
       }
 
       const { data: reorderedAppointments, error: reorderedAppointmentsError } = await supabaseAdmin

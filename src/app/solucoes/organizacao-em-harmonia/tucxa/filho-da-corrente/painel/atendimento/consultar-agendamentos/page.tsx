@@ -22,6 +22,7 @@ type Appointment = {
   status: string;
   bookingChannel: string;
   order: number | null;
+  firstTimeIndicatorActive: boolean;
   cancelledAt: string;
   cancellationReason: string;
   previousEntityId: string;
@@ -117,6 +118,18 @@ function statusLabel(value: string) {
     ausente: "Ausente",
   };
   return labels[value] || value || "Não informado";
+}
+
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
 }
 
 function statusClasses(value: string) {
@@ -534,6 +547,9 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.person.fullName)}</p>
+                                  {appointment.firstTimeIndicatorActive && (
+                                    <span className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">Primeira vez</span>
+                                  )}
                                   <div className="mt-1 flex flex-wrap items-center gap-2">
                                     <p className="text-xs font-semibold text-slate-600">{formatPhone(appointment.person.whatsapp)}</p>
                                     {whatsappConversationUrl(appointment) && (
@@ -559,7 +575,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                 <p className="flex flex-wrap items-center gap-2"><span className="font-black text-[#2F6B43]">Situação:</span><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(appointment.status)}`}>{statusLabel(appointment.status)}</span><span>· {channelLabel(appointment.bookingChannel)}</span></p>
                                 {appointment.status === "cancelado" && (
                                   <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
-                                    Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                                    Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
                                     {appointment.cancelledAt ? ` · ${dateTimeLabel(appointment.cancelledAt)}` : ""}
                                   </p>
                                 )}

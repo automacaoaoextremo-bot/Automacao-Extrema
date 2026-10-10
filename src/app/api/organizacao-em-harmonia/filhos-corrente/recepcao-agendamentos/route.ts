@@ -475,6 +475,7 @@ export async function GET(request: Request) {
         status: appointment.status,
         bookingChannel: appointment.booking_channel || "consulente",
         order: appointmentOrder(appointment.metadata),
+        firstTimeIndicatorActive: asRecord(appointment.metadata).firstTimeIndicatorActive === true,
         cancelledAt: asText(appointment.cancelled_at),
         cancellationReason: asText(appointment.cancellation_reason),
         previousEntityId,

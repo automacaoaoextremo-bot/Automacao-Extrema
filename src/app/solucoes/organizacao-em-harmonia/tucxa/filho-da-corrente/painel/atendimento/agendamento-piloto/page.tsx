@@ -67,6 +67,10 @@ type Appointment = {
   entityChangeReason: string;
   entityChangeMode: string;
   entityChangedAt: string;
+  isFirstTimeAppointment: boolean;
+  firstTimeIndicatorActive: boolean;
+  firstTimeOriginalEntityId: string;
+  firstTimeOriginalEntityName: string;
 };
 type Settings = {
   confirmationCutoff: string;
@@ -83,6 +87,9 @@ type Settings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
   cavalinhoDailyWhatsappEnabled: boolean;
   cavalinhoDailyWhatsappTime: string;
@@ -142,6 +149,9 @@ type SettingsDraft = {
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
   enforceArrivalWindow: boolean;
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   reminderOffsets: string;
   summaryEmail: boolean;
   summaryWhatsapp: boolean;
@@ -225,6 +235,27 @@ function statusClasses(item: Appointment) {
   if (item.confirmationStatus === "declined") return "bg-rose-50 text-rose-800 ring-rose-200";
   if (item.status === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
   return "bg-violet-50 text-violet-800 ring-violet-200";
+}
+
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
+}
+
+function FirstTimeBadge({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">
+      Primeira vez
+    </span>
+  );
 }
 
 function displayWhatsapp(phone: string) {
@@ -497,15 +528,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
-      if (effectiveConsultView !== "day_entity") {
-        const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
-        if (entityOrder !== 0) return entityOrder;
-      }
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
       const createdOrder = a.createdAt.localeCompare(b.createdAt);
       if (createdOrder !== 0) return createdOrder;
       return a.id.localeCompare(b.id);
     });
-  }, [effectiveConsultView, filteredAppointments]);
+  }, [filteredAppointments]);
   const orderedConsulenteAppointments = useMemo(
     () => [...filteredAppointments].sort((a, b) => {
       const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
@@ -520,25 +549,34 @@ export default function AgendamentoPilotoRecepcaoPage() {
     ? orderedConsulenteAppointments
     : orderedConsultAppointments;
   const consultPageSize = 2;
-  const consultPageCount = Math.max(1, Math.ceil(activeListAppointments.length / consultPageSize));
+  const triagePaginationEnabled = consultDisplayMode === "lista"
+    ? payload?.settings.triageEntityPaginationEnabled !== false
+    : consultDisplayMode === "lista_consulente"
+      ? payload?.settings.triageConsulentePaginationEnabled !== false
+      : payload?.settings.triageCadernoPaginationEnabled === true;
+  const consultPageCount = triagePaginationEnabled
+    ? Math.max(1, Math.ceil(activeListAppointments.length / consultPageSize))
+    : 1;
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
-  const paginatedAppointments = useMemo(
-    () => activeListAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
-    [activeListAppointments, effectiveConsultPage],
+  const visibleConsultAppointments = useMemo(
+    () => triagePaginationEnabled
+      ? activeListAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize)
+      : activeListAppointments,
+    [activeListAppointments, effectiveConsultPage, triagePaginationEnabled],
   );
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
     if (effectiveConsultView === "entity_day") {
       const groups = new Map<string, Appointment[]>();
-      for (const appointment of paginatedAppointments) {
+      for (const appointment of visibleConsultAppointments) {
         const list = groups.get(appointment.entityName) ?? [];
         list.push(appointment);
         groups.set(appointment.entityName, list);
       }
       return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([label, appointments]) => ({ label, appointments }));
     }
-    return [{ label: "Consulentes", appointments: [...paginatedAppointments] }];
-  }, [effectiveConsultView, paginatedAppointments, payload]);
+    return [{ label: "Consulentes", appointments: [...visibleConsultAppointments] }];
+  }, [effectiveConsultView, payload, visibleConsultAppointments]);
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
   async function postPilot(body: Record<string, unknown>) {
@@ -1244,6 +1282,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       confirmationCutoff: payload.settings.confirmationCutoff,
       autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
       enforceArrivalWindow: payload.settings.enforceArrivalWindow,
+      triageEntityPaginationEnabled: payload.settings.triageEntityPaginationEnabled,
+      triageConsulentePaginationEnabled: payload.settings.triageConsulentePaginationEnabled,
+      triageCadernoPaginationEnabled: payload.settings.triageCadernoPaginationEnabled,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
@@ -1276,6 +1317,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         confirmationCutoff: settingsDraft.confirmationCutoff,
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
+        triageEntityPaginationEnabled: settingsDraft.triageEntityPaginationEnabled,
+        triageConsulentePaginationEnabled: settingsDraft.triageConsulentePaginationEnabled,
+        triageCadernoPaginationEnabled: settingsDraft.triageCadernoPaginationEnabled,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
         cavalinhoDailyWhatsappEnabled: settingsDraft.cavalinhoDailyWhatsappEnabled,
         cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
@@ -1702,9 +1746,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
-                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista/Entidade</button>
-                  <button type="button" onClick={() => { setConsultView("day_entity"); setConsultDisplayMode("lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista_consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Lista/Consulente</button>
-                  <button type="button" onClick={() => { setConsultDisplayMode("caderno"); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Caderno</button>
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Entidade</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("day_entity"); setConsultDisplayMode("lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista_consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Consulente</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista_consulente" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("caderno"); setConsultPage(1); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Caderno</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "caderno" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -1748,7 +1801,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
-                  {Array.from(new Set(filteredAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                  {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
                       {(() => {
                         const entity = payload.entities.find((item) => item.name === entityName);
@@ -1767,13 +1820,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         );
                       })()}
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
-                        {filteredAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
+                        {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
                             <div className="min-w-0">
                               <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
                               <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
                               <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
-                              {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${appointment.cancellationReason}` : ""}</p>}
+                              <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                              {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
                               {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
                             </div>
                             <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
@@ -1832,11 +1886,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                          <div className="flex shrink-0 flex-col items-end">
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
                         </div>
                         {appointment.status === "cancelado" && (
                           <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
-                            Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
                           </p>
                         )}
                         {appointment.previousEntityName && (
@@ -1875,20 +1932,23 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "lista_consulente" && (
                 <section className="grid gap-2">
-                  {paginatedAppointments.map((appointment) => {
+                  {visibleConsultAppointments.map((appointment) => {
                     const actionsOpen = openAppointmentActions[appointment.id] === true;
                     return (
                       <article key={`lista-consulente-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{appointment.entityName} · {firstTwoPersonNames(appointment.consulenteName)}</h4>
+                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {appointment.entityName}</h4>
                             {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                          <div className="flex shrink-0 flex-col items-end">
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
                         </div>
                         {appointment.status === "cancelado" && (
                           <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
-                            Vaga liberada{appointment.cancellationReason ? ` · Motivo: ${appointment.cancellationReason}` : ""}
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
                           </p>
                         )}
                         {appointment.previousEntityName && (
@@ -1922,7 +1982,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {(consultDisplayMode === "lista" || consultDisplayMode === "lista_consulente") && consultPageCount > 1 && (
+              {triagePaginationEnabled && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
@@ -1940,7 +2000,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
               {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" }) || (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
                 <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p><FirstTimeBadge visible={appointment.firstTimeIndicatorActive} /></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
                   <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
                 </article>
               ))}
@@ -2200,6 +2260,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
                     ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
                     ["chegada", "Registro de chegada", "Regra do botão Chegou"],
+                    ["visualizacao", "Visualização da Triagem", "Paginação por visão"],
                     ["lembretes", "Lembretes e confirmações", `Antecedência: ${settingsDraft.reminderOffsets || "não definida"} h`],
                     ["envios", "Dias dos envios automáticos", "Escolha os dias da semana"],
                     ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
@@ -2220,6 +2281,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
 
                   {settingsSection === "chegada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Registro de chegada</p><div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div></section>}
+
+                  {settingsSection === "visualizacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Visualização da Triagem</p><div className="mt-2 grid gap-2"><Toggle checked={settingsDraft.triageEntityPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageEntityPaginationEnabled: checked } : current)} label="Paginar a visão Entidade" /><Toggle checked={settingsDraft.triageConsulentePaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageConsulentePaginationEnabled: checked } : current)} label="Paginar a visão Consulente" /><Toggle checked={settingsDraft.triageCadernoPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageCadernoPaginationEnabled: checked } : current)} label="Paginar a visão Caderno" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Quando a paginação estiver desativada em uma visão, todos os agendamentos do filtro atual aparecem em uma única rolagem.</p></section>}
 
                   {settingsSection === "lembretes" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes e confirmações</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Antecedência em horas<input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 68, 24, 4" /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">A antecedência é calculada a partir do início do atendimento ({payload.settings.appointmentTime}). Como o scheduler gratuito executa uma vez ao dia, cada limiar pendente é enviado na primeira execução diária em que entrar na janela, sem duplicidade.</p></section>}
 
