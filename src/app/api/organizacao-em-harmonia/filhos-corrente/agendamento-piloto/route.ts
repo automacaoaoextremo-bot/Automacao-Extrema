@@ -6,12 +6,15 @@ import {
   createConfirmationToken,
   currentPilotReception,
   expirePastPilotConfirmations,
-  isPastConfirmationDeadline,
+  closePreviousPilotFirstTimeIndicators,
+  isPilotFirstTimeEntity,
   loadPilotAppointments,
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
   loadPilotSettings,
+  markPilotFirstTimeAppointment,
+  personHasUsedPilotFirstTimeEntity,
   monthOccurrence,
   normalizeBrazilPhone,
   PILOT_ACTIVE_STATUSES,
@@ -22,7 +25,8 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
-import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +115,16 @@ async function loadPilotExtraSettings(organizationId: string) {
   const { data, error } = await supabaseAdmin.from("oh_module_settings").select("settings").eq("organization_id", organizationId).eq("module_slug", "atendimento-em-harmonia").maybeSingle();
   if (error) throw error;
   const raw = asRecord(data?.settings);
-  return { enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true) };
+  return {
+    enforceArrivalWindow: asBoolean(raw.pilotEnforceArrivalWindow, true),
+    cavalinhoDailyWhatsappEnabled: asBoolean(raw.pilotCavalinhoDailyWhatsappEnabled, false),
+    cavalinhoDailyWhatsappTime: asText(raw.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: asBoolean(raw.pilotReceptionDailyWhatsappEnabled, false),
+    receptionDailyWhatsappTime: asText(raw.pilotReceptionDailyWhatsappTime) || "12:00",
+    automaticDispatchWeekdays: Array.isArray(raw.pilotAutomaticDispatchWeekdays)
+      ? Array.from(new Set(raw.pilotAutomaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+      : [1, 2],
+  };
 }
 
 function hourList(value: unknown) {
@@ -352,12 +365,13 @@ type ReceptionSummary = {
   fromDate: string;
   scheduled: number;
   confirmed: number;
+  unconfirmed: number;
   arrived: number;
 };
 
 function summarizeAppointments(appointments: Array<{ status?: string; confirmationStatus?: string; arrivalStatus?: string }>, mode: ReceptionSummary["mode"], date: string, fromDate: string): ReceptionSummary {
   const active = appointments.filter((item) => asText(item.status) !== "cancelado");
-  return { mode, date, fromDate, scheduled: active.length, confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length, arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length };
+  return { mode, date, fromDate, scheduled: active.length, confirmed: active.filter((item) => asText(item.confirmationStatus) === "confirmed").length, unconfirmed: active.filter((item) => asText(item.confirmationStatus) !== "confirmed").length, arrived: active.filter((item) => asText(item.arrivalStatus) === "arrived").length };
 }
 
 async function loadReceptionSummary(organizationId: string, mode: ReceptionSummary["mode"], requestedDate?: string, requestedDateTo?: string): Promise<ReceptionSummary> {
@@ -397,7 +411,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes")
+      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -438,6 +452,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
       active: entity.active !== false,
       appointmentEnabled: entity.appointment_enabled !== false,
+      cavalinhoWhatsappEnabled: entity.pilot_cavalinho_whatsapp_enabled === true,
       mondayOccurrences: Array.from(new Set(schedule.mondayOccurrences)).sort((a, b) => a - b),
       tuesdayOccurrences: Array.from(new Set(schedule.tuesdayOccurrences)).sort((a, b) => a - b),
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -632,10 +647,11 @@ export async function POST(request: Request) {
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
+      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
-      if (personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
+      if (contactMode !== "alternate" && personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
         const requiredEntity = dayEntities.find((item) => item.id === personPreferences.defaultEntityId);
         const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
           .from("oh_spiritual_entities")
@@ -677,11 +693,24 @@ export async function POST(request: Request) {
       if (!entity.isAvailable) return NextResponse.json({ error: entity.suspendedReason || "Atendimento suspenso para esta Entidade.", requestId: code }, { status: 409 });
       if (entity.available < 1) return NextResponse.json({ error: "Não há vagas disponíveis para esta Entidade nesta data.", requestId: code }, { status: 409 });
 
+      const firstTimeBooking = isPilotFirstTimeEntity(entity);
+      if (firstTimeBooking && contactMode === "alternate") {
+        return NextResponse.json({
+          error: "A Entidade Primeira Vez exige o cadastro da própria pessoa atendida para controlar que este atendimento ocorra somente uma vez.",
+          requestId: code,
+        }, { status: 409 });
+      }
+      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, person.id)) {
+        return NextResponse.json({
+          error: `${asText(person.full_name) || "Este Consulente"} já possui um atendimento de Primeira Vez registrado e não pode ser agendado novamente nesta Entidade.`,
+          requestId: code,
+        }, { status: 409 });
+      }
+
       const token = createConfirmationToken();
       const tokenHash = confirmationTokenHash(token);
       const actualEmail = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
       const ownPhone = normalizeBrazilPhone(person.whatsapp);
-      const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
       const alternateContactName = asText(body.contactName);
       const alternateContactRelationship = asText(body.contactRelationship);
       if (contactMode === "alternate" && (!alternateContactName || !alternateContactRelationship)) {
@@ -735,6 +764,17 @@ export async function POST(request: Request) {
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
 
+      if (contactMode !== "alternate") {
+        if (firstTimeBooking) {
+          await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
+            id: entity.id,
+            name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
+          });
+        } else {
+          await closePreviousPilotFirstTimeIndicators(context.organizationId, person.id, reservation.appointment_id);
+        }
+      }
+
       if (contactMode === "alternate") {
         const { error: relationshipError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships").upsert({
           organization_id: context.organizationId,
@@ -752,7 +792,7 @@ export async function POST(request: Request) {
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
-            fullName: appointmentPersonName,
+            fullName: firstTwoPersonNames(appointmentPersonName),
             recipientName: notificationName,
             whatsapp: notificationPhone,
             appointmentDate,
@@ -815,6 +855,59 @@ export async function POST(request: Request) {
       });
     }
 
+    if (action === "send-confirmation-reminder") {
+      const appointmentId = asText(body.appointmentId);
+      if (!appointmentId) return NextResponse.json({ error: "Agendamento não informado.", requestId: code }, { status: 400 });
+
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,person_id,entity_id,appointment_date,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,confirmation_status,metadata")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id || asText(appointment.status) === "cancelado") return NextResponse.json({ error: "Agendamento não localizado ou cancelado.", requestId: code }, { status: 404 });
+      if (asText(appointment.confirmation_status) === "confirmed") return NextResponse.json({ error: "Este agendamento já foi confirmado.", requestId: code }, { status: 409 });
+
+      const { data: entity, error: entityError } = await supabaseAdmin
+        .from("oh_spiritual_entities").select("id,name").eq("organization_id", context.organizationId).eq("id", appointment.entity_id).maybeSingle();
+      if (entityError) throw entityError;
+
+      const token = createConfirmationToken();
+      const tokenHash = confirmationTokenHash(token);
+      const deadline = confirmationDeadlineIso(asText(appointment.appointment_date), settings.confirmationCutoff);
+      const { error: tokenError } = await supabaseAdmin.from("oh_consulente_appointments").update({
+        confirmation_token_hash: tokenHash,
+        confirmation_expires_at: deadline,
+        confirmation_status: "pending",
+        updated_at: new Date().toISOString(),
+      }).eq("organization_id", context.organizationId).eq("id", appointmentId);
+      if (tokenError) throw tokenError;
+
+      const phone = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
+      if (!phone) return NextResponse.json({ error: "O contato deste agendamento não possui WhatsApp válido.", requestId: code }, { status: 409 });
+      const link = confirmationUrl(token);
+      const order = Number(asRecord(appointment.metadata).order ?? 0) || null;
+      const fullName = asText(appointment.consulente_name) || "Consulente";
+      const entityName = asText(entity?.name) || "Entidade";
+      const dispatch = await sendTucxaAppointmentWhatsapp({
+        kind: "reminder",
+        fullName: firstTwoPersonNames(fullName),
+        recipientName: asText(appointment.notification_contact_name) || fullName,
+        whatsapp: phone,
+        appointmentDate: asText(appointment.appointment_date),
+        entityName,
+        confirmationUrl: link,
+        appointmentOrder: order,
+        individualNotice: `Sua presença ainda não foi confirmada. Confirme pelo link para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
+      });
+      if (!dispatch.sent) return NextResponse.json({ error: dispatch.error || "Não foi possível enviar o lembrete pelo WhatsApp.", requestId: code }, { status: 502 });
+
+      const message = appointmentReminderMessage({ fullName, appointmentDate: asText(appointment.appointment_date), entityName, order, confirmed: false, confirmationUrl: link });
+      void sendTucxaAppointmentAuditEmail({ event: "Lembrete manual de confirmação enviado", consulenteName: fullName, appointmentDate: asText(appointment.appointment_date), entityName, message });
+      return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${firstTwoPersonNames(fullName)}.` });
+    }
+
     if (action === "set-availability") {
       const entityId = asText(body.entityId);
       const startsOn = asText(body.startsOn);
@@ -850,6 +943,22 @@ export async function POST(request: Request) {
       }
       const autoCancelExpiredConfirmations = asBoolean(body.autoCancelExpiredConfirmations, false);
       const enforceArrivalWindow = asBoolean(body.enforceArrivalWindow, true);
+      const triageEntityPaginationEnabled = asBoolean(body.triageEntityPaginationEnabled, true);
+      const triageConsulentePaginationEnabled = asBoolean(body.triageConsulentePaginationEnabled, true);
+      const triageCadernoPaginationEnabled = asBoolean(body.triageCadernoPaginationEnabled, false);
+      const cavalinhoDailyWhatsappEnabled = asBoolean(body.cavalinhoDailyWhatsappEnabled, false);
+      const cavalinhoDailyWhatsappTime = asText(body.cavalinhoDailyWhatsappTime) || "12:00";
+      const receptionDailyWhatsappEnabled = asBoolean(body.receptionDailyWhatsappEnabled, false);
+      const receptionDailyWhatsappTime = asText(body.receptionDailyWhatsappTime) || "12:00";
+      const automaticDispatchWeekdays = Array.isArray(body.automaticDispatchWeekdays)
+        ? Array.from(new Set(body.automaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+        : [1, 2];
+      if (!automaticDispatchWeekdays.length) {
+        return NextResponse.json({ error: "Selecione pelo menos um dia da semana para os envios automáticos.", requestId: code }, { status: 400 });
+      }
+      if (![cavalinhoDailyWhatsappTime, receptionDailyWhatsappTime].every((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value))) {
+        return NextResponse.json({ error: "Informe horários válidos no formato HH:MM para os avisos do dia.", requestId: code }, { status: 400 });
+      }
       const { data: row, error: selectError } = await supabaseAdmin
         .from("oh_module_settings")
         .select("settings")
@@ -867,7 +976,15 @@ export async function POST(request: Request) {
         pilotConfirmationCutoff: confirmationCutoff,
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotEnforceArrivalWindow: enforceArrivalWindow,
+        pilotTriageEntityPaginationEnabled: triageEntityPaginationEnabled,
+        pilotTriageConsulentePaginationEnabled: triageConsulentePaginationEnabled,
+        pilotTriageCadernoPaginationEnabled: triageCadernoPaginationEnabled,
         pilotConfirmationReminderOffsetsHours: reminderOffsets.length ? reminderOffsets : [24, 4],
+        pilotCavalinhoDailyWhatsappEnabled: cavalinhoDailyWhatsappEnabled,
+        pilotCavalinhoDailyWhatsappTime: cavalinhoDailyWhatsappTime,
+        pilotReceptionDailyWhatsappEnabled: receptionDailyWhatsappEnabled,
+        pilotReceptionDailyWhatsappTime: receptionDailyWhatsappTime,
+        pilotAutomaticDispatchWeekdays: automaticDispatchWeekdays,
       };
       const { error: updateError } = await supabaseAdmin
         .from("oh_module_settings")
@@ -875,6 +992,27 @@ export async function POST(request: Request) {
         .eq("organization_id", context.organizationId)
         .eq("module_slug", "atendimento-em-harmonia");
       if (updateError) throw updateError;
+
+      const cavalinhoNoticeEntityIds = Array.isArray(body.cavalinhoNoticeEntityIds)
+        ? Array.from(new Set(body.cavalinhoNoticeEntityIds.map(asText).filter(Boolean)))
+        : [];
+      if (cavalinhoDailyWhatsappEnabled && cavalinhoNoticeEntityIds.length === 0) {
+        return NextResponse.json({ error: "Selecione pelo menos uma Entidade/Cavalinho para ativar o envio automático.", requestId: code }, { status: 400 });
+      }
+      const { error: disableNoticeError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .update({ pilot_cavalinho_whatsapp_enabled: false, updated_at: new Date().toISOString() })
+        .eq("organization_id", context.organizationId);
+      if (disableNoticeError) throw disableNoticeError;
+      if (cavalinhoNoticeEntityIds.length) {
+        const { error: enableNoticeError } = await supabaseAdmin
+          .from("oh_spiritual_entities")
+          .update({ pilot_cavalinho_whatsapp_enabled: true, updated_at: new Date().toISOString() })
+          .eq("organization_id", context.organizationId)
+          .in("id", cavalinhoNoticeEntityIds);
+        if (enableNoticeError) throw enableNoticeError;
+      }
+
       return NextResponse.json({ ok: true, message: "Configurações do piloto atualizadas." });
     }
 
@@ -898,7 +1036,7 @@ export async function POST(request: Request) {
 
       const { data: appointment, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,entity_id,appointment_date,status")
+        .select("id,person_id,entity_id,appointment_date,status,metadata")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
@@ -948,22 +1086,79 @@ export async function POST(request: Request) {
               .maybeSingle();
             if (entityError) throw entityError;
             const passToken = `${asText(entityRow?.slug)} ${asText(entityRow?.name)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-            if (entityRow?.id && !passToken.includes("passe")) {
+            const firstTimeAppointment = asRecord(appointment.metadata).firstTimeAppointment === true || isPilotFirstTimeEntity(entityRow);
+            if (entityRow?.id && !passToken.includes("passe") && !firstTimeAppointment) {
               await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
             }
           }
         }
       }
 
+      const arrival = (Array.isArray(data) ? data[0] : data) as { confirmed_arrival_order?: number | null } | null;
+      const confirmedArrivalOrder = Number(arrival?.confirmed_arrival_order ?? 0) || null;
       return NextResponse.json({
         ok: true,
-        arrival: Array.isArray(data) ? data[0] : data,
+        arrival,
         message: arrivalStatus === "arrived"
-          ? "Chegada registrada."
+          ? confirmedArrivalOrder
+            ? `Chegada registrada na ordem ${confirmedArrivalOrder} desta Entidade.`
+            : "Chegada registrada."
           : arrivalStatus === "absent"
             ? "Ausência registrada."
             : "Situação de chegada redefinida.",
       });
+    }
+
+    if (action === "set-caderno-arrival") {
+      const appointmentId = asText(body.appointmentId);
+      const arrivalOrder = Number(body.arrivalOrder);
+      if (!appointmentId || !Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+        return NextResponse.json({ error: "Informe o agendamento e uma ordem de chegada válida.", requestId: code }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_set_arrival_order", {
+        p_organization_id: context.organizationId,
+        p_appointment_id: appointmentId,
+        p_actor_person_id: context.personId,
+        p_arrival_order: arrivalOrder,
+      });
+      if (error) {
+        if (String(error.message || "").includes("ARRIVAL_ORDER_IN_USE")) {
+          return NextResponse.json({ error: "Esta ordem de chegada já está sendo usada para esta Entidade nesta data.", requestId: code }, { status: 409 });
+        }
+        throw error;
+      }
+      return NextResponse.json({ ok: true, arrival: Array.isArray(data) ? data[0] : data, message: `Chegada registrada na ordem ${arrivalOrder}.` });
+    }
+
+    if (action === "mark-forwarded") {
+      const appointmentId = asText(body.appointmentId);
+      const forwarded = body.forwarded !== false;
+      if (!appointmentId) {
+        return NextResponse.json({ error: "Informe o agendamento.", requestId: code }, { status: 400 });
+      }
+      const { data: appointment, error: appointmentError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,arrival_status,status")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (appointmentError) throw appointmentError;
+      if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+      if (forwarded && asText(appointment.arrival_status) !== "arrived") {
+        return NextResponse.json({ error: "Registre primeiro a chegada do Consulente na Triagem.", requestId: code }, { status: 409 });
+      }
+      const { error } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .update({
+          forwarded_at: forwarded ? new Date().toISOString() : null,
+          forwarded_by_person_id: forwarded ? context.personId : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true, message: forwarded ? "Consulente marcado como encaminhado." : "Encaminhamento desfeito." });
     }
 
     if (action === "change-entity" || action === "change-entity-bulk") {
@@ -1026,7 +1221,7 @@ export async function POST(request: Request) {
       const entityIds = Array.from(new Set([...sourceEntityIds, entityId]));
       const { data: entityRows, error: entityError } = await supabaseAdmin
         .from("oh_spiritual_entities")
-        .select("id,name")
+        .select("id,name,slug")
         .eq("organization_id", context.organizationId)
         .in("id", entityIds);
       if (entityError) throw entityError;
@@ -1106,6 +1301,38 @@ export async function POST(request: Request) {
         }, { status: 500 });
       }
 
+      const entityRowsById = new Map((entityRows ?? []).map((item) => [asText(item.id), item]));
+      for (const appointment of appointments) {
+        const personId = asText(appointment.person_id);
+        if (!personId) continue;
+
+        const sourceEntity = entityRowsById.get(asText(appointment.entity_id));
+        const metadata = asRecord(appointment.metadata);
+        const wasFirstTime = metadata.firstTimeAppointment === true || isPilotFirstTimeEntity(sourceEntity);
+        if (!wasFirstTime) continue;
+
+        if (metadata.firstTimeAppointment !== true) {
+          await markPilotFirstTimeAppointment(context.organizationId, asText(appointment.id), {
+            id: asText(appointment.entity_id),
+            name: asText(sourceEntity?.name) || "Primeira Vez",
+          });
+        }
+        await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
+      }
+
+      const { data: reorderedAppointments, error: reorderedAppointmentsError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,metadata")
+        .eq("organization_id", context.organizationId)
+        .in("id", appointmentIds);
+      if (reorderedAppointmentsError) throw reorderedAppointmentsError;
+      const changedOrderByAppointmentId = new Map(
+        (reorderedAppointments ?? []).map((item) => [
+          asText(item.id),
+          Number(asRecord(item.metadata).order ?? 0) || null,
+        ]),
+      );
+
       let sent = 0;
       const failures: string[] = [];
       if (notify) {
@@ -1116,14 +1343,14 @@ export async function POST(request: Request) {
             continue;
           }
           const dispatch = await sendTucxaEntityChangeWhatsapp({
-            fullName: asText(appointment.consulente_name) || "Consulente",
+            fullName: firstTwoPersonNames(asText(appointment.consulente_name) || "Consulente"),
             recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name),
             whatsapp: phone,
             appointmentDate: asText(appointment.appointment_date),
             previousEntityName: entityNames.get(asText(appointment.entity_id)) || "Entidade anterior",
             newEntityName,
             reason,
-            appointmentOrder: Number((appointment.metadata as Record<string, unknown> | null)?.order ?? 0) || null,
+            appointmentOrder: changedOrderByAppointmentId.get(asText(appointment.id)) ?? null,
           });
           if (dispatch.sent) sent += 1;
           else failures.push(`${asText(appointment.consulente_name) || "Consulente"}: ${dispatch.error || "falha no envio"}`);
@@ -1274,6 +1501,7 @@ export async function POST(request: Request) {
       const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const entityActive = body.active !== false;
+      const cavalinhoWhatsappEnabled = body.cavalinhoWhatsappEnabled === true;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
@@ -1291,6 +1519,7 @@ export async function POST(request: Request) {
             daily_capacity: capacity,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: entityActive,
+            pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             active: entityActive,
             updated_at: new Date().toISOString(),
           })
@@ -1328,6 +1557,7 @@ export async function POST(request: Request) {
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
             appointment_enabled: entityActive,
+            pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: entityActive,

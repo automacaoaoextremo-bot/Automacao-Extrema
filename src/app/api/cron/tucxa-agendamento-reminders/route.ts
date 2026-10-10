@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   findTucxaOrganization,
+  isCampinasHoliday,
   loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
@@ -23,10 +24,21 @@ function appointmentOrder(metadata: unknown) {
 }
 
 function authorize(request: Request) {
-  const secret = process.env.CRON_SECRET || "";
-  if (!secret) return false;
+  const secrets = [process.env.CRON_SECRET, process.env.TUCXA_SCHEDULER_SECRET]
+    .map((value) => value?.trim())
+    .filter(Boolean) as string[];
+  if (!secrets.length) return false;
   const authorization = request.headers.get("authorization") || request.headers.get("Authorization") || "";
-  return authorization === `Bearer ${secret}`;
+  return secrets.some((secret) => authorization === `Bearer ${secret}`);
+}
+
+function weekdaySaoPaulo() {
+  const label = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+  }).format(new Date());
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[label] ?? new Date().getDay();
 }
 
 function todaySaoPaulo() {
@@ -57,7 +69,6 @@ type AppointmentRow = {
 type PreferenceRow = {
   person_id: string | null;
   reminder_whatsapp_enabled: boolean | null;
-  reminder_offsets_hours: unknown;
 };
 
 type EntityRow = {
@@ -90,7 +101,7 @@ async function loadPreferencesAndEntities(
     personIds.length
       ? supabaseAdmin
           .from("oh_tucxa_pilot_person_preferences")
-          .select("person_id,reminder_whatsapp_enabled,reminder_offsets_hours")
+          .select("person_id,reminder_whatsapp_enabled")
           .eq("organization_id", organizationId)
           .in("person_id", personIds)
       : Promise.resolve({ data: [], error: null }),
@@ -238,143 +249,6 @@ async function processDayOfReminders(
   return { sent, skipped, failed, checked: rows.length };
 }
 
-async function processConfirmationOffsetReminders(
-  organizationId: string,
-  today: string,
-): Promise<ReminderSummary> {
-  const settings = await loadPilotSettings(organizationId);
-  const now = new Date();
-  const nowIso = now.toISOString();
-
-  const { data: appointments, error: appointmentsError } = await supabaseAdmin
-    .from("oh_consulente_appointments")
-    .select("id,person_id,entity_id,appointment_date,appointment_time,confirmation_expires_at,confirmation_status,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,metadata")
-    .eq("organization_id", organizationId)
-    .eq("confirmation_status", "pending")
-    .gt("confirmation_expires_at", nowIso)
-    .neq("appointment_date", today)
-    .in("status", ["solicitado", "confirmado", "aprovado"])
-    .order("confirmation_expires_at", { ascending: true })
-    .limit(500);
-
-  if (appointmentsError) throw appointmentsError;
-
-  const rows = (appointments ?? []) as AppointmentRow[];
-  if (!rows.length) return { sent: 0, skipped: 0, failed: 0, checked: 0 };
-
-  const appointmentIds = rows.map((item) => item.id);
-  const [{ preferences, entityNames }, logsResult] = await Promise.all([
-    loadPreferencesAndEntities(organizationId, rows),
-    supabaseAdmin
-      .from("oh_tucxa_pilot_notification_log")
-      .select("appointment_id,scheduled_offset_hours,status")
-      .eq("organization_id", organizationId)
-      .eq("channel", "whatsapp")
-      .eq("notification_type", "confirmation_reminder")
-      .in("appointment_id", appointmentIds),
-  ]);
-
-  if (logsResult.error) throw logsResult.error;
-
-  const sentKeys = new Set(
-    ((logsResult.data ?? []) as NotificationLogRow[])
-      .filter((item) => item.status === "sent")
-      .map((item) => `${item.appointment_id}:${Number(item.scheduled_offset_hours)}`),
-  );
-
-  let sent = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const appointment of rows) {
-    const deadline = new Date(asText(appointment.confirmation_expires_at));
-    if (Number.isNaN(deadline.getTime()) || deadline <= now) {
-      skipped += 1;
-      continue;
-    }
-
-    const preference = preferences.get(asText(appointment.person_id));
-    if (preference?.reminder_whatsapp_enabled === false) {
-      skipped += 1;
-      continue;
-    }
-
-    const customOffsets = Array.isArray(preference?.reminder_offsets_hours)
-      ? preference.reminder_offsets_hours
-          .map((value: unknown) => Number(value))
-          .filter((value: number) => Number.isFinite(value) && value > 0)
-      : [];
-
-    const offsetSource: number[] = customOffsets.length
-      ? customOffsets
-      : settings.confirmationReminderOffsetsHours;
-
-    const offsets: number[] = [...new Set<number>(offsetSource)].sort((left, right) => left - right);
-    const remainingHours = (deadline.getTime() - now.getTime()) / (60 * 60 * 1000);
-
-    const dueOffset = offsets.find((offset) => {
-      const alreadySent = sentKeys.has(`${appointment.id}:${offset}`);
-      return !alreadySent && remainingHours <= offset && remainingHours > Math.max(0, offset - 2);
-    });
-
-    if (!dueOffset) {
-      skipped += 1;
-      continue;
-    }
-
-    const phone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
-    if (!phone) {
-      skipped += 1;
-      continue;
-    }
-
-    const entityName = entityNames.get(asText(appointment.entity_id)) || "Entidade";
-    const result = await sendTucxaAppointmentWhatsapp({
-      kind: "reminder",
-      fullName: asText(appointment.consulente_name) || "Consulente",
-      recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
-      whatsapp: phone,
-      appointmentDate: appointment.appointment_date,
-      entityName,
-      reminderOffsetHours: dueOffset,
-      appointmentOrder: appointmentOrder(appointment.metadata),
-      individualNotice: `Sua presença ainda não foi confirmada. Confirme para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
-    });
-
-    const logPayload = {
-      organization_id: organizationId,
-      appointment_id: appointment.id,
-      person_id: appointment.person_id || null,
-      channel: "whatsapp",
-      notification_type: "confirmation_reminder",
-      scheduled_offset_hours: dueOffset,
-      status: result.sent ? "sent" : "failed",
-      provider: result.provider,
-      provider_message_id: result.subscriberId || null,
-      error: result.error || null,
-      sent_at: result.sent ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error: logError } = await supabaseAdmin
-      .from("oh_tucxa_pilot_notification_log")
-      .upsert(logPayload, {
-        onConflict: "appointment_id,channel,notification_type,scheduled_offset_hours",
-      });
-
-    if (logError) throw logError;
-
-    if (result.sent) {
-      sent += 1;
-      sentKeys.add(`${appointment.id}:${dueOffset}`);
-    } else {
-      failed += 1;
-    }
-  }
-
-  return { sent, skipped, failed, checked: rows.length };
-}
-
 export async function GET(request: Request) {
   if (!authorize(request)) {
     return NextResponse.json({ error: "Cron não autorizado." }, { status: 401 });
@@ -387,20 +261,50 @@ export async function GET(request: Request) {
     }
 
     const today = todaySaoPaulo();
-    const [dayReminder, confirmationReminder] = await Promise.all([
-      processDayOfReminders(organization.id, today),
-      processConfirmationOffsetReminders(organization.id, today),
-    ]);
+
+    // Segurança operacional: feriado/data sem atendimento é bloqueado antes
+    // de qualquer consulta de envio, gravação de log ou contato com provedor.
+    if (isCampinasHoliday(today)) {
+      return NextResponse.json({
+        ok: true,
+        today,
+        blocked: true,
+        reason: "holiday_or_no_service_date",
+        sent: 0,
+        skipped: 0,
+        failed: 0,
+        checked: 0,
+      });
+    }
+
+    const settings = await loadPilotSettings(organization.id);
+    const weekday = weekdaySaoPaulo();
+    if (!settings.automaticDispatchWeekdays.includes(weekday)) {
+      return NextResponse.json({
+        ok: true,
+        today,
+        skippedByWeekday: true,
+        weekday,
+        sent: 0,
+        skipped: 0,
+        failed: 0,
+        checked: 0,
+      });
+    }
+
+    // Ajuste 50: o cron diário envia SOMENTE os lembretes dos agendamentos
+    // da data local corrente de Campinas/Brasília.
+    const dayReminder = await processDayOfReminders(organization.id, today);
 
     return NextResponse.json({
       ok: true,
       today,
+      mode: "today_only",
       dayReminder,
-      confirmationReminder,
-      sent: dayReminder.sent + confirmationReminder.sent,
-      skipped: dayReminder.skipped + confirmationReminder.skipped,
-      failed: dayReminder.failed + confirmationReminder.failed,
-      checked: dayReminder.checked + confirmationReminder.checked,
+      sent: dayReminder.sent,
+      skipped: dayReminder.skipped,
+      failed: dayReminder.failed,
+      checked: dayReminder.checked,
     });
   } catch (error) {
     console.error("[TUCXA cron agendamento reminders]", error);

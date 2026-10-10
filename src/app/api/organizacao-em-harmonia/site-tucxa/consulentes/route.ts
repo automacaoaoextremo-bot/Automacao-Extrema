@@ -60,11 +60,13 @@ function statusUrl(token: string) {
 }
 
 function consulenteLoginUrl() {
-  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/login`;
+  const returnTo = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel";
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function obrigadoUrl(whatsappLink: string) {
-  const params = new URLSearchParams({ login: "/solucoes/organizacao-em-harmonia/tucxa/consulente/login" });
+  const login = `/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=${encodeURIComponent("/solucoes/organizacao-em-harmonia/tucxa/consulente/painel")}`;
+  const params = new URLSearchParams({ login });
   if (whatsappLink) params.set("whatsapp", whatsappLink);
   return `/solucoes/organizacao-em-harmonia/tucxa/consulente/obrigado?${params.toString()}`;
 }

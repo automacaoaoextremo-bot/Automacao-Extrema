@@ -8,6 +8,8 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -16,9 +18,10 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
-type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
+type ConsultStatus = "requested" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
+const ALL_CONSULT_STATUSES: ConsultStatus[] = ["requested", "confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
@@ -30,6 +33,7 @@ type EntityCatalogItem = {
   capacity: number;
   active: boolean;
   appointmentEnabled: boolean;
+  cavalinhoWhatsappEnabled: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -50,9 +54,23 @@ type Appointment = {
   status: string;
   confirmationStatus: string;
   confirmationExpiresAt: string;
+  createdAt: string;
   order: number | null;
   arrivalStatus: string;
   arrivalOrder: number | null;
+  forwardedAt: string;
+  forwardedByPersonId: string;
+  cancelledAt: string;
+  cancellationReason: string;
+  previousEntityId: string;
+  previousEntityName: string;
+  entityChangeReason: string;
+  entityChangeMode: string;
+  entityChangedAt: string;
+  isFirstTimeAppointment: boolean;
+  firstTimeIndicatorActive: boolean;
+  firstTimeOriginalEntityId: string;
+  firstTimeOriginalEntityName: string;
 };
 type Settings = {
   confirmationCutoff: string;
@@ -69,7 +87,16 @@ type Settings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -113,6 +140,7 @@ type SummaryCounts = {
   fromDate: string;
   scheduled: number;
   confirmed: number;
+  unconfirmed: number;
   arrived: number;
 };
 
@@ -121,11 +149,20 @@ type SettingsDraft = {
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
   enforceArrivalWindow: boolean;
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   reminderOffsets: string;
   summaryEmail: boolean;
   summaryWhatsapp: boolean;
   summaryViewMode: ViewMode;
   openAcolhimentoOnLogin: boolean;
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 
 function shortDate(value: string) {
@@ -181,11 +218,44 @@ function todaySaoPaulo() {
 function statusLabel(item: Appointment) {
   if (item.status === "cancelado") return "Cancelado";
   if (item.arrivalStatus === "arrived") return item.arrivalOrder ? `Chegou · ordem ${item.arrivalOrder}` : "Chegou";
-  if (item.arrivalStatus === "absent") return "Ausente";
+  if (item.arrivalStatus === "absent") return "Não Chegou";
   if (item.confirmationStatus === "confirmed") return "Confirmado";
   if (item.confirmationStatus === "expired") return "Prazo encerrado";
   if (item.confirmationStatus === "declined") return "Não comparecerá";
-  return "Aguardando confirmação";
+  if (item.status === "solicitado") return "Solicitado";
+  return "Não Confirmado";
+}
+
+function statusClasses(item: Appointment) {
+  if (item.status === "cancelado") return "bg-red-50 text-red-700 ring-red-200";
+  if (item.arrivalStatus === "arrived") return "bg-blue-50 text-blue-800 ring-blue-200";
+  if (item.arrivalStatus === "absent") return "bg-orange-50 text-orange-800 ring-orange-200";
+  if (item.confirmationStatus === "confirmed") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (item.confirmationStatus === "expired") return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (item.confirmationStatus === "declined") return "bg-rose-50 text-rose-800 ring-rose-200";
+  if (item.status === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  return "bg-violet-50 text-violet-800 ring-violet-200";
+}
+
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
+}
+
+function FirstTimeBadge({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">
+      Primeira vez
+    </span>
+  );
 }
 
 function displayWhatsapp(phone: string) {
@@ -230,10 +300,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
   const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
   const [alternateRelationshipOption, setAlternateRelationshipOption] = useState<"" | "Mãe" | "Filho" | "Outro">("");
-  const [newPerson, setNewPerson] = useState({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
+  const [bookingReturnToTriagem, setBookingReturnToTriagem] = useState(false);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
@@ -248,13 +319,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityPage, setEntityPage] = useState(1);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
   const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
-  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(["confirm", "arrived", "absent", "cancelled"]);
+  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(ALL_CONSULT_STATUSES);
   const [consultPage, setConsultPage] = useState(1);
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno">("caderno");
+  const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
+  const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
@@ -265,6 +341,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
     active: true,
+    cavalinhoWhatsappEnabled: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -308,7 +385,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const open = new URL(window.location.href).searchParams.get("abrir");
-      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes"].includes(open || "")) setModal(open as ModalKind);
+      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes", "acolhimento"].includes(open || "")) setModal(open as ModalKind);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -380,74 +457,126 @@ export default function AgendamentoPilotoRecepcaoPage() {
     fromDate: effectiveSummaryDate,
     scheduled: 0,
     confirmed: 0,
+    unconfirmed: 0,
     arrived: 0,
   };
   const effectiveConsultView = consultView;
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      const first = alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
       if (first) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [effectiveConsultView, payload?.appointments]);
+  }, [payload?.appointments]);
+  const selectedStatusLabel = useMemo(() => {
+    if (consultStatuses.length === ALL_CONSULT_STATUSES.length) return "todos";
+    if (consultStatuses.length === 0) return "nenhum status";
+    const labels: Record<ConsultStatus, string> = {
+      requested: "Solicitados",
+      confirmed: "Confirmados",
+      unconfirmed: "Não confirmados",
+      arrived: "Chegaram",
+      absent: "Não chegaram",
+      cancelled: "Cancelados",
+    };
+    return consultStatuses.map((status) => labels[status]).join(" + ");
+  }, [consultStatuses]);
+
+  function entityHeading(entityName: string) {
+    const baseName = entityName.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const entity = payload?.entities.find((item) => item.name === entityName)
+      ?? payload?.entities.find((item) => item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === baseName);
+    const catalogEntity = payload?.entityCatalog.find((item) => item.id === entity?.id)
+      ?? payload?.entityCatalog.find((item) => item.name === baseName);
+    const cavalinho = catalogEntity?.mediums?.[0]?.name?.trim()
+      || entity?.mediums?.[0]?.name?.trim()
+      || entityName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()
+      || "";
+    const cleanEntityName = catalogEntity?.name || baseName || entityName;
+    const title = cavalinho ? `${cleanEntityName} (${cavalinho})` : cleanEntityName;
+    const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
+    const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
+    return `${title} ${booked}/${capacity}${entity?.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
+  }
+
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
     const normalizedSearch = consultSearch.trim().toLocaleLowerCase("pt-BR");
     return appointments.filter((item) => {
-      const statusMatches = item.status === "cancelado"
-        ? consultStatuses.includes("cancelled")
+      const statusBucket: ConsultStatus = item.status === "cancelado"
+        ? "cancelled"
         : item.arrivalStatus === "arrived"
-          ? consultStatuses.includes("arrived")
+          ? "arrived"
           : item.arrivalStatus === "absent"
-            ? consultStatuses.includes("absent")
-            : consultStatuses.includes("confirm");
+            ? "absent"
+            : item.confirmationStatus === "confirmed"
+              ? "confirmed"
+              : item.status === "solicitado" && item.confirmationStatus === "pending"
+                ? "requested"
+                : "unconfirmed";
+      const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      if (consultLetter && alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, effectiveConsultView, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     return [...filteredAppointments].sort((a, b) => {
-      if (effectiveConsultView === "day_entity") {
-        const nameOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
-        if (nameOrder !== 0) return nameOrder;
-        return a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
-      }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
-      const bookingOrder = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
-      if (bookingOrder !== 0) return bookingOrder;
-      return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      const createdOrder = a.createdAt.localeCompare(b.createdAt);
+      if (createdOrder !== 0) return createdOrder;
+      return a.id.localeCompare(b.id);
     });
-  }, [effectiveConsultView, filteredAppointments]);
+  }, [filteredAppointments]);
+  const orderedConsulenteAppointments = useMemo(
+    () => [...filteredAppointments].sort((a, b) => {
+      const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      if (personOrder !== 0) return personOrder;
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
+      return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+    }),
+    [filteredAppointments],
+  );
+  const activeListAppointments = consultDisplayMode === "lista_consulente"
+    ? orderedConsulenteAppointments
+    : orderedConsultAppointments;
   const consultPageSize = 2;
-  const consultPageCount = Math.max(1, Math.ceil(orderedConsultAppointments.length / consultPageSize));
+  const triagePaginationEnabled = consultDisplayMode === "lista"
+    ? payload?.settings.triageEntityPaginationEnabled !== false
+    : consultDisplayMode === "lista_consulente"
+      ? payload?.settings.triageConsulentePaginationEnabled !== false
+      : payload?.settings.triageCadernoPaginationEnabled === true;
+  const consultPageCount = triagePaginationEnabled
+    ? Math.max(1, Math.ceil(activeListAppointments.length / consultPageSize))
+    : 1;
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
-  const paginatedAppointments = useMemo(
-    () => orderedConsultAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
-    [effectiveConsultPage, orderedConsultAppointments],
+  const visibleConsultAppointments = useMemo(
+    () => triagePaginationEnabled
+      ? activeListAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize)
+      : activeListAppointments,
+    [activeListAppointments, effectiveConsultPage, triagePaginationEnabled],
   );
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
     if (effectiveConsultView === "entity_day") {
       const groups = new Map<string, Appointment[]>();
-      for (const appointment of paginatedAppointments) {
+      for (const appointment of visibleConsultAppointments) {
         const list = groups.get(appointment.entityName) ?? [];
         list.push(appointment);
         groups.set(appointment.entityName, list);
       }
       return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([label, appointments]) => ({ label, appointments }));
     }
-    return [{ label: "Consulentes", appointments: [...paginatedAppointments] }];
-  }, [effectiveConsultView, paginatedAppointments, payload]);
+    return [{ label: "Consulentes", appointments: [...visibleConsultAppointments] }];
+  }, [effectiveConsultView, payload, visibleConsultAppointments]);
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
   async function postPilot(body: Record<string, unknown>) {
@@ -497,7 +626,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
@@ -513,7 +642,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setContactMode("consulente");
     setAlternateContact({ name: "", relationship: "", whatsapp: "" });
     setAlternateRelationshipOption("");
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
     setBookingMode("date");
@@ -523,9 +652,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setAlphabetPicker(null);
   }
 
-  function openBookingModal() {
+  function openBookingModal(returnToTriagem = false) {
     resetBookingForm();
     setBookingResult(null);
+    setBookingReturnToTriagem(returnToTriagem);
     setError("");
     setModal("agendar");
     void loadConsulenteAlphabet();
@@ -619,7 +749,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setEntityId("");
           setErrorNotice({
             title: "Consulente indisponível para esta data",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
           });
           return;
         }
@@ -628,7 +758,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setFoundPerson(null);
           setErrorNotice({
             title: "Entidade padrão diferente",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
           });
           return;
         }
@@ -738,6 +868,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  function registrationDateInSaoPaulo() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
   async function createPerson(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -747,7 +886,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: "create-consulente",
         fullName: newPerson.fullName || (!searchHasPhone ? phone : ""),
         whatsapp: searchHasPhone ? (newPersonWhatsapp || phone) : newPersonWhatsapp,
-        birthDate: newPerson.birthDate,
+        birthDate: registrationDateInSaoPaulo(),
         email: newPerson.email,
         password: newPersonWhatsapp || phone ? newPerson.password : "",
         privacyAccepted: newPerson.privacyAccepted,
@@ -795,7 +934,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
       setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: foundPerson.fullName, alternateContact: contactMode === "alternate" });
       resetBookingForm();
-      setModal(null);
+      const returnToTriagem = bookingReturnToTriagem;
+      setBookingReturnToTriagem(false);
+      setModal(returnToTriagem ? "consultar" : null);
     } catch (bookError) {
       setError("");
       setErrorNotice({
@@ -929,6 +1070,38 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function saveCadernoArrival(appointmentId: string) {
+    const raw = (cadernoOrders[appointmentId] ?? "").trim();
+    const arrivalOrder = Number(raw);
+    if (!Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+      setErrorNotice({ title: "Ordem inválida", message: "Informe um número inteiro maior que zero." });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "set-caderno-arrival", appointmentId, arrivalOrder });
+      setSuccessNotice({ title: "Chegada registrada", message: typeof result.message === "string" ? result.message : "Chegada registrada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível salvar a ordem", message: actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markForwarded(appointmentId: string, forwarded: boolean) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "mark-forwarded", appointmentId, forwarded });
+      setSuccessNotice({ title: forwarded ? "Encaminhamento registrado" : "Encaminhamento desfeito", message: typeof result.message === "string" ? result.message : "Situação atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível atualizar o encaminhamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openIndividualEntityChange(appointment: Appointment) {
     setEntityChangeRequest({
       mode: "individual",
@@ -959,6 +1132,79 @@ export default function AgendamentoPilotoRecepcaoPage() {
       notify: true,
       attachment: null,
     });
+  }
+
+
+  async function setEntityAvailabilityForSelectedDate(entity: Entity, available: boolean) {
+    const appointmentDate = payload?.selectedDate || "";
+    if (!appointmentDate) return;
+
+    const activeAppointments = (payload?.appointments ?? []).filter(
+      (item) => item.entityId === entity.id && item.status !== "cancelado",
+    );
+    const defaultReason = available
+      ? "Disponibilidade reativada pela Recepção."
+      : "Cavalinho não poderá comparecer.";
+    const reason = window.prompt(
+      available
+        ? `Informe a observação para reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`
+        : `Informe o motivo da indisponibilidade de ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`,
+      defaultReason,
+    )?.trim() ?? "";
+    if (!reason) return;
+
+    if (!available) {
+      const detail = activeAppointments.length
+        ? `\n\nHá ${activeAppointments.length} agendamento(s) ativo(s). Depois de marcar a indisponibilidade, a tela abrirá a troca em massa para realocá-los.`
+        : "";
+      if (!window.confirm(`Marcar ${entity.name} como indisponível em ${formatDateInputPtBr(appointmentDate)}?${detail}`)) return;
+    } else if (!window.confirm(`Reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}?`)) {
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({
+        action: "set-availability",
+        entityId: entity.id,
+        startsOn: appointmentDate,
+        endsOn: appointmentDate,
+        available,
+        reason,
+      });
+      await load(appointmentDate);
+
+      if (!available && activeAppointments.length > 0) {
+        setEntityChangeRequest({
+          mode: "bulk",
+          appointmentIds: activeAppointments.map((item) => item.id),
+          consulenteName: `${activeAppointments.length} agendamento(s)`,
+          currentEntityId: entity.id,
+          currentEntityName: entity.name,
+          newEntityId: "",
+          reason: `Entidade indisponível em ${formatDateInputPtBr(appointmentDate)}. ${reason}`,
+          notify: true,
+          attachment: null,
+        });
+        setSuccessNotice({
+          title: "Entidade sinalizada como indisponível",
+          message: `${entity.name} foi bloqueada para novos agendamentos nesta data. Agora escolha a Entidade de destino para realocar ${activeAppointments.length} atendimento(s).`,
+        });
+      } else {
+        setSuccessNotice({
+          title: available ? "Entidade reativada" : "Entidade sinalizada como indisponível",
+          message: typeof result.message === "string" ? result.message : (available ? "Disponibilidade reativada." : "Atendimento suspenso para esta data."),
+        });
+      }
+    } catch (actionError) {
+      setErrorNotice({
+        title: available ? "Não foi possível reativar a Entidade" : "Não foi possível sinalizar a indisponibilidade",
+        message: actionError instanceof Error ? actionError.message : "Tente novamente.",
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submitEntityChange(event: FormEvent) {
@@ -1015,6 +1261,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function sendConfirmationReminder(appointment: Appointment) {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({ action: "send-confirmation-reminder", appointmentId: appointment.id });
+      setSuccessNotice({ title: "Lembrete enviado", message: typeof result.message === "string" ? result.message : `Lembrete enviado para ${firstTwoPersonNames(appointment.consulenteName)}.` });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível enviar o lembrete", message: actionError instanceof Error ? actionError.message : "Tente novamente em instantes." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openSettings() {
     if (!payload) return;
     setSettingsDraft({
@@ -1022,18 +1282,32 @@ export default function AgendamentoPilotoRecepcaoPage() {
       confirmationCutoff: payload.settings.confirmationCutoff,
       autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
       enforceArrivalWindow: payload.settings.enforceArrivalWindow,
+      triageEntityPaginationEnabled: payload.settings.triageEntityPaginationEnabled,
+      triageConsulentePaginationEnabled: payload.settings.triageConsulentePaginationEnabled,
+      triageCadernoPaginationEnabled: payload.settings.triageCadernoPaginationEnabled,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
       openAcolhimentoOnLogin: payload.receptionPreferences.receptionOpenAcolhimentoOnLogin,
+      cavalinhoDailyWhatsappEnabled: payload.settings.cavalinhoDailyWhatsappEnabled,
+      cavalinhoDailyWhatsappTime: payload.settings.cavalinhoDailyWhatsappTime,
+      receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
+      receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
+      automaticDispatchWeekdays: payload.settings.automaticDispatchWeekdays,
+      cavalinhoNoticeEntityIds: payload.entityCatalog.filter((entity) => entity.cavalinhoWhatsappEnabled).map((entity) => entity.id),
     });
+    setSettingsSection(null);
     setModal("configuracoes");
   }
 
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
     if (!settingsDraft) return;
+    if (settingsDraft.cavalinhoDailyWhatsappEnabled && settingsDraft.cavalinhoNoticeEntityIds.length === 0) {
+      setErrorNotice({ title: "Selecione uma Entidade/Cavalinho", message: "Para ativar o envio aos Cavalinhos, selecione pelo menos uma Entidade/Cavalinho." });
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -1043,7 +1317,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
         confirmationCutoff: settingsDraft.confirmationCutoff,
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
+        triageEntityPaginationEnabled: settingsDraft.triageEntityPaginationEnabled,
+        triageConsulentePaginationEnabled: settingsDraft.triageConsulentePaginationEnabled,
+        triageCadernoPaginationEnabled: settingsDraft.triageCadernoPaginationEnabled,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
+        cavalinhoDailyWhatsappEnabled: settingsDraft.cavalinhoDailyWhatsappEnabled,
+        cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
+        receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
+        receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
+        automaticDispatchWeekdays: settingsDraft.automaticDispatchWeekdays,
+        cavalinhoNoticeEntityIds: settingsDraft.cavalinhoNoticeEntityIds,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1053,7 +1336,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       });
       setMessage("");
       await load(payload?.selectedDate);
-      setModal(null);
+      setSettingsSection(null);
       setSuccessNotice({
         title: "Configurações salvas",
         message: "Configurações do piloto atualizadas com sucesso.",
@@ -1097,6 +1380,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
       active: entity?.active !== false,
+      cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
     });
   }
 
@@ -1127,10 +1411,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
         active: editEntity.active,
+        cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
       });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
-      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true });
+      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true, cavalinhoWhatsappEnabled: false });
       await load(payload?.selectedDate);
       setModal("cadastros");
       setCadastroMode("entidades");
@@ -1182,14 +1467,35 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
+          headerAction={modal === "consultar" ? (
+            <button type="button" onClick={() => openBookingModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
+              <span className="block text-xs font-black">Agendar</span>
+              <span className="block text-[8px] font-black uppercase tracking-[0.08em]">Toque para abrir</span>
+            </button>
+          ) : undefined}
           onClose={() => {
+            if (modal === "configuracoes" && settingsSection) {
+              setSettingsSection(null);
+              return;
+            }
             if (modal === "cadastros" && cadastroMode !== "menu") {
               clearPersonSearch();
               setPhone("");
               setCadastroMode("menu");
               return;
             }
-            if (modal === "agendar") resetBookingForm();
+            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
+              setModal("acolhimento");
+              return;
+            }
+            if (modal === "agendar") {
+              resetBookingForm();
+              if (bookingReturnToTriagem) {
+                setBookingReturnToTriagem(false);
+                setModal("consultar");
+                return;
+              }
+            }
             setModal(null);
           }}
         >
@@ -1201,10 +1507,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
               </button>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <button type="button" onClick={() => setModal("encaminhamento")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span><span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
+              </button>
+              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao?from=acolhimento" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
               </Link>
             </div>
+          )}
+
+          {modal === "gestao" && (
+            <TucxaPilotReports />
           )}
 
           {modal === "painel" && (
@@ -1215,14 +1528,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <option value="date">Data específica</option><option value="future">Todos a partir da data atual</option><option value="period">Período específico</option><option value="before">Somente anteriores à data específica</option>
                   </select>
                 </label>
-                {(summaryMode === "date" || summaryMode === "period") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data inicial" : "Data"}<input value={summaryDate ? formatDateInputPtBr(summaryDate) : ""} onChange={(event) => setSummaryDate(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
-                {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
+                {(summaryMode === "date" || summaryMode === "period") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data inicial" : "Data"}<div className="grid grid-cols-[1fr_auto] gap-2"><input value={summaryDate ? formatDateInputPtBr(summaryDate) : ""} onChange={(event) => setSummaryDate(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /><span className="relative flex min-w-[8.5rem] cursor-pointer items-center justify-center rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold text-[#123D2C]">
+                      <span aria-hidden="true">{formatDateInputPtBr(summaryDate || effectiveSummaryDate)}</span>
+                      <input type="date" value={summaryDate || effectiveSummaryDate} onChange={(event) => setSummaryDate(event.target.value)} aria-label="Escolher data inicial no calendário" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                    </span></div></label>}
+                {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<div className="grid grid-cols-[1fr_auto] gap-2"><input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /><span className="relative flex min-w-[8.5rem] cursor-pointer items-center justify-center rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold text-[#123D2C]">
+                      <span aria-hidden="true">{formatDateInputPtBr(summaryDateTo)}</span>
+                      <input type="date" value={summaryDateTo} onChange={(event) => setSummaryDateTo(event.target.value)} aria-label="Escolher data final no calendário" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                    </span></div></label>}
                 <button type="button" onClick={() => void refreshSummary(summaryMode, summaryDate || payload.selectedDate, summaryDateTo)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Atualizar indicadores</button>
               </section>
-              <div className="grid grid-cols-3 gap-2">
-                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirm", "arrived", "absent"]); setConsultPage(1); setModal("consultar"); }} />
-                <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirm", "arrived"]); setConsultPage(1); setModal("consultar"); }} />
-                <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultPage(1); setModal("consultar"); }} />
+              <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-center text-xs font-black text-[#123D2C]">Indicadores considerando: {summaryMode === "date" ? formatDateInputPtBr(displayedSummary.date || effectiveSummaryDate) : summaryMode === "future" ? `a partir de ${formatDateInputPtBr(displayedSummary.fromDate)}` : summaryMode === "period" ? `${formatDateInputPtBr(displayedSummary.date)} a ${formatDateInputPtBr(summaryDateTo)}` : `anteriores a ${formatDateInputPtBr(summaryDateTo)}`}</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirmed", "unconfirmed", "arrived", "absent"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirmed"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Não Confirmados" value={displayedSummary.unconfirmed} onClick={() => { setConsultStatuses(["unconfirmed"]); setConsultDisplayMode("lista"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
               </div>
               <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
             </div>
@@ -1248,7 +1569,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                       {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
                     </select>
-                    <input type="date" value={payload.selectedDate} min={payload.dates[0]?.date} max={payload.dates.at(-1)?.date} onChange={(event) => { if (event.target.value) { setEntityId(""); void load(event.target.value); } }} aria-label="Escolher data pelo calendário" className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
                   </div>
                 </label>
               ) : (
@@ -1300,7 +1620,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                   {searchResults.map((person) => (
                     <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                      <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                      <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                       <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                     </button>
                   ))}
@@ -1311,7 +1631,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" aria-label="Data de nascimento" className="rounded-xl border border-amber-200 p-3" required />
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <div className="grid gap-1">
                     <div className="flex items-center justify-between gap-2">
@@ -1329,11 +1648,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {personNotFound && !searchHasPhone && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Cadastre o Consulente sem WhatsApp.</p>
-                  <p className="text-xs font-semibold text-amber-900">Para não identificar a pessoa somente pelo nome, informe também a data de nascimento. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
+                  <p className="text-xs font-semibold text-amber-900">A data do cadastro será registrada automaticamente. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
                   <input value={newPerson.fullName || phone} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                    <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
-                  </label>
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
@@ -1343,7 +1659,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {foundPerson && (
                 <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <p className="font-black text-[#123D2C]">{foundPerson.fullName}</p>
+                  <p className="font-black text-[#123D2C]">{firstTwoPersonNames(foundPerson.fullName)}</p>
                   <p className="text-sm font-semibold text-slate-600">{displayWhatsapp(foundPerson.whatsapp)}{foundPerson.email ? ` · ${foundPerson.email}` : ""}</p>
                   <a href={whatsappHref(foundPerson.whatsapp, "Olá! Estou falando pela Recepção do Tucxa sobre seu agendamento.")} target="_blank" rel="noreferrer" className="text-sm font-black text-[#176A3A] underline">Falar no WhatsApp</a>
                   {bookingMode === "date" ? (
@@ -1351,14 +1667,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <select
                         value={entityId}
                         onChange={(event) => setEntityId(event.target.value)}
-                        disabled={Boolean(foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
+                        disabled={Boolean(contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
                         className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         <option value="">Escolha uma Entidade</option>
                         {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                       </select>
-                      {foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                      {contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
                         <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro deste Consulente.</span>
+                      )}
+                      {contactMode === "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                        <span className="text-xs font-semibold text-emerald-700">Como o agendamento é para outra pessoa, a Recepção pode escolher a Entidade adequada para este atendimento.</span>
                       )}
                     </label>
                   ) : (
@@ -1415,15 +1734,30 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
                     {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
                   </select>
-                  <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
+                  <select value={effectiveConsultView} onChange={(event) => { const nextView = event.target.value as "entity_day" | "day_entity"; setConsultView(nextView); if (consultDisplayMode !== "caderno") setConsultDisplayMode(nextView === "entity_day" ? "lista" : "lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
                     <option value="entity_day">Entidade</option>
                     <option value="day_entity">Consulente</option>
                   </select>
                 </div>
 
                 <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2">
-                  <span className="text-sm font-black text-[#123D2C]">Total agendado na data</span>
-                  <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
+                  <span className="text-sm font-black text-[#123D2C]">Total na data · {selectedStatusLabel}</span>
+                  <span className="text-sm font-black text-[#123D2C]">{filteredAppointments.length}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Entidade</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("day_entity"); setConsultDisplayMode("lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista_consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Consulente</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista_consulente" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("caderno"); setConsultPage(1); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Caderno</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "caderno" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -1439,10 +1773,77 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {groupedAppointments.map((group) => (
+              {(payload.entities ?? []).some((entity) => entity.isAvailable === false) && (
+                <div className="grid gap-2 rounded-2xl bg-red-50 p-3 ring-1 ring-red-200">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-red-800">⚠ Entidades indisponíveis nesta data</p>
+                  {(payload.entities ?? []).filter((entity) => entity.isAvailable === false).map((entity) => {
+                    const activeCount = (payload.appointments ?? []).filter((item) => item.entityId === entity.id && item.status !== "cancelado").length;
+                    return (
+                      <div key={`unavailable-${entity.id}`} className="rounded-xl bg-white p-3 ring-1 ring-red-100">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-black text-red-900">{entity.name}</p>
+                            <p className="mt-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Atendimento suspenso para esta data."}</p>
+                            <p className="mt-1 text-xs font-black text-red-900">{activeCount} atendimento(s) ainda vinculado(s) · novos agendamentos bloqueados.</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {activeCount > 0 && (
+                              <button type="button" disabled={saving} onClick={() => openBulkEntityChange(entity)} className="rounded-lg bg-red-800 px-3 py-2 text-[10px] font-black text-white disabled:opacity-50">Realocar todos</button>
+                            )}
+                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(entity, true)} className="rounded-lg bg-white px-3 py-2 text-[10px] font-black text-red-800 ring-1 ring-red-200 disabled:opacity-50">Reativar</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {consultDisplayMode === "caderno" && (
+                <div className="grid gap-3">
+                  {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                    <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
+                      {(() => {
+                        const entity = payload.entities.find((item) => item.name === entityName);
+                        return (
+                          <>
+                            <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
+                              <h3 className="text-sm font-black uppercase">{entityHeading(entityName)}</h3>
+                              {entity && (
+                                <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(entity, entity.isAvailable === false)} className="rounded-lg bg-white px-2 py-1 text-[10px] font-black ring-1 ring-current/20 disabled:opacity-50">
+                                  {entity.isAvailable === false ? "Reativar" : "Indisponível hoje"}
+                                </button>
+                              )}
+                            </div>
+                            {entity?.isAvailable === false && <p className="bg-red-50 px-3 pb-2 text-center text-[10px] font-bold text-red-800">⚠ {entity.suspendedReason || "Atendimento suspenso para esta data."}</p>}
+                          </>
+                        );
+                      })()}
+                      <div className="divide-y divide-[#123D2C]/10 bg-white">
+                        {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
+                          <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
+                            <div className="min-w-0">
+                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
+                              <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
+                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                              {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
+                              {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
+                            </div>
+                            <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
+                            <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {consultDisplayMode === "lista" && groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
                   <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
-                    <span>{group.label}</span>
+                    <span>{effectiveConsultView === "entity_day" ? entityHeading(group.label) : group.label}</span>
                     {effectiveConsultView === "entity_day" && (() => {
                       const entity = payload.entities.find((item) => item.name === group.label);
                       if (!entity) return null;
@@ -1450,8 +1851,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         (item) => item.entityId === entity.id && item.status !== "cancelado",
                       );
                       return (
-                        <span className="flex items-center gap-2">
-                          <span className="text-xs">{entity.booked}/{entity.capacity}</span>
+                        <span className="flex flex-wrap items-center justify-end gap-2">
                           {activeEntityAppointments.length > 0 && (
                             <button
                               type="button"
@@ -1462,6 +1862,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               Trocar todos
                             </button>
                           )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void setEntityAvailabilityForSelectedDate(entity, entity.isAvailable === false)}
+                            className={`rounded-lg px-2 py-1 text-[10px] font-black ring-1 disabled:opacity-50 ${entity.isAvailable === false ? "bg-white text-red-800 ring-red-200" : "bg-red-50 text-red-800 ring-red-100"}`}
+                          >
+                            {entity.isAvailable === false ? "Reativar" : "Indisponível hoje"}
+                          </button>
                         </span>
                       );
                     })()}
@@ -1475,19 +1883,33 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <article key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{appointment.consulenteName}</h4>
+                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{statusLabel(appointment)}</span>
+                          <div className="flex shrink-0 flex-col items-end">
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
                         </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
                         <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
                         {actionsOpen && (
                           <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
-                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${appointment.consulenteName}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -1508,15 +1930,81 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               ))}
 
+              {consultDisplayMode === "lista_consulente" && (
+                <section className="grid gap-2">
+                  {visibleConsultAppointments.map((appointment) => {
+                    const actionsOpen = openAppointmentActions[appointment.id] === true;
+                    return (
+                      <article key={`lista-consulente-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {appointment.entityName}</h4>
+                            {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end">
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
+                        </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
+                        <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
+                        {actionsOpen && (
+                          <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                            </div>
+                            {appointment.status !== "cancelado" && (
+                              <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
+                                Trocar Entidade
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {consultPageCount > 1 && (
+              {triagePaginationEnabled && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
                   <button type="button" disabled={effectiveConsultPage >= consultPageCount} onClick={() => { setConsultPage((current) => Math.min(consultPageCount, current + 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {modal === "encaminhamento" && (
+            <div className="grid gap-3">
+              <select value={payload.selectedDate} onChange={(event) => void load(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                {payload.dates.map((item) => <option key={`enc-data-${item.date}`} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+              </select>
+              <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-bold text-[#123D2C]">Somente Consulentes com chegada registrada aparecem aqui. Marque quando forem encaminhados para o atendimento da Entidade.</div>
+              {[...(payload.appointments ?? [])].filter((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived").sort((a, b) => a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" }) || (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER) || a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })).map((appointment) => (
+                <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4><p className="text-sm font-semibold text-slate-600">{appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}</p><FirstTimeBadge visible={appointment.firstTimeIndicatorActive} /></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${appointment.forwardedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{appointment.forwardedAt ? "Encaminhado" : "Aguardando"}</span></div>
+                  <button type="button" disabled={saving} onClick={() => void markForwarded(appointment.id, !appointment.forwardedAt)} className={`mt-3 w-full rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50 ${appointment.forwardedAt ? "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/15" : "bg-[#123D2C] text-white"}`}>{appointment.forwardedAt ? "Desfazer encaminhamento" : "Marcar Encaminhado"}</button>
+                </article>
+              ))}
+              {!(payload.appointments ?? []).some((item) => item.status !== "cancelado" && item.arrivalStatus === "arrived") && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum Consulente com chegada registrada nesta data.</p>}
             </div>
           )}
 
@@ -1528,8 +2016,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" onClick={() => setShowConsultStatusFilter(false)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setConsultStatuses(ALL_CONSULT_STATUSES); setConsultPage(1); }} className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#2F6B43]/30">Selecionar tudo</button>
+                  <button type="button" onClick={() => { setConsultStatuses([]); setConsultPage(1); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Desselecionar tudo</button>
                   {([
-                    ["confirm", "Confirmado"],
+                    ["requested", "Solicitado"],
+                    ["confirmed", "Confirmado"],
+                    ["unconfirmed", "Não Confirmado"],
                     ["arrived", "Chegou"],
                     ["absent", "Não Chegou"],
                     ["cancelled", "Cancelado"],
@@ -1553,6 +2045,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 .filter((entity) => paginatedEntityCatalog.some((pageEntity) => pageEntity.id === entity.id))
                 .map((entity) => {
                   const overview = entityOverview[entity.id];
+                  const currentDayEntity = payload.entities.find((item) => item.id === entity.id);
                   return (
                     <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10">
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
@@ -1565,6 +2058,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <button type="button" onClick={() => openEntityCadastro(entity.id)} className="rounded-xl bg-white px-2.5 py-2 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Cadastro</button>
                         <button type="button" disabled={saving || (!overview?.nextDate && !entityOverviewLoading)} onClick={() => void openEntityBookingCalendar(entity)} className="rounded-xl bg-[#123D2C] px-2.5 py-2 text-[11px] font-black text-white disabled:opacity-40">Agendar</button>
                       </div>
+                      {currentDayEntity && (
+                        <div className={`mt-2 rounded-xl px-3 py-2 ${currentDayEntity.isAvailable === false ? "bg-red-50 text-red-800 ring-1 ring-red-100" : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-[0.12em]">{formatDateInputPtBr(payload.selectedDate)}</p>
+                              <p className="text-xs font-bold">{currentDayEntity.isAvailable === false ? `⚠ Indisponível · ${currentDayEntity.suspendedReason || "Atendimento suspenso"}` : `${currentDayEntity.available} vaga(s) disponível(is) de ${currentDayEntity.capacity}`}</p>
+                            </div>
+                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(currentDayEntity, currentDayEntity.isAvailable === false)} className={`rounded-lg px-3 py-2 text-[10px] font-black disabled:opacity-50 ${currentDayEntity.isAvailable === false ? "bg-white text-red-800 ring-1 ring-red-200" : "bg-red-50 text-red-800 ring-1 ring-red-100"}`}>
+                              {currentDayEntity.isAvailable === false ? "Reativar na data" : "Indisponível na data"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {entity.mediums.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           {entity.mediums.map((medium) => (
@@ -1644,7 +2150,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                       {searchResults.map((person) => (
                         <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                          <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                          <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                           <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                         </button>
                       ))}
@@ -1674,9 +2180,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="font-black text-amber-950">Novo Consulente</p>
                       <label className="grid gap-1 text-xs font-black text-amber-950">Nome completo
                         <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 p-3" required />
-                      </label>
-                      <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                        <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-amber-950">WhatsApp com DDD
                         <input value={newPersonWhatsapp} onChange={(event) => setNewPersonWhatsapp(event.target.value)} className="rounded-xl border border-amber-200 p-3" required />
@@ -1739,6 +2242,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </select>
                   </label>
                   {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
+                  <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
                   <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
                   <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
                   <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
@@ -1750,55 +2254,48 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
-                <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Prazo de confirmação</p>
-                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
-                  Horário-limite no dia do atendimento
-                  <input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required />
-                </label>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p>
-                <div className="mt-3">
-                  <Toggle
-                    checked={settingsDraft.autoCancelExpiredConfirmations}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)}
-                    label="Cancelar automaticamente agendamentos não confirmados após o prazo"
-                  />
+              {!settingsSection ? (
+                <div className="grid gap-2">
+                  {[
+                    ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
+                    ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
+                    ["chegada", "Registro de chegada", "Regra do botão Chegou"],
+                    ["visualizacao", "Visualização da Triagem", "Paginação por visão"],
+                    ["lembretes", "Lembretes e confirmações", `Antecedência: ${settingsDraft.reminderOffsets || "não definida"} h`],
+                    ["envios", "Dias dos envios automáticos", "Escolha os dias da semana"],
+                    ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
+                    ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
+                    ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
+                  ].map(([key, title, subtitle]) => (
+                    <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                      <span><strong className="block text-sm text-[#123D2C]">{title}</strong><span className="text-xs font-semibold text-slate-500">{subtitle}</span></span>
+                      <span className="text-xl font-black text-[#2F6B43]">›</span>
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Por enquanto, deixe desativado para manter os agendamentos pendentes mesmo depois do horário-limite.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Registro de chegada</p>
-                <div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Desative temporariamente durante a homologação para testar a ordem de chegada fora da janela normal. Em produção, recomenda-se manter habilitado.</p>
-              </section>
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
-                <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
-                <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula. Os avisos do piloto serão enviados pelo WhatsApp/BotConversa.</span>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Ao entrar no sistema</p>
-                <div className="mt-2">
-                  <Toggle
-                    checked={settingsDraft.openAcolhimentoOnLogin}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)}
-                    label="Abrir Acolhimento automaticamente na próxima data de atendimento"
-                  />
+              ) : (
+                <div className="grid gap-3">
+                  
+                  {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
+
+                  {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
+
+                  {settingsSection === "chegada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Registro de chegada</p><div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div></section>}
+
+                  {settingsSection === "visualizacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Visualização da Triagem</p><div className="mt-2 grid gap-2"><Toggle checked={settingsDraft.triageEntityPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageEntityPaginationEnabled: checked } : current)} label="Paginar a visão Entidade" /><Toggle checked={settingsDraft.triageConsulentePaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageConsulentePaginationEnabled: checked } : current)} label="Paginar a visão Consulente" /><Toggle checked={settingsDraft.triageCadernoPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageCadernoPaginationEnabled: checked } : current)} label="Paginar a visão Caderno" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Quando a paginação estiver desativada em uma visão, todos os agendamentos do filtro atual aparecem em uma única rolagem.</p></section>}
+
+                  {settingsSection === "lembretes" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes e confirmações</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Antecedência em horas<input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 68, 24, 4" /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">A antecedência é calculada a partir do início do atendimento ({payload.settings.appointmentTime}). Como o scheduler gratuito executa uma vez ao dia, cada limiar pendente é enviado na primeira execução diária em que entrar na janela, sem duplicidade.</p></section>}
+
+                  {settingsSection === "envios" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Dias dos envios automáticos</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Escolha em quais dias da semana a execução diária poderá enviar lembretes e avisos.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [0,1,2,3,4,5,6] } : current)} className="rounded-lg bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">Selecionar tudo</button><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [] } : current)} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Deselecionar tudo</button></div><div className="mt-3 grid grid-cols-2 gap-2">{[[0,"Domingo"],[1,"Segunda"],[2,"Terça"],[3,"Quarta"],[4,"Quinta"],[5,"Sexta"],[6,"Sábado"]].map(([value,label]) => { const day=Number(value); const checked=settingsDraft.automaticDispatchWeekdays.includes(day); return <label key={day} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={checked} onChange={(event) => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: event.target.checked ? Array.from(new Set([...current.automaticDispatchWeekdays, day])).sort((a,b)=>a-b) : current.automaticDispatchWeekdays.filter((item)=>item!==day) } : current)} />{String(label)}</label>; })}</div></section>}
+
+                  {settingsSection === "entrada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Ao entrar no sistema</p><div className="mt-2"><Toggle checked={settingsDraft.openAcolhimentoOnLogin} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)} label="Abrir Acolhimento automaticamente na próxima data de atendimento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal para cada integrante da Recepção.</p></section>}
+
+                  {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
+
+                  {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal: cada integrante da Recepção decide se deseja abrir o Acolhimento após o próprio login.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Receber resumo agendamentos</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" />
-                  <Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" />
-                </div>
-                <p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p>
-                <select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select>
-              </section>
-              <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
+              )}
+              <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
             </form>
           )}
 
@@ -1813,6 +2310,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
         </Modal>
       )}
+
+      {showCavalinhoPicker && settingsDraft && payload && (() => {
+        const eligible = payload.entityCatalog.filter((entity) => entity.active);
+        const pageSize = 4;
+        const pageCount = Math.max(1, Math.ceil(eligible.length / pageSize));
+        const page = Math.min(cavalinhoPickerPage, pageCount);
+        const visible = eligible.slice((page - 1) * pageSize, page * pageSize);
+        return (
+          <Modal title="Entidades/Cavalinhos que receberão" onClose={() => setShowCavalinhoPicker(false)}>
+            <div className="grid gap-3">
+              <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold text-[#123D2C]">Selecione pelo menos uma Entidade/Cavalinho para manter o envio automático ativado.</p>
+              <div className="grid gap-2">{visible.map((entity) => <label key={`picker-${entity.id}`} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={settingsDraft.cavalinhoNoticeEntityIds.includes(entity.id)} disabled={entity.mediums.length === 0} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoNoticeEntityIds: event.target.checked ? Array.from(new Set([...current.cavalinhoNoticeEntityIds, entity.id])) : current.cavalinhoNoticeEntityIds.filter((id) => id !== entity.id) } : current)} /><span>{entity.name}{entity.mediums[0]?.name ? ` (${entity.mediums[0].name})` : ""}{entity.mediums.length === 0 ? " · sem Cavalinho associado" : ""}</span></label>)}</div>
+              <div className="grid grid-cols-3 items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setCavalinhoPickerPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button><span className="text-center text-xs font-black text-slate-500">{page}/{pageCount}</span><button type="button" disabled={page >= pageCount} onClick={() => setCavalinhoPickerPage((current) => Math.min(pageCount, current + 1))} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button></div>
+              <button type="button" disabled={settingsDraft.cavalinhoNoticeEntityIds.length === 0} onClick={() => setShowCavalinhoPicker(false)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-40">Concluir seleção</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {entityCalendar && (
         <Modal title={`Agendar · ${entityCalendar.entity.name}`} onClose={() => setEntityCalendar(null)}>
@@ -1902,13 +2417,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
         <Modal title="Agendamento criado" onClose={() => setBookingResult(null)}>
           <div className="grid gap-3">
             <section className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="text-lg font-black text-[#123D2C]">{bookingResult.appointment.personName}</p>
+              <p className="text-lg font-black text-[#123D2C]">{firstTwoPersonNames(bookingResult.appointment.personName)}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
               {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
-              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
+              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${firstTwoPersonNames(bookingResult.contactName || "")}. Você está recebendo esta mensagem como contato de ${firstTwoPersonNames(bookingResult.appointment.personName)}. O atendimento de ${firstTwoPersonNames(bookingResult.appointment.personName)} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${firstTwoPersonNames(bookingResult.appointment.personName)}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
               target="_blank"
               rel="noreferrer"
               className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"
@@ -1936,7 +2451,7 @@ function AlphabetConsulentePopup({
   onClose: () => void;
   onSelect: (person: FoundPerson) => void;
 }) {
-  const pageSize = 6;
+  const pageSize = 4;
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
@@ -1961,7 +2476,7 @@ function AlphabetConsulentePopup({
             <div className="grid gap-2">
               {pagePeople.map((person) => (
                 <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                  <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                  <span className="block font-black text-[#123D2C]">{firstTwoPersonNames(person.fullName)}</span>
                   <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                   {person.defaultEntityName && (
                     <span className="mt-1 block text-xs font-black text-[#2F6B43]">
@@ -2012,7 +2527,7 @@ function EntityChangePopup({
         </div>
         <div className="grid gap-4 p-5">
           <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold text-[#123D2C]">
-            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : request.consulenteName}</strong></p>
+            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : firstTwoPersonNames(request.consulenteName)}</strong></p>
             <p className="mt-1">Entidade atual: <strong>{request.currentEntityName}</strong></p>
             {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
           </div>
@@ -2112,7 +2627,7 @@ function CancelAppointmentPopup({
         </header>
         <form onSubmit={onSubmit} className="grid gap-3 p-4 sm:p-5">
           <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-800 ring-1 ring-red-100">
-            Você está cancelando o atendimento de {request.consulenteName}. A vaga será liberada e o motivo ficará registrado no histórico.
+            Você está cancelando o atendimento de {firstTwoPersonNames(request.consulenteName)}. A vaga será liberada e o motivo ficará registrado no histórico.
           </p>
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
             Motivo do cancelamento
@@ -2207,8 +2722,8 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
   );
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
+function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><div className="flex items-center gap-2">{headerAction}<button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></div></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {
@@ -2220,6 +2735,8 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "acolhimento") return "Acolhimento";
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
+  if (modal === "encaminhamento") return "Encaminhamento";
+  if (modal === "gestao") return "Gestão · Relatórios";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

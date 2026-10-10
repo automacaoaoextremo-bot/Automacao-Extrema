@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   addDaysIso,
+  closePreviousPilotFirstTimeIndicators,
   confirmationDeadlineIso,
   currentPilotConsulente,
   expirePastPilotConfirmations,
@@ -10,7 +11,10 @@ import {
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
+  isPilotFirstTimeEntity,
   loadPilotSettings,
+  markPilotFirstTimeAppointment,
+  personHasUsedPilotFirstTimeEntity,
   pilotReservationError,
   savePilotPersonPreferences,
   todayInSaoPaulo,
@@ -111,6 +115,11 @@ export async function POST(request: Request) {
       if (!entity) return NextResponse.json({ error: "A Entidade não está prevista para esta data.", requestId: code }, { status: 409 });
       if (!entity.isAvailable || entity.available < 1) return NextResponse.json({ error: entity.suspendedReason || "Não há vagas para esta Entidade.", requestId: code }, { status: 409 });
 
+      const firstTimeBooking = isPilotFirstTimeEntity(entity);
+      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, context.personId)) {
+        return NextResponse.json({ error: "Você já possui um atendimento de Primeira Vez registrado e não pode utilizar esta Entidade novamente.", requestId: code }, { status: 409 });
+      }
+
       const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
         p_person_id: context.personId,
@@ -129,6 +138,14 @@ export async function POST(request: Request) {
       if (error) throw error;
       const reservation = (Array.isArray(data) ? data[0] : data) as { appointment_id?: string; confirmed_order?: number; confirmed_capacity?: number; confirmed_status?: string } | null;
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
+      if (firstTimeBooking) {
+        await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
+          id: entity.id,
+          name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
+        });
+      } else {
+        await closePreviousPilotFirstTimeIndicators(context.organizationId, context.personId, reservation.appointment_id);
+      }
       return NextResponse.json({
         ok: true,
         appointment: {

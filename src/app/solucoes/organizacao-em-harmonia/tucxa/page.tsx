@@ -311,7 +311,7 @@ export default async function TucxaSitePage({
                 <AudienceTouchHint />
               </Link>
               <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login"
+                href="/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=%2Fsolucoes%2Forganizacao-em-harmonia%2Ftucxa%2Ffilho-da-corrente%2Fpainel"
                 className={`${audienceButtonClass} bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10 hover:bg-[#F7FAF2]`}
               >
                 <span>Já tenho acesso</span>
@@ -349,10 +349,10 @@ export default async function TucxaSitePage({
                 <AudienceTouchHint />
               </Link>
               <Link
-                href="/solucoes/organizacao-em-harmonia/tucxa/consulente/login"
+                href="/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=%2Fsolucoes%2Forganizacao-em-harmonia%2Ftucxa%2Fconsulente%2Fpainel"
                 className={`${audienceButtonClass} bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10 hover:bg-[#F7FAF2]`}
               >
-                <span>Já tenho cadastro</span>
+                <span>Já tenho acesso</span>
                 <AudienceTouchHint />
               </Link>
             </div>

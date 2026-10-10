@@ -711,7 +711,8 @@ function siteUrl() {
 }
 
 function consulenteLoginUrl() {
-  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/consulente/login`;
+  const returnTo = "/solucoes/organizacao-em-harmonia/tucxa/consulente/painel/agendamento-piloto";
+  return `${siteUrl()}/solucoes/organizacao-em-harmonia/agendamento/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function syntheticEmailFromPhone(phone: string) {

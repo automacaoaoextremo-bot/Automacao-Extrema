@@ -1135,7 +1135,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     if (authError) throw authError;
   }
 
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=${encodeURIComponent("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel")}`;
+  const firstAccessUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso`;
   const email = displayEmail(person.email);
   const emailMessage = approved
     ? [
@@ -1156,7 +1157,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
         "",
         "Você pode atualizar seus dados pelo primeiro acesso:",
-        loginUrl,
+        firstAccessUrl,
       ].join("\n");
 
   if (email) {

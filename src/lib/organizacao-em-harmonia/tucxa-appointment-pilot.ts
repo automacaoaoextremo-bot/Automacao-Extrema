@@ -39,7 +39,15 @@ export type PilotSettings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
 };
 
 export type PilotPersonPreferences = {
@@ -51,6 +59,7 @@ export type PilotPersonPreferences = {
   receptionSummaryChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
   receptionOpenAcolhimentoOnLogin: boolean;
+  consulenteOpenUpcomingOnLogin: boolean;
 };
 
 type PilotReceptionContext = {
@@ -83,6 +92,133 @@ function normalize(value: unknown) {
     .toLowerCase()
     .replace(/_/g, "-")
     .trim();
+}
+
+export function isPilotFirstTimeEntity(entity: { name?: unknown; slug?: unknown } | string | null | undefined) {
+  const token = typeof entity === "string"
+    ? normalize(entity)
+    : normalize(`${asText(entity?.slug)} ${asText(entity?.name)}`);
+  return /(^|[\s-])primeira[\s-]+vez($|[\s-])/.test(token);
+}
+
+function firstTimeMetadata(value: unknown) {
+  const metadata = asRecord(value);
+  return {
+    isFirstTimeAppointment: metadata.firstTimeAppointment === true,
+    indicatorActive: metadata.firstTimeIndicatorActive === true,
+    originalEntityId: asText(metadata.firstTimeOriginalEntityId),
+    originalEntityName: asText(metadata.firstTimeOriginalEntityName),
+  };
+}
+
+async function firstTimeEntityRows(organizationId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_spiritual_entities")
+    .select("id,name,slug")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return (data ?? []).filter((entity) => isPilotFirstTimeEntity(entity));
+}
+
+export async function personHasUsedPilotFirstTimeEntity(organizationId: string, personId: string) {
+  if (!personId) return false;
+
+  const firstTimeEntities = await firstTimeEntityRows(organizationId);
+  const firstTimeEntityIds = new Set(firstTimeEntities.map((item) => asText(item.id)).filter(Boolean));
+
+  const { data: appointments, error: appointmentError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,entity_id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (appointmentError) throw appointmentError;
+
+  for (const appointment of appointments ?? []) {
+    if (firstTimeMetadata(appointment.metadata).isFirstTimeAppointment) return true;
+    if (firstTimeEntityIds.has(asText(appointment.entity_id))) return true;
+  }
+
+  const appointmentIds = (appointments ?? []).map((item) => asText(item.id)).filter(Boolean);
+  if (!appointmentIds.length || !firstTimeEntityIds.size) return false;
+
+  const { data: changes, error: changesError } = await supabaseAdmin
+    .from("oh_tucxa_appointment_entity_changes")
+    .select("appointment_id,previous_entity_id")
+    .eq("organization_id", organizationId)
+    .in("appointment_id", appointmentIds);
+  if (changesError) throw changesError;
+
+  return (changes ?? []).some((change) => firstTimeEntityIds.has(asText(change.previous_entity_id)));
+}
+
+export async function markPilotFirstTimeAppointment(
+  organizationId: string,
+  appointmentId: string,
+  originalEntity: { id?: unknown; name?: unknown },
+) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("id", appointmentId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.id) throw new Error("Agendamento de Primeira Vez não localizado.");
+
+  const now = new Date().toISOString();
+  const currentMetadata = asRecord(data.metadata);
+  const metadata = {
+    ...currentMetadata,
+    firstTimeAppointment: true,
+    firstTimeIndicatorActive: true,
+    firstTimeOriginalEntityId: asText(originalEntity.id),
+    firstTimeOriginalEntityName: asText(originalEntity.name) || "Primeira Vez",
+    firstTimeMarkedAt: asText(currentMetadata.firstTimeMarkedAt) || now,
+  };
+
+  const { error: updateError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .update({ metadata, updated_at: now })
+    .eq("organization_id", organizationId)
+    .eq("id", appointmentId);
+  if (updateError) throw updateError;
+}
+
+export async function closePreviousPilotFirstTimeIndicators(
+  organizationId: string,
+  personId: string,
+  newAppointmentId: string,
+) {
+  if (!personId) return;
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,metadata")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .neq("id", newAppointmentId);
+  if (error) throw error;
+
+  const now = new Date().toISOString();
+  for (const appointment of data ?? []) {
+    const metadata = asRecord(appointment.metadata);
+    if (metadata.firstTimeAppointment !== true || metadata.firstTimeIndicatorActive !== true) continue;
+
+    const { error: updateError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .update({
+        metadata: {
+          ...metadata,
+          firstTimeIndicatorActive: false,
+          firstTimeIndicatorClosedAt: now,
+          firstTimeIndicatorClosedByAppointmentId: newAppointmentId,
+        },
+        updated_at: now,
+      })
+      .eq("organization_id", organizationId)
+      .eq("id", appointment.id);
+    if (updateError) throw updateError;
+  }
 }
 
 export function bearerToken(request: Request) {
@@ -226,14 +362,30 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     useDefaultEntity: settings.pilotUseDefaultEntity === true,
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
     serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
+    triageEntityPaginationEnabled: settings.pilotTriageEntityPaginationEnabled !== undefined
+      ? settings.pilotTriageEntityPaginationEnabled !== false
+      : settings.pilotTriagePaginationEnabled !== false,
+    triageConsulentePaginationEnabled: settings.pilotTriageConsulentePaginationEnabled !== undefined
+      ? settings.pilotTriageConsulentePaginationEnabled !== false
+      : settings.pilotTriagePaginationEnabled !== false,
+    triageCadernoPaginationEnabled: settings.pilotTriageCadernoPaginationEnabled !== undefined
+      ? settings.pilotTriageCadernoPaginationEnabled === true
+      : settings.pilotTriagePaginationEnabled === true,
     confirmationReminderOffsetsHours: positiveHourList(settings.pilotConfirmationReminderOffsetsHours, [24, 4]),
+    cavalinhoDailyWhatsappEnabled: settings.pilotCavalinhoDailyWhatsappEnabled === true,
+    cavalinhoDailyWhatsappTime: asText(settings.pilotCavalinhoDailyWhatsappTime) || "12:00",
+    receptionDailyWhatsappEnabled: settings.pilotReceptionDailyWhatsappEnabled === true,
+    receptionDailyWhatsappTime: asText(settings.pilotReceptionDailyWhatsappTime) || "12:00",
+    automaticDispatchWeekdays: Array.isArray(settings.pilotAutomaticDispatchWeekdays)
+      ? Array.from(new Set(settings.pilotAutomaticDispatchWeekdays.map(Number).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))).sort((a, b) => a - b)
+      : [1, 2],
   };
 }
 
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -249,6 +401,7 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
       : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
     receptionOpenAcolhimentoOnLogin: data?.reception_open_acolhimento_on_login !== false,
+    consulenteOpenUpcomingOnLogin: data?.consulente_open_upcoming_on_login !== false,
   };
 }
 
@@ -272,6 +425,7 @@ export async function savePilotPersonPreferences(
       : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
     reception_open_acolhimento_on_login: input.receptionOpenAcolhimentoOnLogin ?? current.receptionOpenAcolhimentoOnLogin,
+    consulente_open_upcoming_on_login: input.consulenteOpenUpcomingOnLogin ?? current.consulenteOpenUpcomingOnLogin,
     updated_at: new Date().toISOString(),
   };
   const { error } = await supabaseAdmin
@@ -390,6 +544,48 @@ export async function currentPilotConsulente(request: Request): Promise<PilotCon
   };
 }
 
+function easterSundayUtc(year: number) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function isoFromUtcDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+/**
+ * Datas em que o piloto não deve oferecer atendimento.
+ * Inclui feriados nacionais, 9 de Julho (SP), 8 de Dezembro (Campinas),
+ * Sexta-feira da Paixão e Corpus Christi em Campinas.
+ */
+export function isCampinasHoliday(value: string) {
+  const year = Number(value.slice(0, 4));
+  if (!Number.isInteger(year)) return false;
+  const fixed = new Set([
+    `${year}-01-01`, `${year}-04-21`, `${year}-05-01`, `${year}-07-09`,
+    `${year}-09-07`, `${year}-10-12`, `${year}-11-02`, `${year}-11-15`,
+    `${year}-11-20`, `${year}-12-08`, `${year}-12-25`,
+  ]);
+  if (fixed.has(value)) return true;
+  const easter = easterSundayUtc(year);
+  const goodFriday = new Date(easter); goodFriday.setUTCDate(goodFriday.getUTCDate() - 2);
+  const corpusChristi = new Date(easter); corpusChristi.setUTCDate(corpusChristi.getUTCDate() + 60);
+  return value === isoFromUtcDate(goodFriday) || value === isoFromUtcDate(corpusChristi);
+}
+
 export async function loadPilotDates(organizationId: string, daysAhead: number): Promise<PilotDateOption[]> {
   const today = todayInSaoPaulo();
   const candidates: PilotDateOption[] = [];
@@ -397,7 +593,7 @@ export async function loadPilotDates(organizationId: string, daysAhead: number):
   for (let offset = 0; offset <= daysAhead; offset += 1) {
     const date = addDaysIso(today, offset);
     const weekday = pilotWeekday(date);
-    if (!weekday) continue;
+    if (!weekday || isCampinasHoliday(date)) continue;
     const occurrence = monthOccurrence(date);
     if (occurrence > 4) continue;
     candidates.push({
@@ -556,7 +752,7 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, metadata, notes, created_at")
+    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, cancelled_at, cancellation_reason, metadata, notes, created_at")
     .eq("organization_id", organizationId)
     .gte("appointment_date", startDate)
     .lte("appointment_date", endDate)
@@ -566,35 +762,76 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
   const { data: appointments, error } = await query;
   if (error) throw error;
 
-  const entityIds = Array.from(new Set((appointments ?? []).map((item) => asText(item.entity_id)).filter(Boolean)));
+  const appointmentIds = (appointments ?? []).map((item) => asText(item.id)).filter(Boolean);
+  const { data: entityChanges, error: entityChangesError } = appointmentIds.length
+    ? await supabaseAdmin
+        .from("oh_tucxa_appointment_entity_changes")
+        .select("appointment_id,previous_entity_id,new_entity_id,reason,change_mode,changed_at")
+        .eq("organization_id", organizationId)
+        .in("appointment_id", appointmentIds)
+        .order("changed_at", { ascending: false })
+    : { data: [], error: null };
+  if (entityChangesError) throw entityChangesError;
+
+  const latestChangeByAppointment = new Map<string, Record<string, unknown>>();
+  for (const change of entityChanges ?? []) {
+    const appointmentId = asText(change.appointment_id);
+    if (!appointmentId || latestChangeByAppointment.has(appointmentId)) continue;
+    latestChangeByAppointment.set(appointmentId, asRecord(change));
+  }
+
+  const entityIds = Array.from(new Set([
+    ...(appointments ?? []).map((item) => asText(item.entity_id)),
+    ...(entityChanges ?? []).flatMap((item) => [asText(item.previous_entity_id), asText(item.new_entity_id)]),
+  ].filter(Boolean)));
   const { data: entities, error: entityError } = entityIds.length
     ? await supabaseAdmin.from("oh_spiritual_entities").select("id, name").in("id", entityIds)
     : { data: [], error: null };
   if (entityError) throw entityError;
   const entityMap = new Map((entities ?? []).map((item) => [asText(item.id), asText(item.name) || "Entidade"]));
 
-  return (appointments ?? []).map((item) => ({
-    id: asText(item.id),
-    personId: asText(item.person_id),
-    entityId: asText(item.entity_id),
-    entityName: entityMap.get(asText(item.entity_id)) || "Entidade",
-    consulenteName: asText(item.consulente_name) || "Filho de Fora/Consulente",
-    whatsapp: asText(item.whatsapp),
-    appointmentDate: asText(item.appointment_date),
-    appointmentTime: asText(item.appointment_time) || "20:00",
-    status: asText(item.status),
-    bookingChannel: asText(item.booking_channel),
-    confirmationStatus: asText(item.confirmation_status) || "not_required",
-    confirmationExpiresAt: asText(item.confirmation_expires_at),
-    confirmationSentAt: asText(item.confirmation_sent_at),
-    confirmationChannel: asText(item.confirmation_channel),
-    confirmedAt: asText(item.confirmed_at),
-    arrivalStatus: asText(item.arrival_status) || "pending",
-    arrivedAt: asText(item.arrived_at),
-    arrivalOrder: Number(item.arrival_order ?? 0) || null,
-    notes: asText(item.notes),
-    order: Number(asRecord(item.metadata).order ?? 0) || null,
-  }));
+  return (appointments ?? []).map((item) => {
+    const change = latestChangeByAppointment.get(asText(item.id));
+    const previousEntityId = asText(change?.previous_entity_id);
+    const metadata = asRecord(item.metadata);
+    const firstTime = firstTimeMetadata(metadata);
+    return {
+      id: asText(item.id),
+      personId: asText(item.person_id),
+      entityId: asText(item.entity_id),
+      entityName: entityMap.get(asText(item.entity_id)) || "Entidade",
+      consulenteName: asText(item.consulente_name) || "Filho de Fora/Consulente",
+      whatsapp: asText(item.whatsapp),
+      appointmentDate: asText(item.appointment_date),
+      appointmentTime: asText(item.appointment_time) || "20:00",
+      status: asText(item.status),
+      bookingChannel: asText(item.booking_channel),
+      confirmationStatus: asText(item.confirmation_status) || "not_required",
+      confirmationExpiresAt: asText(item.confirmation_expires_at),
+      confirmationSentAt: asText(item.confirmation_sent_at),
+      confirmationChannel: asText(item.confirmation_channel),
+      confirmedAt: asText(item.confirmed_at),
+      arrivalStatus: asText(item.arrival_status) || "pending",
+      arrivedAt: asText(item.arrived_at),
+      arrivalOrder: Number(item.arrival_order ?? 0) || null,
+      forwardedAt: asText(item.forwarded_at),
+      forwardedByPersonId: asText(item.forwarded_by_person_id),
+      cancelledAt: asText(item.cancelled_at),
+      cancellationReason: asText(item.cancellation_reason),
+      previousEntityId,
+      previousEntityName: previousEntityId ? entityMap.get(previousEntityId) || "Entidade anterior" : "",
+      entityChangeReason: asText(change?.reason),
+      entityChangeMode: asText(change?.change_mode),
+      entityChangedAt: asText(change?.changed_at),
+      notes: asText(item.notes),
+      createdAt: asText(item.created_at),
+      order: Number(metadata.order ?? 0) || null,
+      isFirstTimeAppointment: firstTime.isFirstTimeAppointment,
+      firstTimeIndicatorActive: firstTime.indicatorActive,
+      firstTimeOriginalEntityId: firstTime.originalEntityId,
+      firstTimeOriginalEntityName: firstTime.originalEntityName,
+    };
+  });
 }
 
 export function pilotReservationError(error: unknown) {
