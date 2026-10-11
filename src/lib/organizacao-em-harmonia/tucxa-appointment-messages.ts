@@ -1,6 +1,10 @@
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
+import { TUCXA_ADDRESS, TUCXA_MAPS_URL } from "@/lib/organizacao-em-harmonia/tucxa-location";
 
 export const TUCXA_INDIVIDUAL_NOTICE = "Este agendamento é individual. Se você comparecer acompanhado de outra pessoa que também necessite de atendimento, é necessário fazer um agendamento específico para cada acompanhante.";
+
+export const TUCXA_LOCATION_NOTICE = `Local do atendimento: ${TUCXA_ADDRESS}\nGoogle Maps: ${TUCXA_MAPS_URL}`;
+export const TUCXA_RECEPTION_HELP = "Em caso de dúvida, fale com a Recepção do TUCXA.";
 
 function datePtBr(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -24,6 +28,8 @@ export function appointmentConfirmationMessage(input: {
     "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
     "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
     input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
+    TUCXA_LOCATION_NOTICE,
+    TUCXA_RECEPTION_HELP,
     TUCXA_INDIVIDUAL_NOTICE,
   ].filter(Boolean).join("\n\n");
 }
@@ -43,6 +49,8 @@ export function appointmentReminderMessage(input: {
       ? "Sua presença já está confirmada. Agradecemos por avisar com antecedência; isso ajuda a Recepção a organizar o atendimento de todos."
       : "Sua presença ainda não foi confirmada. Confirmar agora ajuda a Recepção a organizar as vagas e evita que uma vaga fique reservada sem necessidade.",
     !input.confirmed && input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
+    TUCXA_LOCATION_NOTICE,
+    TUCXA_RECEPTION_HELP,
     TUCXA_INDIVIDUAL_NOTICE,
   ].filter(Boolean).join("\n\n");
 }

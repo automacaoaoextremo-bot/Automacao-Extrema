@@ -781,6 +781,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
   }
 
+  function openNewConsulenteEditor() {
+    setAlphabetReturnLetter("");
+    setAlphabetPicker(null);
+    setPhone("");
+    clearPersonSearch();
+    setShowCreateConsulente(true);
+  }
+
   function resetBookingForm() {
     setPhone("");
     setSearchResults([]);
@@ -1152,6 +1160,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: false });
       setAccessInfo(result.access && typeof result.access === "object" ? result.access as AccessInfo : null);
       setPersonNotFound(false);
+      setShowCreateConsulente(false);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Não foi possível criar o cadastro.");
     } finally {
@@ -2745,6 +2754,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     )}
                   </section>
 
+                  {!showCreateConsulente && !foundPerson && (
+                    <button
+                      type="button"
+                      onClick={openNewConsulenteEditor}
+                      className="rounded-2xl bg-[#123D2C] px-4 py-3.5 text-base font-black text-white shadow-sm"
+                    >
+                      Novo Consulente
+                    </button>
+                  )}
+
                   {searchResults.length > 1 && (
                     <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                       <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
@@ -2788,7 +2807,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 p-3" />
                       </label>
                       <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
-                      <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Cadastrar Consulente</button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" disabled={saving} onClick={clearPersonSearch} className="rounded-xl bg-white px-4 py-3 font-black text-amber-950 ring-1 ring-amber-200 disabled:opacity-60">Voltar à lista</button>
+                        <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white disabled:opacity-60">Cadastrar Consulente</button>
+                      </div>
                     </form>
                   )}
 
@@ -2909,22 +2931,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                       <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <p className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ou escolha pela inicial</p>
-                        <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-9">
-                          {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => {
-                            const enabled = entityDirectoryLetters.includes(letter);
-                            return (
+                        {entityDirectoryLetters.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {entityDirectoryLetters.map((letter) => (
                               <button
                                 key={letter}
                                 type="button"
-                                disabled={!enabled}
                                 onClick={() => openEntityAlphabet(letter)}
-                                className="rounded-lg bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-25"
+                                className="flex h-10 min-w-10 items-center justify-center rounded-lg bg-white px-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
                               >
                                 {letter}
                               </button>
-                            );
-                          })}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl bg-white p-3 text-xs font-bold text-slate-500 ring-1 ring-[#123D2C]/10">Nenhuma Entidade cadastrada.</p>
+                        )}
                       </section>
 
                       {entityDirectorySearch && (
@@ -3287,8 +3309,9 @@ function AlphabetEntityPopup({
                   <span className="mt-1 block text-sm font-semibold text-slate-600">
                     {entity.mediums[0]?.name ? `Cavalinho: ${entity.mediums[0].name}` : "Sem Cavalinho associado"}
                   </span>
-                  <span className="mt-1 block text-xs font-black text-[#2F6B43]">
-                    {entity.capacity} vaga(s) · {entity.active && entity.appointmentEnabled ? "Ativa" : "Inativa"}
+                  <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-black text-[#2F6B43]">
+                    <span>{entity.capacity} vaga(s) · {entity.active && entity.appointmentEnabled ? "Ativa" : "Inativa"}</span>
+                    <span className="text-[10px] uppercase tracking-[0.08em] text-[#123D2C]">Clique para ver/editar</span>
                   </span>
                 </button>
               ))}
