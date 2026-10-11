@@ -10,12 +10,14 @@ import {
   ensurePilotDefaultEntityFromFirstAppointment,
   isPilotFirstTimeEntity,
   loadPilotAppointments,
+  loadPilotConsulenteEligibilityIndex,
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
   loadPilotSettings,
   markPilotFirstTimeAppointment,
   personHasUsedPilotFirstTimeEntity,
+  pilotConsulenteEligibilityReason,
   monthOccurrence,
   normalizeBrazilPhone,
   PILOT_ACTIVE_STATUSES,
@@ -95,9 +97,18 @@ async function loadReceptionConsulentes(organizationId: string) {
     membershipMap.set(personId, current);
   }
 
+  const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(organizationId);
+
   return (people ?? [])
     .filter((person) => {
       const personId = asText(person.id);
+      const eligibilityReason = pilotConsulenteEligibilityReason(
+        eligibilityIndex,
+        personId,
+        person.normalized_whatsapp || person.whatsapp,
+      );
+      if (eligibilityReason) return false;
+
       const personMemberships = membershipMap.get(personId) ?? [];
       if (!personMemberships.length) return true;
       if (normalizeSearchText(person.registration_source).includes("recepcao")) return true;
@@ -143,7 +154,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     relatedPersonIds.length
       ? supabaseAdmin
           .from("oh_people")
-          .select("id,full_name,active")
+          .select("id,full_name,whatsapp,normalized_whatsapp,active")
           .eq("organization_id", organizationId)
           .in("id", relatedPersonIds)
       : Promise.resolve({ data: [], error: null }),
@@ -181,11 +192,16 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     : { data: [], error: null };
   if (entityError) throw entityError;
 
-  const peopleMap = new Map<string, { name: string; active: boolean }>((relatedPeople ?? []).map((item) => [
+  const peopleMap = new Map<string, { name: string; whatsapp: string; active: boolean }>((relatedPeople ?? []).map((item) => [
     asText(item.id),
-    { name: asText(item.full_name), active: item.active !== false },
+    {
+      name: asText(item.full_name),
+      whatsapp: normalizeBrazilPhone(item.normalized_whatsapp || item.whatsapp),
+      active: item.active !== false,
+    },
   ]));
   const entityMap = new Map<string, string>((entities ?? []).map((item) => [asText(item.id), asText(item.name)]));
+  const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(organizationId);
 
   type RelatedOption = {
     relationshipId: string;
@@ -240,6 +256,10 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const relatedPersonId = asText(item.related_person_id);
     const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
     if (relatedPersonId && currentPerson?.active === false) continue;
+    if (
+      relatedPersonId
+      && pilotConsulenteEligibilityReason(eligibilityIndex, relatedPersonId, currentPerson?.whatsapp)
+    ) continue;
 
     const personPreference = relatedPersonId ? preferenceMap.get(relatedPersonId) : null;
     const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.default_entity_id);
@@ -264,6 +284,10 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const relatedPersonId = asText(item.person_id);
     const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
     if (relatedPersonId && currentPerson?.active === false) continue;
+    if (
+      relatedPersonId
+      && pilotConsulenteEligibilityReason(eligibilityIndex, relatedPersonId, currentPerson?.whatsapp)
+    ) continue;
 
     const personPreference = relatedPersonId ? preferenceMap.get(relatedPersonId) : null;
     const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.entity_id);
@@ -821,11 +845,23 @@ export async function POST(request: Request) {
       if (!person?.id) return NextResponse.json({ error: "Cadastro do Filho de Fora/Consulente não localizado.", requestId: code }, { status: 404 });
 
       const contactMode = asText(body.contactMode) === "alternate" ? "alternate" : "consulente";
+      const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(context.organizationId);
+      if (contactMode !== "alternate") {
+        const eligibilityReason = pilotConsulenteEligibilityReason(
+          eligibilityIndex,
+          asText(person.id),
+          person.whatsapp,
+        );
+        if (eligibilityReason) {
+          return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
+        }
+      }
+
       const requestedRelatedPersonId = contactMode === "alternate" ? asText(body.relatedPersonId) : "";
       const requestedRelationshipId = contactMode === "alternate" ? asText(body.relatedRelationshipId) : "";
       const requestedHistoryAppointmentId = contactMode === "alternate" ? asText(body.relatedHistoryAppointmentId) : "";
       let selectedRelatedOption: Awaited<ReturnType<typeof loadRelatedConsulentes>>[number] | null = null;
-      let relatedPerson: { id: string; full_name: string } | null = null;
+      let relatedPerson: { id: string; full_name: string; whatsapp: string } | null = null;
 
       if (requestedRelatedPersonId || requestedRelationshipId || requestedHistoryAppointmentId) {
         const relatedOptions = await loadRelatedConsulentes(context.organizationId, person.id);
@@ -847,7 +883,7 @@ export async function POST(request: Request) {
         if (allowedRelated.relatedPersonId) {
           const { data: relatedRow, error: relatedError } = await supabaseAdmin
             .from("oh_people")
-            .select("id,full_name")
+            .select("id,full_name,whatsapp,normalized_whatsapp")
             .eq("organization_id", context.organizationId)
             .eq("id", allowedRelated.relatedPersonId)
             .eq("active", true)
@@ -856,7 +892,19 @@ export async function POST(request: Request) {
           if (!relatedRow?.id) {
             return NextResponse.json({ error: "O cadastro da pessoa vinculada não está mais ativo.", requestId: code }, { status: 409 });
           }
-          relatedPerson = { id: asText(relatedRow.id), full_name: asText(relatedRow.full_name) };
+          const relatedEligibilityReason = pilotConsulenteEligibilityReason(
+            eligibilityIndex,
+            asText(relatedRow.id),
+            relatedRow.normalized_whatsapp || relatedRow.whatsapp,
+          );
+          if (relatedEligibilityReason) {
+            return NextResponse.json({ error: relatedEligibilityReason, requestId: code }, { status: 409 });
+          }
+          relatedPerson = {
+            id: asText(relatedRow.id),
+            full_name: asText(relatedRow.full_name),
+            whatsapp: normalizeBrazilPhone(relatedRow.normalized_whatsapp || relatedRow.whatsapp),
+          };
         }
       }
 
@@ -1755,13 +1803,24 @@ export async function POST(request: Request) {
       if (!personId) return NextResponse.json({ error: "Consulente não informado." }, { status: 400 });
       const { data: person, error: personError } = await supabaseAdmin
         .from("oh_people")
-        .select("id,full_name,whatsapp,email,notification_email,active")
+        .select("id,full_name,whatsapp,normalized_whatsapp,email,notification_email,active")
         .eq("organization_id", context.organizationId)
         .eq("id", personId)
         .eq("active", true)
         .maybeSingle();
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
+
+      const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(context.organizationId);
+      const eligibilityReason = pilotConsulenteEligibilityReason(
+        eligibilityIndex,
+        asText(person.id),
+        person.normalized_whatsapp || person.whatsapp,
+      );
+      if (eligibilityReason) {
+        return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
+      }
+
       const preferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       let defaultEntityName = "";
       if (preferences.defaultEntityId) {
@@ -1989,6 +2048,12 @@ export async function POST(request: Request) {
       if (email && !email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
       if (!defaultEntityId) {
         return NextResponse.json({ error: "Selecione a Entidade padrão do Consulente.", requestId: code }, { status: 400 });
+      }
+
+      const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(context.organizationId);
+      const eligibilityReason = pilotConsulenteEligibilityReason(eligibilityIndex, personId, whatsapp);
+      if (eligibilityReason) {
+        return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
       }
 
       const { data: defaultEntity, error: defaultEntityError } = await supabaseAdmin

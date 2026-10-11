@@ -14,8 +14,8 @@ function visibleHeaders(row: Row) {
   return Object.keys(row).filter((key) => !key.startsWith("_"));
 }
 
-function reportValue(key: string, value: unknown) {
-  return key === "Consulente" ? firstTwoPersonNames(value) : String(value ?? "");
+function reportValue(_key: string, value: unknown) {
+  return String(value ?? "");
 }
 
 function csv(rows: Row[]) {

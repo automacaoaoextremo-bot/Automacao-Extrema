@@ -233,6 +233,173 @@ export function normalizeBrazilPhone(value: unknown) {
   return digits;
 }
 
+export type PilotConsulenteEligibilityIndex = {
+  excludedPersonIds: Set<string>;
+  excludedWhatsappKeys: Set<string>;
+  filhoPersonIds: Set<string>;
+  entityPersonIds: Set<string>;
+  personWhatsappKeys: Map<string, string>;
+};
+
+function isFilhoRoleToken(value: unknown) {
+  const role = normalize(value).replace(/\s+/g, "-");
+  return role === "filho-da-corrente" || role === "filho-corrente";
+}
+
+function profileMarksFilhoDaCorrente(value: unknown) {
+  const profile = asRecord(value);
+  const accessKind = normalize(profile.pilotAccessKind);
+  const source = normalize(profile.source);
+  const profileText = normalize(JSON.stringify(profile));
+
+  return (
+    accessKind === "recepcao"
+    || accessKind === "cavalinho"
+    || source === "tucxa-agendamento-piloto-01"
+    || profileText.includes("filho-da-corrente")
+    || profileText.includes("filho corrente")
+  );
+}
+
+/**
+ * Fonte única para a elegibilidade atual do Consulente no piloto.
+ *
+ * Regra de identidade: o WhatsApp normalizado é a chave principal. Portanto,
+ * se qualquer cadastro ativo com o mesmo WhatsApp estiver atualmente como
+ * Filho da Corrente ou vinculado como pessoa de uma Entidade/Cavalinho, todos
+ * os cadastros que compartilham esse WhatsApp deixam de ser elegíveis para
+ * novos atendimentos de segunda/terça.
+ *
+ * O histórico de agendamentos não entra nesta decisão.
+ */
+export async function loadPilotConsulenteEligibilityIndex(
+  organizationId: string,
+): Promise<PilotConsulenteEligibilityIndex> {
+  const [
+    { data: people, error: peopleError },
+    { data: memberships, error: membershipsError },
+    { data: roles, error: rolesError },
+    { data: entityLinks, error: entityLinksError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("oh_people")
+      .select("id,whatsapp,normalized_whatsapp,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .limit(3000),
+    supabaseAdmin
+      .from("oh_memberships")
+      .select("person_id,role_id,active,status,agenda_viva_profile")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .limit(3000),
+    supabaseAdmin
+      .from("oh_roles")
+      .select("id,name,slug,active")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .limit(500),
+    supabaseAdmin
+      .from("oh_person_entity_links")
+      .select("person_id,entity_id,active,relationship_type")
+      .eq("organization_id", organizationId)
+      .eq("active", true)
+      .limit(3000),
+  ]);
+
+  if (peopleError) throw peopleError;
+  if (membershipsError) throw membershipsError;
+  if (rolesError) throw rolesError;
+  if (entityLinksError) throw entityLinksError;
+
+  const personWhatsappKeys = new Map<string, string>();
+  for (const person of people ?? []) {
+    const personId = asText(person.id);
+    if (!personId) continue;
+    const key = normalizeBrazilPhone(person.normalized_whatsapp || person.whatsapp);
+    personWhatsappKeys.set(personId, key);
+  }
+
+  const rolesById = new Map(
+    (roles ?? []).map((role) => [
+      asText(role.id),
+      {
+        slug: asText(role.slug),
+        name: asText(role.name),
+      },
+    ]),
+  );
+
+  const filhoPersonIds = new Set<string>();
+  for (const membership of memberships ?? []) {
+    const personId = asText(membership.person_id);
+    if (!personId) continue;
+    const status = normalize(membership.status);
+    if (status && status !== "ativo" && status !== "active") continue;
+
+    const role = rolesById.get(asText(membership.role_id));
+    if (
+      isFilhoRoleToken(role?.slug || role?.name)
+      || profileMarksFilhoDaCorrente(membership.agenda_viva_profile)
+    ) {
+      filhoPersonIds.add(personId);
+    }
+  }
+
+  const entityPersonIds = new Set<string>(
+    (entityLinks ?? [])
+      .map((link) => asText(link.person_id))
+      .filter(Boolean),
+  );
+
+  const excludedPersonIds = new Set<string>([
+    ...filhoPersonIds,
+    ...entityPersonIds,
+  ]);
+
+  const excludedWhatsappKeys = new Set<string>();
+  for (const personId of excludedPersonIds) {
+    const key = personWhatsappKeys.get(personId) || "";
+    if (key) excludedWhatsappKeys.add(key);
+  }
+
+  // WhatsApp é a chave: qualquer duplicata ativa do mesmo número também sai.
+  for (const [personId, key] of personWhatsappKeys.entries()) {
+    if (key && excludedWhatsappKeys.has(key)) excludedPersonIds.add(personId);
+  }
+
+  return {
+    excludedPersonIds,
+    excludedWhatsappKeys,
+    filhoPersonIds,
+    entityPersonIds,
+    personWhatsappKeys,
+  };
+}
+
+export function pilotConsulenteEligibilityReason(
+  index: PilotConsulenteEligibilityIndex,
+  personId: string,
+  whatsapp?: unknown,
+) {
+  const directKey = normalizeBrazilPhone(whatsapp);
+  const key = directKey || index.personWhatsappKeys.get(personId) || "";
+
+  if (index.entityPersonIds.has(personId)) {
+    return "Este cadastro está atualmente vinculado a uma Entidade/Cavalinho e não pode receber atendimentos de segunda ou terça.";
+  }
+  if (index.filhoPersonIds.has(personId)) {
+    return "Este cadastro é atualmente Filho da Corrente e não pode receber atendimentos de segunda ou terça.";
+  }
+  if (key && index.excludedWhatsappKeys.has(key)) {
+    return "Este WhatsApp pertence atualmente a um Filho da Corrente ou a uma Entidade/Cavalinho e não pode ser usado como Consulente.";
+  }
+  if (index.excludedPersonIds.has(personId)) {
+    return "Este cadastro não está elegível para atendimentos de segunda ou terça.";
+  }
+  return "";
+}
+
 export function todayInSaoPaulo() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: SAO_PAULO_TIME_ZONE,
@@ -583,6 +750,12 @@ export async function currentPilotConsulente(request: Request): Promise<PilotCon
   const profile = asRecord(membership.agenda_viva_profile);
   const profileText = normalize([profile.accessType, profile.publico, authData.user.user_metadata?.oh_profile].map(asText).join(" "));
   if (!profileText.includes("consulente") && !profileText.includes("filho-de-fora") && !profileText.includes("filho de fora")) return null;
+
+  // Mesmo que exista histórico/perfil antigo de Consulente, a função atual
+  // prevalece. Filho da Corrente e pessoa vinculada a Entidade/Cavalinho não
+  // podem iniciar novos atendimentos de segunda/terça.
+  const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(organization.id);
+  if (pilotConsulenteEligibilityReason(eligibilityIndex, person.id, person.whatsapp)) return null;
 
   const email = asText(person.notification_email) || (asText(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : asText(person.email));
   return {

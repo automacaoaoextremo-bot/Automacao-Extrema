@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { currentPilotReception, loadPilotDates, loadPilotDay, loadPilotSettings, todayInSaoPaulo } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import {
+  currentPilotReception,
+  loadPilotConsulenteEligibilityIndex,
+  loadPilotDates,
+  loadPilotDay,
+  loadPilotSettings,
+  pilotConsulenteEligibilityReason,
+  todayInSaoPaulo,
+} from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +17,21 @@ type DbRow = Record<string, unknown>;
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizedText(value: unknown) {
+  return text(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function dateLabel(value: unknown) {
@@ -393,20 +416,110 @@ export async function GET(request: Request) {
     }
 
     if (kind === "consulentes") {
-      const { data, error } = await supabaseAdmin
+      const { data: people, error: peopleError } = await supabaseAdmin
         .from("oh_people")
-        .select("full_name,whatsapp,email,active")
+        .select("id,full_name,whatsapp,normalized_whatsapp,email,notification_email,registration_source,active")
         .eq("organization_id", context.organizationId)
         .eq("active", true)
-        .order("full_name", { ascending: true });
-      if (error) throw error;
-      const rows = (data ?? [])
-        .filter((item) => !person || text(item.full_name).toLocaleLowerCase("pt-BR").includes(person))
-        .map((item) => ({
-          Consulente: firstTwoPersonNames(item.full_name),
-          WhatsApp: phoneLabel(item.whatsapp),
-          "E-mail": text(item.email).endsWith("@organizacao-em-harmonia.local") ? "" : text(item.email),
-        }));
+        .order("full_name", { ascending: true })
+        .limit(3000);
+      if (peopleError) throw peopleError;
+
+      const personIds = (people ?? []).map((item) => text(item.id)).filter(Boolean);
+      const [
+        { data: memberships, error: membershipsError },
+        { data: preferences, error: preferencesError },
+      ] = await Promise.all([
+        personIds.length
+          ? supabaseAdmin
+              .from("oh_memberships")
+              .select("person_id,active,status,agenda_viva_profile")
+              .eq("organization_id", context.organizationId)
+              .eq("active", true)
+              .in("person_id", personIds)
+          : Promise.resolve({ data: [], error: null }),
+        personIds.length
+          ? supabaseAdmin
+              .from("oh_tucxa_pilot_person_preferences")
+              .select("person_id,default_entity_id,allow_different_entity")
+              .eq("organization_id", context.organizationId)
+              .in("person_id", personIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (membershipsError) throw membershipsError;
+      if (preferencesError) throw preferencesError;
+
+      const membershipMap = new Map<string, Array<Record<string, unknown>>>();
+      for (const membership of memberships ?? []) {
+        const personId = text(membership.person_id);
+        if (!personId) continue;
+        const current = membershipMap.get(personId) ?? [];
+        current.push(membership as Record<string, unknown>);
+        membershipMap.set(personId, current);
+      }
+
+      const preferenceMap = new Map(
+        (preferences ?? []).map((item) => [
+          text(item.person_id),
+          {
+            defaultEntityId: text(item.default_entity_id),
+            allowDifferentEntity: item.allow_different_entity === true,
+          },
+        ]),
+      );
+      const entityIds = Array.from(new Set(
+        (preferences ?? []).map((item) => text(item.default_entity_id)).filter(Boolean),
+      ));
+      const { data: defaultEntities, error: defaultEntitiesError } = entityIds.length
+        ? await supabaseAdmin
+            .from("oh_spiritual_entities")
+            .select("id,name")
+            .eq("organization_id", context.organizationId)
+            .in("id", entityIds)
+        : { data: [], error: null };
+      if (defaultEntitiesError) throw defaultEntitiesError;
+      const defaultEntityMap = new Map(
+        (defaultEntities ?? []).map((item) => [text(item.id), text(item.name)]),
+      );
+
+      const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(context.organizationId);
+
+      const eligiblePeople = (people ?? []).filter((item) => {
+        const personId = text(item.id);
+        if (pilotConsulenteEligibilityReason(
+          eligibilityIndex,
+          personId,
+          item.normalized_whatsapp || item.whatsapp,
+        )) return false;
+
+        const personMemberships = membershipMap.get(personId) ?? [];
+        if (!personMemberships.length) return true;
+        if (normalizedText(item.registration_source).includes("recepcao")) return true;
+
+        return personMemberships.some((membership) => {
+          const profileText = normalizedText(JSON.stringify(record(membership.agenda_viva_profile)));
+          return profileText.includes("consulente")
+            || profileText.includes("filho-de-fora")
+            || profileText.includes("filho de fora");
+        });
+      });
+
+      const rows = eligiblePeople
+        .filter((item) => !person || normalizedText(item.full_name).includes(normalizedText(person)))
+        .map((item) => {
+          const preference = preferenceMap.get(text(item.id));
+          const email = text(item.notification_email)
+            || (text(item.email).endsWith("@organizacao-em-harmonia.local") ? "" : text(item.email));
+          return {
+            Consulente: text(item.full_name),
+            WhatsApp: phoneLabel(item.normalized_whatsapp || item.whatsapp),
+            "E-mail": email,
+            "Entidade padrão": preference?.defaultEntityId
+              ? (defaultEntityMap.get(preference.defaultEntityId) || "")
+              : "",
+            "Pode escolher outra Entidade": preference?.allowDifferentEntity === true ? "Sim" : "Não",
+          };
+        });
       return NextResponse.json({ rows });
     }
 
