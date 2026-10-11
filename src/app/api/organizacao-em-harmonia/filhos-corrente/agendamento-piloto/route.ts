@@ -18,6 +18,7 @@ import {
   markPilotFirstTimeAppointment,
   personHasUsedPilotFirstTimeEntity,
   pilotConsulenteEligibilityReason,
+  resolvePilotConsulenteBookingRule,
   monthOccurrence,
   normalizeBrazilPhone,
   PILOT_ACTIVE_STATUSES,
@@ -908,16 +909,40 @@ export async function POST(request: Request) {
         }
       }
 
+      const attendedPersonId = contactMode === "alternate" ? (relatedPerson?.id || "") : person.id;
+      const attendedPersonName = contactMode === "alternate"
+        ? (asText(relatedPerson?.full_name) || selectedRelatedOption?.fullName || asText(body.contactName) || "Esta pessoa")
+        : (asText(person.full_name) || "Este Consulente");
+      const personBookingRule = attendedPersonId
+        ? await resolvePilotConsulenteBookingRule(context.organizationId, attendedPersonId)
+        : null;
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
-      if (contactMode !== "alternate" && personPreferences.defaultEntityId && !personPreferences.allowDifferentEntity) {
-        const requiredEntity = dayEntities.find((item) => item.id === personPreferences.defaultEntityId);
+      if (personBookingRule?.mode === "awaiting_default_entity") {
+        return NextResponse.json({
+          error: `${attendedPersonName} já realizou o atendimento de Primeira Vez. Defina a Entidade padrão antes de criar um novo agendamento.`,
+          requestId: code,
+        }, { status: 409 });
+      }
+
+      if (personBookingRule?.mode === "first_time_only") {
+        const selectedEntity = dayEntities.find((item) => item.id === entityId);
+        if (!selectedEntity || !isPilotFirstTimeEntity(selectedEntity)) {
+          return NextResponse.json({
+            error: `${attendedPersonName} ainda não realizou o primeiro atendimento. O primeiro agendamento deve ser feito somente com a Entidade Primeira Vez.`,
+            requestId: code,
+          }, { status: 409 });
+        }
+      }
+
+      if (contactMode !== "alternate" && personBookingRule?.mode === "default_entity" && !personPreferences.allowDifferentEntity) {
+        const requiredEntity = dayEntities.find((item) => item.id === personBookingRule.defaultEntityId);
         const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
           .from("oh_spiritual_entities")
           .select("id,name")
           .eq("organization_id", context.organizationId)
-          .eq("id", personPreferences.defaultEntityId)
+          .eq("id", personBookingRule.defaultEntityId)
           .maybeSingle();
         if (defaultEntityError) throw defaultEntityError;
 
@@ -936,7 +961,7 @@ export async function POST(request: Request) {
           );
         }
 
-        if (!defaultUnavailable && entityId !== personPreferences.defaultEntityId) {
+        if (!defaultUnavailable && entityId !== personBookingRule.defaultEntityId) {
           return NextResponse.json(
             {
               error: `${asText(person.full_name) || "Este Consulente"} possui ${defaultEntityName} como Entidade padrão e não está autorizado a escolher outra Entidade.`,
@@ -949,6 +974,7 @@ export async function POST(request: Request) {
 
       if (
         contactMode === "alternate"
+        && personBookingRule?.mode !== "first_time_only"
         && selectedRelatedOption?.defaultEntityId
         && selectedRelatedOption.allowDifferentEntity === false
       ) {
@@ -985,15 +1011,19 @@ export async function POST(request: Request) {
       if (entity.available < 1) return NextResponse.json({ error: "Não há vagas disponíveis para esta Entidade nesta data.", requestId: code }, { status: 409 });
 
       const firstTimeBooking = isPilotFirstTimeEntity(entity);
-      if (firstTimeBooking && contactMode === "alternate") {
+      if (firstTimeBooking && contactMode === "alternate" && !relatedPerson?.id) {
         return NextResponse.json({
           error: "A Entidade Primeira Vez exige o cadastro da própria pessoa atendida para controlar que este atendimento ocorra somente uma vez.",
           requestId: code,
         }, { status: 409 });
       }
-      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, person.id)) {
+      if (
+        firstTimeBooking
+        && attendedPersonId
+        && await personHasUsedPilotFirstTimeEntity(context.organizationId, attendedPersonId)
+      ) {
         return NextResponse.json({
-          error: `${asText(person.full_name) || "Este Consulente"} já possui um atendimento de Primeira Vez registrado e não pode ser agendado novamente nesta Entidade.`,
+          error: `${attendedPersonName} já possui um atendimento de Primeira Vez registrado e não pode ser agendado novamente nesta Entidade.`,
           requestId: code,
         }, { status: 409 });
       }
@@ -1071,29 +1101,29 @@ export async function POST(request: Request) {
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
 
-      if (contactMode !== "alternate" && !personPreferences.defaultEntityId) {
-        // Ajuste 65: ao concluir o primeiro agendamento de uma pessoa ainda
-        // sem Entidade padrão, persistimos a Entidade do PRIMEIRO agendamento
-        // histórico. O helper é determinístico por data, criação e id.
+      if (contactMode !== "alternate" && !personPreferences.defaultEntityId && !firstTimeBooking) {
+        // Ajuste 65/67: a Entidade do primeiro atendimento efetivo pode virar
+        // padrão, mas "Primeira Vez" é somente acolhimento/triagem e nunca deve
+        // ser persistida como Entidade padrão permanente.
         await ensurePilotDefaultEntityFromFirstAppointment(
           context.organizationId,
           person.id,
         );
       }
 
-      if (contactMode !== "alternate") {
+      if (attendedPersonId) {
         if (firstTimeBooking) {
           await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
             id: entity.id,
             name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
           });
         } else {
-          await closePreviousPilotFirstTimeIndicators(context.organizationId, person.id, reservation.appointment_id);
+          await closePreviousPilotFirstTimeIndicators(context.organizationId, attendedPersonId, reservation.appointment_id);
         }
       }
 
       if (contactMode === "alternate") {
-        let effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || entityId;
+        let effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || (firstTimeBooking ? "" : entityId);
         const effectiveAllowDifferentEntity = selectedRelatedOption?.allowDifferentEntity === true;
         const effectiveRelatedPersonId = relatedPerson?.id || selectedRelatedOption?.relatedPersonId || "";
 
@@ -1104,7 +1134,11 @@ export async function POST(request: Request) {
           );
 
           if (!relatedPreferences.defaultEntityId) {
-            if (selectedRelatedOption?.defaultEntityId) {
+            if (firstTimeBooking) {
+              // Primeira Vez é acolhimento/triagem. Não cria uma nova Entidade
+              // padrão, mas também não apaga um vínculo histórico já definido.
+              effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || "";
+            } else if (selectedRelatedOption?.defaultEntityId) {
               // O histórico de pessoa vinculada é carregado em ordem crescente;
               // portanto este valor representa o primeiro agendamento conhecido.
               await savePilotPersonPreferences(context.organizationId, effectiveRelatedPersonId, {

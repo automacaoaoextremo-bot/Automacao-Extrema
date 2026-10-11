@@ -8,7 +8,7 @@ const API = "/api/organizacao-em-harmonia/consulente/agendamento-piloto";
 const LOGIN = "/solucoes/organizacao-em-harmonia/agendamento/login";
 type DateOption = { date: string; label: string; entity: { id: string; name: string; available: number } };
 type Appointment = { id: string; appointmentDate: string; appointmentTime: string; entityName: string; status: string; confirmationStatus: string; order: number | null; firstTimeIndicatorActive?: boolean };
-type Payload = { profile: { fullName: string; whatsapp: string; email: string }; preferences: { openUpcomingOnLogin: boolean }; defaultEntity: { id: string; name: string }; dates: DateOption[]; appointments: Appointment[] };
+type Payload = { profile: { fullName: string; whatsapp: string; email: string }; preferences: { openUpcomingOnLogin: boolean }; bookingRule: { mode: "first_time_only" | "default_entity" | "awaiting_default_entity"; defaultEntityId: string }; defaultEntity: { id: string; name: string }; dates: DateOption[]; appointments: Appointment[] };
 type Modal = "agendar" | "agendamentos" | "cadastro" | "configuracoes" | null;
 
 function shortDate(value: string) { const [y,m,d] = value.split("-"); return y && m && d ? `${d}/${m}/${y}` : value; }
@@ -95,7 +95,17 @@ export default function ConsulenteAgendamentoPilotoPage() {
       {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
       {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
       {loading ? <p className="mt-6 font-bold">Carregando...</p> : <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Card title="Agendar" text={payload?.defaultEntity.name ? `Sua Entidade padrão: ${payload.defaultEntity.name}.` : "Procure a Recepção para definir sua Entidade padrão."} onClick={() => setModal("agendar")} />
+        <Card
+          title="Agendar"
+          text={payload?.bookingRule.mode === "first_time_only"
+            ? "Seu primeiro atendimento deve ser com a Entidade Primeira Vez."
+            : payload?.bookingRule.mode === "awaiting_default_entity"
+              ? "Aguarde a Recepção definir sua Entidade padrão para um novo atendimento."
+              : payload?.defaultEntity.name
+                ? `Sua Entidade padrão: ${payload.defaultEntity.name}.`
+                : "Procure a Recepção para definir sua Entidade padrão."}
+          onClick={() => setModal("agendar")}
+        />
         <Card title="Meus agendamentos" text={`${payload?.appointments.length || 0} próximo(s) agendamento(s).`} onClick={() => setModal("agendamentos")} />
         <Card title="Cadastro" text="Atualize somente seus dados pessoais." onClick={() => setModal("cadastro")} />
         <Card title="Configurações" text="Escolha se seus próximos agendamentos devem abrir ao entrar." onClick={() => setModal("configuracoes")} />
@@ -106,8 +116,14 @@ export default function ConsulenteAgendamentoPilotoPage() {
       <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-6">
         <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-black text-[#123D2C]">{modal === "agendar" ? "Agendar atendimento" : modal === "agendamentos" ? "Meus agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}</h2><button onClick={() => setModal(null)} className="rounded-xl bg-slate-100 px-3 py-2 font-black">Fechar</button></div>
         {modal === "agendar" && <div className="mt-5 grid gap-3">
-          <p className="rounded-2xl bg-[#F7FAF2] p-4 font-semibold">Entidade padrão: <strong>{payload.defaultEntity.name || "não definida"}</strong>. As datas abaixo já excluem dias sem atendimento e feriados.</p>
-          {!payload.dates.length ? <p className="font-semibold text-amber-800">Não há datas com vaga disponíveis no período.</p> : payload.dates.map((item) => <label key={item.date} className="flex cursor-pointer gap-3 rounded-2xl border border-[#123D2C]/15 p-4"><input type="radio" name="date" checked={selectedDate === item.date} onChange={() => setSelectedDate(item.date)} /><span><strong>{shortDate(item.date)}</strong><br/><span className="text-sm text-slate-600">{item.entity.name} · {item.entity.available} vaga(s)</span></span></label>)}
+          <p className="rounded-2xl bg-[#F7FAF2] p-4 font-semibold">
+            {payload.bookingRule.mode === "first_time_only"
+              ? <>Primeiro atendimento: <strong>Primeira Vez</strong>. Somente essa Entidade pode ser usada no seu primeiro agendamento.</>
+              : payload.bookingRule.mode === "awaiting_default_entity"
+                ? <>Seu atendimento de <strong>Primeira Vez</strong> já foi registrado. Aguarde a Recepção definir sua Entidade padrão.</>
+                : <>Entidade padrão: <strong>{payload.defaultEntity.name || "não definida"}</strong>. As datas abaixo já excluem dias sem atendimento e feriados.</>}
+          </p>
+          {!payload.dates.length ? <p className="font-semibold text-amber-800">{payload.bookingRule.mode === "awaiting_default_entity" ? "Ainda não há nova Entidade liberada para agendamento." : "Não há datas com vaga disponíveis no período."}</p> : payload.dates.map((item) => <label key={item.date} className="flex cursor-pointer gap-3 rounded-2xl border border-[#123D2C]/15 p-4"><input type="radio" name="date" checked={selectedDate === item.date} onChange={() => setSelectedDate(item.date)} /><span><strong>{shortDate(item.date)}</strong><br/><span className="text-sm text-slate-600">{item.entity.name} · {item.entity.available} vaga(s)</span></span></label>)}
           <button disabled={!selectedDate || saving} onClick={() => void book()} className="rounded-2xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-50">{saving ? "Agendando..." : "Confirmar agendamento"}</button>
         </div>}
         {modal === "agendamentos" && <div className="mt-5 grid gap-3">{payload.appointments.length ? payload.appointments.map((item) => <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><strong className="text-[#123D2C]">{shortDate(item.appointmentDate)} · {item.appointmentTime}</strong><p className="mt-1 font-semibold">{item.entityName}</p>{item.firstTimeIndicatorActive && <span className="mt-2 inline-flex rounded-full bg-fuchsia-50 px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">Primeira vez</span>}<p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(item.status)}`}>{statusLabel(item.status)}</span>{item.order ? <span>{`Ordem ${item.order}`}</span> : null}</p></article>) : <p className="font-semibold">Você não possui próximos agendamentos.</p>}</div>}

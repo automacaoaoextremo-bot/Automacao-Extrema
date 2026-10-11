@@ -152,6 +152,7 @@ type EntityChangeRequest = {
   attachment: File | null;
 };
 type AlphabetPickerState = { letter: string; people: FoundPerson[] };
+type EntityAlphabetPickerState = { letter: string; entities: EntityCatalogItem[] };
 type SummaryMode = "date" | "future" | "period" | "before";
 type SummaryCounts = {
   mode: SummaryMode;
@@ -278,6 +279,14 @@ function FirstTimeBadge({ visible }: { visible: boolean }) {
   );
 }
 
+function entityDirectoryKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleUpperCase("pt-BR");
+}
+
 function displayWhatsapp(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -314,6 +323,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
   const [alphabetReturnLetter, setAlphabetReturnLetter] = useState("");
   const [alphabetLoading, setAlphabetLoading] = useState(false);
+  const [entityDirectoryQuery, setEntityDirectoryQuery] = useState("");
+  const [entityDirectorySearch, setEntityDirectorySearch] = useState("");
+  const [entityAlphabetPicker, setEntityAlphabetPicker] = useState<EntityAlphabetPickerState | null>(null);
+  const [entityReturnLetter, setEntityReturnLetter] = useState("");
+  const [entityEditorOpen, setEntityEditorOpen] = useState(false);
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
@@ -469,6 +483,28 @@ export default function AgendamentoPilotoRecepcaoPage() {
     () => (payload?.entityCatalog ?? []).filter((entity) => entity.active && entity.appointmentEnabled),
     [payload?.entityCatalog],
   );
+  const entityDirectoryLetters = useMemo(
+    () => Array.from(new Set(
+      (payload?.entityCatalog ?? [])
+        .map((entity) => entityDirectoryKey(entity.name).charAt(0))
+        .filter((letter) => /^[A-Z]$/.test(letter)),
+    )).sort((left, right) => left.localeCompare(right, "pt-BR")),
+    [payload?.entityCatalog],
+  );
+  const entityDirectoryResults = useMemo(() => {
+    const query = entityDirectoryKey(entityDirectorySearch);
+    if (!query) return [];
+    return (payload?.entityCatalog ?? [])
+      .filter((entity) => {
+        const haystack = entityDirectoryKey([
+          entity.name,
+          entity.slug,
+          ...entity.mediums.map((medium) => medium.name),
+        ].join(" "));
+        return haystack.includes(query);
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  }, [entityDirectorySearch, payload?.entityCatalog]);
   const entityPageSize = 4;
   const entityPageCount = Math.max(1, Math.ceil(activeEntityCatalog.length / entityPageSize));
   const effectiveEntityPage = Math.min(entityPage, entityPageCount);
@@ -1617,6 +1653,56 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  function resetEntityDraft() {
+    setEditEntity({
+      entityId: "",
+      name: "",
+      description: "",
+      capacity: "4",
+      cavalinhoPersonId: "",
+      mondayOccurrences: [],
+      tuesdayOccurrences: [],
+      active: true,
+      cavalinhoWhatsappEnabled: false,
+    });
+  }
+
+  function entitiesForInitial(letter: string) {
+    const normalizedLetter = entityDirectoryKey(letter).charAt(0);
+    return (payload?.entityCatalog ?? [])
+      .filter((entity) => entityDirectoryKey(entity.name).startsWith(normalizedLetter))
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  }
+
+  function openEntityAlphabet(letter: string) {
+    setEntityAlphabetPicker({ letter, entities: entitiesForInitial(letter) });
+  }
+
+  function openNewEntityEditor() {
+    setEntityReturnLetter("");
+    setEntityAlphabetPicker(null);
+    resetEntityDraft();
+    setEntityEditorOpen(true);
+  }
+
+  function openExistingEntityEditor(entityId: string, returnLetter = "") {
+    setEntityReturnLetter(returnLetter);
+    setEntityAlphabetPicker(null);
+    selectEntityForEdit(entityId);
+    setEntityEditorOpen(true);
+  }
+
+  function closeEntityEditor() {
+    const returnLetter = entityReturnLetter;
+    setEntityEditorOpen(false);
+    setEntityReturnLetter("");
+    resetEntityDraft();
+
+    if (returnLetter) {
+      setEntityAlphabetPicker({ letter: returnLetter, entities: entitiesForInitial(returnLetter) });
+    }
+  }
+
   function selectEntityForEdit(value: string) {
     const entity = payload?.entityCatalog.find((item) => item.id === value);
     setEditEntity({
@@ -1663,10 +1749,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
       });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
-      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true, cavalinhoWhatsappEnabled: false });
+      const returnLetter = entityReturnLetter;
+      setEntityEditorOpen(false);
+      setEntityReturnLetter("");
+      resetEntityDraft();
       await load(payload?.selectedDate);
       setModal("cadastros");
       setCadastroMode("entidades");
+      if (returnLetter) {
+        setEntityAlphabetPicker({ letter: returnLetter, entities: entitiesForInitial(returnLetter) });
+      }
       setSuccessNotice({ title: "Cadastro de Entidade salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a Entidade.");
@@ -1731,6 +1823,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
               clearPersonSearch();
               setPhone("");
               void loadConsulenteAlphabet(returnLetter);
+              return;
+            }
+            if (modal === "cadastros" && cadastroMode === "entidades" && entityEditorOpen) {
+              closeEntityEditor();
               return;
             }
             if (modal === "cadastros" && cadastroMode !== "menu") {
@@ -2605,7 +2701,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <span className="block text-lg font-black text-[#123D2C]">Consulentes</span>
                     <span className="mt-1 block text-sm font-semibold text-slate-600">Buscar, atualizar ou cadastrar Filho de Fora/Consulente.</span>
                   </button>
-                  <button type="button" onClick={() => setCadastroMode("entidades")} className="rounded-2xl bg-white p-5 text-left ring-1 ring-[#123D2C]/10">
+                  <button type="button" onClick={() => { setEntityDirectoryQuery(""); setEntityDirectorySearch(""); setEntityAlphabetPicker(null); setEntityReturnLetter(""); setEntityEditorOpen(false); resetEntityDraft(); setCadastroMode("entidades"); }} className="rounded-2xl bg-white p-5 text-left ring-1 ring-[#123D2C]/10">
                     <span className="block text-lg font-black text-[#123D2C]">Entidades</span>
                     <span className="mt-1 block text-sm font-semibold text-slate-600">Cadastrar, atualizar calendário, vagas e Cavalinho.</span>
                   </button>
@@ -2790,35 +2886,107 @@ export default function AgendamentoPilotoRecepcaoPage() {
               )}
 
               {cadastroMode === "entidades" && (
-                <form onSubmit={saveEntity} className="grid gap-1.5">
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cadastro
-                    <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-lg border border-[#123D2C]/15 p-2">
-                      <option value="">Nova Entidade</option>
-                      {payload.entityCatalog.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.active && entity.appointmentEnabled ? "" : " · inativa"}</option>)}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
-                    <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
-                    <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
-                    <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
-                    <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
-                      <option value="">Sem Cavalinho associado</option>
-                      {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
-                    </select>
-                  </label>
-                  {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
-                  <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
-                  <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
-                  <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
-                  <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
-                  <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
-                </form>
+                <section className="grid gap-3">
+                  {!entityEditorOpen ? (
+                    <>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          setEntityDirectorySearch(entityDirectoryQuery.trim());
+                        }}
+                        className="grid grid-cols-[1fr_auto] gap-2"
+                      >
+                        <input
+                          value={entityDirectoryQuery}
+                          onChange={(event) => setEntityDirectoryQuery(event.target.value)}
+                          placeholder="Nome da Entidade ou Cavalinho"
+                          className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2"
+                        />
+                        <button type="submit" disabled={!entityDirectoryQuery.trim()} className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-40">
+                          Buscar
+                        </button>
+                      </form>
+
+                      <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ou escolha pela inicial</p>
+                        <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-9">
+                          {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => {
+                            const enabled = entityDirectoryLetters.includes(letter);
+                            return (
+                              <button
+                                key={letter}
+                                type="button"
+                                disabled={!enabled}
+                                onClick={() => openEntityAlphabet(letter)}
+                                className="rounded-lg bg-white px-2 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-25"
+                              >
+                                {letter}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+
+                      {entityDirectorySearch && (
+                        <section className="grid gap-2">
+                          {entityDirectoryResults.length === 0 ? (
+                            <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">Nenhuma Entidade encontrada para esta busca.</p>
+                          ) : (
+                            entityDirectoryResults.map((entity) => (
+                              <button
+                                key={entity.id}
+                                type="button"
+                                onClick={() => openExistingEntityEditor(entity.id)}
+                                className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10"
+                              >
+                                <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                                <span className="mt-1 block text-xs font-semibold text-slate-600">
+                                  {entity.mediums[0]?.name ? `Cavalinho: ${entity.mediums[0].name}` : "Sem Cavalinho associado"}
+                                  {entity.active && entity.appointmentEnabled ? "" : " · inativa"}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </section>
+                      )}
+
+                      <button type="button" onClick={openNewEntityEditor} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">
+                        Nova Entidade
+                      </button>
+                    </>
+                  ) : (
+                    <form onSubmit={saveEntity} className="grid gap-1.5">
+                      <section className="mb-1 rounded-xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10">
+                        <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{editEntity.entityId ? "Atualizar Entidade" : "Nova Entidade"}</p>
+                        <p className="mt-1 text-sm font-black text-[#123D2C]">{editEntity.entityId ? editEntity.name : "Preencha os dados da nova Entidade"}</p>
+                      </section>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
+                        <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
+                        <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
+                        <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
+                        <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
+                          <option value="">Sem Cavalinho associado</option>
+                          {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
+                        </select>
+                      </label>
+                      {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
+                      <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
+                      <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
+                      <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
+                      <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" disabled={saving} onClick={closeEntityEditor} className="rounded-xl bg-white px-4 py-2.5 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar à lista</button>
+                        <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
+                      </div>
+                    </form>
+                  )}
+                </section>
               )}
             </div>
           )}
@@ -2946,6 +3114,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
         />
       )}
 
+      {entityAlphabetPicker && (
+        <AlphabetEntityPopup
+          letter={entityAlphabetPicker.letter}
+          entities={entityAlphabetPicker.entities}
+          onClose={() => setEntityAlphabetPicker(null)}
+          onSelect={(entity) => openExistingEntityEditor(entity.id, entityAlphabetPicker.letter)}
+        />
+      )}
+
       {cancelRequest && (
         <CancelAppointmentPopup
           request={cancelRequest}
@@ -3060,6 +3237,64 @@ function AlphabetConsulentePopup({
             </div>
           )}
           {!loading && people.length > pageSize && (
+            <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <button type="button" disabled={effectivePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
+              <span className="text-xs font-black text-slate-600">{effectivePage} / {pageCount}</span>
+              <button type="button" disabled={effectivePage >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AlphabetEntityPopup({
+  letter,
+  entities,
+  onClose,
+  onSelect,
+}: {
+  letter: string;
+  entities: EntityCatalogItem[];
+  onClose: () => void;
+  onSelect: (entity: EntityCatalogItem) => void;
+}) {
+  const pageSize = 4;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(entities.length / pageSize));
+  const effectivePage = Math.min(page, pageCount);
+  const pageEntities = entities.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+
+  return (
+    <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Entidades com a letra ${letter}`}>
+      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
+            <h2 className="text-xl font-black text-[#123D2C]">Entidades · {letter}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+          {entities.length === 0 ? (
+            <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma Entidade encontrada com esta inicial.</p>
+          ) : (
+            <div className="grid gap-2">
+              {pageEntities.map((entity) => (
+                <button key={entity.id} type="button" onClick={() => onSelect(entity)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                  <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                  <span className="mt-1 block text-sm font-semibold text-slate-600">
+                    {entity.mediums[0]?.name ? `Cavalinho: ${entity.mediums[0].name}` : "Sem Cavalinho associado"}
+                  </span>
+                  <span className="mt-1 block text-xs font-black text-[#2F6B43]">
+                    {entity.capacity} vaga(s) · {entity.active && entity.appointmentEnabled ? "Ativa" : "Inativa"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {entities.length > pageSize && (
             <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
               <button type="button" disabled={effectivePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
               <span className="text-xs font-black text-slate-600">{effectivePage} / {pageCount}</span>

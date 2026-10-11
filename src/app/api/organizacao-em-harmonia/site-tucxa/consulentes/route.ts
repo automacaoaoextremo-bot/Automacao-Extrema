@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  loadPilotConsulenteEligibilityIndex,
+  normalizeBrazilPhone,
+  pilotConsulenteEligibilityReason,
+} from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +34,22 @@ type PersonRow = {
   full_name: string | null;
   email: string | null;
   whatsapp: string | null;
+  normalized_whatsapp?: string | null;
   active: boolean | null;
   notes: string | null;
   auth_user_id?: string | null;
   communications_opt_in?: boolean | null;
 };
+
+class ConsulenteCadastroError extends Error {
+  status: number;
+
+  constructor(message: string, status = 409) {
+    super(message);
+    this.name = "ConsulenteCadastroError";
+    this.status = status;
+  }
+}
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -175,7 +191,7 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
   if (value.includes("@")) {
     const { data, error } = await supabaseAdmin
       .from("oh_people")
-      .select("id, full_name, email, whatsapp, active, notes, auth_user_id, communications_opt_in")
+      .select("id, full_name, email, whatsapp, normalized_whatsapp, active, notes, auth_user_id, communications_opt_in")
       .eq("organization_id", organizationId)
       .ilike("email", value.toLowerCase())
       .order("updated_at", { ascending: false })
@@ -190,14 +206,28 @@ async function findPersonByIdentifier(organizationId: string, identifier: string
 
   const { data, error } = await supabaseAdmin
     .from("oh_people")
-    .select("id, full_name, email, whatsapp, active, notes, auth_user_id, communications_opt_in")
+    .select("id, full_name, email, whatsapp, normalized_whatsapp, active, notes, auth_user_id, communications_opt_in")
     .eq("organization_id", organizationId)
     .in("whatsapp", phones)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  return (data as PersonRow | null) ?? null;
+  if (data) return data as PersonRow;
+
+  const normalized = normalizeBrazilPhone(value);
+  if (!normalized) return null;
+
+  const { data: normalizedData, error: normalizedError } = await supabaseAdmin
+    .from("oh_people")
+    .select("id, full_name, email, whatsapp, normalized_whatsapp, active, notes, auth_user_id, communications_opt_in")
+    .eq("organization_id", organizationId)
+    .eq("normalized_whatsapp", normalized)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (normalizedError) throw normalizedError;
+  return (normalizedData as PersonRow | null) ?? null;
 }
 
 async function defaultConsulenteRoleId(organizationId: string) {
@@ -244,8 +274,22 @@ async function ensureAuthUser(input: { person: PersonRow | null; emailForAuth: s
   if (error) {
     if (error.message.toLowerCase().includes("already")) {
       const { data: found } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      const user = found.users.find((item: { email?: string | null; id: string; user_metadata?: Record<string, unknown> }) => item.email?.toLowerCase() === input.emailForAuth.toLowerCase());
+      const user = found.users.find((item: { email?: string | null; id: string; phone?: string | null; user_metadata?: Record<string, unknown> }) => item.email?.toLowerCase() === input.emailForAuth.toLowerCase());
       if (user?.id) {
+        const metadataOrganizationId = asText(user.user_metadata?.organization_id);
+        const metadataWhatsapp = normalizeBrazilPhone(user.phone || user.user_metadata?.whatsapp);
+        const submittedWhatsapp = normalizeBrazilPhone(input.whatsapp);
+
+        if (
+          metadataOrganizationId !== input.organizationId
+          || !metadataWhatsapp
+          || metadataWhatsapp !== submittedWhatsapp
+        ) {
+          throw new ConsulenteCadastroError(
+            "Este e-mail já está vinculado a outro acesso. Entre com o WhatsApp já cadastrado ou procure a administração do Tucxa para revisar o vínculo.",
+          );
+        }
+
         const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
           password: input.password,
           email_confirm: true,
@@ -318,12 +362,50 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
   const organizationId = await findTucxaOrganizationId();
   if (!organizationId) throw new Error("Organização Tucxa não localizada na Base Única.");
 
-  const whatsapp = onlyDigits(body.whatsapp);
+  const whatsapp = normalizeBrazilPhone(body.whatsapp);
   const email = normalizeEmail(body.email);
   const emailForAuth = email || syntheticEmailFromPhone(whatsapp);
   const existingByPhone = await findPersonByIdentifier(organizationId, whatsapp);
   const existingByEmail = email ? await findPersonByIdentifier(organizationId, email) : null;
-  const existing = existingByPhone ?? existingByEmail;
+  const normalizedWhatsapp = normalizeBrazilPhone(whatsapp);
+
+  if (
+    existingByEmail?.id
+    && existingByEmail.id !== existingByPhone?.id
+    && normalizeBrazilPhone(existingByEmail.normalized_whatsapp || existingByEmail.whatsapp) !== normalizedWhatsapp
+  ) {
+    throw new ConsulenteCadastroError(
+      "Este e-mail já pertence a outro cadastro no Tucxa. Use o WhatsApp do cadastro correto ou procure a administração antes de continuar.",
+    );
+  }
+
+  // WhatsApp é a chave operacional. O e-mail só pode reutilizar um cadastro
+  // quando aponta inequivocamente para o mesmo número.
+  const existing = existingByPhone
+    ?? (
+      existingByEmail
+      && normalizeBrazilPhone(existingByEmail.normalized_whatsapp || existingByEmail.whatsapp) === normalizedWhatsapp
+        ? existingByEmail
+        : null
+    );
+
+  const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(organizationId);
+  const eligibilityReason = existing?.id
+    ? pilotConsulenteEligibilityReason(
+        eligibilityIndex,
+        existing.id,
+        existing.normalized_whatsapp || existing.whatsapp || normalizedWhatsapp,
+      )
+    : (
+        normalizedWhatsapp && eligibilityIndex.excludedWhatsappKeys.has(normalizedWhatsapp)
+          ? "Este WhatsApp pertence atualmente a um Filho da Corrente ou a uma Entidade/Cavalinho e não pode ser cadastrado como Consulente."
+          : ""
+      );
+
+  if (eligibilityReason) {
+    throw new ConsulenteCadastroError(eligibilityReason);
+  }
+
   const now = new Date().toISOString();
   const communicationsOptIn = body.communicationsOptIn === true;
   const privacyPayload = {
@@ -393,6 +475,7 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
       validationStatus: "ativo",
       accessReleasedAt: new Date().toISOString(),
       accessType: "consulente-filho-de-fora",
+      firstAppointmentMustBeFirstTime: true,
     },
     updated_at: new Date().toISOString(),
   };
@@ -441,7 +524,7 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "submit-cadastro") {
-      const whatsapp = onlyDigits(body.whatsapp);
+      const whatsapp = normalizeBrazilPhone(body.whatsapp);
       if (!body.name) return NextResponse.json({ error: "Informe seu nome completo." }, { status: 400 });
       if (whatsapp.length < 10) return NextResponse.json({ error: "Informe o celular com WhatsApp e DDD." }, { status: 400 });
       if (body.email && !body.email.includes("@")) return NextResponse.json({ error: "Confira o e-mail informado ou deixe em branco." }, { status: 400 });
@@ -468,6 +551,7 @@ export async function POST(request: Request) {
         `Comunicações futuras por e-mail: ${body.communicationsOptIn ? "autorizadas" : "não autorizadas"}`,
         "Senha: cadastrada no Supabase Auth e não enviada por e-mail.",
         "Status: acesso liberado automaticamente para Consulente / Filho de Fora.",
+        "Primeiro atendimento: o primeiro agendamento deve ser realizado somente com a Entidade Primeira Vez.",
         `Responsável de acompanhamento: ${responsible.name}`,
         "",
         "Link de login do consulente:",
@@ -485,6 +569,7 @@ export async function POST(request: Request) {
           "",
           "Recebemos seu cadastro como Consulente / Filho de Fora no site do Tucxa.",
           "Seu acesso já está liberado para entrar com o WhatsApp ou e-mail cadastrado e a senha criada no formulário.",
+          "No primeiro agendamento, somente a Entidade Primeira Vez estará disponível.",
           "",
           "Link de login:",
           publicLoginUrl,
@@ -498,6 +583,7 @@ export async function POST(request: Request) {
         "Olá. Fiz meu cadastro como Consulente / Filho de Fora pelo site do Tucxa.",
         `Nome: ${body.name}`,
         "Meu acesso como Consulente / Filho de Fora já foi liberado.",
+        "Meu primeiro agendamento será com a Entidade Primeira Vez.",
         "",
         "Link de login:",
         publicLoginUrl,
@@ -506,7 +592,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ok: true,
-        message: "Cadastro recebido. Seu acesso já está liberado para entrar com WhatsApp ou e-mail e a senha cadastrada.",
+        message: "Cadastro recebido. Seu acesso já está liberado. No primeiro agendamento, somente a Entidade Primeira Vez estará disponível.",
         statusUrl: publicLoginUrl,
         redirectUrl: obrigadoUrl(waUrl),
         whatsappUrl: waUrl,
@@ -557,6 +643,10 @@ export async function POST(request: Request) {
       whatsappUrl: whatsappUrl(process.env.TUCXA_PUBLIC_WHATSAPP || body.whatsapp, waMessage),
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Erro ao registrar contato." }, { status: 500 });
+    const status = error instanceof ConsulenteCadastroError ? error.status : 500;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erro ao registrar contato." },
+      { status },
+    );
   }
 }

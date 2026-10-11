@@ -16,6 +16,7 @@ import {
   markPilotFirstTimeAppointment,
   normalizeBrazilPhone,
   personHasUsedPilotFirstTimeEntity,
+  resolvePilotConsulenteBookingRule,
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
@@ -40,15 +41,23 @@ async function payload(request: Request) {
 
   await expirePastPilotConfirmations(context.organizationId, context.personId);
   const dates = await loadPilotDates(context.organizationId, settings.daysAhead);
+  const bookingRule = await resolvePilotConsulenteBookingRule(context.organizationId, context.personId);
   const preferences = await loadPilotPersonPreferences(context.organizationId, context.personId);
   const start = todayInSaoPaulo();
   const end = dates.at(-1)?.date || start;
   const appointments = await loadPilotAppointments(context.organizationId, start, end, context.personId);
 
-  const defaultEntityId = preferences.defaultEntityId;
+  const defaultEntityId = bookingRule.mode === "default_entity" ? bookingRule.defaultEntityId : "";
   const dateOptions = [];
   for (const date of dates) {
     const entities = await loadPilotDay(context.organizationId, date.date);
+    if (bookingRule.mode === "first_time_only") {
+      const firstTime = entities.find((item) => isPilotFirstTimeEntity(item) && item.isAvailable && item.available > 0);
+      if (firstTime) dateOptions.push({ ...date, entity: firstTime });
+      continue;
+    }
+    if (bookingRule.mode === "awaiting_default_entity") continue;
+
     const defaultEntity = defaultEntityId ? entities.find((item) => item.id === defaultEntityId) : null;
     const passe = entities.find((item) => /passe/i.test(item.name));
     const selected = defaultEntity?.isAvailable && defaultEntity.available > 0 ? defaultEntity : (passe?.isAvailable && passe.available > 0 ? passe : null);
@@ -61,7 +70,7 @@ async function payload(request: Request) {
     defaultEntityName = asText(data?.name);
   }
 
-  return { context, settings, preferences, appointments, dateOptions, defaultEntityName, blocked: false as const };
+  return { context, settings, preferences, bookingRule, appointments, dateOptions, defaultEntityName, blocked: false as const };
 }
 
 export async function GET(request: Request) {
@@ -73,7 +82,8 @@ export async function GET(request: Request) {
       ok: true,
       profile: { fullName: data.context.fullName, whatsapp: data.context.whatsapp, email: data.context.email },
       preferences: { openUpcomingOnLogin: data.preferences.consulenteOpenUpcomingOnLogin },
-      defaultEntity: { id: data.preferences.defaultEntityId, name: data.defaultEntityName },
+      bookingRule: data.bookingRule,
+      defaultEntity: { id: data.bookingRule.mode === "default_entity" ? data.bookingRule.defaultEntityId : "", name: data.defaultEntityName },
       dates: data.dateOptions,
       appointments: data.appointments,
     });
@@ -120,18 +130,33 @@ export async function POST(request: Request) {
 
     if (action === "book") {
       const appointmentDate = asText(body.appointmentDate);
-      const preferences = await loadPilotPersonPreferences(context.organizationId, context.personId);
-      if (!appointmentDate || !preferences.defaultEntityId) {
-        return NextResponse.json({ error: "Não há Entidade padrão disponível para este cadastro." }, { status: 409 });
+      if (!appointmentDate) {
+        return NextResponse.json({ error: "Escolha uma das datas de atendimento disponíveis." }, { status: 400 });
       }
+
       const validDates = await loadPilotDates(context.organizationId, settings.daysAhead);
       if (!validDates.some((item) => item.date === appointmentDate)) {
         return NextResponse.json({ error: "Escolha uma das datas de atendimento disponíveis." }, { status: 409 });
       }
+
+      const bookingRule = await resolvePilotConsulenteBookingRule(context.organizationId, context.personId);
+      if (bookingRule.mode === "awaiting_default_entity") {
+        return NextResponse.json({
+          error: "Seu atendimento de Primeira Vez já foi registrado. Aguarde a Recepção definir sua Entidade padrão antes de fazer um novo agendamento.",
+        }, { status: 409 });
+      }
+
       const entities = await loadPilotDay(context.organizationId, appointmentDate);
-      let entity = entities.find((item) => item.id === preferences.defaultEntityId && item.isAvailable && item.available > 0);
-      if (!entity) entity = entities.find((item) => /passe/i.test(item.name) && item.isAvailable && item.available > 0);
-      if (!entity) return NextResponse.json({ error: "Sua Entidade padrão não possui vaga nesta data e não há Passe disponível." }, { status: 409 });
+      let entity = bookingRule.mode === "first_time_only"
+        ? entities.find((item) => isPilotFirstTimeEntity(item) && item.isAvailable && item.available > 0)
+        : entities.find((item) => item.id === bookingRule.defaultEntityId && item.isAvailable && item.available > 0);
+
+      if (bookingRule.mode === "first_time_only") {
+        if (!entity) return NextResponse.json({ error: "A Entidade Primeira Vez não possui vaga nesta data. Escolha outra data disponível." }, { status: 409 });
+      } else if (!entity) {
+        entity = entities.find((item) => /passe/i.test(item.name) && item.isAvailable && item.available > 0);
+        if (!entity) return NextResponse.json({ error: "Sua Entidade padrão não possui vaga nesta data e não há Passe disponível." }, { status: 409 });
+      }
 
       const firstTimeBooking = isPilotFirstTimeEntity(entity);
       if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, context.personId)) {

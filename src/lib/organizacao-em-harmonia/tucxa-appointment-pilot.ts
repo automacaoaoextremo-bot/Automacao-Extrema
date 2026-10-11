@@ -63,6 +63,11 @@ export type PilotPersonPreferences = {
   consulenteOpenUpcomingOnLogin: boolean;
 };
 
+export type PilotConsulenteBookingRule = {
+  mode: "first_time_only" | "default_entity" | "awaiting_default_entity";
+  defaultEntityId: string;
+};
+
 type PilotReceptionContext = {
   organizationId: string;
   personId: string;
@@ -632,6 +637,37 @@ export async function firstPilotAppointmentEntityId(
   return asText(first?.entity_id);
 }
 
+async function firstPilotDefaultEligibleEntityId(organizationId: string, personId: string) {
+  if (!organizationId || !personId) return "";
+
+  const firstTimeIds = new Set(
+    (await firstTimeEntityRows(organizationId)).map((entity) => asText(entity.id)).filter(Boolean),
+  );
+
+  const { data, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,entity_id,appointment_date,created_at,notification_contact_type,source_contact_person_id")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .not("entity_id", "is", null)
+    .order("appointment_date", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) throw error;
+
+  const first = (data ?? []).find((appointment) => {
+    const entityId = asText(appointment.entity_id);
+    if (!entityId || firstTimeIds.has(entityId)) return false;
+    return !(
+      asText(appointment.notification_contact_type) === "alternate"
+      && asText(appointment.source_contact_person_id) === personId
+    );
+  });
+
+  return asText(first?.entity_id);
+}
+
 export async function ensurePilotDefaultEntityFromFirstAppointment(
   organizationId: string,
   personId: string,
@@ -639,9 +675,21 @@ export async function ensurePilotDefaultEntityFromFirstAppointment(
   if (!organizationId || !personId) return "";
 
   const current = await loadPilotPersonPreferences(organizationId, personId);
-  if (current.defaultEntityId) return current.defaultEntityId;
+  if (current.defaultEntityId) {
+    const { data: currentEntity, error: currentEntityError } = await supabaseAdmin
+      .from("oh_spiritual_entities")
+      .select("id,name,slug")
+      .eq("organization_id", organizationId)
+      .eq("id", current.defaultEntityId)
+      .maybeSingle();
+    if (currentEntityError) throw currentEntityError;
+    if (currentEntity?.id && !isPilotFirstTimeEntity(currentEntity)) return current.defaultEntityId;
+  }
 
-  const firstEntityId = await firstPilotAppointmentEntityId(organizationId, personId);
+  // "Primeira Vez" é uma Entidade de acolhimento/triagem e não deve virar a
+  // Entidade padrão permanente. Procuramos o primeiro atendimento posterior
+  // com uma Entidade efetiva e preservamos qualquer preferência já válida.
+  const firstEntityId = await firstPilotDefaultEligibleEntityId(organizationId, personId);
   if (!firstEntityId) return "";
 
   await savePilotPersonPreferences(organizationId, personId, {
@@ -649,6 +697,68 @@ export async function ensurePilotDefaultEntityFromFirstAppointment(
   });
 
   return firstEntityId;
+}
+
+async function personHasAnyPilotAppointment(organizationId: string, personId: string) {
+  const { count, error } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+async function personRequiresFirstTimeOnInitialBooking(organizationId: string, personId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("oh_memberships")
+    .select("agenda_viva_profile")
+    .eq("organization_id", organizationId)
+    .eq("person_id", personId)
+    .eq("active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+
+  const profile = asRecord(data?.agenda_viva_profile);
+  return profile.firstAppointmentMustBeFirstTime === true;
+}
+
+export async function resolvePilotConsulenteBookingRule(
+  organizationId: string,
+  personId: string,
+): Promise<PilotConsulenteBookingRule> {
+  if (!organizationId || !personId) {
+    return { mode: "awaiting_default_entity", defaultEntityId: "" };
+  }
+
+  const usedFirstTime = await personHasUsedPilotFirstTimeEntity(organizationId, personId);
+
+  // Ajuste 67: o cadastro público de Filho de Fora/Consulente recebe uma
+  // marca explícita no membership. Enquanto não existir nenhum atendimento,
+  // essa marca prevalece até mesmo sobre uma Entidade padrão preenchida
+  // prematuramente, impedindo que o primeiro atendimento contorne Primeira Vez.
+  if (!usedFirstTime) {
+    const [requiresFirstTime, hasAnyAppointment] = await Promise.all([
+      personRequiresFirstTimeOnInitialBooking(organizationId, personId),
+      personHasAnyPilotAppointment(organizationId, personId),
+    ]);
+    if (requiresFirstTime && !hasAnyAppointment) {
+      return { mode: "first_time_only", defaultEntityId: "" };
+    }
+  }
+
+  const defaultEntityId = await ensurePilotDefaultEntityFromFirstAppointment(organizationId, personId);
+  if (defaultEntityId) {
+    return { mode: "default_entity", defaultEntityId };
+  }
+
+  if (usedFirstTime) {
+    return { mode: "awaiting_default_entity", defaultEntityId: "" };
+  }
+
+  return { mode: "first_time_only", defaultEntityId: "" };
 }
 
 export async function currentPilotReception(request: Request): Promise<PilotReceptionContext | null> {
