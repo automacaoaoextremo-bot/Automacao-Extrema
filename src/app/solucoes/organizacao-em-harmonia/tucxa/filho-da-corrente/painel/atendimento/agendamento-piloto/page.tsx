@@ -146,6 +146,7 @@ type EntityChangeRequest = {
   consulenteName: string;
   currentEntityId: string;
   currentEntityName: string;
+  firstTimeCount: number;
   newEntityId: string;
   reason: string;
   notify: boolean;
@@ -268,6 +269,14 @@ function cancellationDisplayReason(reason: string) {
     return "consulente não poderá comparecer";
   }
   return reason.trim();
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
 }
 
 function FirstTimeBadge({ visible }: { visible: boolean }) {
@@ -1376,6 +1385,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       consulenteName: appointment.consulenteName,
       currentEntityId: appointment.entityId,
       currentEntityName: appointment.entityName,
+      firstTimeCount: appointment.isFirstTimeAppointment || appointment.firstTimeIndicatorActive || normalizeSearchText(appointment.entityName).includes("primeira vez") ? 1 : 0,
       newEntityId: "",
       reason: "",
       notify: true,
@@ -1394,6 +1404,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       consulenteName: `${active.length} agendamento(s)`,
       currentEntityId: entity.id,
       currentEntityName: entity.name,
+      firstTimeCount: active.filter((item) => item.isFirstTimeAppointment || item.firstTimeIndicatorActive || normalizeSearchText(item.entityName).includes("primeira vez")).length,
       newEntityId: "",
       reason: "",
       notify: true,
@@ -1449,6 +1460,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           consulenteName: `${activeAppointments.length} agendamento(s)`,
           currentEntityId: entity.id,
           currentEntityName: entity.name,
+          firstTimeCount: activeAppointments.filter((item) => item.isFirstTimeAppointment || item.firstTimeIndicatorActive || normalizeSearchText(item.entityName).includes("primeira vez")).length,
           newEntityId: "",
           reason: `Entidade indisponível em ${formatDateInputPtBr(appointmentDate)}. ${reason}`,
           notify: true,
@@ -3361,6 +3373,13 @@ function EntityChangePopup({
             <p className="mt-1">Entidade atual: <strong>{request.currentEntityName}</strong></p>
             {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
           </div>
+
+          {request.firstTimeCount > 0 && (
+            <div className="rounded-2xl bg-fuchsia-50 p-4 text-sm font-bold leading-5 text-fuchsia-900 ring-1 ring-fuchsia-200">
+              <p>Primeira vez: a Recepção pode realocar {request.firstTimeCount > 1 ? "estes atendimentos" : "este primeiro atendimento"} para outra Entidade.</p>
+              <p className="mt-1">A marca <strong>Primeira vez</strong> será preservada para o Cambono e para a Entidade de destino.</p>
+            </div>
+          )}
 
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
             Nova Entidade

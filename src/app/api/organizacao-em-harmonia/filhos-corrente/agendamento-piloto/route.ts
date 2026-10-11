@@ -1626,9 +1626,31 @@ export async function POST(request: Request) {
         .in("id", entityIds);
       if (entityError) throw entityError;
       const entityNames = new Map((entityRows ?? []).map((item) => [asText(item.id), asText(item.name) || "Entidade"]));
+      const entityRowsById = new Map((entityRows ?? []).map((item) => [asText(item.id), item]));
       const newEntityName = entityNames.get(entityId);
       if (!newEntityName) {
         return NextResponse.json({ error: "Nova Entidade não localizada.", requestId: code }, { status: 404 });
+      }
+
+      // Ajuste 69: a obrigação de CRIAR o primeiro agendamento em "Primeira Vez"
+      // não impede a Recepção de realocar esse MESMO atendimento depois. Antes da
+      // RPC, garantimos a marca histórica de Primeira Vez para que ela sobreviva
+      // à mudança de entity_id inclusive em registros legados sem metadata.
+      const firstTimeAppointmentIds = new Set<string>();
+      for (const appointment of appointments) {
+        const sourceEntity = entityRowsById.get(asText(appointment.entity_id));
+        const metadata = asRecord(appointment.metadata);
+        const wasFirstTime = metadata.firstTimeAppointment === true || isPilotFirstTimeEntity(sourceEntity);
+        if (!wasFirstTime) continue;
+
+        const appointmentId = asText(appointment.id);
+        firstTimeAppointmentIds.add(appointmentId);
+        if (metadata.firstTimeAppointment !== true) {
+          await markPilotFirstTimeAppointment(context.organizationId, appointmentId, {
+            id: asText(appointment.entity_id),
+            name: asText(sourceEntity?.name) || "Primeira Vez",
+          });
+        }
       }
 
       let attachmentPath: string | null = null;
@@ -1701,22 +1723,9 @@ export async function POST(request: Request) {
         }, { status: 500 });
       }
 
-      const entityRowsById = new Map((entityRows ?? []).map((item) => [asText(item.id), item]));
       for (const appointment of appointments) {
         const personId = asText(appointment.person_id);
-        if (!personId) continue;
-
-        const sourceEntity = entityRowsById.get(asText(appointment.entity_id));
-        const metadata = asRecord(appointment.metadata);
-        const wasFirstTime = metadata.firstTimeAppointment === true || isPilotFirstTimeEntity(sourceEntity);
-        if (!wasFirstTime) continue;
-
-        if (metadata.firstTimeAppointment !== true) {
-          await markPilotFirstTimeAppointment(context.organizationId, asText(appointment.id), {
-            id: asText(appointment.entity_id),
-            name: asText(sourceEntity?.name) || "Primeira Vez",
-          });
-        }
+        if (!personId || !firstTimeAppointmentIds.has(asText(appointment.id))) continue;
         await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId: entityId });
       }
 
@@ -1758,15 +1767,20 @@ export async function POST(request: Request) {
       }
 
       const totalChanged = Array.isArray(changedRows) ? changedRows.length : appointmentIds.length;
-      void sendTucxaAppointmentAuditEmail({ event: "Troca de Entidade", appointmentDate: asText(appointments[0]?.appointment_date), entityName: newEntityName, details: `${totalChanged} agendamento(s). Motivo: ${reason}` });
+      const firstTimePreserved = firstTimeAppointmentIds.size;
+      const firstTimeMessage = firstTimePreserved > 0
+        ? ` ${firstTimePreserved === 1 ? "A sinalização de Primeira vez foi preservada." : `${firstTimePreserved} atendimentos mantiveram a sinalização de Primeira vez.`}`
+        : "";
+      void sendTucxaAppointmentAuditEmail({ event: "Troca de Entidade", appointmentDate: asText(appointments[0]?.appointment_date), entityName: newEntityName, details: `${totalChanged} agendamento(s). Motivo: ${reason}.${firstTimeMessage}` });
       return NextResponse.json({
         ok: true,
         changed: totalChanged,
+        firstTimePreserved,
         notified: sent,
         notificationFailures: failures,
         message: action === "change-entity-bulk"
-          ? `${totalChanged} agendamento(s) alterado(s) para ${newEntityName}. ${notify ? `${sent} aviso(s) enviado(s).` : "Aviso por WhatsApp desativado."}`
-          : `Entidade alterada para ${newEntityName}. ${notify ? (sent ? "Consulente avisado pelo WhatsApp." : "A alteração foi salva, mas o aviso não foi enviado.") : ""}`.trim(),
+          ? `${totalChanged} agendamento(s) alterado(s) para ${newEntityName}. ${notify ? `${sent} aviso(s) enviado(s).` : "Aviso por WhatsApp desativado."}${firstTimeMessage}`
+          : `Entidade alterada para ${newEntityName}. ${notify ? (sent ? "Consulente avisado pelo WhatsApp." : "A alteração foi salva, mas o aviso não foi enviado.") : ""}${firstTimeMessage}`.trim(),
       });
     }
 

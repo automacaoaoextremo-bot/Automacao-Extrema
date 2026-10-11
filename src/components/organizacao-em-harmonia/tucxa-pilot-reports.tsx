@@ -209,10 +209,13 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   return [...groups.entries()].map(([date, entities], dateIndex, dateEntries) => {
     const summary = cadernoSummary(entities);
     const sortedEntities = [...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
-    const entityRows: Array<Array<[string, Row[]]>> = [];
-    for (let index = 0; index < sortedEntities.length; index += 3) {
-      entityRows.push(sortedEntities.slice(index, index + 3));
-    }
+    // Ajuste 69: no PDF, cada card passa a fluir independentemente em três colunas.
+    // Antes, os cards eram agrupados em linhas fixas de três; um card alto em uma
+    // coluna aumentava a altura de toda a linha e deixava grandes vazios nas outras
+    // duas colunas. O fluxo em colunas compacta esses vazios sem dividir um card.
+    const printableCards = sortedEntities
+      .map(([entity, items]) => printableEntityCard(entity, items))
+      .join("");
 
     const header = `
       <div class="report-header-content">
@@ -227,14 +230,11 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
           <tr><th class="repeat-header">${header}</th></tr>
         </thead>
         <tbody>
-          ${entityRows.map((entityRow) => `
-            <tr class="entity-grid-row">
-              <td class="entity-grid-cell">
-                <div class="entity-grid">
-                  ${entityRow.map(([entity, items]) => printableEntityCard(entity, items)).join("")}
-                </div>
-              </td>
-            </tr>`).join("")}
+          <tr class="entity-flow-row">
+            <td class="entity-flow-cell">
+              <div class="entity-flow">${printableCards}</div>
+            </td>
+          </tr>
         </tbody>
       </table>`;
   }).join("");
@@ -357,28 +357,28 @@ export function TucxaPilotReports() {
           const report = window.open("", "_blank");
           if (!report) return setError("O navegador bloqueou a janela de impressão. Libere pop-ups e tente novamente.");
           report.document.write(`<html><head><title>Relatório TUCXA</title><style>
-            @page{size:A4 portrait;margin:10mm}
+            @page{size:A4 portrait;margin:8mm}
             body{font-family:Arial,sans-serif;padding:0;color:#10251c}
             table{border-collapse:collapse;width:100%}
-            th,td{border:1px solid #aaa;padding:6px;text-align:left;font-size:11px}
-            h1{color:#123D2C;font-size:18px;margin:0 0 12px}
-            h3{color:#123D2C;font-size:11px;text-align:center;text-transform:uppercase;border:1px solid #888;margin:0;padding:5px;background:#f3f6ef}
+            th,td{border:1px solid #aaa;padding:5px;text-align:left;font-size:10px}
+            h1{color:#123D2C;font-size:17px;margin:0 0 8px}
+            h3{color:#123D2C;font-size:10px;text-align:center;text-transform:uppercase;border:1px solid #888;margin:0;padding:4px;background:#f3f6ef}
             .print-date-report{width:100%;border-collapse:collapse;break-after:page;page-break-after:always}
             .print-date-report.last-date-report{break-after:auto;page-break-after:auto}
             .print-date-report>thead{display:table-header-group}
-            .print-date-report>thead>tr>.repeat-header{border:0;padding:0 0 10px;background:#fff}
-            .print-date-report>tbody>tr>.entity-grid-cell{border:0;padding:0 0 10px}
+            .print-date-report>thead>tr>.repeat-header{border:0;padding:0 0 6px;background:#fff}
+            .print-date-report>tbody>tr>.entity-flow-cell{border:0;padding:0}
             .report-header-content{background:#fff}
-            .report-title{color:#123D2C;font-size:18px;font-weight:700;text-align:left;margin:0 0 12px}
-            .report-date{color:#123D2C;font-size:14px;font-weight:700;text-align:center;margin:8px 0 10px}
-            .entity-grid-row{break-inside:avoid;page-break-inside:avoid}
-            .entity-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:start}
-            .entity-card{break-inside:avoid;page-break-inside:avoid}
+            .report-title{color:#123D2C;font-size:17px;font-weight:700;text-align:left;margin:0 0 8px}
+            .report-date{color:#123D2C;font-size:13px;font-weight:700;text-align:center;margin:4px 0 6px}
+            .entity-flow-row{break-inside:auto;page-break-inside:auto}
+            .entity-flow{column-count:3;column-gap:6px;column-fill:balance}
+            .entity-card{display:inline-block;width:100%;box-sizing:border-box;vertical-align:top;break-inside:avoid;page-break-inside:avoid;margin:0 0 6px}
             .entity-table{border-collapse:collapse;width:100%}
-            .entity-card td{border:1px solid #aaa;height:18px;padding:3px 5px}
-            .entity-card .order{width:20px;text-align:center}
-            .day-summary{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:0 0 10px;font-size:10px}
-            .day-summary span,.day-summary strong{border:1px solid #c8d5cc;border-radius:10px;padding:3px 6px}
+            .entity-card td{border:1px solid #aaa;height:16px;padding:2px 4px}
+            .entity-card .order{width:18px;text-align:center}
+            .day-summary{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin:0 0 6px;font-size:9px}
+            .day-summary span,.day-summary strong{border:1px solid #c8d5cc;border-radius:9px;padding:2px 5px}
             .entity-unavailable{border:2px solid #b42318}
             .entity-unavailable h3{background:#fff0ed;color:#8a1c13}
             .entity-alert{border:1px solid #f1a99f;background:#fff4f2;color:#8a1c13;padding:5px;font-size:9px;text-align:center}
