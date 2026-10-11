@@ -1489,13 +1489,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   async function submitEntityChange(event: FormEvent) {
     event.preventDefault();
     if (!entityChangeRequest) return;
-    const reason = entityChangeRequest.reason.trim();
+    const reason = entityChangeRequest.reason.trim() || "Troca realizada pela Recepção.";
     if (!entityChangeRequest.newEntityId) {
       setErrorNotice({ title: "Escolha a nova Entidade", message: "Selecione a Entidade de destino antes de confirmar a troca." });
-      return;
-    }
-    if (!reason) {
-      setErrorNotice({ title: "Informe o motivo", message: "O motivo da troca é obrigatório e ficará registrado no histórico." });
       return;
     }
 
@@ -3374,13 +3370,6 @@ function EntityChangePopup({
             {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
           </div>
 
-          {request.firstTimeCount > 0 && (
-            <div className="rounded-2xl bg-fuchsia-50 p-4 text-sm font-bold leading-5 text-fuchsia-900 ring-1 ring-fuchsia-200">
-              <p>Primeira vez: a Recepção pode realocar {request.firstTimeCount > 1 ? "estes atendimentos" : "este primeiro atendimento"} para outra Entidade.</p>
-              <p className="mt-1">A marca <strong>Primeira vez</strong> será preservada para o Cambono e para a Entidade de destino.</p>
-            </div>
-          )}
-
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
             Nova Entidade
             <select
@@ -3404,12 +3393,11 @@ function EntityChangePopup({
           )}
 
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-            Motivo da troca
+            Motivo da troca <span className="font-semibold text-slate-500">(opcional)</span>
             <textarea
               value={request.reason}
               onChange={(event) => onChange({ reason: event.target.value })}
               rows={3}
-              required
               placeholder="Ex.: A Entidade Frei Francisco não poderá comparecer."
               className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold"
             />
@@ -3438,7 +3426,7 @@ function EntityChangePopup({
 
           <button
             type="submit"
-            disabled={saving || !request.newEntityId || !request.reason.trim()}
+            disabled={saving || !request.newEntityId}
             className="rounded-xl bg-[#176A3A] px-4 py-3 font-black text-white disabled:opacity-50"
           >
             {saving ? "Alterando..." : request.mode === "bulk" ? "Confirmar troca de todos" : "Confirmar troca"}

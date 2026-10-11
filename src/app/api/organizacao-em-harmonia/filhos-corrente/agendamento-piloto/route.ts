@@ -1563,7 +1563,7 @@ export async function POST(request: Request) {
 
     if (action === "change-entity" || action === "change-entity-bulk") {
       const entityId = asText(body.entityId);
-      const reason = asText(body.reason);
+      const reason = asText(body.reason) || "Troca realizada pela Recepção.";
       const notify = asBoolean(body.notify, true);
       const attachmentName = asText(body.attachmentName);
       const attachmentType = asText(body.attachmentType).toLowerCase();
@@ -1593,10 +1593,6 @@ export async function POST(request: Request) {
       if (!appointmentIds.length || !entityId) {
         return NextResponse.json({ error: "Informe o(s) agendamento(s) e a nova Entidade.", requestId: code }, { status: 400 });
       }
-      if (!reason) {
-        return NextResponse.json({ error: "Informe o motivo da troca de Entidade.", requestId: code }, { status: 400 });
-      }
-
       const { data: appointments, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
         .select("id,person_id,source_contact_person_id,appointment_date,entity_id,consulente_name,whatsapp,status,notification_contact_name,notification_contact_whatsapp,metadata")
