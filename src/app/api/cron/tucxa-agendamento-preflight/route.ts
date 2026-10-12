@@ -1,3 +1,4 @@
+import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { homologationActiveToday, homologationAppointmentAllowed, homologationMediumAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
     const weekdayEnabled = settings.automaticDispatchWeekdays.includes(weekday);
     const { data: appointments, error: appointmentError } = await supabaseAdmin
       .from("oh_consulente_appointments")
-      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status")
+      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status,metadata")
       .eq("organization_id", organization.id).eq("appointment_date", date)
       .in("status", PILOT_ACTIVE_STATUSES).limit(500);
     if (appointmentError) throw appointmentError;
@@ -173,6 +174,12 @@ export async function GET(request: Request) {
         individualNoticeField,
       },
       consulentes, cavalinhos, recepcao,
+      receptionSummaryPreview: {
+        appointmentCount: rows.length,
+        entitiesCount: entityIds.length,
+        format: "entity_then_alphabetical_with_original_appointment_order",
+        summary: formatTucxaReceptionSummary({ date, appointments: rows, entityNames }),
+      },
       sharedContactReminderGroups: Object.values(consulentes.reduce<Record<string, typeof consulentes>>((groups, item) => {
         const phone = item.phone;
         if (!groups[phone]) groups[phone] = [];

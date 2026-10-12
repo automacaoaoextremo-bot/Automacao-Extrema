@@ -13,6 +13,7 @@ import {
   sendTucxaOperationalSummaryEmail,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
+import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { homologationActiveToday, homologationAppointmentId, homologationMediumAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
 export const dynamic = "force-dynamic";
@@ -197,12 +198,13 @@ export async function GET(request: Request) {
         organization: organizationLabel,
         status: "processing",
         date,
-        appointmentsFound: testAppointments.length,
+        appointmentsFound: (appointments ?? []).length,
+        homologationAppointments: testAppointments.length,
         sendCavalinhos,
         sendReception,
       });
 
-      const entityIds = [...new Set(testAppointments.map((item) => text(item.entity_id)).filter(Boolean))];
+      const entityIds = [...new Set((appointments ?? []).map((item) => text(item.entity_id)).filter(Boolean))];
       const { data: entities, error: entityError } = entityIds.length
         ? await supabaseAdmin
             .from("oh_spiritual_entities")
@@ -415,10 +417,11 @@ export async function GET(request: Request) {
         );
         const receptionPolicy = receptionDispatchPolicy();
 
-        const summary = [...grouped.entries()]
-          .sort((a, b) => (entityNames.get(a[0]) || "").localeCompare(entityNames.get(b[0]) || "", "pt-BR"))
-          .map(([entityId, list]) => `${entityNames.get(entityId) || "Entidade"} ${list.length}/${entityCapacities.get(entityId) || 4}: ${list.map((item) => text(item.consulente_name)).join(", ")}`)
-          .join("\n");
+        const summary = formatTucxaReceptionSummary({
+          date,
+          appointments: appointments ?? [],
+          entityNames,
+        });
 
         diagnostics.push({
           organization: organizationLabel,
