@@ -1343,6 +1343,7 @@ export async function POST(request: Request) {
 
     if (action === "save-settings") {
       const serviceOrderMode = asText(body.serviceOrderMode) === "arrival" ? "arrival" : "booking";
+      const triageDisplayOrder = asText(body.triageDisplayOrder) === "alphabetical" ? "alphabetical" : "booking";
       const reminderOffsets = hourList(body.confirmationReminderOffsetsHours);
       const confirmationCutoff = asText(body.confirmationCutoff);
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(confirmationCutoff)) {
@@ -1381,6 +1382,7 @@ export async function POST(request: Request) {
         pilotAllowDifferentEntity: false,
         pilotSmsEnabled: false,
         pilotServiceOrderMode: serviceOrderMode,
+        pilotTriageDisplayOrder: triageDisplayOrder,
         pilotConfirmationCutoff: confirmationCutoff,
         pilotAutoCancelExpiredConfirmations: autoCancelExpiredConfirmations,
         pilotEnforceArrivalWindow: enforceArrivalWindow,

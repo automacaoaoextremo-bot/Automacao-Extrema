@@ -39,6 +39,7 @@ export type PilotSettings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageDisplayOrder: "booking" | "alphabetical";
   triageEntityPaginationEnabled: boolean;
   triageConsulentePaginationEnabled: boolean;
   triageCadernoPaginationEnabled: boolean;
@@ -535,6 +536,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
     useDefaultEntity: settings.pilotUseDefaultEntity === true,
     allowDifferentEntity: settings.pilotAllowDifferentEntity !== false,
     serviceOrderMode: asText(settings.pilotServiceOrderMode) === "arrival" ? "arrival" : "booking",
+    triageDisplayOrder: asText(settings.pilotTriageDisplayOrder) === "alphabetical" ? "alphabetical" : "booking",
     triageEntityPaginationEnabled: settings.pilotTriageEntityPaginationEnabled !== undefined
       ? settings.pilotTriageEntityPaginationEnabled !== false
       : settings.pilotTriagePaginationEnabled !== false,

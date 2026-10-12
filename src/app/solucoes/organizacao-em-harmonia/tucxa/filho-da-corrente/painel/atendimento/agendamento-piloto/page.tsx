@@ -18,6 +18,7 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
+type TriageDisplayOrder = "booking" | "alphabetical";
 type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "requested" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
@@ -105,6 +106,7 @@ type Settings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageDisplayOrder: TriageDisplayOrder;
   triageEntityPaginationEnabled: boolean;
   triageConsulentePaginationEnabled: boolean;
   triageCadernoPaginationEnabled: boolean;
@@ -167,6 +169,7 @@ type SummaryCounts = {
 
 type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
+  triageDisplayOrder: TriageDisplayOrder;
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
   enforceArrivalWindow: boolean;
@@ -269,6 +272,26 @@ function cancellationDisplayReason(reason: string) {
     return "consulente não poderá comparecer";
   }
   return reason.trim();
+}
+
+function compareTriageAppointments(
+  left: Appointment,
+  right: Appointment,
+  displayOrder: TriageDisplayOrder,
+) {
+  if (displayOrder === "alphabetical") {
+    const personOrder = left.consulenteName.localeCompare(right.consulenteName, "pt-BR", { sensitivity: "base" });
+    if (personOrder !== 0) return personOrder;
+  }
+
+  const leftBookingOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+  const rightBookingOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+  if (leftBookingOrder !== rightBookingOrder) return leftBookingOrder - rightBookingOrder;
+
+  const createdOrder = left.createdAt.localeCompare(right.createdAt);
+  if (createdOrder !== 0) return createdOrder;
+
+  return left.id.localeCompare(right.id);
 }
 
 function normalizeSearchText(value: string) {
@@ -615,14 +638,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
+    const displayOrder = payload?.settings.triageDisplayOrder ?? "booking";
     return [...filteredAppointments].sort((a, b) => {
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
-      const createdOrder = a.createdAt.localeCompare(b.createdAt);
-      if (createdOrder !== 0) return createdOrder;
-      return a.id.localeCompare(b.id);
+      return compareTriageAppointments(a, b, displayOrder);
     });
-  }, [filteredAppointments]);
+  }, [filteredAppointments, payload?.settings.triageDisplayOrder]);
   const orderedConsulenteAppointments = useMemo(
     () => [...filteredAppointments].sort((a, b) => {
       const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
@@ -1554,6 +1576,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     if (!payload) return;
     setSettingsDraft({
       serviceOrderMode: payload.settings.serviceOrderMode,
+      triageDisplayOrder: payload.settings.triageDisplayOrder,
       confirmationCutoff: payload.settings.confirmationCutoff,
       autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
       enforceArrivalWindow: payload.settings.enforceArrivalWindow,
@@ -1590,6 +1613,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await postPilot({
         action: "save-settings",
         serviceOrderMode: settingsDraft.serviceOrderMode,
+        triageDisplayOrder: settingsDraft.triageDisplayOrder,
         confirmationCutoff: settingsDraft.confirmationCutoff,
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
@@ -2291,7 +2315,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         );
                       })()}
                       <div className="divide-y divide-[#123D2C]/10 bg-white">
-                        {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map((appointment) => (
+                        {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
                             <div className="min-w-0">
                               <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
@@ -3027,6 +3051,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <div className="grid gap-2">
                   {[
                     ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
+                    ["ordem-exibicao", "Ordem de exibição", "Entidade e Caderno"],
                     ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
                     ["chegada", "Registro de chegada", "Regra do botão Chegou"],
                     ["visualizacao", "Visualização", "Paginação da Triagem e Encaminhamento"],
@@ -3046,6 +3071,30 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <div className="grid gap-3">
 
                   {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
+
+                  {settingsSection === "ordem-exibicao" && (
+                    <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="font-black text-[#123D2C]">Ordem de exibição na Triagem</p>
+                      <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
+                        Exibir Consulentes nas visões Entidade e Caderno por
+                        <select
+                          value={settingsDraft.triageDisplayOrder}
+                          onChange={(event) => setSettingsDraft((current) => current ? {
+                            ...current,
+                            triageDisplayOrder: event.target.value as TriageDisplayOrder,
+                          } : current)}
+                          className="rounded-xl border border-[#123D2C]/15 bg-white p-3"
+                        >
+                          <option value="booking">Ordem de Agendamento</option>
+                          <option value="alphabetical">Ordem Alfabética</option>
+                        </select>
+                      </label>
+                      <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                        Esta opção altera somente a ordem visual nas abas Entidade e Caderno.
+                        A ordem de agendamento gravada e a ordem de chegada continuam inalteradas.
+                      </p>
+                    </section>
+                  )}
 
                   {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
 
