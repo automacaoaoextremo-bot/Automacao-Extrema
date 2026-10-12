@@ -7,6 +7,7 @@ import {
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaOperationalSummaryWhatsapp } from "@/lib/botconversa";
+import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
 import {
   sendTucxaAppointmentAuditEmail,
   sendTucxaOperationalSummaryEmail,
@@ -394,11 +395,10 @@ export async function GET(request: Request) {
         const receptionChannels = new Map(
           (preferences ?? []).map((item) => [
             text(item.person_id),
-            Array.isArray(item.reception_summary_channels)
-              ? item.reception_summary_channels.map((value) => text(value)).filter((value) => value === "whatsapp" || value === "email")
-              : [],
+            receptionSummaryChannels(item.reception_summary_channels),
           ]),
         );
+        const receptionPolicy = receptionDispatchPolicy();
 
         const summary = [...grouped.entries()]
           .sort((a, b) => (entityNames.get(a[0]) || "").localeCompare(entityNames.get(b[0]) || "", "pt-BR"))
@@ -410,15 +410,19 @@ export async function GET(request: Request) {
           audience: "reception",
           receptionMembershipsFound: receptionIds.length,
           activeReceptionPeopleFound: (people ?? []).length,
+          dispatchPolicy: receptionPolicy.mode,
+          allowlistSize: receptionPolicy.allowedCount,
         });
 
         for (const person of people ?? []) {
           const personId = text(person.id);
-          // Compatibilidade: Recepção sem preferência individual ainda gravada
-          // herda WhatsApp quando o envio global da Recepção está habilitado.
-          const channels = receptionChannels.has(personId)
-            ? receptionChannels.get(personId) ?? []
-            : ["whatsapp"];
+          // Não presumir opt-in de integrantes da Recepção.
+          // Durante homologação, exigir também autorização por ID individual.
+          const channels = receptionChannels.get(personId) ?? [];
+          if (!receptionPolicy.allows(personId)) {
+            diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "not_in_pilot_allowlist", policy: receptionPolicy.mode });
+            continue;
+          }
 
           if (await alreadySent("reception", personId)) {
             diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "already_sent" });

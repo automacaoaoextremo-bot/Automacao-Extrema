@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
 import {
   findTucxaOrganization,
   isCampinasHoliday,
@@ -100,7 +101,8 @@ export async function GET(request: Request) {
         .select("person_id,reception_summary_channels").eq("organization_id", organization.id).in("person_id", receptionIds)
       : { data: [], error: null };
     if (receptionPreferences.error) throw receptionPreferences.error;
-    const channels = new Map((receptionPreferences.data ?? []).map((p) => [str(p.person_id), p.reception_summary_channels]));
+    const channels = new Map((receptionPreferences.data ?? []).map((p) => [str(p.person_id), receptionSummaryChannels(p.reception_summary_channels)]));
+    const receptionPolicy = receptionDispatchPolicy();
     const entityNames = new Map(entities.map((e) => [str(e.id), str(e.name)]));
     const entityEnabled = new Set(entities.filter((e) => e.pilot_cavalinho_whatsapp_enabled === true).map((e) => str(e.id)));
     const generalWhatsapp = enabled("BOTCONVERSA_ENABLED") && enabled("BOTCONVERSA_TUCXA_ENABLED");
@@ -131,12 +133,14 @@ export async function GET(request: Request) {
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
       const configuredChannels = channels.get(personId);
-      const whatsapp = Array.isArray(configuredChannels) ? configuredChannels.includes("whatsapp") : true;
+      const whatsapp = configuredChannels?.includes("whatsapp") === true;
+      const explicitlyAuthorized = receptionPolicy.allows(personId);
       return {
         personId, person: person?.full_name || "Não encontrado/inativo",
         phone: masked(person?.whatsapp), whatsappSelected: whatsapp,
+        explicitlyAuthorized,
         eligible: !holiday && weekdayEnabled && settings.receptionDailyWhatsappEnabled
-          && Boolean(person?.whatsapp) && whatsapp && generalWhatsapp && receptionFlow,
+          && Boolean(person?.whatsapp) && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow,
       };
     });
 
@@ -150,11 +154,27 @@ export async function GET(request: Request) {
         receptionEnabled: settings.receptionDailyWhatsappEnabled,
         receptionTime: settings.receptionDailyWhatsappTime,
       },
-      configured: { generalWhatsapp, reminderFlow, cavalinhoFlow, receptionFlow,
+      configured: {
+        botconversaEnabled: enabled("BOTCONVERSA_ENABLED"),
+        tucxaEnabled: enabled("BOTCONVERSA_TUCXA_ENABLED"),
+        deploymentEnvironment: str(process.env.VERCEL_ENV) || "local",
+        receptionPilotPolicy: receptionPolicy.mode,
+        receptionAllowlistSize: receptionPolicy.allowedCount,
+        generalWhatsapp, reminderFlow, cavalinhoFlow, receptionFlow,
         reminderFields: requiredReminderFields.every((key) => envConfigured(key)),
         individualNoticeField,
       },
       consulentes, cavalinhos, recepcao,
+      sharedContactReminderGroups: Object.values(consulentes.reduce<Record<string, typeof consulentes>>((groups, item) => {
+        const phone = item.phone;
+        if (!groups[phone]) groups[phone] = [];
+        groups[phone].push(item);
+        return groups;
+      }, {})).filter((group) => group.length > 1).map((group) => ({
+        phone: group[0].phone,
+        appointments: group.map((item) => ({ appointmentId: item.appointmentId, consulente: item.consulente })),
+        note: "Mensagens individuais compartilham um contato; validar campos personalizados no BotConversa.",
+      })),
       warning: "Pré-verificação: não consulta confirmação de entrega do BotConversa nem garante disparo futuro."
     });
   } catch (error) {
