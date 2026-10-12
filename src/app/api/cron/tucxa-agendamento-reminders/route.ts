@@ -9,6 +9,8 @@ import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
+import { homologationActiveToday, homologationAppointmentAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -170,6 +172,11 @@ async function processDayOfReminders(
   let failed = 0;
 
   for (const appointment of rows) {
+    const candidatePhone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
+    if (!homologationAppointmentAllowed(today, appointment.id, candidatePhone)) {
+      skipped += 1;
+      continue;
+    }
     if (sentAppointments.has(appointment.id)) {
       skipped += 1;
       continue;
@@ -261,6 +268,9 @@ export async function GET(request: Request) {
     }
 
     const today = todaySaoPaulo();
+    if (!homologationActiveToday(today)) {
+      return NextResponse.json({ ok: true, blocked: true, reason: "homologation_guard", today, sent: 0, checked: 0 });
+    }
 
     // Segurança operacional: feriado/data sem atendimento é bloqueado antes
     // de qualquer consulta de envio, gravação de log ou contato com provedor.

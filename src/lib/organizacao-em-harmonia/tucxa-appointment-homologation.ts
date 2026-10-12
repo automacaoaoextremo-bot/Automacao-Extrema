@@ -1,0 +1,42 @@
+/** Homologação controlada do Agendamento TUCXA (fail-closed).
+ *  Mesmo com a flag ausente/desligada, os dois crons ficam bloqueados.
+ *  Para a operação geral posterior, será preciso uma revisão explícita do código.
+ */
+const TEST_DATE = "2026-10-13";
+const TEST_APPOINTMENT_ID = "ea788ddd-005c-40c9-86f5-6c8a53d7a4f5";
+const TEST_CONSULENTE_PERSON_PHONE = "19989848246";
+const TEST_MEDIUM_PERSON_ID = "5e5c932d-f58b-4ea7-9896-4b60f6bd8ab5";
+const TEST_MEDIUM_PHONE = "19992360856";
+const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+export const tucxaHomologation = {
+  date: TEST_DATE,
+  appointmentId: TEST_APPOINTMENT_ID,
+  mediumPersonId: TEST_MEDIUM_PERSON_ID,
+  enabled: process.env.TUCXA_AGENDAMENTO_HOMOLOGACAO_ENABLED === "true",
+  ready() {
+    return this.enabled &&
+      process.env.TUCXA_AGENDAMENTO_HOMOLOGACAO_APPOINTMENT_ID === TEST_APPOINTMENT_ID &&
+      process.env.TUCXA_AGENDAMENTO_HOMOLOGACAO_MEDIUM_PERSON_ID === TEST_MEDIUM_PERSON_ID &&
+      UUID.test(TEST_APPOINTMENT_ID) && UUID.test(TEST_MEDIUM_PERSON_ID);
+  },
+};
+
+function normalizeBrazilPhone(raw: string): string {
+  let digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("55") && digits.length === 13) digits = digits.slice(2);
+  return digits.length === 11 ? digits : "";
+}
+
+export function homologationActiveToday(date: string): boolean {
+  return tucxaHomologation.ready() && date === TEST_DATE;
+}
+export function homologationAppointmentAllowed(date: string, appointmentId: string, phone: string): boolean {
+  return homologationActiveToday(date) && appointmentId === TEST_APPOINTMENT_ID &&
+    normalizeBrazilPhone(phone) === TEST_CONSULENTE_PERSON_PHONE;
+}
+export function homologationMediumAllowed(date: string, personId: string, phone: string): boolean {
+  return homologationActiveToday(date) && personId === TEST_MEDIUM_PERSON_ID &&
+    normalizeBrazilPhone(phone) === TEST_MEDIUM_PHONE;
+}
+export function homologationAppointmentId(): string { return TEST_APPOINTMENT_ID; }

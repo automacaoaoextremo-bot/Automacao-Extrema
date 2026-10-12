@@ -1,3 +1,4 @@
+import { homologationActiveToday, homologationAppointmentAllowed, homologationMediumAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
@@ -119,7 +120,7 @@ export async function GET(request: Request) {
         appointmentId: appointment.id, consulente: appointment.consulente_name,
         entity: entityNames.get(str(appointment.entity_id)) || "Entidade não encontrada",
         phone: masked(phone), phonePresent: Boolean(digits(phone)), preferenceEnabled: permitted,
-        eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow,
+        eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && homologationAppointmentAllowed(date, str(appointment.id), phone),
       };
     });
     const cavalinhos = (linksResult.data ?? []).filter((link) => entityEnabled.has(str(link.entity_id)))
@@ -128,7 +129,9 @@ export async function GET(request: Request) {
         person: people.get(str(link.person_id))?.full_name || "Não encontrado/inativo",
         phone: masked(people.get(str(link.person_id))?.whatsapp),
         eligible: !holiday && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
-          && Boolean(people.get(str(link.person_id))?.whatsapp) && generalWhatsapp && cavalinhoFlow,
+          && Boolean(people.get(str(link.person_id))?.whatsapp) && generalWhatsapp && cavalinhoFlow
+          && homologationMediumAllowed(date, str(link.person_id), str(people.get(str(link.person_id))?.whatsapp))
+          && rows.some((row) => str(row.id) === tucxaHomologation.appointmentId && str(row.entity_id) === str(link.entity_id)),
       }));
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
@@ -140,7 +143,9 @@ export async function GET(request: Request) {
         phone: masked(person?.whatsapp), whatsappSelected: whatsapp,
         explicitlyAuthorized,
         eligible: !holiday && weekdayEnabled && settings.receptionDailyWhatsappEnabled
-          && Boolean(person?.whatsapp) && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow,
+          && Boolean(person?.whatsapp) && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow
+          && homologationMediumAllowed(date, personId, str(person?.whatsapp))
+          && rows.some((row) => str(row.id) === tucxaHomologation.appointmentId),
       };
     });
 
@@ -155,6 +160,9 @@ export async function GET(request: Request) {
         receptionTime: settings.receptionDailyWhatsappTime,
       },
       configured: {
+        homologationEnabled: tucxaHomologation.enabled,
+        homologationReady: tucxaHomologation.ready(),
+        homologationActiveForDate: homologationActiveToday(date),
         botconversaEnabled: enabled("BOTCONVERSA_ENABLED"),
         tucxaEnabled: enabled("BOTCONVERSA_TUCXA_ENABLED"),
         deploymentEnvironment: str(process.env.VERCEL_ENV) || "local",

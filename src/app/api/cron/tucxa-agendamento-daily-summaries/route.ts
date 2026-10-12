@@ -13,6 +13,8 @@ import {
   sendTucxaOperationalSummaryEmail,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
+import { homologationActiveToday, homologationAppointmentId, homologationMediumAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -103,6 +105,9 @@ export async function GET(request: Request) {
     const date = todayInSaoPaulo();
     const now = saoPauloTime();
     const weekday = weekdaySaoPaulo();
+    if (!homologationActiveToday(date)) {
+      return NextResponse.json({ ok: true, blocked: true, reason: "homologation_guard", date, results: [] });
+    }
 
     // 12/10/2026 e demais feriados/datas sem atendimento são barrados antes
     // de qualquer gravação em oh_tucxa_pilot_daily_dispatches.
@@ -172,6 +177,12 @@ export async function GET(request: Request) {
         .order("created_at");
       if (appointmentError) throw appointmentError;
 
+      const testAppointments = (appointments ?? []).filter((item) => text(item.id) === homologationAppointmentId());
+      if (!testAppointments.length) {
+        diagnostics.push({ organization: organizationLabel, status: "skipped", reason: "test_appointment_missing" });
+        continue;
+      }
+
       if (!(appointments ?? []).length) {
         diagnostics.push({
           organization: organizationLabel,
@@ -186,12 +197,12 @@ export async function GET(request: Request) {
         organization: organizationLabel,
         status: "processing",
         date,
-        appointmentsFound: (appointments ?? []).length,
+        appointmentsFound: testAppointments.length,
         sendCavalinhos,
         sendReception,
       });
 
-      const entityIds = [...new Set((appointments ?? []).map((item) => text(item.entity_id)).filter(Boolean))];
+      const entityIds = [...new Set(testAppointments.map((item) => text(item.entity_id)).filter(Boolean))];
       const { data: entities, error: entityError } = entityIds.length
         ? await supabaseAdmin
             .from("oh_spiritual_entities")
@@ -214,7 +225,7 @@ export async function GET(request: Request) {
       );
 
       const grouped = new Map<string, NonNullable<typeof appointments>>();
-      for (const item of appointments ?? []) {
+      for (const item of testAppointments) {
         const entityId = text(item.entity_id);
         if (!entityId) continue;
         const list = grouped.get(entityId) ?? [];
@@ -306,6 +317,10 @@ export async function GET(request: Request) {
           const person = peopleMap.get(personId);
           if (!person) {
             diagnostics.push({ audience: "cavalinho", personId, status: "skipped", reason: "person_not_active_or_not_found" });
+            continue;
+          }
+          if (!homologationMediumAllowed(date, personId, text(person.whatsapp))) {
+            diagnostics.push({ audience: "cavalinho", personId, status: "skipped", reason: "homologation_recipient_guard" });
             continue;
           }
           if (!text(person.whatsapp)) {
@@ -419,6 +434,10 @@ export async function GET(request: Request) {
           // Não presumir opt-in de integrantes da Recepção.
           // Durante homologação, exigir também autorização por ID individual.
           const channels = receptionChannels.get(personId) ?? [];
+          if (!homologationMediumAllowed(date, personId, text(person.whatsapp))) {
+            diagnostics.push({ audience: "reception", personId, status: "skipped", reason: "homologation_recipient_guard" });
+            continue;
+          }
           if (!receptionPolicy.allows(personId)) {
             diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "not_in_pilot_allowlist", policy: receptionPolicy.mode });
             continue;
