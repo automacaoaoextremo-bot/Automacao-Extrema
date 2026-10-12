@@ -68,3 +68,19 @@ export function receptionConfirmationMessage(input: {
     input.loginUrl ? `Acesse o painel da Recepção: ${input.loginUrl}` : "",
   ].filter(Boolean).join("\n\n");
 }
+
+export function appointmentBeneficentPizzaMessage(input: {
+  appointmentDate: string;
+}) {
+  return [
+    `🌿 Olá! Como você já estará conosco no TUCXA em ${datePtBr(input.appointmentDate)}, queremos deixar uma dica para a volta para casa. 😊`,
+    "Estamos com pizzas beneficentes congeladas por R$ 50,00, nos sabores:",
+    "🧀 Mussarela",
+    "🌶️ Calabresa",
+    "🥩 Lombinho",
+    "É uma opção prática para levar e preparar quando quiser — e, ao adquirir uma pizza, você também colabora com a manutenção da nossa Casa e com a continuidade dos trabalhos do TUCXA. 💚",
+    "Se tiver interesse, pode aproveitar sua vinda para retirar a sua.",
+    "🍕 Você leva uma refeição para casa e deixa também uma contribuição para a Casa que acolhe tanta gente. 🙏",
+    "Sem compromisso. Estamos apenas compartilhando esta possibilidade com carinho.",
+  ].join("\n\n");
+}

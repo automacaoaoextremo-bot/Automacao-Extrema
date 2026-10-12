@@ -29,7 +29,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
-import { appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { appointmentBeneficentPizzaMessage, appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
@@ -379,6 +379,121 @@ function siteUrl() {
 
 function confirmationUrl(token: string) {
   return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
+}
+
+const MANUAL_DISPATCH_OFFSET = -1;
+const MANUAL_REMINDER_TYPE = "manual_reminder";
+const MANUAL_CONFIRMATION_LINK_TYPE = "manual_confirmation_link";
+const MANUAL_PIZZA_TYPE = "manual_pizza";
+const AUTOMATIC_DAY_REMINDER_TYPE = "day_reminder";
+
+function manualDispatchDateAllowed(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= todayInSaoPaulo();
+}
+
+async function loadManualDispatchAppointments(organizationId: string, appointmentDate: string) {
+  const { data: appointments, error: appointmentError } = await supabaseAdmin
+    .from("oh_consulente_appointments")
+    .select("id,person_id,entity_id,appointment_date,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,confirmation_status,metadata")
+    .eq("organization_id", organizationId)
+    .eq("appointment_date", appointmentDate)
+    .in("status", ["solicitado", "confirmado"])
+    .order("created_at", { ascending: true });
+  if (appointmentError) throw appointmentError;
+
+  const rows = appointments ?? [];
+  const appointmentIds = rows.map((item) => asText(item.id)).filter(Boolean);
+  const entityIds = Array.from(new Set(rows.map((item) => asText(item.entity_id)).filter(Boolean)));
+
+  const [{ data: entities, error: entityError }, { data: logs, error: logsError }] = await Promise.all([
+    entityIds.length
+      ? supabaseAdmin
+          .from("oh_spiritual_entities")
+          .select("id,name")
+          .eq("organization_id", organizationId)
+          .in("id", entityIds)
+      : Promise.resolve({ data: [], error: null }),
+    appointmentIds.length
+      ? supabaseAdmin
+          .from("oh_tucxa_pilot_notification_log")
+          .select("appointment_id,notification_type,status,sent_at")
+          .eq("organization_id", organizationId)
+          .eq("channel", "whatsapp")
+          .in("appointment_id", appointmentIds)
+          .in("notification_type", [MANUAL_REMINDER_TYPE, MANUAL_CONFIRMATION_LINK_TYPE, MANUAL_PIZZA_TYPE, AUTOMATIC_DAY_REMINDER_TYPE])
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (entityError) throw entityError;
+  if (logsError) throw logsError;
+
+  const entityMap = new Map((entities ?? []).map((entity) => [asText(entity.id), asText(entity.name)]));
+  const sentMap = new Map<string, Record<string, string>>();
+  for (const log of logs ?? []) {
+    if (asText(log.status) !== "sent") continue;
+    const appointmentId = asText(log.appointment_id);
+    const type = asText(log.notification_type);
+    if (!appointmentId || !type) continue;
+    const current = sentMap.get(appointmentId) ?? {};
+    current[type] = asText(log.sent_at);
+    sentMap.set(appointmentId, current);
+  }
+
+  return rows.map((appointment) => {
+    const status = asText(appointment.status);
+    const confirmationStatus = asText(appointment.confirmation_status);
+    const confirmed = status === "confirmado" || confirmationStatus === "confirmed";
+    const sent = sentMap.get(asText(appointment.id)) ?? {};
+    return {
+      id: asText(appointment.id),
+      personId: asText(appointment.person_id),
+      entityId: asText(appointment.entity_id),
+      entityName: entityMap.get(asText(appointment.entity_id)) || "Entidade",
+      consulenteName: asText(appointment.consulente_name) || "Consulente",
+      whatsapp: normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp),
+      recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
+      appointmentDate: asText(appointment.appointment_date),
+      status,
+      confirmationStatus,
+      category: confirmed ? "confirmed" : "requested",
+      order: Number(asRecord(appointment.metadata).order ?? 0) || null,
+      reminderSentAt: asText(sent[MANUAL_REMINDER_TYPE] || sent[AUTOMATIC_DAY_REMINDER_TYPE]),
+      confirmationLinkSentAt: asText(sent[MANUAL_CONFIRMATION_LINK_TYPE] || (!confirmed ? sent[AUTOMATIC_DAY_REMINDER_TYPE] : "")),
+      pizzaSentAt: asText(sent[MANUAL_PIZZA_TYPE]),
+    };
+  });
+}
+
+async function upsertManualDispatchLog(input: {
+  organizationId: string;
+  appointmentId: string;
+  personId: string;
+  notificationType: string;
+  sent: boolean;
+  provider: string;
+  subscriberId?: string;
+  error?: string;
+  scheduledOffsetHours?: number;
+}) {
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("oh_tucxa_pilot_notification_log")
+    .upsert({
+      organization_id: input.organizationId,
+      appointment_id: input.appointmentId,
+      person_id: input.personId || null,
+      channel: "whatsapp",
+      notification_type: input.notificationType,
+      scheduled_offset_hours: input.scheduledOffsetHours ?? MANUAL_DISPATCH_OFFSET,
+      status: input.sent ? "sent" : "failed",
+      provider: input.provider,
+      provider_message_id: input.subscriberId || null,
+      error: input.error || null,
+      sent_at: input.sent ? now : null,
+      updated_at: now,
+    }, {
+      onConflict: "appointment_id,channel,notification_type,scheduled_offset_hours",
+    });
+  if (error) throw error;
 }
 
 function whatsappUrl(phone: string, message = "") {
@@ -743,6 +858,213 @@ export async function POST(request: Request) {
       const dateTo = asText(body.dateTo);
       const summary = await loadReceptionSummary(context.organizationId, mode, date, dateTo);
       return NextResponse.json({ ok: true, summary });
+    }
+
+    if (action === "management-dispatch-list") {
+      const appointmentDate = asText(body.date);
+      if (!manualDispatchDateAllowed(appointmentDate)) {
+        return NextResponse.json({ error: "Informe uma data de hoje ou futura válida.", requestId: code }, { status: 400 });
+      }
+      const appointments = await loadManualDispatchAppointments(context.organizationId, appointmentDate);
+      return NextResponse.json({
+        ok: true,
+        date: appointmentDate,
+        appointments,
+        flowReadiness: {
+          requestedReminder: Boolean(process.env.BOTCONVERSA_TUCXA_REMINDER_FLOW_ID || process.env.BOTCONVERSA_TUCXA_REMINDER_FLOW),
+          confirmedReminder: Boolean(process.env.BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID || process.env.BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW),
+          pizza: Boolean(process.env.BOTCONVERSA_TUCXA_PIZZA_FLOW_ID || process.env.BOTCONVERSA_TUCXA_PIZZA_FLOW),
+        },
+      });
+    }
+
+    if (action === "management-dispatch-send") {
+      const appointmentDate = asText(body.date);
+      if (!manualDispatchDateAllowed(appointmentDate)) {
+        return NextResponse.json({ error: "Informe uma data de hoje ou futura válida.", requestId: code }, { status: 400 });
+      }
+
+      const appointmentIds = Array.isArray(body.appointmentIds)
+        ? Array.from(new Set(body.appointmentIds.map((item) => asText(item)).filter(Boolean))).slice(0, 100)
+        : [];
+      if (!appointmentIds.length) {
+        return NextResponse.json({ error: "Selecione pelo menos um agendamento.", requestId: code }, { status: 400 });
+      }
+
+      const availableRows = await loadManualDispatchAppointments(context.organizationId, appointmentDate);
+      const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id));
+      if (!selectedRows.length) {
+        return NextResponse.json({ error: "Nenhum agendamento elegível foi encontrado para a data selecionada.", requestId: code }, { status: 404 });
+      }
+
+      const results: Array<{
+        appointmentId: string;
+        consulenteName: string;
+        reminder: "sent" | "skipped" | "failed";
+        confirmationLink: "sent" | "skipped" | "failed" | "not_applicable";
+        pizza: "sent" | "skipped" | "failed";
+        errors: string[];
+      }> = [];
+
+      for (const appointment of selectedRows) {
+        const errors: string[] = [];
+        let reminder: "sent" | "skipped" | "failed" = appointment.reminderSentAt ? "skipped" : "failed";
+        let confirmationLink: "sent" | "skipped" | "failed" | "not_applicable" = appointment.category === "confirmed"
+          ? "not_applicable"
+          : appointment.confirmationLinkSentAt ? "skipped" : "failed";
+        let pizza: "sent" | "skipped" | "failed" = appointment.pizzaSentAt ? "skipped" : "failed";
+
+        if (!appointment.whatsapp) {
+          errors.push("WhatsApp do contato não informado.");
+          results.push({ appointmentId: appointment.id, consulenteName: appointment.consulenteName, reminder, confirmationLink, pizza, errors });
+          continue;
+        }
+
+        if (!appointment.reminderSentAt || (appointment.category === "requested" && !appointment.confirmationLinkSentAt)) {
+          let link = "";
+          if (appointment.category === "requested") {
+            const token = createConfirmationToken();
+            const tokenHash = confirmationTokenHash(token);
+            const deadline = confirmationDeadlineIso(appointment.appointmentDate, settings.confirmationCutoff);
+            const now = new Date().toISOString();
+            const { error: tokenError } = await supabaseAdmin
+              .from("oh_consulente_appointments")
+              .update({
+                confirmation_token_hash: tokenHash,
+                confirmation_expires_at: deadline,
+                confirmation_status: "pending",
+                confirmation_sent_at: now,
+                confirmation_channel: "whatsapp",
+                updated_at: now,
+              })
+              .eq("organization_id", context.organizationId)
+              .eq("id", appointment.id);
+            if (tokenError) throw tokenError;
+            link = confirmationUrl(token);
+          }
+
+          const reminderDispatch = await sendTucxaAppointmentWhatsapp({
+            kind: appointment.category === "confirmed" ? "confirmed_reminder" : "reminder",
+            fullName: firstTwoPersonNames(appointment.consulenteName),
+            recipientName: appointment.recipientName,
+            whatsapp: appointment.whatsapp,
+            appointmentDate: appointment.appointmentDate,
+            entityName: appointment.entityName,
+            confirmationUrl: link || undefined,
+            appointmentOrder: appointment.order,
+            individualNotice: appointment.category === "confirmed"
+              ? TUCXA_INDIVIDUAL_NOTICE
+              : `Sua presença ainda não foi confirmada. Confirme pelo link para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
+          });
+
+          await upsertManualDispatchLog({
+            organizationId: context.organizationId,
+            appointmentId: appointment.id,
+            personId: appointment.personId,
+            notificationType: MANUAL_REMINDER_TYPE,
+            sent: reminderDispatch.sent,
+            provider: reminderDispatch.provider,
+            subscriberId: reminderDispatch.subscriberId,
+            error: reminderDispatch.error,
+          });
+          reminder = reminderDispatch.sent ? "sent" : "failed";
+
+          if (reminderDispatch.sent) {
+            await upsertManualDispatchLog({
+              organizationId: context.organizationId,
+              appointmentId: appointment.id,
+              personId: appointment.personId,
+              notificationType: AUTOMATIC_DAY_REMINDER_TYPE,
+              sent: true,
+              provider: reminderDispatch.provider,
+              subscriberId: reminderDispatch.subscriberId,
+              scheduledOffsetHours: 0,
+            });
+          }
+
+          if (appointment.category === "requested") {
+            await upsertManualDispatchLog({
+              organizationId: context.organizationId,
+              appointmentId: appointment.id,
+              personId: appointment.personId,
+              notificationType: MANUAL_CONFIRMATION_LINK_TYPE,
+              sent: reminderDispatch.sent,
+              provider: reminderDispatch.provider,
+              subscriberId: reminderDispatch.subscriberId,
+              error: reminderDispatch.error,
+            });
+            confirmationLink = reminderDispatch.sent ? "sent" : "failed";
+          }
+
+          if (!reminderDispatch.sent) {
+            errors.push(reminderDispatch.error || "Falha ao enviar o lembrete.");
+          } else {
+            const message = appointmentReminderMessage({
+              fullName: appointment.consulenteName,
+              appointmentDate: appointment.appointmentDate,
+              entityName: appointment.entityName,
+              order: appointment.order,
+              confirmed: appointment.category === "confirmed",
+              confirmationUrl: link || undefined,
+            });
+            void sendTucxaAppointmentAuditEmail({
+              event: appointment.category === "confirmed"
+                ? "Lembrete manual de presença confirmada enviado"
+                : "Lembrete manual com link de confirmação enviado",
+              consulenteName: appointment.consulenteName,
+              appointmentDate: appointment.appointmentDate,
+              entityName: appointment.entityName,
+              message,
+            });
+          }
+        }
+
+        if (!appointment.pizzaSentAt) {
+          const pizzaDispatch = await sendTucxaAppointmentWhatsapp({
+            kind: "pizza",
+            fullName: firstTwoPersonNames(appointment.consulenteName),
+            recipientName: appointment.recipientName,
+            whatsapp: appointment.whatsapp,
+            appointmentDate: appointment.appointmentDate,
+            entityName: appointment.entityName,
+            appointmentOrder: appointment.order,
+          });
+          await upsertManualDispatchLog({
+            organizationId: context.organizationId,
+            appointmentId: appointment.id,
+            personId: appointment.personId,
+            notificationType: MANUAL_PIZZA_TYPE,
+            sent: pizzaDispatch.sent,
+            provider: pizzaDispatch.provider,
+            subscriberId: pizzaDispatch.subscriberId,
+            error: pizzaDispatch.error,
+          });
+          pizza = pizzaDispatch.sent ? "sent" : "failed";
+          if (!pizzaDispatch.sent) {
+            errors.push(pizzaDispatch.error || "Falha ao enviar a mensagem beneficente das pizzas.");
+          } else {
+            void sendTucxaAppointmentAuditEmail({
+              event: "Mensagem beneficente das pizzas enviada",
+              consulenteName: appointment.consulenteName,
+              appointmentDate: appointment.appointmentDate,
+              entityName: appointment.entityName,
+              message: appointmentBeneficentPizzaMessage({ appointmentDate: appointment.appointmentDate }),
+            });
+          }
+        }
+
+        results.push({
+          appointmentId: appointment.id,
+          consulenteName: appointment.consulenteName,
+          reminder,
+          confirmationLink,
+          pizza,
+          errors,
+        });
+      }
+
+      const appointments = await loadManualDispatchAppointments(context.organizationId, appointmentDate);
+      return NextResponse.json({ ok: true, date: appointmentDate, results, appointments });
     }
 
     if (action === "entity-overview") {

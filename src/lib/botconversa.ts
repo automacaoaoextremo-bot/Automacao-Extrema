@@ -1294,7 +1294,7 @@ export type TucxaAppointmentBotConversaInput = {
   reminderOffsetHours?: number | null;
   appointmentOrder?: number | null;
   individualNotice?: string;
-  kind: "confirmation" | "reminder";
+  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza";
 };
 
 export type TucxaEntityChangeBotConversaInput = {
@@ -1445,7 +1445,7 @@ export async function sendTucxaAppointmentWhatsapp(
       "BOTCONVERSA_TUCXA_FIELD_ORDER_ID",
       firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"),
     ]] : []),
-    ...(input.kind === "confirmation"
+    ...(input.confirmationUrl
       ? [[
           "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
           firstEnv("BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID", "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL"),
@@ -1472,15 +1472,24 @@ export async function sendTucxaAppointmentWhatsapp(
 
   const flowId = input.kind === "reminder"
     ? firstEnv("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW")
-    : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
+    : input.kind === "confirmed_reminder"
+      ? firstEnv("BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW")
+      : input.kind === "pizza"
+        ? firstEnv("BOTCONVERSA_TUCXA_PIZZA_FLOW_ID", "BOTCONVERSA_TUCXA_PIZZA_FLOW")
+        : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
 
   if (!isConfigured(flowId)) {
+    const error = input.kind === "reminder"
+      ? "Fluxo BotConversa de lembrete não configurado."
+      : input.kind === "confirmed_reminder"
+        ? "Fluxo BotConversa de lembrete para presença confirmada não configurado."
+        : input.kind === "pizza"
+          ? "Fluxo BotConversa da mensagem beneficente das pizzas não configurado."
+          : "Fluxo BotConversa de confirmação não configurado.";
     return {
       sent: false,
       provider: "disabled",
-      error: input.kind === "reminder"
-        ? "Fluxo BotConversa de lembrete não configurado."
-        : "Fluxo BotConversa de confirmação não configurado.",
+      error,
     };
   }
 
@@ -1528,7 +1537,13 @@ export async function sendTucxaAppointmentWhatsapp(
     }
 
     steps.push({
-      step: input.kind === "reminder" ? "send_tucxa_reminder_flow" : "send_tucxa_confirmation_flow",
+      step: input.kind === "reminder"
+        ? "send_tucxa_reminder_flow"
+        : input.kind === "confirmed_reminder"
+          ? "send_tucxa_confirmed_reminder_flow"
+          : input.kind === "pizza"
+            ? "send_tucxa_pizza_flow"
+            : "send_tucxa_confirmation_flow",
       ok: flow.ok,
       status: flow.status,
       path: flow.path,
