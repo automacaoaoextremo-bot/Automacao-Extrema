@@ -100,7 +100,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
           text={payload?.bookingRule.mode === "first_time_only"
             ? "Seu primeiro atendimento deve ser com a Entidade Primeira Vez."
             : payload?.bookingRule.mode === "awaiting_default_entity"
-              ? "Aguarde a Recepção definir sua Entidade padrão para um novo atendimento."
+              ? "Sua Entidade padrão ainda não está definida. Fale com a Recepção para confirmar a Entidade."
               : payload?.defaultEntity.name
                 ? `Sua Entidade padrão: ${payload.defaultEntity.name}.`
                 : "Procure a Recepção para definir sua Entidade padrão."}
@@ -120,7 +120,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
             {payload.bookingRule.mode === "first_time_only"
               ? <>Primeiro atendimento: <strong>Primeira Vez</strong>. Somente essa Entidade pode ser usada no seu primeiro agendamento.</>
               : payload.bookingRule.mode === "awaiting_default_entity"
-                ? <>Seu atendimento de <strong>Primeira Vez</strong> já foi registrado. Aguarde a Recepção definir sua Entidade padrão.</>
+                ? <>Sua <strong>Entidade padrão</strong> ainda não está definida. Nesta fase, confirme a Entidade com a Recepção antes de um novo agendamento.</>
                 : <>Entidade padrão: <strong>{payload.defaultEntity.name || "não definida"}</strong>. As datas abaixo já excluem dias sem atendimento e feriados.</>}
           </p>
           {!payload.dates.length ? <p className="font-semibold text-amber-800">{payload.bookingRule.mode === "awaiting_default_entity" ? "Ainda não há nova Entidade liberada para agendamento." : "Não há datas com vaga disponíveis no período."}</p> : payload.dates.map((item) => <label key={item.date} className="flex cursor-pointer gap-3 rounded-2xl border border-[#123D2C]/15 p-4"><input type="radio" name="date" checked={selectedDate === item.date} onChange={() => setSelectedDate(item.date)} /><span><strong>{shortDate(item.date)}</strong><br/><span className="text-sm text-slate-600">{item.entity.name} · {item.entity.available} vaga(s)</span></span></label>)}

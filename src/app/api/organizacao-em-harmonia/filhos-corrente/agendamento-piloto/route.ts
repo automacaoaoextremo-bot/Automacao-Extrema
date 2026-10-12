@@ -919,23 +919,6 @@ export async function POST(request: Request) {
       const personPreferences = await loadPilotPersonPreferences(context.organizationId, person.id);
       const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
 
-      if (personBookingRule?.mode === "awaiting_default_entity") {
-        return NextResponse.json({
-          error: `${attendedPersonName} já realizou o atendimento de Primeira Vez. Defina a Entidade padrão antes de criar um novo agendamento.`,
-          requestId: code,
-        }, { status: 409 });
-      }
-
-      if (personBookingRule?.mode === "first_time_only") {
-        const selectedEntity = dayEntities.find((item) => item.id === entityId);
-        if (!selectedEntity || !isPilotFirstTimeEntity(selectedEntity)) {
-          return NextResponse.json({
-            error: `${attendedPersonName} ainda não realizou o primeiro atendimento. O primeiro agendamento deve ser feito somente com a Entidade Primeira Vez.`,
-            requestId: code,
-          }, { status: 409 });
-        }
-      }
-
       if (contactMode !== "alternate" && personBookingRule?.mode === "default_entity" && !personPreferences.allowDifferentEntity) {
         const requiredEntity = dayEntities.find((item) => item.id === personBookingRule.defaultEntityId);
         const { data: defaultEntityRow, error: defaultEntityError } = await supabaseAdmin
@@ -1101,10 +1084,10 @@ export async function POST(request: Request) {
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
 
-      if (contactMode !== "alternate" && !personPreferences.defaultEntityId && !firstTimeBooking) {
-        // Ajuste 65/67: a Entidade do primeiro atendimento efetivo pode virar
-        // padrão, mas "Primeira Vez" é somente acolhimento/triagem e nunca deve
-        // ser persistida como Entidade padrão permanente.
+      if (contactMode !== "alternate" && !firstTimeBooking) {
+        // Ajuste 77: quando a Recepção registra uma pessoa sem Entidade padrão
+        // e escolhe uma Entidade efetiva (não "Primeira Vez"), essa Entidade
+        // passa a ser a padrão. Preferências válidas já existentes são preservadas.
         await ensurePilotDefaultEntityFromFirstAppointment(
           context.organizationId,
           person.id,

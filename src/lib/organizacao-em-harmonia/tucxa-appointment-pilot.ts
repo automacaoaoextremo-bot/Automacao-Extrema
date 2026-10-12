@@ -115,6 +115,7 @@ function firstTimeMetadata(value: unknown) {
     indicatorActive: metadata.firstTimeIndicatorActive === true,
     originalEntityId: asText(metadata.firstTimeOriginalEntityId),
     originalEntityName: asText(metadata.firstTimeOriginalEntityName),
+    classificationCorrected: metadata.firstTimeClassificationCorrected === true,
   };
 }
 
@@ -141,11 +142,19 @@ export async function personHasUsedPilotFirstTimeEntity(organizationId: string, 
   if (appointmentError) throw appointmentError;
 
   for (const appointment of appointments ?? []) {
-    if (firstTimeMetadata(appointment.metadata).isFirstTimeAppointment) return true;
+    const metadata = firstTimeMetadata(appointment.metadata);
+    // Ajuste 77: uma classificação de Primeira Vez corrigida explicitamente
+    // não pode continuar valendo apenas porque o histórico de troca preserva
+    // a Entidade originalmente registrada por engano.
+    if (metadata.classificationCorrected) continue;
+    if (metadata.isFirstTimeAppointment) return true;
     if (firstTimeEntityIds.has(asText(appointment.entity_id))) return true;
   }
 
-  const appointmentIds = (appointments ?? []).map((item) => asText(item.id)).filter(Boolean);
+  const appointmentIds = (appointments ?? [])
+    .filter((item) => !firstTimeMetadata(item.metadata).classificationCorrected)
+    .map((item) => asText(item.id))
+    .filter(Boolean);
   if (!appointmentIds.length || !firstTimeEntityIds.size) return false;
 
   const { data: changes, error: changesError } = await supabaseAdmin
@@ -701,31 +710,6 @@ export async function ensurePilotDefaultEntityFromFirstAppointment(
   return firstEntityId;
 }
 
-async function personHasAnyPilotAppointment(organizationId: string, personId: string) {
-  const { count, error } = await supabaseAdmin
-    .from("oh_consulente_appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("person_id", personId);
-  if (error) throw error;
-  return (count ?? 0) > 0;
-}
-
-async function personRequiresFirstTimeOnInitialBooking(organizationId: string, personId: string) {
-  const { data, error } = await supabaseAdmin
-    .from("oh_memberships")
-    .select("agenda_viva_profile")
-    .eq("organization_id", organizationId)
-    .eq("person_id", personId)
-    .eq("active", true)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-
-  const profile = asRecord(data?.agenda_viva_profile);
-  return profile.firstAppointmentMustBeFirstTime === true;
-}
 
 export async function resolvePilotConsulenteBookingRule(
   organizationId: string,
@@ -735,32 +719,17 @@ export async function resolvePilotConsulenteBookingRule(
     return { mode: "awaiting_default_entity", defaultEntityId: "" };
   }
 
-  const usedFirstTime = await personHasUsedPilotFirstTimeEntity(organizationId, personId);
-
-  // Ajuste 67: o cadastro público de Filho de Fora/Consulente recebe uma
-  // marca explícita no membership. Enquanto não existir nenhum atendimento,
-  // essa marca prevalece até mesmo sobre uma Entidade padrão preenchida
-  // prematuramente, impedindo que o primeiro atendimento contorne Primeira Vez.
-  if (!usedFirstTime) {
-    const [requiresFirstTime, hasAnyAppointment] = await Promise.all([
-      personRequiresFirstTimeOnInitialBooking(organizationId, personId),
-      personHasAnyPilotAppointment(organizationId, personId),
-    ]);
-    if (requiresFirstTime && !hasAnyAppointment) {
-      return { mode: "first_time_only", defaultEntityId: "" };
-    }
-  }
-
   const defaultEntityId = await ensurePilotDefaultEntityFromFirstAppointment(organizationId, personId);
   if (defaultEntityId) {
     return { mode: "default_entity", defaultEntityId };
   }
 
-  if (usedFirstTime) {
-    return { mode: "awaiting_default_entity", defaultEntityId: "" };
-  }
-
-  return { mode: "first_time_only", defaultEntityId: "" };
+  // Ajuste 77:
+  // ausência de histórico digital ou cadastro recente NÃO significa Primeira Vez.
+  // Nesta fase, quando ainda não existe Entidade padrão, a Recepção é quem
+  // confirma se o atendimento é realmente de Primeira Vez ou escolhe a Entidade
+  // já conhecida pela pessoa. O autoatendimento fica bloqueado até essa definição.
+  return { mode: "awaiting_default_entity", defaultEntityId: "" };
 }
 
 export async function currentPilotReception(request: Request): Promise<PilotReceptionContext | null> {

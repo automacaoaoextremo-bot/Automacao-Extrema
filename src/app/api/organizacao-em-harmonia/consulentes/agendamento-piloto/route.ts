@@ -108,7 +108,7 @@ export async function POST(request: Request) {
       if (!appointmentDate) return NextResponse.json({ error: "Escolha a data do atendimento.", requestId: code }, { status: 400 });
       if (bookingRule.mode === "awaiting_default_entity") {
         return NextResponse.json({
-          error: "Seu atendimento de Primeira Vez já foi registrado. Aguarde a Recepção definir sua Entidade padrão antes de fazer um novo agendamento.",
+          error: "Sua Entidade padrão ainda não está definida. Nesta fase, fale com a Recepção para confirmar a Entidade antes de fazer um novo agendamento.",
           requestId: code,
         }, { status: 409 });
       }

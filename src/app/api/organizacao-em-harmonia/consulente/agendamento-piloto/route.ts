@@ -142,7 +142,7 @@ export async function POST(request: Request) {
       const bookingRule = await resolvePilotConsulenteBookingRule(context.organizationId, context.personId);
       if (bookingRule.mode === "awaiting_default_entity") {
         return NextResponse.json({
-          error: "Seu atendimento de Primeira Vez já foi registrado. Aguarde a Recepção definir sua Entidade padrão antes de fazer um novo agendamento.",
+          error: "Sua Entidade padrão ainda não está definida. Nesta fase, fale com a Recepção para confirmar a Entidade antes de fazer um novo agendamento.",
         }, { status: 409 });
       }
 

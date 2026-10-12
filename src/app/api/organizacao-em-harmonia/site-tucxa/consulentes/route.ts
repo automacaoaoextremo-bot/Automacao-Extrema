@@ -475,7 +475,6 @@ async function submitCadastro(body: Required<ConsulenteBody>) {
       validationStatus: "ativo",
       accessReleasedAt: new Date().toISOString(),
       accessType: "consulente-filho-de-fora",
-      firstAppointmentMustBeFirstTime: true,
     },
     updated_at: new Date().toISOString(),
   };
