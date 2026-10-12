@@ -438,18 +438,48 @@ async function loadManualDispatchAppointments(organizationId: string, appointmen
     sentMap.set(appointmentId, current);
   }
 
+  // Um telefone pode servir a vários consulentes. Para evitar disparos repetidos,
+  // selecionar como destinatário principal o agendamento cujo nome corresponde
+  // ao responsável declarado; na ausência dele, o primeiro registro estável.
+  const primaryByPhone = new Map<string, string>();
+  const rankedRows = [...rows].sort((a, b) => {
+    const aPhone = normalizeBrazilPhone(a.notification_contact_whatsapp || a.whatsapp);
+    const bPhone = normalizeBrazilPhone(b.notification_contact_whatsapp || b.whatsapp);
+    const aOwner = asText(a.notification_contact_name).trim().toLocaleLowerCase("pt-BR") === asText(a.consulente_name).trim().toLocaleLowerCase("pt-BR");
+    const bOwner = asText(b.notification_contact_name).trim().toLocaleLowerCase("pt-BR") === asText(b.consulente_name).trim().toLocaleLowerCase("pt-BR");
+    if (aPhone === bPhone && aOwner !== bOwner) return aOwner ? -1 : 1;
+    return asText(a.id).localeCompare(asText(b.id));
+  });
+  for (const appointment of rankedRows) {
+    const phone = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
+    if (phone && !primaryByPhone.has(phone)) primaryByPhone.set(phone, asText(appointment.id));
+  }
   return rows.map((appointment) => {
     const status = asText(appointment.status);
     const confirmationStatus = asText(appointment.confirmation_status);
     const confirmed = status === "confirmado" || confirmationStatus === "confirmed";
     const sent = sentMap.get(asText(appointment.id)) ?? {};
+    const whatsapp = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
+    const primaryId = primaryByPhone.get(whatsapp);
+    const dispatchBlockedReason = !whatsapp
+      ? "Sem WhatsApp válido para envio."
+      : primaryId && primaryId !== asText(appointment.id)
+        ? "WhatsApp compartilhado: envio concentrado no responsável, sem mensagem duplicada para este número."
+        : "";
+    const dispatchComplete = Boolean(
+      (sent[MANUAL_REMINDER_TYPE] || sent[AUTOMATIC_DAY_REMINDER_TYPE]) &&
+      (confirmed || sent[MANUAL_CONFIRMATION_LINK_TYPE] || sent[AUTOMATIC_DAY_REMINDER_TYPE]) &&
+      sent[MANUAL_PIZZA_TYPE]
+    );
     return {
       id: asText(appointment.id),
       personId: asText(appointment.person_id),
       entityId: asText(appointment.entity_id),
       entityName: entityMap.get(asText(appointment.entity_id)) || "Entidade",
       consulenteName: asText(appointment.consulente_name) || "Consulente",
-      whatsapp: normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp),
+      whatsapp,
+      dispatchBlockedReason,
+      dispatchComplete,
       recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
       appointmentDate: asText(appointment.appointment_date),
       status,
@@ -892,7 +922,7 @@ export async function POST(request: Request) {
       }
 
       const availableRows = await loadManualDispatchAppointments(context.organizationId, appointmentDate);
-      const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id));
+      const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id) && !item.dispatchBlockedReason && !item.dispatchComplete);
       if (!selectedRows.length) {
         return NextResponse.json({ error: "Nenhum agendamento elegível foi encontrado para a data selecionada.", requestId: code }, { status: 404 });
       }

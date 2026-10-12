@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FilhoCorrentePanelHeader, filhoAgendamentoSignOutAction, filhoSupportAction } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
@@ -24,6 +25,8 @@ type DispatchAppointment = {
   reminderSentAt: string;
   confirmationLinkSentAt: string;
   pizzaSentAt: string;
+  dispatchBlockedReason: string;
+  dispatchComplete: boolean;
 };
 
 type FlowReadiness = {
@@ -101,7 +104,7 @@ export default function GestaoPage() {
       });
       const payload = (await response.json()) as DispatchPayload;
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os agendamentos.");
-      setAppointments(payload.appointments ?? []);
+      setAppointments((payload.appointments ?? []).sort((a, b) => a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })));
       setReadiness(payload.flowReadiness ?? { requestedReminder: false, confirmedReminder: false, pizza: false });
       setSelected(new Set());
     } catch (loadError) {
@@ -123,10 +126,13 @@ export default function GestaoPage() {
     return () => window.clearTimeout(timer);
   }, [load, view]);
 
-  const allSelected = appointments.length > 0 && appointments.every((item) => selected.has(item.id));
-  const selectedAppointments = useMemo(() => appointments.filter((item) => selected.has(item.id)), [appointments, selected]);
+  const selectable = useMemo(() => appointments.filter((item) => !item.dispatchBlockedReason && !item.dispatchComplete), [appointments]);
+  const selectableIds = useMemo(() => new Set(selectable.map((item) => item.id)), [selectable]);
+  const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id));
+  const selectedAppointments = useMemo(() => selectable.filter((item) => selected.has(item.id)), [selectable, selected]);
 
   function toggle(id: string) {
+    if (!selectableIds.has(id) || sending) return;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -136,11 +142,11 @@ export default function GestaoPage() {
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(appointments.map((item) => item.id)));
+    setSelected(allSelected ? new Set() : new Set(selectable.map((item) => item.id)));
   }
 
   async function sendSelected() {
-    if (!selectedAppointments.length) return;
+    if (!selectedAppointments.length || sending) return;
     setSending(true);
     setError("");
     setMessage("");
@@ -158,7 +164,7 @@ export default function GestaoPage() {
       });
       const payload = (await response.json()) as DispatchPayload;
       if (!response.ok) throw new Error(payload.error || "Não foi possível processar os envios.");
-      setAppointments(payload.appointments ?? appointments);
+      setAppointments((payload.appointments ?? appointments).sort((a, b) => a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })));
       setSelected(new Set());
       const failed = (payload.results ?? []).filter((item) => item.errors?.length);
       setMessage(failed.length
@@ -172,8 +178,9 @@ export default function GestaoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] p-4 text-[#10251C]">
-      <section className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
+      <FilhoCorrentePanelHeader navLabel="Agendamento · Gestão" showSupport={false} actions={[filhoAgendamentoSignOutAction, filhoSupportAction]} mobileActionColumns={2} compactMobileActions autoHighlightCurrent={false} />
+      <section className="mx-auto max-w-6xl p-4">
         <Link
           href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto?abrir=acolhimento"
           className="inline-flex rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white"
@@ -246,10 +253,10 @@ export default function GestaoPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
                   <h2 className="text-xl font-black">Agendamentos de {ptBrDate(date)}</h2>
-                  <p className="text-sm font-semibold text-slate-600">{appointments.length} registro(s) elegível(is) · {selected.size} selecionado(s)</p>
+                  <p className="text-sm font-semibold text-slate-600">{appointments.length} registro(s) · {selectable.length} disponível(is) para envio · {selected.size} selecionado(s)</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={toggleAll} disabled={!appointments.length} className="rounded-xl border border-[#123D2C]/20 px-3 py-2 text-sm font-black text-[#123D2C] disabled:opacity-40">
+                  <button type="button" onClick={toggleAll} disabled={!selectable.length || sending} className="rounded-xl border border-[#123D2C]/20 px-3 py-2 text-sm font-black text-[#123D2C] disabled:opacity-40">
                     {allSelected ? "Limpar seleção" : "Selecionar todos"}
                   </button>
                   <button
@@ -268,8 +275,8 @@ export default function GestaoPage() {
               ) : (
                 <div className="mt-3 grid gap-3">
                   {appointments.map((appointment) => (
-                    <label key={appointment.id} className="grid cursor-pointer grid-cols-[auto_1fr] gap-3 rounded-2xl border border-slate-200 p-3 hover:bg-[#F7FAF2]">
-                      <input type="checkbox" checked={selected.has(appointment.id)} onChange={() => toggle(appointment.id)} className="mt-1 h-5 w-5 accent-[#123D2C]" />
+                    <label key={appointment.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-2xl border border-slate-200 p-3 ${appointment.dispatchBlockedReason || appointment.dispatchComplete ? "cursor-not-allowed bg-slate-50 opacity-75" : "cursor-pointer hover:bg-[#F7FAF2]"}`}>
+                      <input type="checkbox" disabled={Boolean(appointment.dispatchBlockedReason || appointment.dispatchComplete) || sending} checked={selected.has(appointment.id)} onChange={() => toggle(appointment.id)} className="mt-1 h-5 w-5 accent-[#123D2C] disabled:cursor-not-allowed" />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
@@ -280,6 +287,7 @@ export default function GestaoPage() {
                             {appointment.category === "confirmed" ? "Confirmado" : "Solicitado"}
                           </span>
                         </div>
+                        {(appointment.dispatchBlockedReason || appointment.dispatchComplete) && <p className="mt-2 text-xs font-bold text-slate-600">{appointment.dispatchBlockedReason || "Envios já concluídos: não é permitido reenviar."}</p>}
                         <div className="mt-3 grid gap-2 text-xs font-bold sm:grid-cols-3">
                           <div className={appointment.reminderSentAt ? "text-emerald-700" : "text-slate-500"}>Lembrete: {sentLabel(appointment.reminderSentAt)}</div>
                           <div className={appointment.category === "confirmed" ? "text-slate-400" : appointment.confirmationLinkSentAt ? "text-emerald-700" : "text-slate-500"}>
