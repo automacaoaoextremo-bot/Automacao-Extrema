@@ -3048,7 +3048,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
               {!settingsSection ? (
-                <div className="grid gap-2">
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {[
                     ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
                     ["ordem-exibicao", "Ordem de exibição", "Entidade e Caderno"],
@@ -3061,9 +3061,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
                     ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
                   ].map(([key, title, subtitle]) => (
-                    <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center justify-between gap-3 rounded-2xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                      <span><strong className="block text-sm text-[#123D2C]">{title}</strong><span className="text-xs font-semibold text-slate-500">{subtitle}</span></span>
-                      <span className="text-xl font-black text-[#2F6B43]">›</span>
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSettingsSection(key)}
+                      className="flex min-h-[68px] items-center justify-between gap-1.5 rounded-xl bg-[#F7FAF2] px-2.5 py-2 text-left ring-1 ring-[#123D2C]/10 sm:min-h-[76px] sm:gap-3 sm:rounded-2xl sm:p-3"
+                    >
+                      <span className="min-w-0">
+                        <strong className="block text-xs leading-4 text-[#123D2C] sm:text-sm">{title}</strong>
+                        <span className="mt-0.5 block text-[10px] font-semibold leading-3 text-slate-500 sm:text-xs sm:leading-4">
+                          {subtitle} · TOQUE PARA ABRIR
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-lg font-black text-[#2F6B43] sm:text-xl">›</span>
                     </button>
                   ))}
                 </div>
@@ -3113,7 +3123,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
               )}
-              <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
+              {settingsSection && (
+                <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">
+                  {saving ? "Salvando..." : "Salvar configurações"}
+                </button>
+              )}
             </form>
           )}
 
