@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-const TO = "automacao.ao.extremo@gmail.com";
+export const TUCXA_AUDIT_EMAIL = "automacao.ao.extremo@gmail.com";
 
 function smtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -47,7 +47,7 @@ export async function sendTucxaAppointmentAuditEmail(input: {
 
     await transporter.sendMail({
       from: config.from,
-      to: TO,
+      to: TUCXA_AUDIT_EMAIL,
       subject: `[TUCXA] ${input.event}`,
       text,
     });
@@ -72,6 +72,7 @@ export async function sendTucxaOperationalSummaryEmail(input: {
     await transporter.sendMail({
       from: config.from,
       to: input.to.trim(),
+      bcc: input.to.trim().toLowerCase() === TUCXA_AUDIT_EMAIL ? undefined : TUCXA_AUDIT_EMAIL,
       subject: `[TUCXA] Resumo dos agendamentos - ${input.appointmentDate}`,
       text: [`Olá, ${input.recipientName}.`, "", "Resumo dos atendimentos do TUCXA:", "", input.summary].join("\n"),
     });

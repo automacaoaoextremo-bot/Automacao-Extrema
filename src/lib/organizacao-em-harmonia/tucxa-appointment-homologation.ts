@@ -40,3 +40,26 @@ export function homologationMediumAllowed(date: string, personId: string, phone:
     normalizeBrazilPhone(phone) === TEST_MEDIUM_PHONE;
 }
 export function homologationAppointmentId(): string { return TEST_APPOINTMENT_ID; }
+
+/** Liberação pontual da operação real em 19 e 20/10; fail-closed.
+ * Configurar TUCXA_AGENDAMENTO_GENERAL_DISPATCH_DATES=2026-10-19,2026-10-20
+ * e TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED=true SOMENTE após validar o preflight.
+ */
+export function generalDispatchAllowed(date: string): boolean {
+  const dates = (process.env.TUCXA_AGENDAMENTO_GENERAL_DISPATCH_DATES || "")
+    .split(",").map((value) => value.trim());
+  return process.env.TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED === "true" &&
+    dates.includes(date) && /^\d{4}-\d{2}-\d{2}$/.test(date);
+}
+export function dispatchDateAllowed(date: string): boolean {
+  return homologationActiveToday(date) || generalDispatchAllowed(date);
+}
+export function appointmentDispatchAllowed(date: string, appointmentId: string, phone: string): boolean {
+  return generalDispatchAllowed(date) || homologationAppointmentAllowed(date, appointmentId, phone);
+}
+export function mediumDispatchAllowed(date: string, personId: string, phone: string): boolean {
+  return generalDispatchAllowed(date) || homologationMediumAllowed(date, personId, phone);
+}
+export function receptionDispatchAllowed(date: string, personId: string, phone: string): boolean {
+  return generalDispatchAllowed(date) || homologationMediumAllowed(date, personId, phone);
+}

@@ -14,7 +14,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
-import { homologationActiveToday, homologationAppointmentId, homologationMediumAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+import { dispatchDateAllowed, generalDispatchAllowed, homologationAppointmentId, mediumDispatchAllowed, receptionDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     const date = todayInSaoPaulo();
     const now = saoPauloTime();
     const weekday = weekdaySaoPaulo();
-    if (!homologationActiveToday(date)) {
+    if (!dispatchDateAllowed(date)) {
       return NextResponse.json({ ok: true, blocked: true, reason: "homologation_guard", date, results: [] });
     }
 
@@ -179,7 +179,7 @@ export async function GET(request: Request) {
       if (appointmentError) throw appointmentError;
 
       const testAppointments = (appointments ?? []).filter((item) => text(item.id) === homologationAppointmentId());
-      if (!testAppointments.length) {
+      if (!generalDispatchAllowed(date) && !testAppointments.length) {
         diagnostics.push({ organization: organizationLabel, status: "skipped", reason: "test_appointment_missing" });
         continue;
       }
@@ -227,7 +227,7 @@ export async function GET(request: Request) {
       );
 
       const grouped = new Map<string, NonNullable<typeof appointments>>();
-      for (const item of testAppointments) {
+      for (const item of generalDispatchAllowed(date) ? (appointments ?? []) : testAppointments) {
         const entityId = text(item.entity_id);
         if (!entityId) continue;
         const list = grouped.get(entityId) ?? [];
@@ -321,7 +321,7 @@ export async function GET(request: Request) {
             diagnostics.push({ audience: "cavalinho", personId, status: "skipped", reason: "person_not_active_or_not_found" });
             continue;
           }
-          if (!homologationMediumAllowed(date, personId, text(person.whatsapp))) {
+          if (!mediumDispatchAllowed(date, personId, text(person.whatsapp))) {
             diagnostics.push({ audience: "cavalinho", personId, status: "skipped", reason: "homologation_recipient_guard" });
             continue;
           }
@@ -365,12 +365,13 @@ export async function GET(request: Request) {
           });
 
           if (result.sent) {
-            void sendTucxaAppointmentAuditEmail({
+            const auditCopied = await sendTucxaAppointmentAuditEmail({
               event: "Resumo diário enviado ao Cavalinho",
               appointmentDate: date,
               entityName: entityLabel || "Entidade",
-              details: `Destinatário: ${text(person.full_name)}\n\n${summary}`,
+              details: `Destinatário: ${text(person.full_name)}\nCanal: WhatsApp\nResultado: enviado\n\n${summary}`,
             });
+            if (!auditCopied) diagnostics.push({ audience: "cavalinho", personId, status: "audit_failed" });
           }
         }
       }
@@ -437,7 +438,7 @@ export async function GET(request: Request) {
           // Não presumir opt-in de integrantes da Recepção.
           // Durante homologação, exigir também autorização por ID individual.
           const channels = receptionChannels.get(personId) ?? [];
-          if (!homologationMediumAllowed(date, personId, text(person.whatsapp))) {
+          if (!receptionDispatchAllowed(date, personId, text(person.whatsapp))) {
             diagnostics.push({ audience: "reception", personId, status: "skipped", reason: "homologation_recipient_guard" });
             continue;
           }
@@ -505,12 +506,13 @@ export async function GET(request: Request) {
             error: errors.join(" | "),
           });
 
-          if (sentAny) {
-            void sendTucxaAppointmentAuditEmail({
+          if (whatsappSent) {
+            const auditCopied = await sendTucxaAppointmentAuditEmail({
               event: "Resumo diário enviado à Recepção",
               appointmentDate: date,
-              details: `Destinatário: ${text(person.full_name)}\nCanais: ${[whatsappSent ? "WhatsApp" : "", emailSent ? "e-mail" : ""].filter(Boolean).join(" + ")}\n\n${summary}`,
+              details: `Destinatário: ${text(person.full_name)}\nCanal: WhatsApp\nResultado: enviado\n\n${summary}`,
             });
+            if (!auditCopied) diagnostics.push({ audience: "reception", personId, status: "audit_failed" });
           }
         }
       }

@@ -1,5 +1,5 @@
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
-import { homologationActiveToday, homologationAppointmentAllowed, homologationMediumAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
@@ -121,7 +121,7 @@ export async function GET(request: Request) {
         appointmentId: appointment.id, consulente: appointment.consulente_name,
         entity: entityNames.get(str(appointment.entity_id)) || "Entidade não encontrada",
         phone: masked(phone), phonePresent: Boolean(digits(phone)), preferenceEnabled: permitted,
-        eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && homologationAppointmentAllowed(date, str(appointment.id), phone),
+        eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && appointmentDispatchAllowed(date, str(appointment.id), phone),
       };
     });
     const cavalinhos = (linksResult.data ?? []).filter((link) => entityEnabled.has(str(link.entity_id)))
@@ -131,8 +131,8 @@ export async function GET(request: Request) {
         phone: masked(people.get(str(link.person_id))?.whatsapp),
         eligible: !holiday && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
           && Boolean(people.get(str(link.person_id))?.whatsapp) && generalWhatsapp && cavalinhoFlow
-          && homologationMediumAllowed(date, str(link.person_id), str(people.get(str(link.person_id))?.whatsapp))
-          && rows.some((row) => str(row.id) === tucxaHomologation.appointmentId && str(row.entity_id) === str(link.entity_id)),
+          && mediumDispatchAllowed(date, str(link.person_id), str(people.get(str(link.person_id))?.whatsapp))
+          && rows.some((row) => (generalDispatchAllowed(date) || str(row.id) === tucxaHomologation.appointmentId) && str(row.entity_id) === str(link.entity_id)),
       }));
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
@@ -145,8 +145,8 @@ export async function GET(request: Request) {
         explicitlyAuthorized,
         eligible: !holiday && weekdayEnabled && settings.receptionDailyWhatsappEnabled
           && Boolean(person?.whatsapp) && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow
-          && homologationMediumAllowed(date, personId, str(person?.whatsapp))
-          && rows.some((row) => str(row.id) === tucxaHomologation.appointmentId),
+          && receptionDispatchAllowed(date, personId, str(person?.whatsapp))
+          && (generalDispatchAllowed(date) || rows.some((row) => str(row.id) === tucxaHomologation.appointmentId)),
       };
     });
 
@@ -154,7 +154,7 @@ export async function GET(request: Request) {
       ok: true, dryRun: true, databaseWrites: 0, messagesSent: 0, date,
       weekday, holiday, weekdayEnabled,
       scheduling: {
-        cronUtc: "15:00 UTC (12:00 America/Sao_Paulo)",
+        cronUtc: "17:00 UTC (14:00 America/Sao_Paulo)",
         cavalinhoEnabled: settings.cavalinhoDailyWhatsappEnabled,
         cavalinhoTime: settings.cavalinhoDailyWhatsappTime,
         receptionEnabled: settings.receptionDailyWhatsappEnabled,
@@ -164,6 +164,9 @@ export async function GET(request: Request) {
         homologationEnabled: tucxaHomologation.enabled,
         homologationReady: tucxaHomologation.ready(),
         homologationActiveForDate: homologationActiveToday(date),
+        generalDispatchAllowedForDate: generalDispatchAllowed(date),
+        auditEmailConfigured: Boolean(str(process.env.SMTP_HOST) && str(process.env.SMTP_USER) && str(process.env.SMTP_PASS)),
+        auditEmailRecipient: "automacao.ao.extremo@gmail.com",
         botconversaEnabled: enabled("BOTCONVERSA_ENABLED"),
         tucxaEnabled: enabled("BOTCONVERSA_TUCXA_ENABLED"),
         deploymentEnvironment: str(process.env.VERCEL_ENV) || "local",

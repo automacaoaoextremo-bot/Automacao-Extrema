@@ -9,7 +9,7 @@ import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 
-import { homologationActiveToday, homologationAppointmentAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+import { dispatchDateAllowed, appointmentDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -173,7 +173,7 @@ async function processDayOfReminders(
 
   for (const appointment of rows) {
     const candidatePhone = asText(appointment.notification_contact_whatsapp) || asText(appointment.whatsapp);
-    if (!homologationAppointmentAllowed(today, appointment.id, candidatePhone)) {
+    if (!appointmentDispatchAllowed(today, appointment.id, candidatePhone)) {
       skipped += 1;
       continue;
     }
@@ -235,7 +235,7 @@ async function processDayOfReminders(
     if (result.sent) {
       sent += 1;
       sentAppointments.add(appointment.id);
-      void sendTucxaAppointmentAuditEmail({
+      const auditCopied = await sendTucxaAppointmentAuditEmail({
         event: "Lembrete de agendamento enviado",
         consulenteName: asText(appointment.consulente_name),
         appointmentDate: appointment.appointment_date,
@@ -248,6 +248,7 @@ async function processDayOfReminders(
           confirmed: appointment.confirmation_status === "confirmed",
         }),
       });
+      if (!auditCopied) console.error("[TUCXA auditoria] falha ao copiar lembrete", appointment.id);
     } else {
       failed += 1;
     }
@@ -268,7 +269,7 @@ export async function GET(request: Request) {
     }
 
     const today = todaySaoPaulo();
-    if (!homologationActiveToday(today)) {
+    if (!dispatchDateAllowed(today)) {
       return NextResponse.json({ ok: true, blocked: true, reason: "homologation_guard", today, sent: 0, checked: 0 });
     }
 
@@ -300,6 +301,13 @@ export async function GET(request: Request) {
         failed: 0,
         checked: 0,
       });
+    }
+
+    const campinasTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(new Date());
+    if (campinasTime < "14:00") {
+      return NextResponse.json({ ok: true, blocked: true, reason: "before_14_campinas", today, campinasTime });
     }
 
     // Ajuste 50: o cron diário envia SOMENTE os lembretes dos agendamentos
