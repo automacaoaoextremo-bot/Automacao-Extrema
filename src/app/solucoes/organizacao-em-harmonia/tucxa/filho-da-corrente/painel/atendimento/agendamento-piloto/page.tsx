@@ -361,6 +361,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityAlphabetPicker, setEntityAlphabetPicker] = useState<EntityAlphabetPickerState | null>(null);
   const [entityReturnLetter, setEntityReturnLetter] = useState("");
   const [entityEditorOpen, setEntityEditorOpen] = useState(false);
+  const [entityExceptionDate, setEntityExceptionDate] = useState(() => todaySaoPaulo());
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
@@ -2406,7 +2407,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
@@ -2466,7 +2466,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
@@ -3048,6 +3047,30 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
                       <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
                       <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
+                      {editEntity.entityId && (
+                        <section className="mt-2 grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <h3 className="text-sm font-black text-amber-950">Indisponibilidade em data específica</h3>
+                          <p className="text-xs font-semibold text-amber-900">Para suspender somente um atendimento, sem alterar as semanas recorrentes, selecione a data e abra o controle de disponibilidade. Lá você poderá bloquear ou reativar a Entidade e revisar possíveis agendamentos que precisam de realocação.</p>
+                          <label className="grid gap-1 text-xs font-black text-amber-950">
+                            Data do atendimento
+                            <input type="date" value={entityExceptionDate} min={todaySaoPaulo()} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2" />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={saving || !entityExceptionDate || entityExceptionDate < todaySaoPaulo()}
+                            onClick={() => {
+                              if (!window.confirm("Abrir o controle de disponibilidade? Alterações ainda não salvas neste cadastro serão perdidas.")) return;
+                              setEntityEditorOpen(false);
+                              setCadastroMode("menu");
+                              openEntitiesModal();
+                              void load(entityExceptionDate);
+                            }}
+                            className="rounded-xl bg-amber-900 px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                          >
+                            Abrir controle de disponibilidade da data
+                          </button>
+                        </section>
+                      )}
                       <div className="grid grid-cols-2 gap-2">
                         <button type="button" disabled={saving} onClick={closeEntityEditor} className="rounded-xl bg-white px-4 py-2.5 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar à lista</button>
                         <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
