@@ -1173,6 +1173,57 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Não encontramos uma próxima data com vaga para esta Entidade no período disponível.", requestId: code }, { status: 404 });
     }
 
+    // Ajuste 84: cria identidade individual sem WhatsApp proprio, usando o
+    // contato existente exclusivamente para notificacoes. O nome nao e chave.
+    // A Recepcao confirma a criacao separadamente antes de reservar a vaga.
+    if (action === "register-dependent") {
+      const ownerPersonId = asText(body.ownerPersonId);
+      const fullName = asText(body.fullName).replace(/\s+/g, " ");
+      const relationship = asText(body.relationship);
+      if (!ownerPersonId || fullName.length < 3 || !relationship || fullName.length > 160 || relationship.length > 80) {
+        return NextResponse.json({ error: "Informe o contato responsavel, nome completo e parentesco da pessoa atendida.", requestId: code }, { status: 400 });
+      }
+      const { data: owner, error: ownerError } = await supabaseAdmin.from("oh_people")
+        .select("id,full_name,whatsapp,active").eq("organization_id", context.organizationId)
+        .eq("id", ownerPersonId).eq("active", true).maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!owner?.id || normalizeBrazilPhone(owner.whatsapp).length < 10) {
+        return NextResponse.json({ error: "Contato responsavel com WhatsApp valido nao localizado.", requestId: code }, { status: 409 });
+      }
+      if (normalizeSearchText(owner.full_name) === normalizeSearchText(fullName)) {
+        return NextResponse.json({ error: "O responsavel ja tem cadastro proprio. Selecione a propria pessoa em vez de criar dependente.", requestId: code }, { status: 409 });
+      }
+      const linked = await loadRelatedConsulentes(context.organizationId, ownerPersonId);
+      const sameName = linked.filter((item) => normalizeSearchText(item.fullName) === normalizeSearchText(fullName));
+      if (sameName.length) {
+        return NextResponse.json({
+          error: "Ja existe um vinculo com este nome neste contato. Verifique o cadastro e selecione a pessoa existente antes de criar outra. Homonimos exigem revisao manual.",
+          requestId: code,
+        }, { status: 409 });
+      }
+      const { data: created, error: personError } = await supabaseAdmin.from("oh_people")
+        .insert({ organization_id: context.organizationId, full_name: fullName, whatsapp: null,
+          active: true, notes: "Cadastro individual sem WhatsApp, criado pela Recepcao no piloto; contato responsavel vinculado." })
+        .select("id").single();
+      if (personError) throw personError;
+      const { data: link, error: linkError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+        .insert({ organization_id: context.organizationId, owner_person_id: ownerPersonId,
+          related_person_id: created.id, related_name: fullName, relationship,
+          allow_different_entity: true, created_by_person_id: context.personId,
+          updated_at: new Date().toISOString() })
+        .select("id").single();
+      if (linkError) {
+        // Evita deixar cadastros sem vinculo quando a segunda operacao falha.
+        const { error: cleanupError } = await supabaseAdmin.from("oh_people").delete()
+          .eq("organization_id", context.organizationId).eq("id", created.id);
+        if (cleanupError) console.error("[TUCXA dependente cleanup]", { requestId: code, cleanupError });
+        return NextResponse.json({ error: "Nao foi possivel vincular o dependente. Revise o cadastro antes de tentar novamente.", requestId: code }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, personId: created.id, relationshipId: link.id,
+        relatedConsulentes: await loadRelatedConsulentes(context.organizationId, ownerPersonId),
+        message: "Cadastro individual criado e vinculado ao contato responsavel. Agora confirme o agendamento." });
+    }
+
     if (action === "book") {
       const targetPersonId = asText(body.targetPersonId);
       const entityId = asText(body.entityId);
@@ -1713,6 +1764,22 @@ export async function POST(request: Request) {
         .eq("starts_on", date).eq("ends_on", date).eq("available", false)
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (lookupError) throw lookupError;
+      if (!existing?.id) {
+        // Nao suspender uma Entidade com agendamentos ativos. A Recepcao deve
+        // realoca-los usando a troca em massa, com aprovacao e notificacao.
+        const { count: pendingCount, error: pendingError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+          .eq("appointment_date", date).in("status", PILOT_ACTIVE_STATUSES);
+        if (pendingError) throw pendingError;
+        if ((pendingCount ?? 0) > 0) {
+          return NextResponse.json({
+            error: `Existem ${pendingCount} agendamento(s) nesta Entidade e data. Antes de bloquear, use a troca de Entidade em massa na Recepcao, confirme o destino e notifique os envolvidos. O bloqueio nao foi salvo.`,
+            requestId: code, affectedAppointments: pendingCount, requiresRelocation: true,
+          }, { status: 409 });
+        }
+      }
       const query = existing?.id
         ? supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").update({ reason, updated_at: new Date().toISOString() }).eq("organization_id", context.organizationId).eq("entity_id", entityId).eq("id", existing.id)
         : supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").insert({ organization_id: context.organizationId, entity_id: entityId, starts_on: date, ends_on: date, available: false, reason, created_by_person_id: context.personId });

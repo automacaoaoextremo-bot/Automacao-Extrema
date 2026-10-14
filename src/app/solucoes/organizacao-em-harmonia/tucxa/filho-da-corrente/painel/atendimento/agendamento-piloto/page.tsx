@@ -1219,6 +1219,34 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function registerDependentForBooking() {
+    if (!foundPerson || !alternateContact.name.trim() || !alternateContact.relationship.trim()) {
+      setErrorNotice({ title: "Cadastro incompleto", message: "Informe o nome completo e o parentesco antes de cadastrar a pessoa sem WhatsApp." });
+      return;
+    }
+    setSaving(true);
+    setErrorNotice(null);
+    try {
+      const result = await postPilot({ action: "register-dependent", ownerPersonId: foundPerson.id,
+        fullName: alternateContact.name.trim(), relationship: alternateContact.relationship.trim() });
+      const related = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : [];
+      const registered = related.find((item) => item.relatedPersonId === result.personId);
+      if (!registered) throw new Error("Cadastro criado, mas nao foi possivel selecionar o vinculo. Reabra a busca do contato antes de prosseguir.");
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes: related } : current);
+      setSelectedRelatedKey(relatedConsulenteKey(registered));
+      setAlternateContact({ name: registered.fullName, relationship: registered.relationship,
+        whatsapp: "", relatedPersonId: registered.relatedPersonId,
+        relationshipId: registered.relationshipId, historyAppointmentId: "" });
+      setSuccessNotice({ title: "Dependente cadastrado", message: "Pessoa identificada por cadastro individual, sem WhatsApp proprio. Confira os dados e clique em Criar agendamento." });
+    } catch (error) {
+      setErrorNotice({ title: "Nao foi possivel cadastrar dependente", message: error instanceof Error ? error.message : "Revise os dados informados." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function book() {
     if (!payload || !foundPerson || !entityId) {
       setError("");
@@ -2267,6 +2295,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                 className="rounded-xl border border-[#123D2C]/15 p-2.5"
                               />
                             )}
+                            <button type="button" disabled={saving || !alternateContact.name.trim() || !alternateContact.relationship.trim()}
+                              onClick={() => void registerDependentForBooking()}
+                              className="rounded-xl bg-[#E9F2E7] p-3 text-sm font-black text-[#123D2C] disabled:opacity-50">
+                              Cadastrar pessoa vinculada sem WhatsApp proprio
+                            </button>
+                            <p className="text-xs font-semibold text-slate-600">Para Primeira Vez, cadastre primeiro a identidade individual. Depois confirme o agendamento normalmente. O contato do responsavel recebera as notificacoes.</p>
                           </>
                         )}
                       </div>
@@ -3106,7 +3140,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           <label className="grid gap-1 text-xs font-black text-amber-950">Motivo da nova indisponibilidade
                             <input value={entityExceptionReason} onChange={(event) => setEntityExceptionReason(event.target.value)} placeholder="Preencha somente se desejar bloquear a data" className="rounded-lg border border-amber-200 bg-white p-2" />
                           </label>
-                          <p className="text-xs font-semibold text-amber-900">Ao salvar a Entidade, a indisponibilidade informada será registrada apenas para esta Entidade. Verifique antes se há agendamentos a realocar.</p>
+                          <p className="text-xs font-semibold text-amber-900">Se ja existirem atendimentos na data, o sistema impedira o bloqueio. Primeiro abra o Acolhimento da data e use a troca de Entidade em massa para confirmar a realocacao e avisar os Consulentes; depois volte aqui e salve a indisponibilidade.</p>
                           {entityExceptions.filter((exception) => exception.date >= todaySaoPaulo()).map((exception) => (
                             <div key={exception.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2 text-xs text-amber-950">
                               <span>{exception.date.split("-").reverse().join("/")} — {exception.reason || "Sem motivo"}</span>
