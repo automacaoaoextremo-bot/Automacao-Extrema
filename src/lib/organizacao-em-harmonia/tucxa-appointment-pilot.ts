@@ -1036,21 +1036,33 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
   const now = new Date().toISOString();
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .update({
-      status: "cancelado",
-      confirmation_status: "expired",
-      cancelled_at: now,
-      cancellation_reason: "Prazo de confirmação do piloto encerrado",
-      updated_at: now,
-    })
+    .select("id, appointment_date")
     .eq("organization_id", organizationId)
     .eq("confirmation_status", "pending")
-    .in("status", ["solicitado"])
-    .not("confirmation_expires_at", "is", null)
-    .lt("confirmation_expires_at", now);
+    .eq("status", "solicitado")
+    .lte("appointment_date", todayInSaoPaulo());
   if (personId) query = query.eq("person_id", personId);
-  const { error } = await query;
+  const { data, error } = await query;
   if (error) throw error;
+  for (const appointment of data ?? []) {
+    const date = asText(appointment.appointment_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const deadline = confirmationDeadlineIso(date, settings.confirmationCutoff);
+    if (!isPastConfirmationDeadline(deadline)) continue;
+    const { error: updateError } = await supabaseAdmin
+      .from("oh_consulente_appointments")
+      .update({
+        status: "cancelado",
+        confirmation_status: "expired",
+        cancelled_at: now,
+        cancellation_reason: "Prazo de confirmação do piloto encerrado",
+        updated_at: now,
+      })
+      .eq("id", appointment.id)
+      .eq("confirmation_status", "pending")
+      .eq("status", "solicitado");
+    if (updateError) throw updateError;
+  }
 }
 
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {

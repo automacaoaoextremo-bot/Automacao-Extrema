@@ -350,6 +350,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingMode, setBookingMode] = useState<BookingMode>("date");
   const [bookingEntityLookupId, setBookingEntityLookupId] = useState("");
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
+  const [bookingEntityAvailable, setBookingEntityAvailable] = useState<number | null>(null);
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
   const [alphabetLetters, setAlphabetLetters] = useState<string[]>([]);
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
@@ -1081,6 +1082,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingEntityLookupId(value);
     setEntityId("");
     setBookingEntityDateLabel("");
+    setBookingEntityAvailable(null);
     if (!value) return;
     setSaving(true);
     setError("");
@@ -1090,6 +1092,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const label = typeof result.label === "string" ? result.label : "";
       if (!date) throw new Error("Não encontramos uma próxima data com vaga para esta Entidade.");
       setBookingEntityDateLabel(label || shortDate(date));
+      const resultEntity = result.entity && typeof result.entity === "object" ? result.entity as { available?: number } : null;
+      setBookingEntityAvailable(typeof resultEntity?.available === "number" ? resultEntity.available : null);
       await load(date);
       setEntityId(value);
     } catch (lookupError) {
@@ -1980,10 +1984,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                     <select value={bookingEntityLookupId} onChange={(event) => void selectBookingEntity(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                       <option value="">Escolha uma Entidade</option>
-                      {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                      {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.mediums.length ? ` (${entity.mediums.map((medium) => firstTwoPersonNames(medium.name)).join(", ")})` : ""}</option>)}
                     </select>
                   </label>
-                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Próxima data com vaga: {bookingEntityDateLabel}</p>}
+                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Próxima data com vaga: {bookingEntityDateLabel}{bookingEntityAvailable !== null ? ` · ${bookingEntityAvailable} vaga(s) disponível(is)` : ""}</p>}
                 </div>
               )}
 
@@ -2377,7 +2381,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
                           <div className="flex shrink-0 flex-col items-end">
-                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <div className="flex items-center gap-1">
+                              <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
+                                <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                              )}
+                            </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
                           </div>
                         </div>
@@ -2432,7 +2441,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
                           </div>
                           <div className="flex shrink-0 flex-col items-end">
-                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                            <div className="flex items-center gap-1">
+                              <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
+                                <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                              )}
+                            </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
                           </div>
                         </div>

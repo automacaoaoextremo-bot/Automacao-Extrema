@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   confirmationTokenHash,
+  confirmationDeadlineIso,
   isPastConfirmationDeadline,
   loadPilotSettings,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
@@ -31,7 +32,7 @@ async function appointmentFromToken(token: string) {
   const hash = confirmationTokenHash(token);
   const { data: appointment, error } = await supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, organization_id, status, confirmation_status, confirmation_expires_at")
+    .select("id, organization_id, appointment_date, status, confirmation_status, confirmation_expires_at")
     .eq("confirmation_token_hash", hash)
     .maybeSingle();
   if (error) throw error;
@@ -60,9 +61,11 @@ export async function POST(request: Request) {
     const found = await appointmentFromToken(token);
     if (!found) return NextResponse.json({ error: "Link de confirmação inválido ou não localizado." }, { status: 404 });
     const appointment = found;
-    const deadline = asText(appointment.confirmation_expires_at);
+    const settings = await loadPilotSettings(asText(appointment.organization_id));
+    const deadline = settings.confirmationCutoff && asText(appointment.appointment_date)
+      ? confirmationDeadlineIso(asText(appointment.appointment_date), settings.confirmationCutoff)
+      : asText(appointment.confirmation_expires_at);
     if (appointment.confirmation_status === "pending" && deadline && isPastConfirmationDeadline(deadline)) {
-      const settings = await loadPilotSettings(asText(appointment.organization_id));
       if (settings.autoCancelExpiredConfirmations) {
         const now = new Date().toISOString();
         await supabaseAdmin.from("oh_consulente_appointments").update({
