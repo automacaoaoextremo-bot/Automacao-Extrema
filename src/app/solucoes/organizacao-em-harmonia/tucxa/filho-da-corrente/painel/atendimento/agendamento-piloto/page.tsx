@@ -338,6 +338,19 @@ async function authToken() {
   return data.session?.access_token || "";
 }
 
+function eligiblePilotExceptionDates(mondays: number[], tuesdays: number[], start: string): string[] {
+  const dates: string[] = [];
+  for (let offset = 0; offset < 120; offset += 1) {
+    const date = new Date(`${start}T12:00:00`);
+    date.setDate(date.getDate() + offset);
+    const occurrence = Math.floor((date.getDate() - 1) / 7) + 1;
+    if ((date.getDay() === 1 && mondays.includes(occurrence)) || (date.getDay() === 2 && tuesdays.includes(occurrence))) {
+      dates.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+    }
+  }
+  return dates;
+}
+
 export default function AgendamentoPilotoRecepcaoPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -352,7 +365,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
   const [bookingEntityAvailable, setBookingEntityAvailable] = useState<number | null>(null);
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
-  const [alphabetLetters, setAlphabetLetters] = useState<string[]>([]);
+  const [alphabetLetters, setAlphabetLetters] = useState<string[]>(() => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
   const [alphabetReturnLetter, setAlphabetReturnLetter] = useState("");
   const [alphabetLoading, setAlphabetLoading] = useState(false);
@@ -850,7 +863,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingReturnToTriagem(returnToTriagem);
     setError("");
     setModal("agendar");
-    void loadConsulenteAlphabet();
+    // As iniciais já estão disponíveis localmente; a consulta ocorre ao selecionar uma letra.
   }
 
   async function loadEntityOverview() {
@@ -1111,7 +1124,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const letters = Array.isArray(result.letters)
         ? result.letters.filter((item): item is string => typeof item === "string" && /^[A-Z]$/.test(item))
         : [];
-      setAlphabetLetters(letters);
+      setAlphabetLetters(letters.length ? letters : "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
 
       if (letter) {
         const people = Array.isArray(result.people)
@@ -2720,7 +2733,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               <p className="text-xs font-bold">{currentDayEntity.isAvailable === false ? `⚠ Indisponível · ${currentDayEntity.suspendedReason || "Atendimento suspenso"}` : `${currentDayEntity.available} vaga(s) disponível(is) de ${currentDayEntity.capacity}`}</p>
                             </div>
                             <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(currentDayEntity, currentDayEntity.isAvailable === false)} className={`rounded-lg px-3 py-2 text-[10px] font-black disabled:opacity-50 ${currentDayEntity.isAvailable === false ? "bg-white text-red-800 ring-1 ring-red-200" : "bg-red-50 text-red-800 ring-1 ring-red-100"}`}>
-                              {currentDayEntity.isAvailable === false ? "Reativar na data" : "Indisponível na data"}
+                              {currentDayEntity.isAvailable === false ? "Reativar nesta data" : "Bloquear somente esta Entidade"}
                             </button>
                           </div>
                         </div>
@@ -3053,11 +3066,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           <p className="text-xs font-semibold text-amber-900">Para suspender somente um atendimento, sem alterar as semanas recorrentes, selecione a data e abra o controle de disponibilidade. Lá você poderá bloquear ou reativar a Entidade e revisar possíveis agendamentos que precisam de realocação.</p>
                           <label className="grid gap-1 text-xs font-black text-amber-950">
                             Data do atendimento
-                            <input type="date" value={entityExceptionDate} min={todaySaoPaulo()} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2" />
+                            <select value={eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate) ? entityExceptionDate : ""} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2">
+                              <option value="">Selecione uma data prevista (próximos 120 dias)</option>
+                              {eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).map((date) => (
+                                <option key={date} value={date}>{date.split("-").reverse().join("/")}</option>
+                              ))}
+                            </select>
                           </label>
                           <button
                             type="button"
-                            disabled={saving || !entityExceptionDate || entityExceptionDate < todaySaoPaulo()}
+                            disabled={saving || !eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate)}
                             onClick={() => {
                               if (!window.confirm("Abrir o controle de disponibilidade? Alterações ainda não salvas neste cadastro serão perdidas.")) return;
                               setEntityEditorOpen(false);

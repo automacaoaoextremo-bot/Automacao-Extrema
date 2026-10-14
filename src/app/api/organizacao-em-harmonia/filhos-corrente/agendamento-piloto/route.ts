@@ -1348,7 +1348,7 @@ export async function POST(request: Request) {
       const firstTimeBooking = isPilotFirstTimeEntity(entity);
       if (firstTimeBooking && contactMode === "alternate" && !relatedPerson?.id) {
         return NextResponse.json({
-          error: "A Entidade Primeira Vez exige o cadastro da própria pessoa atendida para controlar que este atendimento ocorra somente uma vez.",
+          error: "Para Primeira Vez, selecione um dependente com cadastro individual, mesmo que não tenha WhatsApp próprio. O WhatsApp pode ser o do responsável; o cadastro individual evita repetir o atendimento. Cadastre e vincule a pessoa antes de agendar.",
           requestId: code,
         }, { status: 409 });
       }
@@ -2120,6 +2120,9 @@ export async function POST(request: Request) {
     if (action === "consulente-alphabet") {
       const requestedLetter = normalizeSearchText(body.letter).slice(0, 1).toUpperCase();
       const appointmentDate = asText(body.appointmentDate);
+      if (!requestedLetter) {
+        return NextResponse.json({ ok: true, letters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""), letter: "", people: [] });
+      }
       const people = await loadReceptionConsulentes(context.organizationId);
       let eligiblePeople = people;
 
