@@ -1650,6 +1650,77 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${firstTwoPersonNames(fullName)}.` });
     }
 
+    if (action === "list-entity-exceptions" || action === "save-entity-exception" || action === "delete-entity-exception") {
+      const entityId = asText(body.entityId);
+      if (!entityId) return NextResponse.json({ error: "Entidade não informada.", requestId: code }, { status: 400 });
+      const { data: entity, error: entityError } = await supabaseAdmin
+        .from("oh_spiritual_entities").select("id")
+        .eq("organization_id", context.organizationId).eq("id", entityId).maybeSingle();
+      if (entityError) throw entityError;
+      if (!entity?.id) return NextResponse.json({ error: "Entidade não localizada.", requestId: code }, { status: 404 });
+      if (action === "list-entity-exceptions") {
+        const { data, error } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+          .select("id,starts_on,ends_on,reason,available,created_at")
+          .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+          .eq("available", false).order("created_at", { ascending: false });
+        if (error) throw error;
+        const seen = new Set<string>();
+        const exceptions = (data ?? []).filter((row) => {
+          const date = asText(row.starts_on);
+          if (seen.has(date)) return false;
+          seen.add(date);
+          return date === asText(row.ends_on);
+        }).map((row) => ({ id: row.id, date: row.starts_on, reason: row.reason || "" }));
+        return NextResponse.json({ ok: true, exceptions });
+      }
+      if (action === "delete-entity-exception") {
+        const exceptionId = asText(body.exceptionId);
+        if (!exceptionId) return NextResponse.json({ error: "Exceção não informada.", requestId: code }, { status: 400 });
+        const { data: existing, error: lookupError } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+          .select("id,starts_on,ends_on").eq("organization_id", context.organizationId)
+          .eq("entity_id", entityId).eq("id", exceptionId).eq("available", false).maybeSingle();
+        if (lookupError) throw lookupError;
+        if (!existing?.id || asText(existing.starts_on) < todayInSaoPaulo() || existing.starts_on !== existing.ends_on) {
+          return NextResponse.json({ error: "Somente exceções individuais futuras podem ser excluídas.", requestId: code }, { status: 409 });
+        }
+        const { error } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").delete()
+          .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+          .eq("starts_on", asText(existing.starts_on)).eq("ends_on", asText(existing.ends_on)).eq("available", false);
+        if (error) throw error;
+        return NextResponse.json({ ok: true });
+      }
+      const date = asText(body.date);
+      const reason = asText(body.reason);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayInSaoPaulo() || !reason) {
+        return NextResponse.json({ error: "Escolha uma data futura válida e informe o motivo.", requestId: code }, { status: 400 });
+      }
+      const dateObj = new Date(`${date}T12:00:00Z`);
+      if (Number.isNaN(dateObj.getTime()) || dateObj.toISOString().slice(0, 10) !== date) {
+        return NextResponse.json({ error: "Data inválida.", requestId: code }, { status: 400 });
+      }
+      const day = dateObj.getUTCDay();
+      const occurrence = Math.floor((dateObj.getUTCDate() - 1) / 7) + 1;
+      const weekday = day === 1 ? "segunda" : day === 2 ? "terca" : "";
+      if (!weekday) return NextResponse.json({ error: "A data não é segunda ou terça-feira.", requestId: code }, { status: 400 });
+      const { data: schedule, error: scheduleError } = await supabaseAdmin
+        .from("oh_tucxa_pilot_entity_schedule").select("entity_id")
+        .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+        .eq("weekday", weekday).eq("month_occurrence", occurrence).eq("active", true).maybeSingle();
+      if (scheduleError) throw scheduleError;
+      if (!schedule?.entity_id) return NextResponse.json({ error: "Esta data não pertence ao calendário desta Entidade.", requestId: code }, { status: 409 });
+      const { data: existing, error: lookupError } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+        .select("id").eq("organization_id", context.organizationId).eq("entity_id", entityId)
+        .eq("starts_on", date).eq("ends_on", date).eq("available", false)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (lookupError) throw lookupError;
+      const query = existing?.id
+        ? supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").update({ reason, updated_at: new Date().toISOString() }).eq("organization_id", context.organizationId).eq("entity_id", entityId).eq("id", existing.id)
+        : supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").insert({ organization_id: context.organizationId, entity_id: entityId, starts_on: date, ends_on: date, available: false, reason, created_by_person_id: context.personId });
+      const { error } = await query;
+      if (error) throw error;
+      return NextResponse.json({ ok: true, message: "Indisponibilidade registrada somente para esta Entidade." });
+    }
+
     if (action === "set-availability") {
       const entityId = asText(body.entityId);
       const startsOn = asText(body.startsOn);

@@ -375,6 +375,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityReturnLetter, setEntityReturnLetter] = useState("");
   const [entityEditorOpen, setEntityEditorOpen] = useState(false);
   const [entityExceptionDate, setEntityExceptionDate] = useState(() => todaySaoPaulo());
+  const [entityExceptions, setEntityExceptions] = useState<Array<{ id: string; date: string; reason: string }>>([]);
+  const [entityExceptionReason, setEntityExceptionReason] = useState("");
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
@@ -890,7 +892,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   function openEntityCadastro(entityId: string) {
-    selectEntityForEdit(entityId);
+    openExistingEntityEditor(entityId);
     setCadastroMode("entidades");
     setModal("cadastros");
   }
@@ -1744,11 +1746,35 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityEditorOpen(true);
   }
 
+  async function loadEntityExceptions(entityId: string) {
+    try {
+      const result = await postPilot({ action: "list-entity-exceptions", entityId });
+      setEntityExceptions(Array.isArray(result.exceptions) ? result.exceptions as Array<{ id: string; date: string; reason: string }> : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível consultar as exceções da Entidade.");
+    }
+  }
+
+  async function removeEntityException(exceptionId: string) {
+    if (!editEntity.entityId || !window.confirm("Excluir a indisponibilidade desta Entidade e reabrir esta data?")) return;
+    setSaving(true);
+    try {
+      await postPilot({ action: "delete-entity-exception", entityId: editEntity.entityId, exceptionId });
+      await loadEntityExceptions(editEntity.entityId);
+      await load(payload?.selectedDate);
+      setSuccessNotice({ title: "Exceção excluída", message: "A data voltou a seguir o calendário normal desta Entidade." });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir a exceção.");
+    } finally { setSaving(false); }
+  }
+
   function openExistingEntityEditor(entityId: string, returnLetter = "") {
     setEntityReturnLetter(returnLetter);
     setEntityAlphabetPicker(null);
     selectEntityForEdit(entityId);
     setEntityEditorOpen(true);
+    setEntityExceptions([]);
+    void loadEntityExceptions(entityId);
   }
 
   function closeEntityEditor() {
@@ -1806,6 +1832,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
         active: editEntity.active,
         cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
       });
+      if (editEntity.entityId && entityExceptionDate && entityExceptionReason.trim()) {
+        await postPilot({
+          action: "save-entity-exception",
+          entityId: editEntity.entityId,
+          date: entityExceptionDate,
+          reason: entityExceptionReason.trim(),
+        });
+        setEntityExceptionReason("");
+      }
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
       const returnLetter = entityReturnLetter;
@@ -2732,9 +2767,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               <p className="text-[10px] font-black uppercase tracking-[0.12em]">{formatDateInputPtBr(payload.selectedDate)}</p>
                               <p className="text-xs font-bold">{currentDayEntity.isAvailable === false ? `⚠ Indisponível · ${currentDayEntity.suspendedReason || "Atendimento suspenso"}` : `${currentDayEntity.available} vaga(s) disponível(is) de ${currentDayEntity.capacity}`}</p>
                             </div>
-                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(currentDayEntity, currentDayEntity.isAvailable === false)} className={`rounded-lg px-3 py-2 text-[10px] font-black disabled:opacity-50 ${currentDayEntity.isAvailable === false ? "bg-white text-red-800 ring-1 ring-red-200" : "bg-red-50 text-red-800 ring-1 ring-red-100"}`}>
-                              {currentDayEntity.isAvailable === false ? "Reativar nesta data" : "Bloquear somente esta Entidade"}
-                            </button>
+
                           </div>
                         </div>
                       )}
@@ -3063,30 +3096,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       {editEntity.entityId && (
                         <section className="mt-2 grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
                           <h3 className="text-sm font-black text-amber-950">Indisponibilidade em data específica</h3>
-                          <p className="text-xs font-semibold text-amber-900">Para suspender somente um atendimento, sem alterar as semanas recorrentes, selecione a data e abra o controle de disponibilidade. Lá você poderá bloquear ou reativar a Entidade e revisar possíveis agendamentos que precisam de realocação.</p>
                           <label className="grid gap-1 text-xs font-black text-amber-950">
-                            Data do atendimento
+                            Data prevista da Entidade
                             <select value={eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate) ? entityExceptionDate : ""} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2">
-                              <option value="">Selecione uma data prevista (próximos 120 dias)</option>
-                              {eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).map((date) => (
-                                <option key={date} value={date}>{date.split("-").reverse().join("/")}</option>
-                              ))}
+                              <option value="">Sem nova indisponibilidade</option>
+                              {eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).map((date) => <option key={date} value={date}>{date.split("-").reverse().join("/")}</option>)}
                             </select>
                           </label>
-                          <button
-                            type="button"
-                            disabled={saving || !eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate)}
-                            onClick={() => {
-                              if (!window.confirm("Abrir o controle de disponibilidade? Alterações ainda não salvas neste cadastro serão perdidas.")) return;
-                              setEntityEditorOpen(false);
-                              setCadastroMode("menu");
-                              openEntitiesModal();
-                              void load(entityExceptionDate);
-                            }}
-                            className="rounded-xl bg-amber-900 px-3 py-2.5 text-xs font-black text-white disabled:opacity-50"
-                          >
-                            Abrir controle de disponibilidade da data
-                          </button>
+                          <label className="grid gap-1 text-xs font-black text-amber-950">Motivo da nova indisponibilidade
+                            <input value={entityExceptionReason} onChange={(event) => setEntityExceptionReason(event.target.value)} placeholder="Preencha somente se desejar bloquear a data" className="rounded-lg border border-amber-200 bg-white p-2" />
+                          </label>
+                          <p className="text-xs font-semibold text-amber-900">Ao salvar a Entidade, a indisponibilidade informada será registrada apenas para esta Entidade. Verifique antes se há agendamentos a realocar.</p>
+                          {entityExceptions.filter((exception) => exception.date >= todaySaoPaulo()).map((exception) => (
+                            <div key={exception.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2 text-xs text-amber-950">
+                              <span>{exception.date.split("-").reverse().join("/")} — {exception.reason || "Sem motivo"}</span>
+                              <div className="flex gap-2">
+                                <button type="button" disabled={saving} onClick={() => { setEntityExceptionDate(exception.date); setEntityExceptionReason(exception.reason); }} className="font-black text-amber-900">Editar</button>
+                                <button type="button" disabled={saving} onClick={() => void removeEntityException(exception.id)} className="font-black text-red-700">Excluir</button>
+                              </div>
+                            </div>
+                          ))}
                         </section>
                       )}
                       <div className="grid grid-cols-2 gap-2">
