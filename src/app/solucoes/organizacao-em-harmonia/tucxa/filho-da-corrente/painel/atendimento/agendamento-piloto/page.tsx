@@ -404,6 +404,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityPage, setEntityPage] = useState(1);
+  const [entityAvailabilityQuery, setEntityAvailabilityQuery] = useState("");
+  const [entityAvailabilityLetter, setEntityAvailabilityLetter] = useState("");
+  const [entitiesReturnToBooking, setEntitiesReturnToBooking] = useState(false);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
   const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
   const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(ALL_CONSULT_STATUSES);
@@ -554,12 +557,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
       })
       .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
   }, [entityDirectorySearch, payload?.entityCatalog]);
+  const filteredAvailabilityEntities = useMemo(() => {
+    const query = entityDirectoryKey(entityAvailabilityQuery);
+    return activeEntityCatalog.filter((entity) => {
+      if (entityAvailabilityLetter && !entityDirectoryKey(entity.name).startsWith(entityAvailabilityLetter)) return false;
+      if (!query) return true;
+      return entityDirectoryKey([entity.name, entity.slug, ...entity.mediums.map((medium) => medium.name)].join(" ")).includes(query);
+    });
+  }, [activeEntityCatalog, entityAvailabilityQuery, entityAvailabilityLetter]);
+  const availabilityLetters = useMemo(() => Array.from(new Set(activeEntityCatalog.map((entity) => entityDirectoryKey(entity.name).charAt(0)).filter((letter) => /^[A-Z]$/.test(letter)))).sort(), [activeEntityCatalog]);
+  const relatedForSelectedEntity = useMemo(() => (foundPerson?.relatedConsulentes ?? []).filter((related) => Boolean(entityId) && related.defaultEntityId === entityId), [foundPerson?.relatedConsulentes, entityId]);
   const entityPageSize = 4;
-  const entityPageCount = Math.max(1, Math.ceil(activeEntityCatalog.length / entityPageSize));
+  const entityPageCount = Math.max(1, Math.ceil(filteredAvailabilityEntities.length / entityPageSize));
   const effectiveEntityPage = Math.min(entityPage, entityPageCount);
   const paginatedEntityCatalog = useMemo(
-    () => activeEntityCatalog.slice((effectiveEntityPage - 1) * entityPageSize, effectiveEntityPage * entityPageSize),
-    [activeEntityCatalog, effectiveEntityPage],
+    () => filteredAvailabilityEntities.slice((effectiveEntityPage - 1) * entityPageSize, effectiveEntityPage * entityPageSize),
+    [filteredAvailabilityEntities, effectiveEntityPage],
   );
   const entityCalendarMonths = useMemo(() => {
     const groups = new Map<string, EntityAvailableDate[]>();
@@ -864,6 +877,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingResult(null);
     setBookingReturnToTriagem(returnToTriagem);
     setError("");
+    setEntitiesReturnToBooking(false);
     setModal("agendar");
     // As iniciais já estão disponíveis localmente; a consulta ocorre ao selecionar uma letra.
   }
@@ -884,7 +898,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  function openEntitiesModal() {
+  function openEntitiesModal(fromBooking = false) {
+    setEntitiesReturnToBooking(fromBooking);
+    setEntityAvailabilityQuery("");
+    setEntityAvailabilityLetter("");
     setEntityPage(1);
     setModal("entidades");
     setEntityOverview({});
@@ -1929,7 +1946,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
-          headerAction={modal === "consultar" ? (
+          headerAction={modal === "agendar" ? (
+            <button type="button" onClick={() => openEntitiesModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Entidades</button>
+          ) : modal === "consultar" ? (
             <button type="button" onClick={() => openBookingModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
               <span className="block text-xs font-black">Agendar</span>
               <span className="block text-[8px] font-black uppercase tracking-[0.08em]">Toque para abrir</span>
@@ -1960,6 +1979,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
             }
             if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
               setModal("acolhimento");
+              return;
+            }
+            if (modal === "entidades" && entitiesReturnToBooking) {
+              setEntitiesReturnToBooking(false);
+              setModal("agendar");
               return;
             }
             if (modal === "agendar") {
@@ -2151,7 +2175,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                       <select
                         value={entityId}
-                        onChange={(event) => setEntityId(event.target.value)}
+                        onChange={(event) => { setEntityId(event.target.value); setSelectedRelatedKey(""); setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" }); }}
                         disabled={Boolean(
                           (contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)
                           || (
@@ -2209,7 +2233,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <p className="text-sm font-black text-[#123D2C]">Pessoa que será atendida</p>
 
-                        {(foundPerson.relatedConsulentes?.length ?? 0) > 0 ? (
+                        {relatedForSelectedEntity.length > 0 ? (
                           <label className="grid gap-1 text-xs font-black text-[#123D2C]">
                             Escolher pessoa
                             <select
@@ -2218,7 +2242,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold"
                             >
                               <option value="">Abra para escolher</option>
-                              {foundPerson.relatedConsulentes!.map((related) => (
+                              {relatedForSelectedEntity.map((related) => (
                                 <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
                                   {firstTwoPersonNames(related.fullName)}
                                   {related.relationship ? ` · ${related.relationship}` : ""}
@@ -2229,7 +2253,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             </select>
                           </label>
                         ) : (
-                          <p className="text-xs font-semibold text-slate-600">Ainda não há pessoas vinculadas a este contato. Informe a pessoa abaixo.</p>
+                          <p className="text-xs font-semibold text-slate-600">{entityId ? "Não há pessoa vinculada a este contato com esta Entidade. Você pode informar outra pessoa abaixo." : "Selecione uma Entidade antes de escolher a pessoa atendida."}</p>
                         )}
 
                         {selectedRelatedForBooking && selectedRelatedKey !== "__manual__" && (
@@ -2246,7 +2270,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           </div>
                         )}
 
-                        {((foundPerson.relatedConsulentes?.length ?? 0) === 0 || selectedRelatedKey === "__manual__") && (
+                        {(relatedForSelectedEntity.length === 0 || selectedRelatedKey === "__manual__") && (
                           <>
                             <input
                               value={alternateContact.name}
@@ -2774,11 +2798,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "entidades" && (
             <div className="grid gap-2">
+              <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <input type="search" value={entityAvailabilityQuery} onChange={(event) => { setEntityAvailabilityQuery(event.target.value); setEntityPage(1); }} placeholder="Buscar Entidade ou Cavalinho" aria-label="Buscar Entidade ou Cavalinho" className="w-full rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold" />
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" onClick={() => { setEntityAvailabilityLetter(""); setEntityPage(1); }} className={`rounded-lg px-2 py-1.5 text-xs font-black ${!entityAvailabilityLetter ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Todas</button>
+                  {availabilityLetters.map((letter) => <button type="button" key={letter} onClick={() => { setEntityAvailabilityLetter(letter); setEntityPage(1); }} className={`rounded-lg px-2 py-1.5 text-xs font-black ${entityAvailabilityLetter === letter ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>{letter}</button>)}
+                </div>
+              </div>
               {entityOverviewLoading && (
                 <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando próximas disponibilidades...</p>
               )}
-              {payload.entityCatalog
-                .filter((entity) => paginatedEntityCatalog.some((pageEntity) => pageEntity.id === entity.id))
+              {paginatedEntityCatalog
                 .map((entity) => {
                   const overview = entityOverview[entity.id];
                   const currentDayEntity = payload.entities.find((item) => item.id === entity.id);
@@ -2817,6 +2847,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </article>
                   );
                 })}
+              {filteredAvailabilityEntities.length === 0 && <p className="rounded-xl bg-[#F7FAF2] p-3 text-sm font-semibold text-slate-600">Nenhuma Entidade encontrada.</p>}
               {entityPageCount > 1 && (
                 <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-white px-2 py-1.5 ring-1 ring-[#123D2C]/10">
                   <button type="button" disabled={effectiveEntityPage <= 1} onClick={() => setEntityPage((current) => Math.max(1, current - 1))} className="rounded-lg px-3 py-1.5 text-xs font-black text-[#123D2C] disabled:opacity-40">Anterior</button>
