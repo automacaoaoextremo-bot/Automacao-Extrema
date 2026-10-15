@@ -879,6 +879,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setError("");
     setEntitiesReturnToBooking(false);
     setModal("agendar");
+    void load();
     // As iniciais já estão disponíveis localmente; a consulta ocorre ao selecionar uma letra.
   }
 
@@ -1500,79 +1501,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
 
-  async function setEntityAvailabilityForSelectedDate(entity: Entity, available: boolean) {
-    const appointmentDate = payload?.selectedDate || "";
-    if (!appointmentDate) return;
-
-    const activeAppointments = (payload?.appointments ?? []).filter(
-      (item) => item.entityId === entity.id && item.status !== "cancelado",
-    );
-    const defaultReason = available
-      ? "Disponibilidade reativada pela Recepção."
-      : "Cavalinho não poderá comparecer.";
-    const reason = window.prompt(
-      available
-        ? `Informe a observação para reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`
-        : `Informe o motivo da indisponibilidade de ${entity.name} em ${formatDateInputPtBr(appointmentDate)}:`,
-      defaultReason,
-    )?.trim() ?? "";
-    if (!reason) return;
-
-    if (!available) {
-      const detail = activeAppointments.length
-        ? `\n\nHá ${activeAppointments.length} agendamento(s) ativo(s). Depois de marcar a indisponibilidade, a tela abrirá a troca em massa para realocá-los.`
-        : "";
-      if (!window.confirm(`Marcar ${entity.name} como indisponível em ${formatDateInputPtBr(appointmentDate)}?${detail}`)) return;
-    } else if (!window.confirm(`Reativar ${entity.name} em ${formatDateInputPtBr(appointmentDate)}?`)) {
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    try {
-      const result = await postPilot({
-        action: "set-availability",
-        entityId: entity.id,
-        startsOn: appointmentDate,
-        endsOn: appointmentDate,
-        available,
-        reason,
-      });
-      await load(appointmentDate);
-
-      if (!available && activeAppointments.length > 0) {
-        setEntityChangeRequest({
-          mode: "bulk",
-          appointmentIds: activeAppointments.map((item) => item.id),
-          consulenteName: `${activeAppointments.length} agendamento(s)`,
-          currentEntityId: entity.id,
-          currentEntityName: entity.name,
-          firstTimeCount: activeAppointments.filter((item) => item.isFirstTimeAppointment || item.firstTimeIndicatorActive || normalizeSearchText(item.entityName).includes("primeira vez")).length,
-          newEntityId: "",
-          reason: `Entidade indisponível em ${formatDateInputPtBr(appointmentDate)}. ${reason}`,
-          notify: true,
-          attachment: null,
-        });
-        setSuccessNotice({
-          title: "Entidade sinalizada como indisponível",
-          message: `${entity.name} foi bloqueada para novos agendamentos nesta data. Agora escolha a Entidade de destino para realocar ${activeAppointments.length} atendimento(s).`,
-        });
-      } else {
-        setSuccessNotice({
-          title: available ? "Entidade reativada" : "Entidade sinalizada como indisponível",
-          message: typeof result.message === "string" ? result.message : (available ? "Disponibilidade reativada." : "Atendimento suspenso para esta data."),
-        });
-      }
-    } catch (actionError) {
-      setErrorNotice({
-        title: available ? "Não foi possível reativar a Entidade" : "Não foi possível sinalizar a indisponibilidade",
-        message: actionError instanceof Error ? actionError.message : "Tente novamente.",
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function submitEntityChange(event: FormEvent) {
     event.preventDefault();
     if (!entityChangeRequest) return;
@@ -1947,9 +1875,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
           headerAction={modal === "agendar" ? (
-            <button type="button" onClick={() => openEntitiesModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Entidades</button>
+            <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : modal === "consultar" ? (
-            <button type="button" onClick={() => openBookingModal(true)} className="rounded-xl bg-[#E9F2E7] px-3 py-1.5 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
+            <button type="button" onClick={() => openBookingModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
               <span className="block text-xs font-black">Agendar</span>
               <span className="block text-[8px] font-black uppercase tracking-[0.08em]">Toque para abrir</span>
             </button>
@@ -2002,7 +1930,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => setModal("painel")} className="rounded-2xl bg-[#E9F2E7] p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Painel</span><span className="text-sm font-semibold text-slate-600">Indicadores dos atendimentos e acesso à Triagem.</span>
               </button>
-              <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); void load(); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
               </button>
               <button
@@ -2054,7 +1982,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <Summary label="Não Confirmados" value={displayedSummary.unconfirmed} onClick={() => { setConsultStatuses(["unconfirmed"]); setConsultDisplayMode("lista"); setConsultPage(1); setModal("consultar"); }} />
                 <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
               </div>
-              <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
+              <button type="button" onClick={() => { setModal("consultar"); void load(); }} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
             </div>
           )}
 
@@ -2384,32 +2312,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {(payload.entities ?? []).some((entity) => entity.isAvailable === false) && (
-                <div className="grid gap-2 rounded-2xl bg-red-50 p-3 ring-1 ring-red-200">
-                  <p className="text-xs font-black uppercase tracking-[0.14em] text-red-800">⚠ Entidades indisponíveis nesta data</p>
-                  {(payload.entities ?? []).filter((entity) => entity.isAvailable === false).map((entity) => {
-                    const activeCount = (payload.appointments ?? []).filter((item) => item.entityId === entity.id && item.status !== "cancelado").length;
-                    return (
-                      <div key={`unavailable-${entity.id}`} className="rounded-xl bg-white p-3 ring-1 ring-red-100">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <p className="font-black text-red-900">{entity.name}</p>
-                            <p className="mt-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Atendimento suspenso para esta data."}</p>
-                            <p className="mt-1 text-xs font-black text-red-900">{activeCount} atendimento(s) ainda vinculado(s) · novos agendamentos bloqueados.</p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {activeCount > 0 && (
-                              <button type="button" disabled={saving} onClick={() => openBulkEntityChange(entity)} className="rounded-lg bg-red-800 px-3 py-2 text-[10px] font-black text-white disabled:opacity-50">Realocar todos</button>
-                            )}
-                            <button type="button" disabled={saving} onClick={() => void setEntityAvailabilityForSelectedDate(entity, true)} className="rounded-lg bg-white px-3 py-2 text-[10px] font-black text-red-800 ring-1 ring-red-200 disabled:opacity-50">Reativar</button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
                   {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
@@ -2481,14 +2383,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       : [appointment.entityName, appointment.order ? `ordem de agendamento ${appointment.order}` : ""].filter(Boolean).join(" · ");
                     const actionsOpen = openAppointmentActions[appointment.id] === true;
                     return (
-                      <article key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <div className="flex items-start justify-between gap-3">
+                      <article key={appointment.id} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
-                          <div className="flex shrink-0 flex-col items-end">
-                            <div className="flex items-center gap-1">
+                          <div className="flex max-w-full shrink-0 flex-col items-end">
+                            <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
                               <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
                                 <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
@@ -2540,14 +2442,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {visibleConsultAppointments.map((appointment) => {
                     const actionsOpen = openAppointmentActions[appointment.id] === true;
                     return (
-                      <article key={`lista-consulente-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <div className="flex items-start justify-between gap-3">
+                      <article key={`lista-consulente-${appointment.id}`} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {appointment.entityName}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {appointment.entityName}</h4>
                             {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
                           </div>
-                          <div className="flex shrink-0 flex-col items-end">
-                            <div className="flex items-center gap-1">
+                          <div className="flex max-w-full shrink-0 flex-col items-end">
+                            <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
                               <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
                                 <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
@@ -3155,12 +3057,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </label>
                       {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
                       <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
-                      <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
-                      <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
-                      <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
+                      <details className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
+                        <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Dias de atendimento · toque para configurar</summary>
+                        <div className="mt-3 grid gap-2">
+                          <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
+                          <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
+                          <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque as ocorrências do mês. Salvar substitui o calendário do piloto desta Entidade.</p>
+                        </div>
+                      </details>
                       {editEntity.entityId && (
-                        <section className="mt-2 grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                          <h3 className="text-sm font-black text-amber-950">Indisponibilidade em data específica</h3>
+                        <details className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <summary className="cursor-pointer text-sm font-black text-amber-950">Indisponibilidades · bloquear ou reativar data</summary>
+                          <div className="mt-3 grid gap-2">
                           <label className="grid gap-1 text-xs font-black text-amber-950">
                             Data prevista da Entidade
                             <select value={eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate) ? entityExceptionDate : ""} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2">
@@ -3177,11 +3085,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               <span>{exception.date.split("-").reverse().join("/")} — {exception.reason || "Sem motivo"}</span>
                               <div className="flex gap-2">
                                 <button type="button" disabled={saving} onClick={() => { setEntityExceptionDate(exception.date); setEntityExceptionReason(exception.reason); }} className="font-black text-amber-900">Editar</button>
-                                <button type="button" disabled={saving} onClick={() => void removeEntityException(exception.id)} className="font-black text-red-700">Excluir</button>
+                                <button type="button" disabled={saving} onClick={() => void removeEntityException(exception.id)} className="font-black text-red-700">Reativar</button>
                               </div>
                             </div>
                           ))}
-                        </section>
+                          </div>
+                        </details>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <button type="button" disabled={saving} onClick={closeEntityEditor} className="rounded-xl bg-white px-4 py-2.5 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar à lista</button>
@@ -3451,12 +3360,12 @@ function AlphabetConsulentePopup({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
             <h2 className="text-xl font-black text-[#123D2C]">Consulentes · {letter}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
           {loading ? (
@@ -3511,12 +3420,12 @@ function AlphabetEntityPopup({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Entidades com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
             <h2 className="text-xl font-black text-[#123D2C]">Entidades · {letter}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
           {entities.length === 0 ? (
@@ -3573,7 +3482,7 @@ function EntityChangePopup({
           <h2 className="text-xl font-black text-[#123D2C]">
             {request.mode === "bulk" ? "Trocar Entidade de todos" : "Trocar Entidade"}
           </h2>
-          <button type="button" disabled={saving} onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" disabled={saving} onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </div>
         <div className="grid gap-4 p-5">
           <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold text-[#123D2C]">
@@ -3715,8 +3624,8 @@ function SuccessPopup({ title, message, onClose }: { title: string; message: str
     <div className="fixed inset-0 z-[410] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
-          <h2 className="text-xl font-black text-[#123D2C]">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <h2 className="min-w-0 flex-1 truncate text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="p-4 sm:p-5">
           <p className="rounded-2xl bg-[#E9F2E7] p-4 font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">{message}</p>
@@ -3732,7 +3641,7 @@ function ErrorPopup({ title, message, onClose }: { title: string; message: strin
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-red-100 px-5 py-4">
           <h2 className="text-xl font-black text-red-800">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="p-4 sm:p-5">
           <p className="rounded-2xl bg-red-50 p-4 font-bold leading-6 text-red-800 ring-1 ring-red-100">{message}</p>
@@ -3772,7 +3681,7 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
 }
 
 function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><div className="flex items-center gap-2">{headerAction}<button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></div></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="min-w-0 flex-1 truncate text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {
