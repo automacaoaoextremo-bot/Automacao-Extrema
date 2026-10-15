@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasReceptionFunction, normalizeReceptionSchedule, receptionScheduleIsValid } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import nodemailer from "nodemailer";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -889,6 +890,10 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     const requestedCavalinhoConsulenteDefinitionCompleted =
       requestedProfile.cavalinhoConsulenteDefinitionCompleted === true ||
       requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
+    const requestedReceptionSchedule = normalizeReceptionSchedule(requestedProfile.receptionSchedule);
+    if (hasReceptionFunction(requestedFunctionSlugs) && !receptionScheduleIsValid(requestedProfile.receptionSchedule)) {
+      throw new Error("A escala de Recepção da solicitação não contém ocorrências válidas.");
+    }
     const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
     const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
     const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
@@ -918,6 +923,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         },
         profile: {
           functionSlugs: requestedFunctionSlugs,
+          receptionSchedule: requestedReceptionSchedule,
           agendaSlugs: requestedAgendaSlugs,
           selectedFunctions: requestedSelectedFunctions,
           selectedAgenda: requestedSelectedAgenda,
@@ -931,6 +937,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
       };
       const nextProfile = mergeProfile(currentProfile, {
         functionSlugs: requestedFunctionSlugs,
+        receptionSchedule: hasReceptionFunction(requestedFunctionSlugs) ? requestedReceptionSchedule : { monday: [], tuesday: [] },
         agendaSlugs: requestedAgendaSlugs,
         selectedFunctions: requestedSelectedFunctions,
         selectedAgenda: requestedSelectedAgenda,

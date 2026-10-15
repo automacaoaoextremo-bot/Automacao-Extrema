@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { hasReceptionFunction, type ReceptionSchedule, normalizeReceptionSchedule } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import {
   FormEvent,
   ReactNode,
@@ -72,6 +73,7 @@ type ProfilePayload = {
     notes?: string;
   };
   functionSlugs?: string[];
+  receptionSchedule?: ReceptionSchedule;
   availableFunctions?: DraftItem[];
   agendaSlugs?: string[];
   profileUpdateStatus?: string;
@@ -261,6 +263,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
   const [originalEmail, setOriginalEmail] = useState("");
   const [originalNotes, setOriginalNotes] = useState("");
   const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
+  const [receptionSchedule, setReceptionSchedule] = useState<ReceptionSchedule>({ monday: [], tuesday: [] });
+  const [originalReceptionSchedule, setOriginalReceptionSchedule] = useState<ReceptionSchedule>({ monday: [], tuesday: [] });
   const [functionOptions, setFunctionOptions] = useState<DraftItem[]>(
     filhoDaCorrenteFunctions.map((item) => ({
       slug: item.slug,
@@ -370,6 +374,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
     setOriginalEmail(loadedEmail);
     setOriginalNotes(loadedNotes);
     setFunctionSlugs(profile.functionSlugs ?? []);
+    setReceptionSchedule(normalizeReceptionSchedule(profile.receptionSchedule));
+    setOriginalReceptionSchedule(normalizeReceptionSchedule(profile.receptionSchedule));
     const dynamicFunctions = (profile.availableFunctions ?? []).filter(
       (item) =>
         item?.slug &&
@@ -532,6 +538,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       email.trim().toLowerCase() !== originalEmail.trim().toLowerCase() ||
       notes.trim() !== originalNotes.trim() ||
       sortedStringKey(functionSlugs) !== sortedStringKey(originalFunctionSlugs) ||
+      (hasReceptionFunction(functionSlugs) && JSON.stringify(receptionSchedule) !== JSON.stringify(originalReceptionSchedule)) ||
       sortedStringKey(agendaSlugs) !== sortedStringKey(originalAgendaSlugs) ||
       sortedStringKey(hasCavalinho ? cavalinhoEntityIds : []) !==
         sortedStringKey(originalFunctionSlugs.includes("cavalinho") ? originalCavalinhoEntityIds : []) ||
@@ -565,6 +572,8 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       originalFamilyLinks,
       originalFullName,
       originalFunctionSlugs,
+      receptionSchedule,
+      originalReceptionSchedule,
       originalNotes,
       originalWhatsapp,
       whatsapp,
@@ -662,6 +671,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       );
       return;
     }
+    if (hasReceptionFunction(functionSlugs) && receptionSchedule.monday.length + receptionSchedule.tuesday.length === 0) {
+      setError("Marque ao menos uma segunda ou terça-feira da escala da Recepção.");
+      return;
+    }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
       setError("Selecione pelo menos uma entidade que você recebe.");
       return;
@@ -706,6 +719,10 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
       setError(
         "Selecione pelo menos um Grupo de quinta-feira antes de enviar a atualização.",
       );
+      return;
+    }
+    if (hasReceptionFunction(functionSlugs) && receptionSchedule.monday.length + receptionSchedule.tuesday.length === 0) {
+      setError("Selecione pelo menos uma ocorrência na escala de Recepção.");
       return;
     }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
@@ -761,6 +778,7 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
             email,
             notes,
             functionSlugs,
+            receptionSchedule: hasReceptionFunction(functionSlugs) ? receptionSchedule : { monday: [], tuesday: [] },
             agendaSlugs,
             selectedFunctions,
             selectedAgenda,
@@ -1275,6 +1293,25 @@ export default function AtualizarDadosFilhoDaCorrentePage() {
                   );
                 })}
               </div>
+              {hasReceptionFunction(functionSlugs) && (
+                <section className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/15">
+                  <h3 className="text-sm font-black text-[#123D2C]">Escala de presença da Recepção *</h3>
+                  <p className="mt-1 text-xs text-slate-600">Marque as semanas em que estará no TUCXA. A escala não altera o recebimento de mensagens.</p>
+                  {([ ["monday", "Segunda-feira"], ["tuesday", "Terça-feira"] ] as const).map(([day, label]) => (
+                    <div key={day} className="mt-2">
+                      <p className="text-xs font-bold">{label}</p>
+                      <div className="mt-1 grid grid-cols-4 gap-1.5">
+                        {[1,2,3,4].map((week) => (
+                          <label key={week} className="flex items-center justify-center gap-1 rounded-lg bg-white p-2 text-xs ring-1 ring-[#123D2C]/10">
+                            <input type="checkbox" checked={receptionSchedule[day].includes(week)} onChange={(event) => setReceptionSchedule((previous) => ({...previous, [day]: event.target.checked ? [...previous[day], week].sort() : previous[day].filter((n) => n !== week) }))} />
+                            {week}ª
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              )}
               {hasCavalinho &&
                 visibleFunctions.some((item) => item.slug === "cavalinho") && (
                   <CavalinhoEntitySelector

@@ -7,6 +7,7 @@ import {
   isSementinhaSubfunctionSlug,
 } from "@/lib/organizacao-em-harmonia/sementinha-functions";
 import { profileHasCavalinho, resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
+import { hasReceptionFunction, normalizeReceptionSchedule, receptionScheduleIsValid } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import {
   loadEligibleFamilyPeople,
   loadFamilyRelationshipOptions,
@@ -317,6 +318,7 @@ async function profilePayload(organizationId: string, person: PersonRecord, memb
     },
     status: membership.status || "ativo",
     modules: Array.isArray(membership.module_slugs) ? membership.module_slugs : DEFAULT_MODULE_SLUGS,
+    receptionSchedule: normalizeReceptionSchedule(profile.receptionSchedule),
     functionSlugs: Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [],
     availableFunctions: filhoFunctionOptionsFromRoles(roles ?? []),
     agendaSlugs: Array.isArray(profile.agendaSlugs) ? profile.agendaSlugs.map((item) => asText(item)).filter(Boolean) : [],
@@ -376,6 +378,10 @@ export async function POST(request: Request) {
     const email = normalizeEmail(body.email);
     const notes = asText(body.notes);
     const functionSlugs = asTextList(body.functionSlugs);
+    const receptionSchedule = normalizeReceptionSchedule(body.receptionSchedule);
+    if (hasReceptionFunction(functionSlugs) && !receptionScheduleIsValid(body.receptionSchedule)) {
+      throw new Error("Selecione ao menos uma ocorrência da escala de Recepção (segunda ou terça-feira).");
+    }
     const agendaSlugs = asTextList(body.agendaSlugs);
     const selectedFunctions = asDraftItems(body.selectedFunctions);
     const selectedAgenda = asDraftItems(body.selectedAgenda);
@@ -491,6 +497,7 @@ export async function POST(request: Request) {
       selectedAgenda,
       selectedEntityIds: requestedHasCavalinho ? cavalinhoEntityIds : [],
       selectedEntities,
+      receptionSchedule: hasReceptionFunction(functionSlugs) ? receptionSchedule : { monday: [], tuesday: [] },
       cavalinhoConsulenteEntityId: requestedHasCavalinho ? cavalinhoConsulenteEntityId : "",
       cavalinhoConsulenteDefinitionCompleted: requestedHasCavalinho ? cavalinhoConsulenteDefinitionCompleted : false,
       familyLinks: selectedFamilyLinks,
@@ -498,6 +505,7 @@ export async function POST(request: Request) {
     const previousFamilyKeys = previousFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
     const requestedFamilyKeys = selectedFamilyLinks.map((item) => `${item.personId}:${item.relationshipTypeId}`);
     const changes = {
+      receptionScheduleChanged: JSON.stringify(normalizeReceptionSchedule(previousProfile.receptionSchedule)) !== JSON.stringify(hasReceptionFunction(functionSlugs) ? receptionSchedule : { monday: [], tuesday: [] }),
       functionsAdded: listDifference(functionSlugs, previousFunctionSlugs),
       functionsRemoved: listDifference(previousFunctionSlugs, functionSlugs),
       agendaAdded: listDifference(agendaSlugs, previousAgendaSlugs),
@@ -548,6 +556,7 @@ export async function POST(request: Request) {
         `E-mail: ${requestedPerson.email || "não informado"}`,
         `Observação: ${requestedPerson.notes || "não informada"}`,
         `Funções: ${selectedFunctions.map((item) => item.label).join(", ") || "Somente Filho da Corrente"}`,
+        `Escala Recepção: seg. ${receptionSchedule.monday.join(", ") || "-"}; ter. ${receptionSchedule.tuesday.join(", ") || "-"}`,
         `Agenda: ${selectedAgenda.map((item) => item.label).join(", ") || "Nenhuma"}`,
         `Familiares: ${selectedFamilyLinks.map((item) => `${item.personName} — ${item.relationshipLabel}`).join(", ") || "Nenhum"}`,
       ],
