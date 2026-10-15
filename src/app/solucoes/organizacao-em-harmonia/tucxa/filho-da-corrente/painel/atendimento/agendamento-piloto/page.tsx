@@ -392,6 +392,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
   const [bookingReturnToTriagem, setBookingReturnToTriagem] = useState(false);
+  const [bookingReturnModal, setBookingReturnModal] = useState<ModalKind>(null);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
@@ -876,11 +877,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setAlphabetReturnLetter("");
     setBookingResult(null);
     setBookingReturnToTriagem(returnToTriagem);
+    setBookingReturnModal(null);
     setError("");
     setEntitiesReturnToBooking(false);
     setModal("agendar");
     void load();
     // As iniciais já estão disponíveis localmente; a consulta ocorre ao selecionar uma letra.
+  }
+
+  function openBookingFromCurrentModal() {
+    const origin = modal;
+    openBookingModal(false);
+    setBookingReturnModal(origin);
   }
 
   async function loadEntityOverview() {
@@ -1300,7 +1308,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       resetBookingForm();
       const returnToTriagem = bookingReturnToTriagem;
       setBookingReturnToTriagem(false);
-      setModal(returnToTriagem ? "consultar" : null);
+      setModal(returnToTriagem ? "consultar" : bookingReturnModal);
+      setBookingReturnModal(null);
     } catch (bookError) {
       setError("");
       setErrorNotice({
@@ -1876,11 +1885,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
-          ) : modal === "consultar" ? (
-            <button type="button" onClick={() => openBookingModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15">
-              <span className="block text-xs font-black">Agendar</span>
-              <span className="block text-[8px] font-black uppercase tracking-[0.08em]">Toque para abrir</span>
-            </button>
+          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar"].includes(modal) ? (
+            <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
             if (modal === "configuracoes" && settingsSection) {
@@ -1916,6 +1922,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
             }
             if (modal === "agendar") {
               resetBookingForm();
+              if (bookingReturnModal) {
+                const returnModal = bookingReturnModal;
+                setBookingReturnModal(null);
+                setModal(returnModal);
+                return;
+              }
               if (bookingReturnToTriagem) {
                 setBookingReturnToTriagem(false);
                 setModal("consultar");
@@ -2713,7 +2725,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {paginatedEntityCatalog
                 .map((entity) => {
                   const overview = entityOverview[entity.id];
-                  const currentDayEntity = payload.entities.find((item) => item.id === entity.id);
                   return (
                     <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10">
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
@@ -2726,17 +2737,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <button type="button" onClick={() => openEntityCadastro(entity.id)} className="rounded-xl bg-white px-2.5 py-2 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Cadastro</button>
                         <button type="button" disabled={saving || (!overview?.nextDate && !entityOverviewLoading)} onClick={() => void openEntityBookingCalendar(entity)} className="rounded-xl bg-[#123D2C] px-2.5 py-2 text-[11px] font-black text-white disabled:opacity-40">Agendar</button>
                       </div>
-                      {currentDayEntity && (
-                        <div className={`mt-2 rounded-xl px-3 py-2 ${currentDayEntity.isAvailable === false ? "bg-red-50 text-red-800 ring-1 ring-red-100" : "bg-white text-[#123D2C] ring-1 ring-[#123D2C]/10"}`}>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-[0.12em]">{formatDateInputPtBr(payload.selectedDate)}</p>
-                              <p className="text-xs font-bold">{currentDayEntity.isAvailable === false ? `⚠ Indisponível · ${currentDayEntity.suspendedReason || "Atendimento suspenso"}` : `${currentDayEntity.available} vaga(s) disponível(is) de ${currentDayEntity.capacity}`}</p>
-                            </div>
-
-                          </div>
-                        </div>
-                      )}
                       {entity.mediums.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           {entity.mediums.map((medium) => (
