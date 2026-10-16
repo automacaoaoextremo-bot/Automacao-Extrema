@@ -754,7 +754,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,daily_capacity,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
+      .select("id,name,slug,line,daily_capacity,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -790,6 +790,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     return {
       id: asText(entity.id),
       name: asText(entity.name),
+      line: asText(entity.line),
       slug: asText(entity.slug),
       description: asText(entity.appointment_notes) || asText(entity.notes),
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),

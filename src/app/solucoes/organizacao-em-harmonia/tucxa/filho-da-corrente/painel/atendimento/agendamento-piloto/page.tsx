@@ -29,6 +29,7 @@ type Entity = { id: string; name: string; slug: string; capacity: number; booked
 type EntityCatalogItem = {
   id: string;
   name: string;
+  line: string;
   slug: string;
   description: string;
   capacity: number;
@@ -636,7 +637,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       || entityName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()
       || "";
     const cleanEntityName = catalogEntity?.name || baseName || entityName;
-    const title = cavalinho ? `${cleanEntityName} (${cavalinho})` : cleanEntityName;
+    const line = catalogEntity?.line?.trim() || "";
+    const firstMediumName = cavalinho.split(/\s+/)[0] || "";
+    const title = `${cleanEntityName.toLocaleUpperCase("pt-BR")}${line ? ` (${line})` : ""}${firstMediumName ? ` (${firstMediumName})` : ""}`;
     const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
     const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
     return `${title} ${booked}/${capacity}${entity?.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
@@ -3360,7 +3363,7 @@ function AlphabetConsulentePopup({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4">
+        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-3 sm:px-5 sm:py-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
             <h2 className="text-xl font-black text-[#123D2C]">Consulentes · {letter}</h2>
@@ -3624,7 +3627,7 @@ function SuccessPopup({ title, message, onClose }: { title: string; message: str
     <div className="fixed inset-0 z-[410] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
-          <h2 className="min-w-0 flex-1 truncate text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2>
+          <h2 className="min-w-0 flex-1 break-words text-[11px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2>
           <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="p-4 sm:p-5">

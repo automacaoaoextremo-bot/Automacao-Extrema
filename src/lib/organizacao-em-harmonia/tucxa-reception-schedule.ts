@@ -21,3 +21,16 @@ export function receptionScheduleIsValid(value: unknown): value is ReceptionSche
 export function hasReceptionFunction(slugs: string[]): boolean {
   return slugs.some((slug) => slug.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes("recepcao"));
 }
+
+/** Verifica a escala PREVISTA para a data, sem afirmar presença física. */
+export function receptionScheduledForDate(value: unknown, isoDate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return false;
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== isoDate) return false;
+  const weekday = date.getUTCDay();
+  if (weekday !== 1 && weekday !== 2) return false;
+  const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1;
+  if (occurrence > 4) return false;
+  const schedule = normalizeReceptionSchedule(value);
+  return (weekday === 1 ? schedule.monday : schedule.tuesday).includes(occurrence);
+}

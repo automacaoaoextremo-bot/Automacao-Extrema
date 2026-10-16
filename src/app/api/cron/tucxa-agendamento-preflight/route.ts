@@ -1,5 +1,6 @@
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
+import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
@@ -90,7 +91,9 @@ export async function GET(request: Request) {
     const entities = entitiesResult.data ?? [];
     const preferenceMap = new Map((preferencesResult.data ?? []).map((p) => [str(p.person_id), p.reminder_whatsapp_enabled]));
     const receptionIds = [...new Set((membershipsResult.data ?? [])
-      .filter((m) => hasReception(m.agenda_viva_profile)).map((m) => str(m.person_id)).filter(Boolean))];
+      .filter((m) => hasReception(m.agenda_viva_profile))
+      .filter((m) => receptionScheduledForDate(obj(m.agenda_viva_profile).receptionSchedule, date))
+      .map((m) => str(m.person_id)).filter(Boolean))];
     const linkedIds = [...new Set((linksResult.data ?? []).map((l) => str(l.person_id)).filter(Boolean))];
     const allIds = [...new Set([...receptionIds, ...linkedIds])];
     const peopleResult = allIds.length ? await supabaseAdmin.from("oh_people")

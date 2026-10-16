@@ -1,3 +1,4 @@
+import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
@@ -384,9 +385,12 @@ export async function GET(request: Request) {
           .eq("active", true);
         if (membershipError) throw membershipError;
 
+        // Dupla condição: vínculo com função Recepção + escala prevista para esta data.
+        // A allowlist e a preferência de canal continuam obrigatórias abaixo.
         const receptionIds = [...new Set(
           (memberships ?? [])
             .filter((item) => profileHasReception(item.agenda_viva_profile))
+            .filter((item) => receptionScheduledForDate(record(item.agenda_viva_profile).receptionSchedule, date))
             .map((item) => text(item.person_id))
             .filter(Boolean),
         )];
