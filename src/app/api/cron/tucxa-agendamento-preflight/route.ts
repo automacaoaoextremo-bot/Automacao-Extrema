@@ -3,7 +3,6 @@ import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllo
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
 import {
   findTucxaOrganization,
   isCampinasHoliday,
@@ -101,15 +100,7 @@ export async function GET(request: Request) {
       .in("id", allIds).eq("active", true) : { data: [], error: null };
     if (peopleResult.error) throw peopleResult.error;
     const people = new Map((peopleResult.data ?? []).map((p) => [str(p.id), p]));
-    const receptionPreferences = receptionIds.length
-      ? await supabaseAdmin.from("oh_tucxa_pilot_person_preferences")
-        .select("person_id,reception_summary_channels").eq("organization_id", organization.id).in("person_id", receptionIds)
-      : { data: [], error: null };
-    if (receptionPreferences.error) throw receptionPreferences.error;
-    const channels = new Map((receptionPreferences.data ?? []).map((p) => [str(p.person_id), receptionSummaryChannels(p.reception_summary_channels)]));
-    const receptionPolicy = receptionDispatchPolicy();
     const entityNames = new Map(entities.map((e) => [str(e.id), str(e.name)]));
-    const entityEnabled = new Set(entities.filter((e) => e.pilot_cavalinho_whatsapp_enabled === true).map((e) => str(e.id)));
     const generalWhatsapp = enabled("BOTCONVERSA_ENABLED") && enabled("BOTCONVERSA_TUCXA_ENABLED");
     const reminderFlow = envConfigured("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW");
     const cavalinhoFlow = envConfigured("BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW");
@@ -127,7 +118,7 @@ export async function GET(request: Request) {
         eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && appointmentDispatchAllowed(date, str(appointment.id), phone),
       };
     });
-    const cavalinhos = (linksResult.data ?? []).filter((link) => entityEnabled.has(str(link.entity_id)))
+    const cavalinhos = (linksResult.data ?? [])
       .map((link) => ({
         entity: entityNames.get(str(link.entity_id)), personId: str(link.person_id),
         person: people.get(str(link.person_id))?.full_name || "Não encontrado/inativo",
@@ -139,9 +130,8 @@ export async function GET(request: Request) {
       }));
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
-      const configuredChannels = channels.get(personId);
-      const whatsapp = configuredChannels?.includes("whatsapp") === true;
-      const explicitlyAuthorized = receptionPolicy.allows(personId);
+      const whatsapp = true; // Função Recepção ativa e escala aprovada autorizam o envio.
+      const explicitlyAuthorized = true;
       return {
         personId, person: person?.full_name || "Não encontrado/inativo",
         phone: masked(person?.whatsapp), whatsappSelected: whatsapp,
@@ -173,8 +163,8 @@ export async function GET(request: Request) {
         botconversaEnabled: enabled("BOTCONVERSA_ENABLED"),
         tucxaEnabled: enabled("BOTCONVERSA_TUCXA_ENABLED"),
         deploymentEnvironment: str(process.env.VERCEL_ENV) || "local",
-        receptionPilotPolicy: receptionPolicy.mode,
-        receptionAllowlistSize: receptionPolicy.allowedCount,
+        receptionPilotPolicy: "approved_reception_schedule",
+        receptionAllowlistSize: null,
         generalWhatsapp, reminderFlow, cavalinhoFlow, receptionFlow,
         reminderFields: requiredReminderFields.every((key) => envConfigured(key)),
         individualNoticeField,

@@ -4,6 +4,9 @@ import {
   findTucxaOrganization,
   isCampinasHoliday,
   loadPilotSettings,
+  createConfirmationToken,
+  confirmationTokenHash,
+  confirmationDeadlineIso,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
@@ -195,8 +198,26 @@ async function processDayOfReminders(
     }
 
     const entityName = entityNames.get(asText(appointment.entity_id)) || "Entidade";
+    const isConfirmed = appointment.confirmation_status === "confirmed";
+    let confirmationUrl: string | undefined;
+    if (!isConfirmed) {
+      const settings = await loadPilotSettings(organizationId);
+      const expiry = confirmationDeadlineIso(appointment.appointment_date, settings.confirmationCutoff);
+      if (Date.parse(expiry) > Date.now()) {
+        const token = createConfirmationToken();
+        const { error: tokenError } = await supabaseAdmin.from("oh_consulente_appointments")
+          .update({ confirmation_token_hash: confirmationTokenHash(token), confirmation_expires_at: expiry, confirmation_status: "pending", updated_at: new Date().toISOString() })
+          .eq("organization_id", organizationId).eq("id", appointment.id);
+        if (tokenError) throw tokenError;
+        const publicBase = (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_URL)
+          ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
+          : (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com");
+        confirmationUrl = `${publicBase.replace(/\/$/, "")}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
+      }
+    }
     const result = await sendTucxaAppointmentWhatsapp({
       kind: "reminder",
+      confirmationUrl,
       fullName: asText(appointment.consulente_name) || "Consulente",
       recipientName: asText(appointment.notification_contact_name) || asText(appointment.consulente_name) || "Consulente",
       whatsapp: phone,
@@ -235,23 +256,32 @@ async function processDayOfReminders(
     if (result.sent) {
       sent += 1;
       sentAppointments.add(appointment.id);
-      const auditCopied = await sendTucxaAppointmentAuditEmail({
-        event: "Lembrete de agendamento enviado",
-        consulenteName: asText(appointment.consulente_name),
-        appointmentDate: appointment.appointment_date,
-        entityName,
-        message: appointmentReminderMessage({
+    } else {
+      failed += 1;
+    }
+    const auditCopied = await sendTucxaAppointmentAuditEmail({
+      event: result.sent ? "Lembrete de agendamento enviado" : "Falha no lembrete de agendamento",
+      consulenteName: asText(appointment.consulente_name),
+      appointmentDate: appointment.appointment_date,
+      entityName,
+      details: `Destinatário: ${asText(appointment.notification_contact_name) || asText(appointment.consulente_name)}\nWhatsApp: ${phone}\nResultado: ${result.sent ? "enviado" : "falhou"}\nMotivo: ${result.error || "nenhum"}`,
+      message: [
+        `Destinatário: ${asText(appointment.notification_contact_name) || asText(appointment.consulente_name)}`,
+        `WhatsApp: ${phone}`,
+        `Resultado: ${result.sent ? "enviado" : "falhou"}`,
+        result.error ? `Motivo: ${result.error}` : "",
+        "",
+        appointmentReminderMessage({
           fullName: asText(appointment.consulente_name) || "Consulente",
           appointmentDate: appointment.appointment_date,
           entityName,
           order: appointmentOrder(appointment.metadata),
-          confirmed: appointment.confirmation_status === "confirmed",
+          confirmed: isConfirmed,
+          confirmationUrl,
         }),
-      });
-      if (!auditCopied) console.error("[TUCXA auditoria] falha ao copiar lembrete", appointment.id);
-    } else {
-      failed += 1;
-    }
+      ].filter(Boolean).join("\n"),
+    });
+    if (!auditCopied) console.error("[TUCXA auditoria] falha ao copiar lembrete", appointment.id);
   }
 
   return { sent, skipped, failed, checked: rows.length };
