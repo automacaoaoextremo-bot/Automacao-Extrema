@@ -1058,6 +1058,14 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     };
   }
 
+  // Primeiro Acesso: a escala deve existir no perfil pendente antes da aprovação.
+  // Não atualizar o perfil ativo se uma solicitação antiga de Recepção não a tiver.
+  const firstAccessProfile = asRecord(currentMembership.agenda_viva_profile);
+  const firstAccessFunctions = asTextList(firstAccessProfile.functionSlugs ?? validationRequest?.function_slugs);
+  if (approved && hasReceptionFunction(firstAccessFunctions) && !receptionScheduleIsValid(firstAccessProfile.receptionSchedule)) {
+    throw new Error("Escala da Recepção ausente no Primeiro Acesso. Solicite ajuste do cadastro antes da aprovação.");
+  }
+
   const firstAccessEntityIds = asTextList(
     requestSummary.selectedEntityIds ??
     requestSummary.cavalinhoEntityIds,

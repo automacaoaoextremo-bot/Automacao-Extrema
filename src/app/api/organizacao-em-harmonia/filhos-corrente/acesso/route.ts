@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasReceptionFunction, normalizeReceptionSchedule, receptionScheduleIsValid } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { loadFilhoFunctionOptions } from "@/lib/organizacao-em-harmonia/filho-function-options";
@@ -40,6 +41,7 @@ type AccessBody = {
   password?: string;
   notes?: string;
   functionSlugs?: unknown;
+  receptionSchedule?: unknown;
   agendaSlugs?: unknown;
   selectedFunctions?: unknown;
   selectedAgenda?: unknown;
@@ -897,6 +899,10 @@ async function submitFirstAccess(body: AccessBody) {
   const password = asText(body.password);
   const notes = asText(body.notes);
   const functionSlugs = asTextList(body.functionSlugs);
+  const receptionSchedule = normalizeReceptionSchedule(body.receptionSchedule);
+  if (hasReceptionFunction(functionSlugs) && !receptionScheduleIsValid(body.receptionSchedule)) {
+    throw new Error("Informe pelo menos uma ocorrência de segunda ou terça para a função Recepção.");
+  }
   const agendaSlugs = asTextList(body.agendaSlugs);
   const selectedFunctions = asDraftItems(body.selectedFunctions);
   const selectedAgenda = asDraftItems(body.selectedAgenda);
@@ -1006,6 +1012,7 @@ async function submitFirstAccess(body: AccessBody) {
     source: "primeiro_acesso_filho_corrente",
     validationStatus: "pendente_validacao",
     functionSlugs,
+    receptionSchedule: hasReceptionFunction(functionSlugs) ? receptionSchedule : { monday: [], tuesday: [] },
     agendaSlugs,
     selectedFunctions,
     selectedAgenda,

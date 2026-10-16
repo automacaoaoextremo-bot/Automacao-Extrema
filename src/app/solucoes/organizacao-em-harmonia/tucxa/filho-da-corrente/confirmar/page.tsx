@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
+import { hasReceptionFunction, normalizeReceptionSchedule, receptionScheduleIsValid, type ReceptionSchedule } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 
 type DraftItem = { slug: string; label: string; description?: string };
 type EntityItem = { id: string; name: string };
@@ -19,6 +20,7 @@ type FirstAccessDraft = {
   password: string;
   notes: string;
   functionSlugs: string[];
+  receptionSchedule?: ReceptionSchedule;
   agendaSlugs: string[];
   selectedFunctions: DraftItem[];
   selectedAgenda: DraftItem[];
@@ -64,6 +66,10 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
 
   async function submit() {
     if (!draft || loading) return;
+    if (hasReceptionFunction(draft.functionSlugs ?? []) && !receptionScheduleIsValid(draft.receptionSchedule)) {
+      setError("A escala da Recepção é obrigatória. Volte e selecione pelo menos uma semana de atuação.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -168,6 +174,13 @@ export default function ConfirmarPrimeiroAcessoFilhoCorrentePage() {
                       </ul>
                     </div>
                   </div>
+                  {hasReceptionFunction(draft.functionSlugs ?? []) && (
+                    <section className="mt-3 rounded-[1.25rem] border border-[#123D2C]/10 p-3 sm:p-4">
+                      <h2 className="font-black text-[#123D2C]">Escala de presença da Recepção</h2>
+                      <p className="mt-2 text-sm font-semibold text-slate-700">Segunda-feira: {normalizeReceptionSchedule(draft.receptionSchedule).monday.map((n) => `${n}ª`).join(", ") || "nenhuma"}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-700">Terça-feira: {normalizeReceptionSchedule(draft.receptionSchedule).tuesday.map((n) => `${n}ª`).join(", ") || "nenhuma"}</p>
+                    </section>
+                  )}
                   {hasCavalinho && draft.selectedEntities.length > 0 && (
                     <div id="entidades" className="mt-3 grid scroll-mt-40 gap-3 sm:grid-cols-2">
                       <div className="rounded-[1.25rem] border border-[#123D2C]/10 p-3 sm:p-4">

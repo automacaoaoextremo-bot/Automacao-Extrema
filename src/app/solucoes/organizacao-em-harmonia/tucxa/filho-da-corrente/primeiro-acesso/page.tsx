@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { hasReceptionFunction, normalizeReceptionSchedule, type ReceptionSchedule } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { CavalinhoEntitySelector } from "@/components/organizacao-em-harmonia/cavalinho-entity-selector";
 import { SementinhaSubfunctionSelector } from "@/components/organizacao-em-harmonia/sementinha-subfunction-selector";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
@@ -56,6 +57,7 @@ type FirstAccessDraft = {
   password: string;
   notes: string;
   functionSlugs: string[];
+  receptionSchedule: ReceptionSchedule;
   agendaSlugs: string[];
   selectedFunctions: Array<{ slug: string; label: string }>;
   selectedAgenda: Array<{ slug: string; label: string; description: string }>;
@@ -172,6 +174,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   const [notes, setNotes] = useState("");
 
   const [functionSlugs, setFunctionSlugs] = useState<string[]>([]);
+  const [receptionSchedule, setReceptionSchedule] = useState<ReceptionSchedule>({ monday: [], tuesday: [] });
   const [functionOptions, setFunctionOptions] = useState<DraftItem[]>(
     filhoDaCorrenteFunctions.map((item) => ({
       slug: item.slug,
@@ -349,6 +352,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
               )
             : [],
         );
+        setReceptionSchedule(normalizeReceptionSchedule(draft.receptionSchedule));
         setAgendaSlugs(
           Array.isArray(draft.agendaSlugs)
             ? draft.agendaSlugs.filter(
@@ -585,6 +589,10 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
   }
 
   function confirmParticipationStep() {
+    if (hasReceptionFunction(functionSlugs) && receptionSchedule.monday.length + receptionSchedule.tuesday.length === 0) {
+      setError("Selecione pelo menos uma semana de segunda-feira ou terça-feira para a função Recepção.");
+      return;
+    }
     if (hasCavalinho && cavalinhoEntityIds.length === 0) {
       setError("Selecione pelo menos uma entidade que você recebe.");
       return;
@@ -643,6 +651,11 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
       return;
     }
 
+    if (hasReceptionFunction(functionSlugs) && receptionSchedule.monday.length + receptionSchedule.tuesday.length === 0) {
+      setError("Selecione pelo menos uma semana de atuação na Recepção antes de enviar para validação.");
+      return;
+    }
+
     const draft: FirstAccessDraft = {
       fullName: fullName.trim(),
       whatsapp: whatsapp.trim(),
@@ -650,6 +663,7 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
       password: signupPassword,
       notes: notes.trim(),
       functionSlugs,
+      receptionSchedule: hasReceptionFunction(functionSlugs) ? normalizeReceptionSchedule(receptionSchedule) : { monday: [], tuesday: [] },
       agendaSlugs,
       selectedFunctions,
       selectedAgenda,
@@ -1097,6 +1111,28 @@ export default function FilhoDaCorrentePrimeiroAcessoPage() {
                   </label>
                 ))}
               </div>
+              {hasReceptionFunction(functionSlugs) && (
+                <section className="mt-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/15">
+                  <h3 className="text-sm font-black text-[#123D2C]">Escala de presença da Recepção *</h3>
+                  <p className="mt-1 text-xs text-slate-600">Escolha as semanas em que estará no TUCXA. Pelo menos uma é obrigatória. A escala não muda notificações de WhatsApp ou e-mail.</p>
+                  {([ ["monday", "Segunda-feira"], ["tuesday", "Terça-feira"] ] as const).map(([day, label]) => (
+                    <div key={day} className="mt-2">
+                      <p className="text-xs font-bold">{label}</p>
+                      <div className="mt-1 grid grid-cols-4 gap-1.5">
+                        {[1, 2, 3, 4].map((week) => (
+                          <label key={week} className="flex items-center justify-center gap-1 rounded-lg bg-white p-2 text-xs ring-1 ring-[#123D2C]/10">
+                            <input type="checkbox" checked={receptionSchedule[day].includes(week)} onChange={(event) => {
+                              invalidateStep("participacao");
+                              setReceptionSchedule((previous) => ({ ...previous, [day]: event.target.checked ? [...previous[day], week].sort((a, b) => a - b) : previous[day].filter((n) => n !== week) }));
+                            }} />
+                            {week}ª
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              )}
               {hasCavalinho &&
                 visibleFunctions.some((item) => item.slug === "cavalinho") && (
                   <CavalinhoEntitySelector
