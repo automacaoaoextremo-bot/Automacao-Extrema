@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
@@ -637,12 +636,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
       || entityName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()
       || "";
     const cleanEntityName = catalogEntity?.name || baseName || entityName;
-    const line = catalogEntity?.line?.trim() || "";
+    const line = catalogEntity?.line?.trim() === "ATENDIMENTO FILHO DE FORA" ? "" : (catalogEntity?.line?.trim() || "");
     const firstMediumName = cavalinho.split(/\s+/)[0] || "";
-    const title = `${cleanEntityName.toLocaleUpperCase("pt-BR")}${line ? ` (${line})` : ""}${firstMediumName ? ` (${firstMediumName})` : ""}`;
+    const title = `${cleanEntityName.toLocaleUpperCase("pt-BR")} (${line})${firstMediumName ? ` (${firstMediumName})` : ""}`;
     const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
     const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
     return `${title} ${booked}/${capacity}${entity?.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
+  }
+
+  function entityWithLine(name: string) {
+    const base = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const entity = payload?.entityCatalog.find((item) => item.name === name || item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === base);
+    const line = entity?.line?.trim();
+    return `${base}${line && line.toLocaleUpperCase("pt-BR") !== "ATENDIMENTO FILHO DE FORA" ? ` (${line})` : ""}`;
   }
 
   const filteredAppointments = useMemo(() => {
@@ -1231,7 +1237,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         whatsapp: searchHasPhone ? (newPersonWhatsapp || phone) : newPersonWhatsapp,
         birthDate: registrationDateInSaoPaulo(),
         email: newPerson.email,
-        password: newPersonWhatsapp || phone ? newPerson.password : "",
+        password: newPerson.password,
         privacyAccepted: newPerson.privacyAccepted,
       });
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
@@ -1888,7 +1894,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
-          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar"].includes(modal) ? (
+          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao"].includes(modal) ? (
             <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
@@ -1962,9 +1968,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span>
                 <span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
               </button>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao?from=acolhimento" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <button type="button" onClick={() => setModal("gestao")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Envios WhatsApp e relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
-              </Link>
+              </button>
             </div>
           )}
 
@@ -2395,7 +2401,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {group.appointments.map((appointment) => {
                     const detail = effectiveConsultView === "entity_day"
                       ? (appointment.order ? `Ordem de agendamento ${appointment.order}` : "")
-                      : [appointment.entityName, appointment.order ? `ordem de agendamento ${appointment.order}` : ""].filter(Boolean).join(" · ");
+                      : [entityWithLine(appointment.entityName), appointment.order ? `ordem de agendamento ${appointment.order}` : ""].filter(Boolean).join(" · ");
                     const actionsOpen = openAppointmentActions[appointment.id] === true;
                     return (
                       <article key={appointment.id} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
@@ -2460,7 +2466,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <article key={`lista-consulente-${appointment.id}`} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {appointment.entityName}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {entityWithLine(appointment.entityName)}</h4>
                             {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
                           </div>
                           <div className="flex max-w-full shrink-0 flex-col items-end">
@@ -2732,7 +2738,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10">
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                         <div className="min-w-0">
-                          <h3 className="truncate text-sm font-black text-[#123D2C]">{entity.name}</h3>
+                          <h3 className="break-words text-sm font-black text-[#123D2C]">{entityWithLine(entity.name)}</h3>
                           <p className="truncate text-[10px] font-semibold text-slate-600">
                             {overview?.nextDate ? `${shortDate(overview.nextDate)} · ${overview.available} vaga(s)` : entityOverviewLoading ? "carregando..." : "sem vaga no período"}
                           </p>
@@ -2867,6 +2873,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <label className="grid gap-1 text-xs font-black text-amber-950">E-mail opcional
                         <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 p-3" />
                       </label>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">Senha inicial
+                        <span className="flex gap-2"><input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} type={showNewPersonPassword ? "text" : "password"} minLength={8} required className="min-w-0 flex-1 rounded-xl border border-amber-200 p-3" /><button type="button" onClick={() => setShowNewPersonPassword((current) => !current)} className="rounded-xl border border-amber-300 bg-white px-3">{showNewPersonPassword ? "Ocultar" : "Mostrar"}</button></span>
+                        <span className="text-[11px] font-semibold">Senha inicial padrão: 12345678. Solicitar troca no primeiro acesso.</span>
+                      </label>
                       <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
                       <div className="grid grid-cols-2 gap-2">
                         <button type="button" disabled={saving} onClick={clearPersonSearch} className="rounded-xl bg-white px-4 py-3 font-black text-amber-950 ring-1 ring-amber-200 disabled:opacity-60">Voltar à lista</button>
@@ -2890,7 +2900,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
                         <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required>
                           <option value="">Selecione a Entidade padrão</option>
-                          {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                          {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
                         </select>
                       </label>
                       <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
@@ -2941,7 +2951,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                   <option value="">Selecione a Entidade padrão</option>
                                   {payload.entityCatalog
                                     .filter((entity) => entity.active && entity.appointmentEnabled)
-                                    .map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                                    .map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
                                 </select>
                               </label>
                               <Toggle
@@ -3423,7 +3433,7 @@ function AlphabetEntityPopup({
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Entidades com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4">
+        <header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
             <h2 className="text-xl font-black text-[#123D2C]">Entidades · {letter}</h2>
@@ -3684,7 +3694,7 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
 }
 
 function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="min-w-0 flex-1 truncate text-sm font-black text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5"><h2 className="min-w-0 flex-1 break-words text-[13px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {

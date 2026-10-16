@@ -8,7 +8,7 @@ type Row = Record<string, string | number | null>;
 type DateMode = "from_today" | "specific" | "period" | "before" | "all";
 
 const API = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/relatorios";
-const DATE_KINDS = new Set(["atendimentos", "caderno", "sem_whatsapp_terceiros"]);
+const DATE_KINDS = new Set(["atendimentos", "caderno", "sem_whatsapp_terceiros", "disponibilidade", "semanas_entidades"]);
 
 function visibleHeaders(row: Row) {
   return Object.keys(row).filter((key) => !key.startsWith("_"));
@@ -246,6 +246,8 @@ export function TucxaPilotReports() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [person, setPerson] = useState("");
+  const [lineFilter, setLineFilter] = useState("");
+  const [entityFilter, setEntityFilter] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -278,6 +280,8 @@ export function TucxaPilotReports() {
         }
       }
       if (person) query.set("person", person);
+      if (lineFilter.trim()) query.set("line", lineFilter.trim());
+      if (entityFilter.trim()) query.set("entity", entityFilter.trim());
       const response = await fetch(`${API}?${query}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await response.json();
       if (!response.ok) return setError(json.error || "Falha ao gerar relatório.");
@@ -337,12 +341,18 @@ export function TucxaPilotReports() {
             <option value="sem_whatsapp_terceiros">Consulentes sem WhatsApp · agendados por outra pessoa</option>
             <option value="consulentes">Consulentes</option>
             <option value="entidades">Entidades / Cavalinhos</option>
+            <option value="disponibilidade">Disponibilidade por data ou período</option>
+            <option value="semanas_entidades">Semanas do mês · Entidades e Linhas</option>
           </select>
         </label>
 
         {usesDate && <label className="grid gap-1 text-sm font-bold"><span>Período</span><select value={dateMode} onChange={(event) => setDateMode(event.target.value as DateMode)} className="rounded-xl border p-3 font-normal"><option value="from_today">Todos a partir de hoje</option><option value="specific">Data específica</option><option value="period">Período específico</option><option value="before">Anteriores à data</option><option value="all">Todos</option></select></label>}
         {usesDate && (dateMode === "specific" || dateMode === "period") && <DateField label={dateMode === "specific" ? "Data" : "Data inicial"} value={dateFrom} onChange={setDateFrom} />}
         {usesDate && (dateMode === "period" || dateMode === "before") && <DateField label={dateMode === "period" ? "Data final" : "Antes de"} value={dateTo} onChange={setDateTo} />}
+        {(kind === "disponibilidade" || kind === "semanas_entidades") && <>
+          <label className="grid gap-1 text-sm font-bold"><span>Linha</span><input value={lineFilter} onChange={(event) => setLineFilter(event.target.value)} placeholder="Ex.: Oxossi" className="rounded-xl border p-3 font-normal" /></label>
+          <label className="grid gap-1 text-sm font-bold"><span>Entidade</span><input value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)} placeholder="Ex.: Aruando" className="rounded-xl border p-3 font-normal" /></label>
+        </>}
         <label className="grid gap-1 text-sm font-bold"><span>Consulente</span><input value={person} onChange={(event) => setPerson(event.target.value)} placeholder="Nome do consulente" className="rounded-xl border p-3 font-normal" /></label>
         <button onClick={() => void load()} disabled={loading} className="self-end rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-60">{loading ? "Consultando..." : "Consultar"}</button>
       </div>

@@ -52,7 +52,7 @@ async function entityNames(organizationId: string, ids: string[]) {
   if (!ids.length) return new Map<string, string>();
   const { data, error } = await supabaseAdmin
     .from("oh_spiritual_entities")
-    .select("id,name")
+    .select("id,name,line")
     .eq("organization_id", organizationId)
     .in("id", ids);
   if (error) throw error;
@@ -75,7 +75,9 @@ async function entityNames(organizationId: string, ids: string[]) {
 
   return new Map((data ?? []).map((item) => {
     const entityId = text(item.id);
-    const entityName = text(item.name) || "Entidade";
+    const rawLine = text(item.line);
+    const line = normalizedText(rawLine) === "atendimento filho de fora" ? "" : rawLine;
+    const entityName = `${text(item.name) || "Entidade"}${line ? ` (${line})` : ""}`;
     const cavalinhos = (links ?? [])
       .filter((link) => text(link.entity_id) === entityId)
       .map((link) => peopleMap.get(text(link.person_id)) || "")
@@ -168,6 +170,8 @@ export async function GET(request: Request) {
     const dateFrom = text(url.searchParams.get("dateFrom"));
     const dateTo = text(url.searchParams.get("dateTo"));
     const person = text(url.searchParams.get("person")).toLocaleLowerCase("pt-BR");
+    const lineFilter = normalizedText(url.searchParams.get("line"));
+    const entityFilter = normalizedText(url.searchParams.get("entity"));
 
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
@@ -523,10 +527,51 @@ export async function GET(request: Request) {
       return NextResponse.json({ rows });
     }
 
+    if (kind === "disponibilidade" || kind === "semanas_entidades") {
+      const settings = await loadPilotSettings(context.organizationId);
+      const known = await loadPilotDates(context.organizationId, Math.min(180, Math.max(31, settings.daysAhead)));
+      const dates = known.map((item) => item.date).filter((date) => {
+        if (dateMode === "specific") return date === dateFrom;
+        if (dateMode === "period") return date >= dateFrom && date <= dateTo;
+        if (dateMode === "before") return date < dateTo;
+        if (dateMode === "from_today") return date >= todayInSaoPaulo();
+        return true;
+      });
+      const rows: Array<Record<string, string | number>> = [];
+      for (const date of dates) {
+        const day = await loadPilotDay(context.organizationId, date);
+        const ids = day.map((entity) => entity.id);
+        if (!ids.length) continue;
+        const { data: catalog, error: catalogError } = await supabaseAdmin.from("oh_spiritual_entities")
+          .select("id,name,line").eq("organization_id", context.organizationId).in("id", ids);
+        if (catalogError) throw catalogError;
+        const catalogMap = new Map((catalog ?? []).map((entity) => [text(entity.id), entity]));
+        for (const entity of day) {
+          const item = catalogMap.get(entity.id);
+          const rawLine = text(item?.line);
+          const line = normalizedText(rawLine) === "atendimento filho de fora" ? "" : rawLine;
+          if (lineFilter && !normalizedText(line).includes(lineFilter)) continue;
+          if (entityFilter && !normalizedText(item?.name || entity.name).includes(entityFilter)) continue;
+          rows.push({
+            Data: dateLabel(date),
+            "Semana do mês": Math.floor((Number(date.slice(8, 10)) - 1) / 7) + 1,
+            Dia: new Intl.DateTimeFormat("pt-BR", { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`)),
+            Entidade: `${text(item?.name) || entity.name}${line ? ` (${line})` : ""}`,
+            Linha: line,
+            Capacidade: Math.max(1, Number(entity.capacity) || 1),
+            Agendados: Math.max(0, Number(entity.booked) || 0),
+            Disponíveis: entity.isAvailable === false ? 0 : Math.max(0, Number(entity.available) || 0),
+            Situação: entity.isAvailable === false ? "Indisponível" : "Disponível",
+          });
+        }
+      }
+      return NextResponse.json({ rows });
+    }
+
     if (kind === "entidades") {
       const { data: entities, error } = await supabaseAdmin
         .from("oh_spiritual_entities")
-        .select("id,name,active,appointment_enabled,daily_capacity")
+        .select("id,name,line,active,appointment_enabled,daily_capacity")
         .eq("organization_id", context.organizationId)
         .order("name", { ascending: true });
       if (error) throw error;
@@ -553,6 +598,7 @@ export async function GET(request: Request) {
           .filter(Boolean);
         return {
         Entidade: cavalinhos.length ? `${text(entity.name)} (${cavalinhos.join(", ")})` : text(entity.name),
+        Linha: normalizedText(entity.line) === "atendimento filho de fora" ? "" : text(entity.line),
         Cavalinhos: cavalinhos.join(", "),
         "Capacidade padrão": Number(entity.daily_capacity ?? 0) || "",
         "Agendamento habilitado": entity.appointment_enabled === true ? "Sim" : "Não",
