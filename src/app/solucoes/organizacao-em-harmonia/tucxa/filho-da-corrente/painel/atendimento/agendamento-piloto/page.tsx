@@ -356,6 +356,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [gestaoView, setGestaoView] = useState<"inicio" | "envios" | "relatorios">("inicio");
+  const [gestaoResetKey, setGestaoResetKey] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
@@ -1943,6 +1945,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 return;
               }
             }
+            if (modal === "gestao") {
+              if (gestaoView !== "inicio") {
+                setGestaoResetKey((current) => current + 1);
+                setGestaoView("inicio");
+              } else {
+                setModal("acolhimento");
+              }
+              return;
+            }
             setModal(null);
           }}
         >
@@ -1975,7 +1986,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "gestao" && (
-            <TucxaGestaoContent embedded />
+            <TucxaGestaoContent key={gestaoResetKey} embedded onViewChange={setGestaoView} />
           )}
 
           {modal === "painel" && (
@@ -2085,6 +2096,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               )}
 
+              </>)}
+
               {personNotFound && searchHasPhone && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
@@ -2113,7 +2126,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
                 </form>
               )}
-              </>)}
 
               {foundPerson && (
                 <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">

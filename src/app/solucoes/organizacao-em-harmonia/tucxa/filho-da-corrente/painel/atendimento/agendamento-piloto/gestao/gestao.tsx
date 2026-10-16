@@ -74,10 +74,12 @@ async function token() {
   return data.session?.access_token || "";
 }
 
-export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean }) {
+export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedded?: boolean; onViewChange?: (view: View) => void }) {
   const [view, setView] = useState<View>("inicio");
   const [date, setDate] = useState(() => isoDateOffset(1));
   const [appointments, setAppointments] = useState<DispatchAppointment[]>([]);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [datesLoading, setDatesLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [readiness, setReadiness] = useState<FlowReadiness>({ requestedReminder: false, confirmedReminder: false, pizza: false });
   const [loading, setLoading] = useState(false);
@@ -86,6 +88,39 @@ export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean })
   const [error, setError] = useState("");
 
   const flowsReady = readiness.requestedReminder && readiness.confirmedReminder && readiness.pizza;
+
+  const loadAvailableDates = useCallback(async () => {
+    setDatesLoading(true);
+    setError("");
+    try {
+      const accessToken = await token();
+      if (!accessToken) throw new Error("Sua sessão expirou. Entre novamente no TUCXA.");
+      const response = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ action: "management-dispatch-dates" }),
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as { dates?: string[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível consultar datas com agendamentos.");
+      const dates = Array.isArray(payload.dates) ? payload.dates.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)) : [];
+      setAvailableDates(dates);
+      setDate((current) => dates.includes(current) ? current : (dates[0] || ""));
+    } catch (loadError) {
+      setAvailableDates([]);
+      setDate("");
+      setError(loadError instanceof Error ? loadError.message : "Não foi possível consultar datas com agendamentos.");
+    } finally {
+      setDatesLoading(false);
+    }
+  }, []);
+
+  function navigate(next: View) {
+    setView(next);
+    onViewChange?.(next);
+    if (next === "envios") void loadAvailableDates();
+  }
+
 
   const load = useCallback(async () => {
     if (!date) return;
@@ -180,22 +215,22 @@ export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean })
     <main className={embedded ? "min-w-0 w-full text-[#10251C]" : "min-h-screen bg-[#F7FAF2] text-[#10251C]"}>
       {!embedded && <FilhoCorrentePanelHeader navLabel="Agendamento · Gestão" showSupport={false} actions={[{ label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto?abrir=acolhimento", variant: "secondary" }, filhoAgendamentoSignOutAction, filhoSupportAction]} mobileActionColumns={3} compactMobileActions autoHighlightCurrent={false} />}
       <section className={embedded ? "min-w-0 w-full px-0 py-2 sm:p-3" : "mx-auto max-w-6xl p-4"}>
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+        {!embedded && <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-black sm:text-3xl">Gestão</h1>
             <p className="mt-1 text-sm font-semibold text-slate-600">Relatórios e envios controlados aos Consulentes.</p>
           </div>
-        </div>
-        {view !== "inicio" && (
-          <button type="button" onClick={() => setView("inicio")} className="mt-4 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Voltar à Gestão</button>
+        </div>}
+        {!embedded && view !== "inicio" && (
+          <button type="button" onClick={() => navigate("inicio")} className="mt-4 rounded-xl bg-white px-4 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">← Voltar à Gestão</button>
         )}
         {view === "inicio" && (
           <div className="mt-4 grid gap-3">
-            <button type="button" onClick={() => setView("envios")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10 hover:bg-[#E9F2E7]">
+            <button type="button" onClick={() => navigate("envios")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10 hover:bg-[#E9F2E7]">
               <span className="block text-lg font-black text-[#123D2C]">Envios WhatsApp</span>
               <span className="mt-1 block text-sm text-slate-600">Lembretes e mensagens controladas aos Consulentes.</span>
             </button>
-            <button type="button" onClick={() => setView("relatorios")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10 hover:bg-[#E9F2E7]">
+            <button type="button" onClick={() => navigate("relatorios")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10 hover:bg-[#E9F2E7]">
               <span className="block text-lg font-black text-[#123D2C]">Relatórios</span>
               <span className="mt-1 block text-sm text-slate-600">Acompanhar atendimentos, Consulentes, Entidades e Cavalinhos.</span>
             </button>
@@ -205,18 +240,20 @@ export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean })
         {view === "relatorios" ? (
           <div className="mt-4"><TucxaPilotReports /></div>
         ) : view === "envios" ? (
-          <div className="mt-4 grid gap-4">
+          <div className="mt-2 grid min-w-0 gap-4">
             <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
               <div className="grid min-w-0 gap-3 md:grid-cols-[220px_auto_1fr] md:items-end">
                 <label className="grid gap-1 text-sm font-black">
                   Data do atendimento
-                  <input
-                    type="date"
-                    min={isoDateOffset(0)}
+                  <select
                     value={date}
                     onChange={(event) => setDate(event.target.value)}
-                    className="rounded-xl border border-slate-300 px-3 py-2 font-semibold"
-                  />
+                    disabled={datesLoading || availableDates.length === 0}
+                    className="min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold disabled:opacity-50"
+                  >
+                    {availableDates.length === 0 && <option value="">{datesLoading ? "Carregando datas..." : "Nenhuma data com agendamento"}</option>}
+                    {availableDates.map((item) => <option key={item} value={item}>{ptBrDate(item)}</option>)}
+                  </select>
                 </label>
                 <button
                   type="button"
@@ -226,12 +263,13 @@ export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean })
                 >
                   {loading ? "Carregando..." : "Carregar agendamentos"}
                 </button>
-                <p className="text-sm font-semibold text-slate-600 md:text-right">
-                  Solicitado: lembrete + link de confirmação + pizzas. Confirmado: lembrete + pizzas.
-                </p>
+
               </div>
             </section>
 
+            {!datesLoading && availableDates.length === 0 && !error && (
+              <p className="rounded-xl bg-[#F7FAF2] p-3 text-sm font-semibold text-slate-600">Não há datas futuras com agendamentos solicitados ou confirmados.</p>
+            )}
             {!flowsReady && (
               <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
                 BotConversa ainda não está completo para esta função. Configure os fluxos de lembrete confirmado e pizzas na Vercel antes de enviar.
@@ -243,7 +281,7 @@ export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean })
             <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
-                  <h2 className="text-xl font-black">Agendamentos de {ptBrDate(date)}</h2>
+                  <h2 className="text-lg font-black sm:text-xl">{date ? `Agendamentos de ${ptBrDate(date)}` : "Agendamentos"}</h2>
                   <p className="text-sm font-semibold text-slate-600">{appointments.length} registro(s) · {selectable.length} disponível(is) para envio · {selected.size} selecionado(s)</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
