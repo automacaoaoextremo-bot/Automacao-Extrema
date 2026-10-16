@@ -8,10 +8,8 @@ import {
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaOperationalSummaryWhatsapp } from "@/lib/botconversa";
-import { receptionDispatchPolicy, receptionSummaryChannels } from "@/lib/organizacao-em-harmonia/tucxa-reception-dispatch-policy";
 import {
   sendTucxaAppointmentAuditEmail,
-  sendTucxaOperationalSummaryEmail,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
@@ -220,12 +218,6 @@ export async function GET(request: Request) {
         text(item.id),
         Math.max(1, Number(item.daily_capacity ?? 4) || 4),
       ]));
-      const cavalinhoNoticeEntityIds = new Set(
-        (entities ?? [])
-          .filter((item) => item.pilot_cavalinho_whatsapp_enabled === true)
-          .map((item) => text(item.id))
-          .filter(Boolean),
-      );
 
       const grouped = new Map<string, NonNullable<typeof appointments>>();
       for (const item of generalDispatchAllowed(date) ? (appointments ?? []) : testAppointments) {
@@ -268,7 +260,7 @@ export async function GET(request: Request) {
       };
 
       if (sendCavalinhos) {
-        const enabledEntityIds = entityIds.filter((entityId) => cavalinhoNoticeEntityIds.has(entityId));
+        const enabledEntityIds = entityIds; // Todos os cavalinhos com vínculo ativo e atendimento previsto.
         diagnostics.push({
           organization: organizationLabel,
           audience: "cavalinho",
@@ -365,12 +357,12 @@ export async function GET(request: Request) {
             error: result.error || "",
           });
 
-          if (result.sent) {
+          {
             const auditCopied = await sendTucxaAppointmentAuditEmail({
-              event: "Resumo diário enviado ao Cavalinho",
+              event: result.sent ? "Resumo diário enviado ao Cavalinho" : "Falha no resumo diário do Cavalinho",
               appointmentDate: date,
               entityName: entityLabel || "Entidade",
-              details: `Destinatário: ${text(person.full_name)}\nCanal: WhatsApp\nResultado: enviado\n\n${summary}`,
+              details: `Destinatário: ${text(person.full_name)}\nTelefone: ${text(person.whatsapp)}\nCanal: WhatsApp\nResultado: ${result.sent ? "enviado" : "falhou"}\nFalhas: ${result.error || "nenhuma"}\n\n${summary}`,
             });
             if (!auditCopied) diagnostics.push({ audience: "cavalinho", personId, status: "audit_failed" });
           }
@@ -385,8 +377,7 @@ export async function GET(request: Request) {
           .eq("active", true);
         if (membershipError) throw membershipError;
 
-        // Dupla condição: vínculo com função Recepção + escala prevista para esta data.
-        // A allowlist e a preferência de canal continuam obrigatórias abaixo.
+        // Função Recepção aprovada + escala da data; a antiga allowlist não impede o resumo.
         const receptionIds = [...new Set(
           (memberships ?? [])
             .filter((item) => profileHasReception(item.agenda_viva_profile))
@@ -405,23 +396,6 @@ export async function GET(request: Request) {
           : { data: [], error: null };
         if (peopleError) throw peopleError;
 
-        const { data: preferences, error: preferenceError } = receptionIds.length
-          ? await supabaseAdmin
-              .from("oh_tucxa_pilot_person_preferences")
-              .select("person_id,reception_summary_channels")
-              .eq("organization_id", organizationId)
-              .in("person_id", receptionIds)
-          : { data: [], error: null };
-        if (preferenceError) throw preferenceError;
-
-        const receptionChannels = new Map(
-          (preferences ?? []).map((item) => [
-            text(item.person_id),
-            receptionSummaryChannels(item.reception_summary_channels),
-          ]),
-        );
-        const receptionPolicy = receptionDispatchPolicy();
-
         const summary = formatTucxaReceptionSummary({
           date,
           appointments: appointments ?? [],
@@ -433,36 +407,28 @@ export async function GET(request: Request) {
           audience: "reception",
           receptionMembershipsFound: receptionIds.length,
           activeReceptionPeopleFound: (people ?? []).length,
-          dispatchPolicy: receptionPolicy.mode,
-          allowlistSize: receptionPolicy.allowedCount,
+          dispatchPolicy: "approved_reception_schedule",
+          allowlistSize: null,
         });
 
         for (const person of people ?? []) {
           const personId = text(person.id);
-          // Não presumir opt-in de integrantes da Recepção.
-          // Durante homologação, exigir também autorização por ID individual.
-          const channels = receptionChannels.get(personId) ?? [];
+          const channels: Array<"whatsapp"> = ["whatsapp"];
           if (!receptionDispatchAllowed(date, personId, text(person.whatsapp))) {
             diagnostics.push({ audience: "reception", personId, status: "skipped", reason: "homologation_recipient_guard" });
             continue;
           }
-          if (!receptionPolicy.allows(personId)) {
-            diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "not_in_pilot_allowlist", policy: receptionPolicy.mode });
+          if (!text(person.whatsapp)) {
+            diagnostics.push({ audience: "reception", personId, status: "skipped", reason: "missing_whatsapp" });
             continue;
           }
-
           if (await alreadySent("reception", personId)) {
             diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "already_sent" });
             continue;
           }
 
-          if (!channels.length) {
-            diagnostics.push({ audience: "reception", personId, person: text(person.full_name), status: "skipped", reason: "no_summary_channels" });
-            continue;
-          }
-
           let whatsappSent = false;
-          let emailSent = false;
+          const emailSent = false;
           const errors: string[] = [];
 
           if (channels.includes("whatsapp")) {
@@ -482,22 +448,6 @@ export async function GET(request: Request) {
             }
           }
 
-          const email = text(person.notification_email)
-            || (text(person.email).endsWith("@organizacao-em-harmonia.local") ? "" : text(person.email));
-          if (channels.includes("email")) {
-            if (email) {
-              emailSent = await sendTucxaOperationalSummaryEmail({
-                to: email,
-                recipientName: text(person.full_name),
-                appointmentDate: date,
-                summary,
-              });
-              if (!emailSent) errors.push("E-mail: envio não confirmado");
-            } else {
-              errors.push("E-mail: endereço não informado");
-            }
-          }
-
           const sentAny = whatsappSent || emailSent;
           await markSent("reception", personId, sentAny, errors.length ? errors.join(" | ") : summary);
           results.push({
@@ -510,11 +460,11 @@ export async function GET(request: Request) {
             error: errors.join(" | "),
           });
 
-          if (whatsappSent) {
+          {
             const auditCopied = await sendTucxaAppointmentAuditEmail({
-              event: "Resumo diário enviado à Recepção",
+              event: whatsappSent ? "Resumo diário enviado à Recepção" : "Falha no resumo diário da Recepção",
               appointmentDate: date,
-              details: `Destinatário: ${text(person.full_name)}\nCanal: WhatsApp\nResultado: enviado\n\n${summary}`,
+              details: `Destinatário: ${text(person.full_name)}\nTelefone: ${text(person.whatsapp)}\nCanal: WhatsApp\nResultado: ${whatsappSent ? "enviado" : "falhou"}\nFalhas: ${errors.join(" | ") || "nenhuma"}\n\n${summary}`,
             });
             if (!auditCopied) diagnostics.push({ audience: "reception", personId, status: "audit_failed" });
           }
