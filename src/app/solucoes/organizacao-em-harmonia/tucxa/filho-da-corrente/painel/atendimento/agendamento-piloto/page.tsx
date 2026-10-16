@@ -7,7 +7,7 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { TucxaPilotReports } from "@/components/organizacao-em-harmonia/tucxa-pilot-reports";
+import { TucxaGestaoContent } from "./gestao/gestao";
 import { disambiguatedPersonDisplayNames, firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
@@ -1975,7 +1975,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "gestao" && (
-            <TucxaPilotReports />
+            <TucxaGestaoContent embedded />
           )}
 
           {modal === "painel" && (
@@ -2041,7 +2041,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               )}
 
-              {!foundPerson && (<>
+              {!foundPerson && !personNotFound && (<>
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                 <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
@@ -2790,6 +2790,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "consulentes" && (
                 <section className="grid gap-2">
+                  {!showCreateConsulente && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                     <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
@@ -2820,6 +2821,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </button>
                     )}
                   </section>
+
+                  </>)}
 
                   {!showCreateConsulente && !foundPerson && (
                     <button
@@ -3707,7 +3710,7 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
   if (modal === "encaminhamento") return "Encaminhamento";
-  if (modal === "gestao") return "Gestão · Relatórios";
+  if (modal === "gestao") return "Gestão";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

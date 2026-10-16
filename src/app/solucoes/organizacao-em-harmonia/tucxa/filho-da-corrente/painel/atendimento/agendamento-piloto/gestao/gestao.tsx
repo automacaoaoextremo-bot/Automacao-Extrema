@@ -74,7 +74,7 @@ async function token() {
   return data.session?.access_token || "";
 }
 
-export default function GestaoPage() {
+export function TucxaGestaoContent({ embedded = false }: { embedded?: boolean }) {
   const [view, setView] = useState<View>("inicio");
   const [date, setDate] = useState(() => isoDateOffset(1));
   const [appointments, setAppointments] = useState<DispatchAppointment[]>([]);
@@ -177,12 +177,12 @@ export default function GestaoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-      <FilhoCorrentePanelHeader navLabel="Agendamento · Gestão" showSupport={false} actions={[{ label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto?abrir=acolhimento", variant: "secondary" }, filhoAgendamentoSignOutAction, filhoSupportAction]} mobileActionColumns={3} compactMobileActions autoHighlightCurrent={false} />
-      <section className="mx-auto max-w-6xl p-4">
+    <main className={embedded ? "min-w-0 w-full text-[#10251C]" : "min-h-screen bg-[#F7FAF2] text-[#10251C]"}>
+      {!embedded && <FilhoCorrentePanelHeader navLabel="Agendamento · Gestão" showSupport={false} actions={[{ label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto?abrir=acolhimento", variant: "secondary" }, filhoAgendamentoSignOutAction, filhoSupportAction]} mobileActionColumns={3} compactMobileActions autoHighlightCurrent={false} />}
+      <section className={embedded ? "min-w-0 w-full px-0 py-2 sm:p-3" : "mx-auto max-w-6xl p-4"}>
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-black">Gestão</h1>
+            <h1 className="text-xl font-black sm:text-3xl">Gestão</h1>
             <p className="mt-1 text-sm font-semibold text-slate-600">Relatórios e envios controlados aos Consulentes.</p>
           </div>
         </div>
@@ -206,8 +206,8 @@ export default function GestaoPage() {
           <div className="mt-4"><TucxaPilotReports /></div>
         ) : view === "envios" ? (
           <div className="mt-4 grid gap-4">
-            <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
-              <div className="grid gap-3 md:grid-cols-[220px_auto_1fr] md:items-end">
+            <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
+              <div className="grid min-w-0 gap-3 md:grid-cols-[220px_auto_1fr] md:items-end">
                 <label className="grid gap-1 text-sm font-black">
                   Data do atendimento
                   <input
@@ -240,7 +240,7 @@ export default function GestaoPage() {
             {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
             {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{message}</div>}
 
-            <section className="rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10">
+            <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
                   <h2 className="text-xl font-black">Agendamentos de {ptBrDate(date)}</h2>
@@ -297,4 +297,8 @@ export default function GestaoPage() {
       </section>
     </main>
   );
+}
+
+export default function GestaoPage() {
+  return <TucxaGestaoContent />;
 }

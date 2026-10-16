@@ -55,14 +55,14 @@ function DateField({ label, value, onChange }: { label: string; value: string; o
   return (
     <label className="grid gap-1 text-sm font-bold">
       <span>{label}</span>
-      <div className="grid grid-cols-[1fr_auto] gap-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
         <input inputMode="numeric" value={value} onChange={(event) => onChange(digitsToDate(event.target.value))} placeholder="dd/mm/aaaa" maxLength={10} className="min-w-0 rounded-xl border p-3 font-normal" />
         <input type="date" value={ptBrToIso(value)} onChange={(event) => {
           const iso = event.target.value;
           if (!iso) return onChange("");
           const [year, month, day] = iso.split("-");
           onChange(`${day}/${month}/${year}`);
-        }} aria-label={`${label} pelo calendário`} className="rounded-xl border p-3 font-normal" />
+        }} aria-label={`${label} pelo calendário`} className="min-w-0 w-full rounded-xl border p-3 font-normal" />
       </div>
     </label>
   );
@@ -335,7 +335,7 @@ export function TucxaPilotReports() {
       <div className="grid gap-3 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 lg:grid-cols-4">
         <label className="grid gap-1 text-sm font-bold">
           <span>Relatório</span>
-          <select value={kind} onChange={(event) => changeKind(event.target.value)} className="rounded-xl border p-3 font-normal">
+          <select value={kind} onChange={(event) => changeKind(event.target.value)} className="min-w-0 w-full rounded-xl border p-3 font-normal">
             <option value="atendimentos">Atendimentos</option>
             <option value="caderno">Caderno da Triagem · Data / Entidade / Consulentes</option>
             <option value="sem_whatsapp_terceiros">Consulentes sem WhatsApp · agendados por outra pessoa</option>
@@ -346,14 +346,14 @@ export function TucxaPilotReports() {
           </select>
         </label>
 
-        {usesDate && <label className="grid gap-1 text-sm font-bold"><span>Período</span><select value={dateMode} onChange={(event) => setDateMode(event.target.value as DateMode)} className="rounded-xl border p-3 font-normal"><option value="from_today">Todos a partir de hoje</option><option value="specific">Data específica</option><option value="period">Período específico</option><option value="before">Anteriores à data</option><option value="all">Todos</option></select></label>}
+        {usesDate && <label className="grid gap-1 text-sm font-bold"><span>Período</span><select value={dateMode} onChange={(event) => setDateMode(event.target.value as DateMode)} className="min-w-0 w-full rounded-xl border p-3 font-normal"><option value="from_today">Todos a partir de hoje</option><option value="specific">Data específica</option><option value="period">Período específico</option><option value="before">Anteriores à data</option><option value="all">Todos</option></select></label>}
         {usesDate && (dateMode === "specific" || dateMode === "period") && <DateField label={dateMode === "specific" ? "Data" : "Data inicial"} value={dateFrom} onChange={setDateFrom} />}
         {usesDate && (dateMode === "period" || dateMode === "before") && <DateField label={dateMode === "period" ? "Data final" : "Antes de"} value={dateTo} onChange={setDateTo} />}
         {(kind === "disponibilidade" || kind === "semanas_entidades") && <>
-          <label className="grid gap-1 text-sm font-bold"><span>Linha</span><input value={lineFilter} onChange={(event) => setLineFilter(event.target.value)} placeholder="Ex.: Oxossi" className="rounded-xl border p-3 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-bold"><span>Entidade</span><input value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)} placeholder="Ex.: Aruando" className="rounded-xl border p-3 font-normal" /></label>
+          <label className="grid gap-1 text-sm font-bold"><span>Linha</span><input value={lineFilter} onChange={(event) => setLineFilter(event.target.value)} placeholder="Ex.: Oxossi" className="min-w-0 w-full rounded-xl border p-3 font-normal" /></label>
+          <label className="grid gap-1 text-sm font-bold"><span>Entidade</span><input value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)} placeholder="Ex.: Aruando" className="min-w-0 w-full rounded-xl border p-3 font-normal" /></label>
         </>}
-        <label className="grid gap-1 text-sm font-bold"><span>Consulente</span><input value={person} onChange={(event) => setPerson(event.target.value)} placeholder="Nome do consulente" className="rounded-xl border p-3 font-normal" /></label>
+        <label className="grid gap-1 text-sm font-bold"><span>Consulente</span><input value={person} onChange={(event) => setPerson(event.target.value)} placeholder="Nome do consulente" className="min-w-0 w-full rounded-xl border p-3 font-normal" /></label>
         <button onClick={() => void load()} disabled={loading} className="self-end rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-60">{loading ? "Consultando..." : "Consultar"}</button>
       </div>
 
