@@ -1,4 +1,10 @@
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
+import { TUCXA_ADDRESS, TUCXA_MAPS_URL } from "@/lib/organizacao-em-harmonia/tucxa-location";
+
 export const TUCXA_INDIVIDUAL_NOTICE = "Este agendamento é individual. Se você comparecer acompanhado de outra pessoa que também necessite de atendimento, é necessário fazer um agendamento específico para cada acompanhante.";
+
+export const TUCXA_LOCATION_NOTICE = `Local do atendimento: ${TUCXA_ADDRESS}\nGoogle Maps: ${TUCXA_MAPS_URL}`;
+export const TUCXA_RECEPTION_HELP = "Em caso de dúvida, fale com a Recepção do TUCXA.";
 
 function datePtBr(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -6,7 +12,7 @@ function datePtBr(value: string) {
 }
 
 function orderLine(order?: number | null) {
-  return order && order > 0 ? `Ordem do agendamento: ${order}.` : "";
+  return order && order > 0 ? `Ordem de Agendamento: ${order}.` : "";
 }
 
 export function appointmentConfirmationMessage(input: {
@@ -17,10 +23,13 @@ export function appointmentConfirmationMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Olá! O agendamento de ${input.fullName} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Olá! O agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
+    "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
     input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
+    TUCXA_LOCATION_NOTICE,
+    TUCXA_RECEPTION_HELP,
     TUCXA_INDIVIDUAL_NOTICE,
   ].filter(Boolean).join("\n\n");
 }
@@ -34,12 +43,14 @@ export function appointmentReminderMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Lembrete do agendamento de ${input.fullName} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Lembrete do agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     input.confirmed
       ? "Sua presença já está confirmada. Agradecemos por avisar com antecedência; isso ajuda a Recepção a organizar o atendimento de todos."
       : "Sua presença ainda não foi confirmada. Confirmar agora ajuda a Recepção a organizar as vagas e evita que uma vaga fique reservada sem necessidade.",
     !input.confirmed && input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
+    TUCXA_LOCATION_NOTICE,
+    TUCXA_RECEPTION_HELP,
     TUCXA_INDIVIDUAL_NOTICE,
   ].filter(Boolean).join("\n\n");
 }
@@ -52,8 +63,24 @@ export function receptionConfirmationMessage(input: {
   loginUrl?: string;
 }) {
   return [
-    `Confirmação recebida: ${input.fullName} confirmou presença no TUCXA para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `Confirmação recebida: ${firstTwoPersonNames(input.fullName)} confirmou presença no TUCXA para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
     orderLine(input.order),
     input.loginUrl ? `Acesse o painel da Recepção: ${input.loginUrl}` : "",
   ].filter(Boolean).join("\n\n");
+}
+
+export function appointmentBeneficentPizzaMessage(input: {
+  appointmentDate: string;
+}) {
+  return [
+    `🌿 Olá! Como você já estará conosco no TUCXA em ${datePtBr(input.appointmentDate)}, queremos deixar uma dica para a volta para casa. 😊`,
+    "Estamos com pizzas beneficentes congeladas por R$ 50,00, nos sabores:",
+    "🧀 Mussarela",
+    "🌶️ Calabresa",
+    "🥩 Lombinho",
+    "É uma opção prática para levar e preparar quando quiser — e, ao adquirir uma pizza, você também colabora com a manutenção da nossa Casa e com a continuidade dos trabalhos do TUCXA. 💚",
+    "Se tiver interesse, pode aproveitar sua vinda para retirar a sua.",
+    "🍕 Você leva uma refeição para casa e deixa também uma contribuição para a Casa que acolhe tanta gente. 🙏",
+    "Sem compromisso. Estamos apenas compartilhando esta possibilidade com carinho.",
+  ].join("\n\n");
 }

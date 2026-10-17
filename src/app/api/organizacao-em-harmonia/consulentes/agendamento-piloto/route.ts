@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   addDaysIso,
+  closePreviousPilotFirstTimeIndicators,
   confirmationDeadlineIso,
   currentPilotConsulente,
   expirePastPilotConfirmations,
@@ -10,8 +11,12 @@ import {
   loadPilotDates,
   loadPilotDay,
   loadPilotPersonPreferences,
+  isPilotFirstTimeEntity,
   loadPilotSettings,
+  markPilotFirstTimeAppointment,
+  personHasUsedPilotFirstTimeEntity,
   pilotReservationError,
+  resolvePilotConsulenteBookingRule,
   savePilotPersonPreferences,
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
@@ -41,13 +46,23 @@ async function buildPayload(context: NonNullable<Awaited<ReturnType<typeof curre
   const dates = await loadPilotDates(context.organizationId, settings.daysAhead);
   const selected = dates.some((item) => item.date === selectedDate) ? selectedDate! : dates[0]?.date || todayInSaoPaulo();
   const matrixDates = dates.slice(0, 16);
-  const [entities, appointments, preferences, matrixEntities] = await Promise.all([
+  const [rawEntities, appointments, preferences, bookingRule, rawMatrixEntities] = await Promise.all([
     loadPilotDay(context.organizationId, selected),
     loadPilotAppointments(context.organizationId, todayInSaoPaulo(), addDaysIso(todayInSaoPaulo(), settings.daysAhead), context.personId),
     loadPilotPersonPreferences(context.organizationId, context.personId),
+    resolvePilotConsulenteBookingRule(context.organizationId, context.personId),
     Promise.all(matrixDates.map(async (item) => ({ date: item.date, label: item.label, entities: await loadPilotDay(context.organizationId, item.date) }))),
   ]);
-  return { settings, dates, selectedDate: selected, entities, appointments, preferences, calendar: matrixEntities };
+
+  const filterEntities = (items: Awaited<ReturnType<typeof loadPilotDay>>) => {
+    if (bookingRule.mode === "first_time_only") return items.filter((item) => isPilotFirstTimeEntity(item));
+    if (bookingRule.mode === "awaiting_default_entity") return [];
+    return items;
+  };
+
+  const entities = filterEntities(rawEntities);
+  const calendar = rawMatrixEntities.map((item) => ({ ...item, entities: filterEntities(item.entities) }));
+  return { settings, dates, selectedDate: selected, entities, appointments, preferences, bookingRule, calendar };
 }
 
 export async function GET(request: Request) {
@@ -87,18 +102,40 @@ export async function POST(request: Request) {
       let entityId = asText(body.entityId);
       const appointmentDate = asText(body.appointmentDate);
       const notes = asText(body.notes);
+      const bookingRule = await resolvePilotConsulenteBookingRule(context.organizationId, context.personId);
       const preferences = await loadPilotPersonPreferences(context.organizationId, context.personId);
 
-      if (preferences.defaultEntityId) {
-        if (!preferences.allowDifferentEntity) entityId = preferences.defaultEntityId;
-        if (preferences.allowDifferentEntity && !entityId) entityId = preferences.defaultEntityId;
+      if (!appointmentDate) return NextResponse.json({ error: "Escolha a data do atendimento.", requestId: code }, { status: 400 });
+      if (bookingRule.mode === "awaiting_default_entity") {
+        return NextResponse.json({
+          error: "Sua Entidade padrão ainda não está definida. Nesta fase, fale com a Recepção para confirmar a Entidade antes de fazer um novo agendamento.",
+          requestId: code,
+        }, { status: 409 });
       }
-      if (!entityId || !appointmentDate) return NextResponse.json({ error: "Escolha a data e a Entidade.", requestId: code }, { status: 400 });
-      if (preferences.defaultEntityId) {
+
+      if (bookingRule.mode === "default_entity") {
+        if (!preferences.allowDifferentEntity) entityId = bookingRule.defaultEntityId;
+        if (preferences.allowDifferentEntity && !entityId) entityId = bookingRule.defaultEntityId;
+      }
+
+      const dayEntities = await loadPilotDay(context.organizationId, appointmentDate);
+      if (bookingRule.mode === "first_time_only") {
+        const firstTimeEntity = dayEntities.find((item) => isPilotFirstTimeEntity(item));
+        if (!firstTimeEntity?.id) {
+          return NextResponse.json({ error: "A Entidade Primeira Vez não está disponível nesta data.", requestId: code }, { status: 409 });
+        }
+        if (entityId && entityId !== firstTimeEntity.id) {
+          return NextResponse.json({ error: "Seu primeiro agendamento deve ser realizado somente com a Entidade Primeira Vez.", requestId: code }, { status: 409 });
+        }
+        entityId = firstTimeEntity.id;
+      }
+
+      if (!entityId) return NextResponse.json({ error: "Escolha a Entidade.", requestId: code }, { status: 400 });
+      if (bookingRule.mode === "default_entity") {
         const { data: passeRows, error: passeError } = await supabaseAdmin.from("oh_spiritual_entities").select("id,name,slug").eq("organization_id", context.organizationId).eq("active", true);
         if (passeError) throw passeError;
         const passeIds = new Set((passeRows ?? []).filter((item) => /passe/i.test(`${asText(item.name)} ${asText(item.slug)}`)).map((item) => asText(item.id)));
-        if (entityId !== preferences.defaultEntityId && !passeIds.has(entityId)) {
+        if (entityId !== bookingRule.defaultEntityId && !passeIds.has(entityId)) {
           return NextResponse.json({ error: "Para seu próprio atendimento, escolha sua Entidade padrão ou Passe.", requestId: code }, { status: 409 });
         }
       }
@@ -107,9 +144,14 @@ export async function POST(request: Request) {
       if (isPastConfirmationDeadline(deadline)) {
         return NextResponse.json({ error: `O prazo de confirmação desta data encerrou às ${settings.confirmationCutoff}. Escolha outra data.`, requestId: code }, { status: 409 });
       }
-      const entity = (await loadPilotDay(context.organizationId, appointmentDate)).find((item) => item.id === entityId);
+      const entity = dayEntities.find((item) => item.id === entityId);
       if (!entity) return NextResponse.json({ error: "A Entidade não está prevista para esta data.", requestId: code }, { status: 409 });
       if (!entity.isAvailable || entity.available < 1) return NextResponse.json({ error: entity.suspendedReason || "Não há vagas para esta Entidade.", requestId: code }, { status: 409 });
+
+      const firstTimeBooking = isPilotFirstTimeEntity(entity);
+      if (firstTimeBooking && await personHasUsedPilotFirstTimeEntity(context.organizationId, context.personId)) {
+        return NextResponse.json({ error: "Você já possui um atendimento de Primeira Vez registrado e não pode utilizar esta Entidade novamente.", requestId: code }, { status: 409 });
+      }
 
       const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
@@ -129,6 +171,14 @@ export async function POST(request: Request) {
       if (error) throw error;
       const reservation = (Array.isArray(data) ? data[0] : data) as { appointment_id?: string; confirmed_order?: number; confirmed_capacity?: number; confirmed_status?: string } | null;
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
+      if (firstTimeBooking) {
+        await markPilotFirstTimeAppointment(context.organizationId, reservation.appointment_id, {
+          id: entity.id,
+          name: entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() || "Primeira Vez",
+        });
+      } else {
+        await closePreviousPilotFirstTimeIndicators(context.organizationId, context.personId, reservation.appointment_id);
+      }
       return NextResponse.json({
         ok: true,
         appointment: {

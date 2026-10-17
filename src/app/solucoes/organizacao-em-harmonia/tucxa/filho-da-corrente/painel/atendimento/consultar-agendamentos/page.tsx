@@ -8,6 +8,7 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const atendimentoPath = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento";
 const agendamentosPath = `${atendimentoPath}/agendamentos`;
@@ -21,6 +22,13 @@ type Appointment = {
   status: string;
   bookingChannel: string;
   order: number | null;
+  firstTimeIndicatorActive: boolean;
+  cancelledAt: string;
+  cancellationReason: string;
+  previousEntityId: string;
+  previousEntityName: string;
+  entityChangeReason: string;
+  entityChangedAt: string;
   person: { id: string | null; fullName: string; whatsapp: string; email: string };
   entity: { id: string | null; name: string };
   access: {
@@ -84,6 +92,20 @@ function longDate(value: string) {
   );
 }
 
+function dateTimeLabel(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function statusLabel(value: string) {
   const labels: Record<string, string> = {
     confirmado: "Confirmado",
@@ -91,11 +113,31 @@ function statusLabel(value: string) {
     aprovado: "Aprovado",
     presente: "Presente",
     concluido: "Concluído",
-    cancelado: "Cancelado",
+    cancelado: "Cancelado · vaga liberada",
     cancelamento_solicitado: "Cancelamento solicitado",
     ausente: "Ausente",
   };
   return labels[value] || value || "Não informado";
+}
+
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
+}
+
+function statusClasses(value: string) {
+  if (["confirmado", "aprovado", "presente", "concluido"].includes(value)) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (value === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  if (["cancelado", "cancelamento_solicitado"].includes(value)) return "bg-red-50 text-red-700 ring-red-200";
+  if (value === "ausente") return "bg-orange-50 text-orange-800 ring-orange-200";
+  return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
 function channelLabel(value: string) {
@@ -114,14 +156,13 @@ function whatsappConversationUrl(appointment: Appointment) {
   const phone = digits.startsWith("55") ? digits : `55${digits}`;
   const subject = appointment.access.isOwn ? "agendamento" : "atendimento";
   const message = [
-    `Olá, ${appointment.person.fullName}.`,
+    `Olá, ${firstTwoPersonNames(appointment.person.fullName)}.`,
     "",
     `Estou entrando em contato sobre seu ${subject} no TUCXA:`,
     `Data: ${longDate(appointment.appointmentDate)}`,
     `Período: ${appointment.appointmentTime}`,
     `Entidade: ${appointment.entity.name}`,
     `Situação: ${statusLabel(appointment.status)}`,
-    appointment.order ? `Ordem prevista: ${appointment.order}` : "",
     "",
     "Podemos prosseguir por aqui?",
   ].filter(Boolean).join("\n");
@@ -351,7 +392,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
   }
 
   function cancelAppointment(appointment: Appointment) {
-    const reason = window.prompt(`Informe o motivo do cancelamento de ${appointment.person.fullName}:`, "Cancelado pela Recepção.") ?? "";
+    const reason = window.prompt(`Informe o motivo do cancelamento de ${firstTwoPersonNames(appointment.person.fullName)}:`, "Cancelado pela Recepção.") ?? "";
     if (!reason.trim()) return;
     if (!window.confirm("Confirmar o cancelamento? O registro permanecerá no histórico.")) return;
     void mutateAppointment("PATCH", { action: "cancel", appointmentId: appointment.id, reason });
@@ -359,7 +400,7 @@ export default function ConsultarAgendamentosRecepcaoPage() {
 
   function deleteAppointment(appointment: Appointment) {
     const firstConfirmation = window.confirm(
-      `Excluir o agendamento de ${appointment.person.fullName}?\n\nExcluir é uma ação definitiva e não pode ser desfeita.`,
+      `Excluir o agendamento de ${firstTwoPersonNames(appointment.person.fullName)}?\n\nExcluir é uma ação definitiva e não pode ser desfeita.`,
     );
     if (!firstConfirmation) return;
     const typed = window.prompt("Para confirmar a exclusão definitiva, digite EXCLUIR:");
@@ -390,6 +431,9 @@ export default function ConsultarAgendamentosRecepcaoPage() {
               : payload?.capabilities?.scope === "linked_entities"
                 ? "Cavalinho: seus Agendamentos possuem gestão própria; os Atendimentos da entidade vinculada ficam em modo somente leitura."
                 : "Cambono: consulta todos em modo somente leitura e pode gerir somente os próprios agendamentos."}
+          </p>
+          <p className="mt-2 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-[#EEF7EA]">
+            Cancelamentos permanecem visíveis para a Triagem. Eles não ocupam vaga e são sinalizados como “vaga liberada”.
           </p>
         </header>
 
@@ -502,7 +546,10 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                             <div key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className="break-words font-black text-[#123D2C]">{appointment.person.fullName}</p>
+                                  <p className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.person.fullName)}</p>
+                                  {appointment.firstTimeIndicatorActive && (
+                                    <span className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">Primeira vez</span>
+                                  )}
                                   <div className="mt-1 flex flex-wrap items-center gap-2">
                                     <p className="text-xs font-semibold text-slate-600">{formatPhone(appointment.person.whatsapp)}</p>
                                     {whatsappConversationUrl(appointment) && (
@@ -520,15 +567,25 @@ export default function ConsultarAgendamentosRecepcaoPage() {
                                   }`}>
                                     {appointment.access.isOwn ? "Meu agendamento" : "Atendimento"}
                                   </span>
-                                  <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
-                                    Ordem {appointment.order ?? "a confirmar"}
-                                  </span>
                                 </div>
                               </div>
                               <div className="mt-2 grid gap-1 text-xs font-semibold text-slate-700">
                                 {groupBy === "entity" && <p><span className="font-black text-[#2F6B43]">Quando:</span> {longDate(appointment.appointmentDate)} · {appointment.appointmentTime}</p>}
                                 {groupBy === "date" && <p><span className="font-black text-[#2F6B43]">Entidade:</span> {appointment.entity.name}</p>}
-                                <p><span className="font-black text-[#2F6B43]">Situação:</span> {statusLabel(appointment.status)} · {channelLabel(appointment.bookingChannel)}</p>
+                                <p className="flex flex-wrap items-center gap-2"><span className="font-black text-[#2F6B43]">Situação:</span><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(appointment.status)}`}>{statusLabel(appointment.status)}</span><span>· {channelLabel(appointment.bookingChannel)}</span></p>
+                                {appointment.status === "cancelado" && (
+                                  <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                                    Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
+                                    {appointment.cancelledAt ? ` · ${dateTimeLabel(appointment.cancelledAt)}` : ""}
+                                  </p>
+                                )}
+                                {appointment.previousEntityName && (
+                                  <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                                    Realocado de: {appointment.previousEntityName}
+                                    {appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                                    {appointment.entityChangedAt ? ` · ${dateTimeLabel(appointment.entityChangedAt)}` : ""}
+                                  </p>
+                                )}
                               </div>
                               {appointment.access.mode === "manage" && (
                                 <div className="mt-3 grid grid-cols-3 gap-2">
