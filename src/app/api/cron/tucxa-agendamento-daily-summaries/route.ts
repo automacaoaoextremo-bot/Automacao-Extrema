@@ -207,7 +207,7 @@ export async function GET(request: Request) {
       const { data: entities, error: entityError } = entityIds.length
         ? await supabaseAdmin
             .from("oh_spiritual_entities")
-            .select("id,name,daily_capacity,pilot_cavalinho_whatsapp_enabled")
+            .select("id,name,line,daily_capacity,pilot_cavalinho_whatsapp_enabled")
             .eq("organization_id", organizationId)
             .in("id", entityIds)
         : { data: [], error: null };
@@ -219,6 +219,7 @@ export async function GET(request: Request) {
         Math.max(1, Number(item.daily_capacity ?? 4) || 4),
       ]));
 
+      const entityLines = new Map((entities ?? []).map((item) => [text(item.id), text(item.line)]));
       const grouped = new Map<string, NonNullable<typeof appointments>>();
       for (const item of generalDispatchAllowed(date) ? (appointments ?? []) : testAppointments) {
         const entityId = text(item.entity_id);
@@ -332,7 +333,7 @@ export async function GET(request: Request) {
               const list = grouped.get(entityId) ?? [];
               const entityName = entityNames.get(entityId) || "Entidade";
               const capacity = entityCapacities.get(entityId) || 4;
-              const lines = list.map((item, index) => `${index + 1}. ${text(item.consulente_name)}`).join("\n");
+              const lines = [...list].sort((a, b) => text(a.consulente_name).localeCompare(text(b.consulente_name), "pt-BR")).map((item, index) => `${index + 1}. ${text(item.consulente_name)}`).join("\n");
               return `Atendimentos de hoje - ${entityName} ${list.length}/${capacity}\n${lines}`;
             })
             .filter(Boolean);
@@ -396,10 +397,28 @@ export async function GET(request: Request) {
           : { data: [], error: null };
         if (peopleError) throw peopleError;
 
+        const { data: receptionLinks, error: receptionLinksError } = await supabaseAdmin
+          .from("oh_person_entity_links")
+          .select("entity_id,person_id")
+          .eq("organization_id", organizationId)
+          .eq("relationship_type", "recebe")
+          .eq("active", true)
+          .in("entity_id", entityIds);
+        if (receptionLinksError) throw receptionLinksError;
+        const holderIds = [...new Set((receptionLinks ?? []).map((link) => text(link.person_id)).filter(Boolean))];
+        const { data: holders, error: holdersError } = holderIds.length
+          ? await supabaseAdmin.from("oh_people").select("id,full_name").eq("organization_id", organizationId).in("id", holderIds)
+          : { data: [], error: null };
+        if (holdersError) throw holdersError;
+        const holderNames = new Map((holders ?? []).map((holder) => [text(holder.id), firstName(text(holder.full_name))]));
+        const cavalinhoNames = new Map((receptionLinks ?? []).map((link) => [text(link.entity_id), holderNames.get(text(link.person_id)) || ""]));
         const summary = formatTucxaReceptionSummary({
           date,
           appointments: appointments ?? [],
           entityNames,
+          entityLines,
+          entityCapacities,
+          cavalinhoNames,
         });
 
         diagnostics.push({

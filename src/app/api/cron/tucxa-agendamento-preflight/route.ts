@@ -72,7 +72,7 @@ export async function GET(request: Request) {
 
     const [entitiesResult, preferencesResult, linksResult, membershipsResult] = await Promise.all([
       entityIds.length ? supabaseAdmin.from("oh_spiritual_entities")
-        .select("id,name,pilot_cavalinho_whatsapp_enabled").eq("organization_id", organization.id).in("id", entityIds)
+        .select("id,name,line,daily_capacity,pilot_cavalinho_whatsapp_enabled").eq("organization_id", organization.id).in("id", entityIds)
         : Promise.resolve({ data: [], error: null }),
       personIds.length ? supabaseAdmin.from("oh_tucxa_pilot_person_preferences")
         .select("person_id,reminder_whatsapp_enabled").eq("organization_id", organization.id).in("person_id", personIds)
@@ -101,6 +101,9 @@ export async function GET(request: Request) {
     if (peopleResult.error) throw peopleResult.error;
     const people = new Map((peopleResult.data ?? []).map((p) => [str(p.id), p]));
     const entityNames = new Map(entities.map((e) => [str(e.id), str(e.name)]));
+    const entityLines = new Map(entities.map((entity) => [str(entity.id), str(entity.line)]));
+    const entityCapacities = new Map(entities.map((entity) => [str(entity.id), Math.max(1, Number(entity.daily_capacity ?? 4) || 4)]));
+    const cavalinhoNames = new Map((linksResult.data ?? []).map((link) => [str(link.entity_id), str(people.get(str(link.person_id))?.full_name).split(/\s+/)[0]]));
     const generalWhatsapp = enabled("BOTCONVERSA_ENABLED") && enabled("BOTCONVERSA_TUCXA_ENABLED");
     const reminderFlow = envConfigured("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW");
     const cavalinhoFlow = envConfigured("BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW");
@@ -147,7 +150,8 @@ export async function GET(request: Request) {
       ok: true, dryRun: true, databaseWrites: 0, messagesSent: 0, date,
       weekday, holiday, weekdayEnabled,
       scheduling: {
-        cronUtc: "17:00 UTC (14:00 America/Sao_Paulo)",
+        cronUtc: "Lembretes 15:00 UTC (12:00 Campinas); resumos 19:00 UTC (16:00 Campinas)",
+        reminderTime: "12:00",
         cavalinhoEnabled: settings.cavalinhoDailyWhatsappEnabled,
         cavalinhoTime: settings.cavalinhoDailyWhatsappTime,
         receptionEnabled: settings.receptionDailyWhatsappEnabled,
@@ -174,7 +178,7 @@ export async function GET(request: Request) {
         appointmentCount: rows.length,
         entitiesCount: entityIds.length,
         format: "entity_then_alphabetical_with_original_appointment_order",
-        summary: formatTucxaReceptionSummary({ date, appointments: rows, entityNames }),
+        summary: formatTucxaReceptionSummary({ date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames }),
       },
       sharedContactReminderGroups: Object.values(consulentes.reduce<Record<string, typeof consulentes>>((groups, item) => {
         const phone = item.phone;

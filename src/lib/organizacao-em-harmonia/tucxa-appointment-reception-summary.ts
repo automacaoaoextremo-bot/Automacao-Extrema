@@ -17,6 +17,9 @@ export function formatTucxaReceptionSummary(input: {
   date: string;
   appointments: ReceptionSummaryAppointment[];
   entityNames: ReadonlyMap<string, string>;
+  entityLines?: ReadonlyMap<string, string>;
+  entityCapacities?: ReadonlyMap<string, number>;
+  cavalinhoNames?: ReadonlyMap<string, string>;
 }): string {
   const byEntity = new Map<string, ReceptionSummaryAppointment[]>();
   for (const item of input.appointments) {
@@ -36,7 +39,12 @@ export function formatTucxaReceptionSummary(input: {
         const number = appointmentNumber(item.metadata);
         return `${number === null ? "Nº não informado" : `Nº ${number}`} - ${item.consulente_name || "Consulente não informado"}`;
       });
-      return `${input.entityNames.get(id) || "Entidade não informada"} (${sorted.length})\n${lines.join("\n")}`;
+      const name = input.entityNames.get(id) || "Entidade não informada";
+      const line = input.entityLines?.get(id) || "";
+      const cavalinho = input.cavalinhoNames?.get(id) || "";
+      const capacity = input.entityCapacities?.get(id);
+      const heading = `${name} (${line}) (${cavalinho}) (${sorted.length}/${capacity ?? "?"})`;
+      return `${heading}\n${lines.map((item) => `- ${item}`).join("\n")}`;
     });
-  return `TUCXA - Resumo de agendamentos\nData: ${input.date}\nTotal: ${input.appointments.length}\n\n${sections.join("\n\n")}`;
+  return `TUCXA - Resumo de agendamentos\nTotal: ${input.appointments.length}\n\n${sections.join("\n\n")}`;
 }

@@ -336,8 +336,8 @@ export async function GET(request: Request) {
     const campinasTime = new Intl.DateTimeFormat("en-GB", {
       timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
     }).format(new Date());
-    if (campinasTime < "14:00") {
-      return NextResponse.json({ ok: true, blocked: true, reason: "before_14_campinas", today, campinasTime });
+    if (campinasTime < "12:00") {
+      return NextResponse.json({ ok: true, blocked: true, reason: "before_12_campinas", today, campinasTime });
     }
 
     // Ajuste 50: o cron diário envia SOMENTE os lembretes dos agendamentos

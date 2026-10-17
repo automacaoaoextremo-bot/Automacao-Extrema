@@ -2706,8 +2706,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     {entityHeading(group.label)}
                   </h3>
                   {group.appointments.map((appointment) => (
-                    <article key={`enc-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                      <div>
+                    <article key={`enc-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <div className="min-w-0 flex-1">
                         <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                         <p className="mt-1 text-sm font-semibold text-slate-600">Chegada {appointment.arrivalOrder ?? "-"}</p>
                         <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
@@ -2716,7 +2716,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         type="button"
                         disabled={saving || forwardingFinalized}
                         onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
-                        className="mt-3 w-full rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                        className="min-h-10 shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                       >
                         {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
                       </button>
@@ -2726,8 +2726,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
               ))}
 
               {forwardingView === "consulente" && visibleForwardingAppointments.map((appointment) => (
-                <article key={`enc-person-${appointment.id}`} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <div>
+                <article key={`enc-person-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="min-w-0 flex-1">
                     <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                     <p className="mt-1 text-sm font-semibold text-slate-600">
                       {appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}
@@ -2738,7 +2738,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     type="button"
                     disabled={saving || forwardingFinalized}
                     onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
-                    className="mt-3 w-full rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                    className="min-h-10 shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                   >
                     {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
                   </button>
