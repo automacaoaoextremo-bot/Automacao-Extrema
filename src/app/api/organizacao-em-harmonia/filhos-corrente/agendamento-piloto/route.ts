@@ -834,7 +834,15 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     selected,
   );
 
+  const { data: closureRows, error: closureError } = await supabaseAdmin
+    .from("oh_tucxa_pilot_day_closures")
+    .select("stage,finalized_at,finalized_by_person_id")
+    .eq("organization_id", organizationId)
+    .eq("appointment_date", selected);
+  if (closureError) throw closureError;
+
   return {
+    dayClosures: (closureRows ?? []).map((item) => ({ stage: asText(item.stage), finalizedAt: asText(item.finalized_at) })),
     settings: { ...settings, ...extraSettings },
     dates,
     selectedDate: selected,
@@ -881,50 +889,6 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
-
-    // Ajuste 92: operações de teste bloqueadas por padrão. Habilite exclusivamente
-    // os personIds autorizados na variável server-side, nunca no frontend.
-    if (["triage-test-begin", "triage-test-restore", "triage-test-list"].includes(action)) {
-      const allowed = (process.env.TUCXA_TEST_SESSION_ALLOWED_PERSON_IDS || "")
-        .split(",").map((item) => item.trim()).filter(Boolean);
-      if (!allowed.includes(context.personId)) {
-        return NextResponse.json({ error: "Acesso não autorizado aos testes controlados.", requestId: code }, { status: 403 });
-      }
-      if (action === "triage-test-list") {
-        const { data, error } = await supabaseAdmin
-          .from("oh_tucxa_triage_test_sessions")
-          .select("id,appointment_date,created_at,status,created_by")
-          .eq("organization_id", context.organizationId).eq("status", "active")
-          .order("created_at", { ascending: false }).limit(20);
-        if (error) throw error;
-        return NextResponse.json({ ok: true, sessions: data || [] });
-      }
-      if (action === "triage-test-begin") {
-        const ids = Array.isArray(body.appointmentIds)
-          ? body.appointmentIds.map(asText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)) : [];
-        if (!ids.length || ids.length > 3 || ids.length !== new Set(ids).size) {
-          return NextResponse.json({ error: "Selecione entre um e três agendamentos distintos.", requestId: code }, { status: 400 });
-        }
-        const { data, error } = await supabaseAdmin.rpc("oh_tucxa_triage_test_begin", {
-          p_organization_id: context.organizationId,
-          p_actor_person_id: context.personId,
-          p_appointment_ids: ids,
-        });
-        if (error) return NextResponse.json({ error: error.message, requestId: code }, { status: 409 });
-        return NextResponse.json({ ok: true, sessionId: data, message: "Estado anterior salvo. Faça os testes somente nesses agendamentos." });
-      }
-      const sessionId = asText(body.sessionId);
-      if (!/^[0-9a-f-]{36}$/i.test(sessionId) || asText(body.confirmation) !== "RESTAURAR TESTE") {
-        return NextResponse.json({ error: "Informe a sessão e a confirmação RESTAURAR TESTE.", requestId: code }, { status: 400 });
-      }
-      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_triage_test_restore", {
-        p_organization_id: context.organizationId,
-        p_actor_person_id: context.personId,
-        p_session_id: sessionId,
-      });
-      if (error) return NextResponse.json({ error: error.message, requestId: code }, { status: 409 });
-      return NextResponse.json({ ok: true, restoredCount: data, message: "Estado anterior restaurado. Confira a Triagem e o Encaminhamento." });
-    }
 
     if (action === "summary") {
       const requestedMode = asText(body.mode);
@@ -1977,6 +1941,109 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Preferências da Recepção atualizadas." });
     }
 
+    if (action === "reschedule-options" || action === "reschedule-appointment") {
+      const appointmentId = asText(body.appointmentId);
+      if (!/^[0-9a-f-]{36}$/i.test(appointmentId)) {
+        return NextResponse.json({ error: "Agendamento inválido.", requestId: code }, { status: 400 });
+      }
+      const { data: current, error: lookupError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,person_id,entity_id,appointment_date,consulente_name,status,arrival_status,forwarded_at")
+        .eq("organization_id", context.organizationId)
+        .eq("id", appointmentId)
+        .maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!current?.id) return NextResponse.json({ error: "Agendamento não encontrado.", requestId: code }, { status: 404 });
+      if (!["solicitado", "confirmado", "aprovado"].includes(asText(current.status))
+        || asText(current.arrival_status) === "arrived" || current.forwarded_at) {
+        return NextResponse.json({ error: "O agendamento já teve chegada ou não permite reagendamento nesta fase.", requestId: code }, { status: 409 });
+      }
+      const personId = asText(current.person_id);
+      // Outra Entidade somente quando o cadastro individual permite explicitamente.
+      const preferences = personId ? await loadPilotPersonPreferences(context.organizationId, personId) : null;
+      const bookingRule = personId ? await resolvePilotConsulenteBookingRule(context.organizationId, personId) : null;
+      const otherEntityAllowed = Boolean(personId && preferences?.allowDifferentEntity === true
+        && bookingRule?.mode !== "first_time_only");
+      const availability = await loadEntityAvailableDatesIndex(
+        context.organizationId, settings.daysAhead, settings.confirmationCutoff,
+      );
+      const { data: catalog, error: catalogError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,name,line,active,appointment_enabled")
+        .eq("organization_id", context.organizationId)
+        .eq("active", true)
+        .eq("appointment_enabled", true)
+        .order("name");
+      if (catalogError) throw catalogError;
+      const availableOptions = (catalog ?? [])
+        .filter((entity) => otherEntityAllowed || asText(entity.id) === asText(current.entity_id))
+        .map((entity) => ({
+          entityId: asText(entity.id),
+          name: asText(entity.name),
+          line: asText(entity.line),
+          dates: (availability.get(asText(entity.id)) ?? []).filter((date) => date.available > 0 && new Date(confirmationDeadlineIso(date.date, settings.confirmationCutoff)).getTime() > Date.now())
+            .map((date) => ({ date: date.date, label: date.label, available: date.available })),
+        }))
+        .filter((entity) => entity.dates.length > 0);
+      if (action === "reschedule-options") {
+        return NextResponse.json({ ok: true, appointmentId, appointmentDate: asText(current.appointment_date),
+          currentEntityId: asText(current.entity_id), otherEntityAllowed, options: availableOptions });
+      }
+      const targetEntityId = asText(body.entityId);
+      const targetDate = asText(body.appointmentDate);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        return NextResponse.json({ error: "Informe uma data válida.", requestId: code }, { status: 400 });
+      }
+      if (targetEntityId !== asText(current.entity_id) && !otherEntityAllowed) {
+        return NextResponse.json({ error: "O cadastro do Consulente não autoriza escolher outra Entidade.", requestId: code }, { status: 403 });
+      }
+      const option = availableOptions.find((entity) => entity.entityId === targetEntityId);
+      if (!option?.dates.some((date) => date.date === targetDate)) {
+        return NextResponse.json({ error: "Esta Entidade não possui vaga na data escolhida.", requestId: code }, { status: 409 });
+      }
+      if (targetEntityId === asText(current.entity_id) && targetDate === asText(current.appointment_date)) {
+        return NextResponse.json({ error: "Selecione uma data ou Entidade diferente da atual.", requestId: code }, { status: 400 });
+      }
+      if (asText(body.confirmation) !== "REAGENDAR") {
+        return NextResponse.json({ error: "Confirme REAGENDAR para atualizar o agendamento.", requestId: code }, { status: 400 });
+      }
+      const token = createConfirmationToken();
+      const { data: changed, error: changeError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reschedule_appointment", {
+        p_organization_id: context.organizationId,
+        p_appointment_id: appointmentId,
+        p_actor_person_id: context.personId,
+        p_target_entity_id: targetEntityId,
+        p_target_date: targetDate,
+        p_confirmation_token_hash: confirmationTokenHash(token),
+        p_confirmation_expires_at: confirmationDeadlineIso(targetDate, settings.confirmationCutoff),
+      });
+      if (changeError) {
+        return NextResponse.json({ error: changeError.message, requestId: code }, { status: 409 });
+      }
+      const confirmed = Array.isArray(changed) ? changed[0] : changed;
+      return NextResponse.json({ ok: true, appointmentId, appointmentDate: targetDate,
+        entityId: targetEntityId, order: confirmed?.confirmed_order ?? null,
+        confirmationUrl: confirmationUrl(token),
+        message: "Reagendamento realizado. Envie o novo link de confirmação ao Consulente; o anterior foi substituído." });
+    }
+
+    if (action === "finalize-operational-stage") {
+      const stage = asText(body.stage);
+      const date = asText(body.appointmentDate);
+      if (!["triage", "forwarding"].includes(stage) || !/^\d{4}-\d{2}-\d{2}$/.test(date)
+        || asText(body.confirmation) !== "FINALIZAR") {
+        return NextResponse.json({ error: "Confirme o dia, a etapa e a palavra FINALIZAR.", requestId: code }, { status: 400 });
+      }
+      const { error: finishError } = await supabaseAdmin.rpc("oh_tucxa_pilot_finalize_day_stage", {
+        p_organization_id: context.organizationId,
+        p_appointment_date: date,
+        p_actor_person_id: context.personId,
+        p_stage: stage,
+      });
+      if (finishError) return NextResponse.json({ error: finishError.message, requestId: code }, { status: 409 });
+      return NextResponse.json({ ok: true, message: stage === "triage" ? "Triagem finalizada. Ordens não podem mais ser alteradas." : "Encaminhamento finalizado." });
+    }
+
     if (action === "mark-arrival") {
       const appointmentId = asText(body.appointmentId);
       const arrivalStatus = asText(body.arrivalStatus);
@@ -2052,9 +2119,36 @@ export async function POST(request: Request) {
 
     if (action === "set-caderno-arrival") {
       const appointmentId = asText(body.appointmentId);
-      const arrivalOrder = Number(body.arrivalOrder);
-      if (!appointmentId || !Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
-        return NextResponse.json({ error: "Informe o agendamento e uma ordem de chegada válida.", requestId: code }, { status: 400 });
+      const orderInput = typeof body.arrivalOrder === "number" ? String(body.arrivalOrder) : asText(body.arrivalOrder);
+      if (!appointmentId) {
+        return NextResponse.json({ error: "Informe o agendamento.", requestId: code }, { status: 400 });
+      }
+      // Ajuste 93: apagar a ordem no Caderno desfaz a chegada, mas nunca
+      // permite apagar um registro que já foi encaminhado.
+      if (orderInput === "" || orderInput === "0") {
+        const { data: current, error: currentError } = await supabaseAdmin
+          .from("oh_consulente_appointments")
+          .select("id,forwarded_at")
+          .eq("organization_id", context.organizationId)
+          .eq("id", appointmentId)
+          .maybeSingle();
+        if (currentError) throw currentError;
+        if (!current?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
+        if (current.forwarded_at) {
+          return NextResponse.json({ error: "Desfaça o encaminhamento antes de limpar a chegada.", requestId: code }, { status: 409 });
+        }
+        const { error: resetError } = await supabaseAdmin.rpc("oh_tucxa_pilot_mark_arrival", {
+          p_organization_id: context.organizationId,
+          p_appointment_id: appointmentId,
+          p_actor_person_id: context.personId,
+          p_arrival_status: "pending",
+        });
+        if (resetError) throw resetError;
+        return NextResponse.json({ ok: true, message: "Chegada removida do Caderno." });
+      }
+      const arrivalOrder = Number(orderInput);
+      if (!Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
+        return NextResponse.json({ error: "Informe uma ordem de chegada válida.", requestId: code }, { status: 400 });
       }
 
       const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_set_arrival_order", {
@@ -2080,13 +2174,13 @@ export async function POST(request: Request) {
       }
       const { data: appointment, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,arrival_status,status")
+        .select("id,arrival_status,arrival_order,status")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
       if (appointmentError) throw appointmentError;
       if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
-      if (forwarded && asText(appointment.arrival_status) !== "arrived") {
+      if (forwarded && (asText(appointment.arrival_status) !== "arrived" || Number(appointment.arrival_order ?? 0) < 1)) {
         return NextResponse.json({ error: "Registre primeiro a chegada do Consulente na Triagem.", requestId: code }, { status: 409 });
       }
       const { error } = await supabaseAdmin

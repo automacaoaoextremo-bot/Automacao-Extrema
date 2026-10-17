@@ -129,6 +129,7 @@ type Payload = {
   entityCatalog: EntityCatalogItem[];
   cavalinhos: Array<{ id: string; name: string; whatsapp: string }>;
   appointments: Appointment[];
+  dayClosures: Array<{ stage: string; finalizedAt: string }>;
   receptionPreferences: ReceptionPreferences;
   summary: SummaryCounts;
 };
@@ -140,6 +141,8 @@ type BookingResult = {
 };
 type CompletedBooking = BookingResult & { whatsapp: string; contactName?: string; alternateContact?: boolean };
 type SuccessNotice = { title: string; message: string };
+type RescheduleOption = { entityId: string; name: string; line: string; dates: Array<{ date: string; label: string; available: number }> };
+type RescheduleRequest = { appointmentId: string; consulenteName: string; currentEntityId: string; selectedEntityId: string; selectedDate: string; options: RescheduleOption[]; otherEntityAllowed: boolean };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string; attachment: File | null };
 type EntityChangeRequest = {
@@ -399,6 +402,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
   const [entityChangeRequest, setEntityChangeRequest] = useState<EntityChangeRequest | null>(null);
+  const [rescheduleRequest, setRescheduleRequest] = useState<RescheduleRequest | null>(null);
+  const [rescheduleConfirmationUrl, setRescheduleConfirmationUrl] = useState("");
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
   const [summaryDateTo, setSummaryDateTo] = useState("");
@@ -419,6 +425,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
   const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno">("caderno");
   const [forwardingView, setForwardingView] = useState<"entity" | "consulente">("entity");
+  const [forwardingStage, setForwardingStage] = useState<"pending" | "completed">("pending");
+  const [finalizingStage, setFinalizingStage] = useState<"triage" | "forwarding" | null>(null);
   const [forwardingPage, setForwardingPage] = useState(1);
   const [forwardingSearch, setForwardingSearch] = useState("");
   const [forwardingLetter, setForwardingLetter] = useState("");
@@ -426,11 +434,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
-  const [testSelection, setTestSelection] = useState<string[]>([]);
-  const [testSessions, setTestSessions] = useState<Array<{ id: string; appointment_date: string; created_at: string }>>([]);
-  const [testBusy, setTestBusy] = useState(false);
-  const [testMessage, setTestMessage] = useState("");
-  const [testRestoreConfirmation, setTestRestoreConfirmation] = useState("");
   const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
   const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
@@ -736,9 +739,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [effectiveConsultView, payload, visibleConsultAppointments]);
   const forwardingAppointments = useMemo(
     () => (payload?.appointments ?? []).filter(
-      (item) => item.status !== "cancelado" && item.arrivalStatus === "arrived" && !item.forwardedAt,
+      (item) => item.status !== "cancelado" && item.arrivalStatus === "arrived" && (item.arrivalOrder ?? 0) > 0 && (forwardingStage === "completed" ? Boolean(item.forwardedAt) : !item.forwardedAt),
     ),
-    [payload?.appointments],
+    [payload?.appointments, forwardingStage],
   );
   const forwardingLetters = useMemo(() => {
     const letters = new Set<string>();
@@ -762,9 +765,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const orderedForwardingAppointments = useMemo(
     () => [...filteredForwardingAppointments].sort((a, b) => {
       if (forwardingView === "consulente") {
-        const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
-        if (personOrder !== 0) return personOrder;
-        return a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+        const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
+        if (arrivalOrder !== 0) return arrivalOrder;
+        return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
       }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
@@ -802,6 +805,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       .map(([label, appointments]) => ({ label, appointments }));
   }, [forwardingView, visibleForwardingAppointments]);
 
+  const triageFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "triage");
+  const forwardingFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "forwarding");
+
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
   async function postPilot(body: Record<string, unknown>) {
@@ -815,39 +821,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & { error?: string; requestId?: string };
     if (!response.ok) throw new Error(`${data.error || "Não foi possível concluir a ação."}${data.requestId ? ` Código: ${data.requestId}` : ""}`);
     return data;
-  }
-
-  async function refreshTestSessions() {
-    const result = await postPilot({ action: "triage-test-list" });
-    setTestSessions(Array.isArray(result.sessions) ? result.sessions as Array<{ id: string; appointment_date: string; created_at: string }> : []);
-  }
-
-  async function beginTriageTest() {
-    setTestBusy(true);
-    setTestMessage("");
-    try {
-      const result = await postPilot({ action: "triage-test-begin", appointmentIds: testSelection });
-      setTestSelection([]);
-      setTestMessage(`Sessão de teste criada: ${String(result.sessionId)}. Anote esse identificador.`);
-      await refreshTestSessions();
-    } catch (error) {
-      setTestMessage(error instanceof Error ? error.message : "Não foi possível capturar o estado anterior.");
-    } finally { setTestBusy(false); }
-  }
-
-  async function restoreTriageTest(sessionId: string) {
-    if (testRestoreConfirmation !== "RESTAURAR TESTE") return;
-    setTestBusy(true);
-    setTestMessage("");
-    try {
-      const result = await postPilot({ action: "triage-test-restore", sessionId, confirmation: testRestoreConfirmation });
-      setTestRestoreConfirmation("");
-      setTestMessage(String(result.message || "Estado restaurado."));
-      await refreshTestSessions();
-      await load(payload?.selectedDate);
-    } catch (error) {
-      setTestMessage(error instanceof Error ? error.message : "A restauração foi bloqueada. Nenhum registro deve ser apagado manualmente.");
-    } finally { setTestBusy(false); }
   }
 
   async function postLegacy(body: Record<string, unknown>) {
@@ -1494,20 +1467,38 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
   async function saveCadernoArrival(appointmentId: string) {
     const raw = (cadernoOrders[appointmentId] ?? "").trim();
-    const arrivalOrder = Number(raw);
-    if (!Number.isInteger(arrivalOrder) || arrivalOrder < 1) {
-      setErrorNotice({ title: "Ordem inválida", message: "Informe um número inteiro maior que zero." });
+    const arrivalOrder = raw === "" ? "" : Number(raw);
+    if (arrivalOrder !== "" && (!Number.isInteger(arrivalOrder) || arrivalOrder < 0)) {
+      setErrorNotice({ title: "Ordem inválida", message: "Informe uma ordem válida ou deixe em branco para desfazer a chegada." });
       return;
     }
     setSaving(true);
     try {
       const result = await postPilot({ action: "set-caderno-arrival", appointmentId, arrivalOrder });
-      setSuccessNotice({ title: "Chegada registrada", message: typeof result.message === "string" ? result.message : "Chegada registrada." });
+      setSuccessNotice({ title: arrivalOrder === "" ? "Chegada desfeita" : "Chegada registrada", message: typeof result.message === "string" ? result.message : "Ordem atualizada." });
       await load(payload?.selectedDate);
     } catch (actionError) {
       setErrorNotice({ title: "Não foi possível salvar a ordem", message: actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada." });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function finalizeOperationalStage(stage: "triage" | "forwarding") {
+    if (!payload) return;
+    const label = stage === "triage" ? "Triagem" : "Encaminhamento";
+    if (!window.confirm(`FINALIZAR ${label} em ${formatDateInputPtBr(payload.selectedDate)}?\n\nEsta operação é definitiva. Não será possível alterar os registros desta etapa após confirmar.`)) return;
+    setFinalizingStage(stage);
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "finalize-operational-stage", appointmentDate: payload.selectedDate, stage, confirmation: "FINALIZAR" });
+      setSuccessNotice({ title: `${label} finalizado`, message: typeof result.message === "string" ? result.message : "Etapa finalizada." });
+      await load(payload.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: `Não foi possível finalizar ${label}`, message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+      setFinalizingStage(null);
     }
   }
 
@@ -1519,6 +1510,46 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await load(payload?.selectedDate);
     } catch (actionError) {
       setErrorNotice({ title: "Não foi possível atualizar o encaminhamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openReschedule(appointment: Appointment) {
+    setRescheduleLoading(true);
+    setRescheduleConfirmationUrl("");
+    try {
+      const response = await postPilot({ action: "reschedule-options", appointmentId: appointment.id });
+      const options = Array.isArray(response.options) ? response.options as RescheduleOption[] : [];
+      const preferred = options.find((item) => item.entityId === appointment.entityId) ?? options[0];
+      if (!preferred?.dates.length) throw new Error("Nenhuma data com vaga foi encontrada para este agendamento.");
+      setRescheduleRequest({ appointmentId: appointment.id, consulenteName: appointment.consulenteName,
+        currentEntityId: appointment.entityId, selectedEntityId: preferred.entityId,
+        selectedDate: preferred.dates[0].date, options, otherEntityAllowed: response.otherEntityAllowed === true });
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível consultar reagendamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setRescheduleLoading(false);
+    }
+  }
+
+  async function saveReschedule() {
+    if (!rescheduleRequest) return;
+    const option = rescheduleRequest.options.find((item) => item.entityId === rescheduleRequest.selectedEntityId);
+    if (!option?.dates.some((item) => item.date === rescheduleRequest.selectedDate)) return;
+    const confirmed = window.confirm(`Reagendar ${rescheduleRequest.consulenteName} para ${formatDateInputPtBr(rescheduleRequest.selectedDate)}?\n\nO link de confirmação anterior deixará de funcionar. Será necessário enviar o novo link.`);
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "reschedule-appointment", appointmentId: rescheduleRequest.appointmentId,
+        entityId: rescheduleRequest.selectedEntityId, appointmentDate: rescheduleRequest.selectedDate, confirmation: "REAGENDAR" });
+      setRescheduleConfirmationUrl(typeof result.confirmationUrl === "string" ? result.confirmationUrl : "");
+      setRescheduleRequest(null);
+      setOpenAppointmentActions({});
+      setSuccessNotice({ title: "Agendamento reagendado", message: "Vaga atualizada. Copie e envie o novo link de confirmação ao Consulente." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível reagendar", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
     } finally {
       setSaving(false);
     }
@@ -2346,9 +2377,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
           {modal === "consultar" && (
             <div className="grid gap-3">
               <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
-                <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
-                  {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
-                </select>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                    {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+                  </select>
+                  <button type="button" disabled={saving || triageFinalized} onClick={() => void finalizeOperationalStage("triage")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{triageFinalized ? "Finalizada" : finalizingStage === "triage" ? "Finalizando..." : "FINALIZAR"}</button>
+                </div>
 
                 <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2">
                   <span className="text-sm font-black text-[#123D2C]">Total na data · {selectedStatusLabel}</span>
@@ -2409,8 +2443,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
                               {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
                             </div>
-                            <input disabled={appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem" />
-                            <button type="button" disabled={saving || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                            <input disabled={triageFinalized || appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem ou vazio" />
+                            <button type="button" disabled={saving || triageFinalized || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
                           </div>
                         ))}
                       </div>
@@ -2464,7 +2498,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
                               <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
-                                <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                                <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
@@ -2486,9 +2520,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
                               <button
@@ -2523,7 +2558,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
                               <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
-                                <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                                <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
@@ -2545,9 +2580,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
                               <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
@@ -2593,13 +2629,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </option>
                     ))}
                   </select>
-                  <span className="whitespace-nowrap rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">
-                    Para encaminhar: {forwardingAppointments.length}
-                  </span>
+                  <button type="button" disabled={saving || forwardingFinalized || !triageFinalized} onClick={() => void finalizeOperationalStage("forwarding")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{forwardingFinalized ? "Finalizado" : "FINALIZAR"}</button>
                 </div>
 
-                <div className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-bold leading-5 text-[#123D2C]">
-                  Somente Consulentes com chegada registrada e ainda não encaminhados aparecem aqui.
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setForwardingStage("pending"); setForwardingPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${forwardingStage === "pending" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Encaminhar</button>
+                  <button type="button" onClick={() => { setForwardingStage("completed"); setForwardingPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${forwardingStage === "completed" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Encaminhados</button>
+                  <span className="col-span-2 text-center text-[10px] font-black uppercase tracking-wide text-[#2F6B43]">TOQUE PARA VER</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -2678,11 +2714,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </div>
                       <button
                         type="button"
-                        disabled={saving}
-                        onClick={() => void markForwarded(appointment.id, true)}
+                        disabled={saving || forwardingFinalized}
+                        onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
                         className="mt-3 w-full rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                       >
-                        Marcar Encaminhado
+                        {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
                       </button>
                     </article>
                   ))}
@@ -2700,11 +2736,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   </div>
                   <button
                     type="button"
-                    disabled={saving}
-                    onClick={() => void markForwarded(appointment.id, true)}
+                    disabled={saving || forwardingFinalized}
+                    onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
                     className="mt-3 w-full rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                   >
-                    Marcar Encaminhado
+                    {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
                   </button>
                 </article>
               ))}
@@ -2738,6 +2774,42 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {rescheduleRequest && (
+            <div className="fixed inset-0 z-[260] grid place-items-center bg-[#10251C]/75 p-3" role="dialog" aria-modal="true" aria-label="Reagendar Consulente">
+              <section className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-black text-[#123D2C]">Reagendar {firstTwoPersonNames(rescheduleRequest.consulenteName)}</h3>
+                  <button type="button" disabled={saving} onClick={() => setRescheduleRequest(null)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
+                </div>
+                <p className="mt-2 text-xs font-semibold text-slate-600">Selecione uma data com vaga. A troca de Entidade só aparece quando o cadastro individual permitir.</p>
+                <label className="mt-4 grid gap-1 text-sm font-black text-[#123D2C]">Entidade
+                  <select value={rescheduleRequest.selectedEntityId} disabled={!rescheduleRequest.otherEntityAllowed || saving} onChange={(event) => {
+                    const next = rescheduleRequest.options.find((item) => item.entityId === event.target.value);
+                    setRescheduleRequest((current) => current ? { ...current, selectedEntityId: event.target.value, selectedDate: next?.dates[0]?.date ?? "" } : current);
+                  }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm">
+                    {rescheduleRequest.options.map((item) => <option key={item.entityId} value={item.entityId}>{item.name}{item.line ? ` (${item.line})` : ""}</option>)}
+                  </select>
+                </label>
+                <label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Nova data
+                  <select value={rescheduleRequest.selectedDate} disabled={saving} onChange={(event) => setRescheduleRequest((current) => current ? { ...current, selectedDate: event.target.value } : current)} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm">
+                    {(rescheduleRequest.options.find((item) => item.entityId === rescheduleRequest.selectedEntityId)?.dates ?? []).map((item) => <option key={item.date} value={item.date}>{item.label} · {item.available} vaga(s)</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={saving || !rescheduleRequest.selectedDate} onClick={() => void saveReschedule()} className="mt-4 w-full rounded-xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Confirmar reagendamento"}</button>
+              </section>
+            </div>
+          )}
+          {rescheduleConfirmationUrl && (
+            <div className="fixed inset-0 z-[260] grid place-items-center bg-[#10251C]/75 p-3" role="dialog" aria-modal="true" aria-label="Novo link de confirmação">
+              <section className="w-full max-w-lg rounded-3xl bg-white p-4 shadow-xl">
+                <h3 className="text-lg font-black text-[#123D2C]">Novo link de confirmação</h3>
+                <p className="mt-2 break-all text-xs text-slate-600">{rescheduleConfirmationUrl}</p>
+                <button type="button" onClick={() => void navigator.clipboard.writeText(rescheduleConfirmationUrl)} className="mt-3 w-full rounded-xl bg-[#123D2C] p-3 text-sm font-black text-white">Copiar link</button>
+                <button type="button" onClick={() => setRescheduleConfirmationUrl("")} className="mt-2 w-full rounded-xl bg-slate-100 p-3 text-sm font-black text-[#123D2C]">Fechar</button>
+              </section>
             </div>
           )}
 
@@ -3170,7 +3242,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "configuracoes" && settingsDraft && (
-            <form onSubmit={settingsSection === "testes" ? (event) => event.preventDefault() : saveSettings} className="grid gap-3">
+            <form onSubmit={saveSettings} className="grid gap-3">
               {!settingsSection ? (
                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {[
@@ -3184,7 +3256,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
                     ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
                     ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
-                    ["testes", "Testes de Triagem", "Capturar e restaurar agendamentos selecionados"],
                   ].map(([key, title, subtitle]) => (
                     <button
                       key={key}
@@ -3245,44 +3316,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                   {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
 
-                  {settingsSection === "testes" && (
-                    <section className="grid gap-3 rounded-2xl bg-[#FFF8EE] p-3 text-sm ring-1 ring-amber-300">
-                      <strong className="text-[#123D2C]">Teste controlado de Triagem e Encaminhamento</strong>
-                      <p>Escolha de 1 a 3 agendamentos desta data. Capture o estado original ANTES de clicar em Chegou, informar ordem ou Encaminhar. Não use esta ferramenta em atendimentos reais em andamento.</p>
-                      <p className="text-xs font-bold text-amber-800">Disponível somente para responsáveis explicitamente autorizados no servidor. A restauração é recusada se outros dados do agendamento tiverem sido modificados.</p>
-                      <p className="font-bold">Data: {payload.selectedDate}</p>
-                      <div className="max-h-48 overflow-y-auto rounded-xl bg-white p-2">
-                        {payload.appointments.filter((item) => item.appointmentDate === payload.selectedDate && item.status !== "cancelado").map((item) => (
-                          <label key={item.id} className="flex items-center gap-2 border-b py-2 text-xs last:border-0">
-                            <input type="checkbox" checked={testSelection.includes(item.id)} disabled={!testSelection.includes(item.id) && testSelection.length >= 3}
-                              onChange={(event) => setTestSelection((previous) => event.target.checked ? [...previous, item.id] : previous.filter((id) => id !== item.id))} />
-                            <span>{item.consulenteName} · {item.entityName}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <button type="button" disabled={testBusy || !testSelection.length} onClick={() => void beginTriageTest()}
-                        className="rounded-xl bg-[#123D2C] px-3 py-3 font-bold text-white disabled:opacity-50">Capturar estado anterior ({testSelection.length})</button>
-                      <button type="button" disabled={testBusy} onClick={() => void refreshTestSessions().catch((error: unknown) => setTestMessage(error instanceof Error ? error.message : "Falha na consulta."))}
-                        className="rounded-xl border border-[#123D2C]/30 bg-white px-3 py-2 font-bold text-[#123D2C]">Consultar sessões ativas</button>
-                      {testSessions.length > 0 && <div className="grid gap-2 rounded-xl bg-white p-3">
-                        <strong>Sessões aguardando restauração</strong>
-                        <label className="grid gap-1 text-xs font-bold">Para restaurar, digite RESTAURAR TESTE
-                          <input className="rounded-lg border p-2" value={testRestoreConfirmation} onChange={(event) => setTestRestoreConfirmation(event.target.value)} />
-                        </label>
-                        {testSessions.map((session) => <div key={session.id} className="grid gap-1 border-t pt-2 text-xs">
-                          <span>{session.appointment_date} · {session.id}</span>
-                          <button type="button" disabled={testBusy || testRestoreConfirmation !== "RESTAURAR TESTE"} onClick={() => void restoreTriageTest(session.id)}
-                            className="rounded-lg bg-amber-800 px-3 py-2 font-bold text-white disabled:opacity-40">Restaurar esta sessão</button>
-                        </div>)}
-                      </div>}
-                      {testMessage && <p role="status" className="rounded-lg bg-white p-2 text-xs font-bold text-[#123D2C]">{testMessage}</p>}
-                    </section>
-                  )}
-
                   {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
               )}
-              {settingsSection && settingsSection !== "testes" && (
+              {settingsSection && (
                 <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">
                   {saving ? "Salvando..." : "Salvar configurações"}
                 </button>
