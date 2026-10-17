@@ -882,6 +882,50 @@ export async function POST(request: Request) {
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
 
+    // Ajuste 92: operações de teste bloqueadas por padrão. Habilite exclusivamente
+    // os personIds autorizados na variável server-side, nunca no frontend.
+    if (["triage-test-begin", "triage-test-restore", "triage-test-list"].includes(action)) {
+      const allowed = (process.env.TUCXA_TEST_SESSION_ALLOWED_PERSON_IDS || "")
+        .split(",").map((item) => item.trim()).filter(Boolean);
+      if (!allowed.includes(context.personId)) {
+        return NextResponse.json({ error: "Acesso não autorizado aos testes controlados.", requestId: code }, { status: 403 });
+      }
+      if (action === "triage-test-list") {
+        const { data, error } = await supabaseAdmin
+          .from("oh_tucxa_triage_test_sessions")
+          .select("id,appointment_date,created_at,status,created_by")
+          .eq("organization_id", context.organizationId).eq("status", "active")
+          .order("created_at", { ascending: false }).limit(20);
+        if (error) throw error;
+        return NextResponse.json({ ok: true, sessions: data || [] });
+      }
+      if (action === "triage-test-begin") {
+        const ids = Array.isArray(body.appointmentIds)
+          ? body.appointmentIds.map(asText).filter((id) => /^[0-9a-f-]{36}$/i.test(id)) : [];
+        if (!ids.length || ids.length > 3 || ids.length !== new Set(ids).size) {
+          return NextResponse.json({ error: "Selecione entre um e três agendamentos distintos.", requestId: code }, { status: 400 });
+        }
+        const { data, error } = await supabaseAdmin.rpc("oh_tucxa_triage_test_begin", {
+          p_organization_id: context.organizationId,
+          p_actor_person_id: context.personId,
+          p_appointment_ids: ids,
+        });
+        if (error) return NextResponse.json({ error: error.message, requestId: code }, { status: 409 });
+        return NextResponse.json({ ok: true, sessionId: data, message: "Estado anterior salvo. Faça os testes somente nesses agendamentos." });
+      }
+      const sessionId = asText(body.sessionId);
+      if (!/^[0-9a-f-]{36}$/i.test(sessionId) || asText(body.confirmation) !== "RESTAURAR TESTE") {
+        return NextResponse.json({ error: "Informe a sessão e a confirmação RESTAURAR TESTE.", requestId: code }, { status: 400 });
+      }
+      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_triage_test_restore", {
+        p_organization_id: context.organizationId,
+        p_actor_person_id: context.personId,
+        p_session_id: sessionId,
+      });
+      if (error) return NextResponse.json({ error: error.message, requestId: code }, { status: 409 });
+      return NextResponse.json({ ok: true, restoredCount: data, message: "Estado anterior restaurado. Confira a Triagem e o Encaminhamento." });
+    }
+
     if (action === "summary") {
       const requestedMode = asText(body.mode);
       const mode: ReceptionSummary["mode"] = ["future", "period", "before"].includes(requestedMode) ? requestedMode as ReceptionSummary["mode"] : "date";

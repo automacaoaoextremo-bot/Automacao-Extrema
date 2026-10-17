@@ -426,6 +426,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [testSelection, setTestSelection] = useState<string[]>([]);
+  const [testSessions, setTestSessions] = useState<Array<{ id: string; appointment_date: string; created_at: string }>>([]);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testMessage, setTestMessage] = useState("");
+  const [testRestoreConfirmation, setTestRestoreConfirmation] = useState("");
   const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
   const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
@@ -810,6 +815,39 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & { error?: string; requestId?: string };
     if (!response.ok) throw new Error(`${data.error || "Não foi possível concluir a ação."}${data.requestId ? ` Código: ${data.requestId}` : ""}`);
     return data;
+  }
+
+  async function refreshTestSessions() {
+    const result = await postPilot({ action: "triage-test-list" });
+    setTestSessions(Array.isArray(result.sessions) ? result.sessions as Array<{ id: string; appointment_date: string; created_at: string }> : []);
+  }
+
+  async function beginTriageTest() {
+    setTestBusy(true);
+    setTestMessage("");
+    try {
+      const result = await postPilot({ action: "triage-test-begin", appointmentIds: testSelection });
+      setTestSelection([]);
+      setTestMessage(`Sessão de teste criada: ${String(result.sessionId)}. Anote esse identificador.`);
+      await refreshTestSessions();
+    } catch (error) {
+      setTestMessage(error instanceof Error ? error.message : "Não foi possível capturar o estado anterior.");
+    } finally { setTestBusy(false); }
+  }
+
+  async function restoreTriageTest(sessionId: string) {
+    if (testRestoreConfirmation !== "RESTAURAR TESTE") return;
+    setTestBusy(true);
+    setTestMessage("");
+    try {
+      const result = await postPilot({ action: "triage-test-restore", sessionId, confirmation: testRestoreConfirmation });
+      setTestRestoreConfirmation("");
+      setTestMessage(String(result.message || "Estado restaurado."));
+      await refreshTestSessions();
+      await load(payload?.selectedDate);
+    } catch (error) {
+      setTestMessage(error instanceof Error ? error.message : "A restauração foi bloqueada. Nenhum registro deve ser apagado manualmente.");
+    } finally { setTestBusy(false); }
   }
 
   async function postLegacy(body: Record<string, unknown>) {
@@ -1922,7 +1960,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setCadastroMode("menu");
               return;
             }
-            if (["painel", "consultar", "encaminhamento"].includes(modal)) {
+            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
               setModal("acolhimento");
               return;
             }
@@ -3132,7 +3170,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
 
           {modal === "configuracoes" && settingsDraft && (
-            <form onSubmit={saveSettings} className="grid gap-3">
+            <form onSubmit={settingsSection === "testes" ? (event) => event.preventDefault() : saveSettings} className="grid gap-3">
               {!settingsSection ? (
                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {[
@@ -3146,6 +3184,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
                     ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
                     ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
+                    ["testes", "Testes de Triagem", "Capturar e restaurar agendamentos selecionados"],
                   ].map(([key, title, subtitle]) => (
                     <button
                       key={key}
@@ -3206,10 +3245,44 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                   {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
 
+                  {settingsSection === "testes" && (
+                    <section className="grid gap-3 rounded-2xl bg-[#FFF8EE] p-3 text-sm ring-1 ring-amber-300">
+                      <strong className="text-[#123D2C]">Teste controlado de Triagem e Encaminhamento</strong>
+                      <p>Escolha de 1 a 3 agendamentos desta data. Capture o estado original ANTES de clicar em Chegou, informar ordem ou Encaminhar. Não use esta ferramenta em atendimentos reais em andamento.</p>
+                      <p className="text-xs font-bold text-amber-800">Disponível somente para responsáveis explicitamente autorizados no servidor. A restauração é recusada se outros dados do agendamento tiverem sido modificados.</p>
+                      <p className="font-bold">Data: {payload.selectedDate}</p>
+                      <div className="max-h-48 overflow-y-auto rounded-xl bg-white p-2">
+                        {payload.appointments.filter((item) => item.appointmentDate === payload.selectedDate && item.status !== "cancelado").map((item) => (
+                          <label key={item.id} className="flex items-center gap-2 border-b py-2 text-xs last:border-0">
+                            <input type="checkbox" checked={testSelection.includes(item.id)} disabled={!testSelection.includes(item.id) && testSelection.length >= 3}
+                              onChange={(event) => setTestSelection((previous) => event.target.checked ? [...previous, item.id] : previous.filter((id) => id !== item.id))} />
+                            <span>{item.consulenteName} · {item.entityName}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <button type="button" disabled={testBusy || !testSelection.length} onClick={() => void beginTriageTest()}
+                        className="rounded-xl bg-[#123D2C] px-3 py-3 font-bold text-white disabled:opacity-50">Capturar estado anterior ({testSelection.length})</button>
+                      <button type="button" disabled={testBusy} onClick={() => void refreshTestSessions().catch((error: unknown) => setTestMessage(error instanceof Error ? error.message : "Falha na consulta."))}
+                        className="rounded-xl border border-[#123D2C]/30 bg-white px-3 py-2 font-bold text-[#123D2C]">Consultar sessões ativas</button>
+                      {testSessions.length > 0 && <div className="grid gap-2 rounded-xl bg-white p-3">
+                        <strong>Sessões aguardando restauração</strong>
+                        <label className="grid gap-1 text-xs font-bold">Para restaurar, digite RESTAURAR TESTE
+                          <input className="rounded-lg border p-2" value={testRestoreConfirmation} onChange={(event) => setTestRestoreConfirmation(event.target.value)} />
+                        </label>
+                        {testSessions.map((session) => <div key={session.id} className="grid gap-1 border-t pt-2 text-xs">
+                          <span>{session.appointment_date} · {session.id}</span>
+                          <button type="button" disabled={testBusy || testRestoreConfirmation !== "RESTAURAR TESTE"} onClick={() => void restoreTriageTest(session.id)}
+                            className="rounded-lg bg-amber-800 px-3 py-2 font-bold text-white disabled:opacity-40">Restaurar esta sessão</button>
+                        </div>)}
+                      </div>}
+                      {testMessage && <p role="status" className="rounded-lg bg-white p-2 text-xs font-bold text-[#123D2C]">{testMessage}</p>}
+                    </section>
+                  )}
+
                   {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
               )}
-              {settingsSection && (
+              {settingsSection && settingsSection !== "testes" && (
                 <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">
                   {saving ? "Salvando..." : "Salvar configurações"}
                 </button>
