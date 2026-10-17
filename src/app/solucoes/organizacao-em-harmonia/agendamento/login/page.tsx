@@ -122,16 +122,16 @@ export default function AgendamentoLoginPage() {
         compactMobileActions
       />
 
-      <section className="mx-auto max-w-3xl px-4 py-5 sm:px-6 lg:px-8">
-        <article className="overflow-hidden rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl shadow-green-900/10 sm:p-8">
+      <section className="mx-auto max-w-3xl px-3 py-2 sm:px-6 sm:py-5 lg:px-8">
+        <article className="overflow-hidden rounded-[1.5rem] bg-[#123D2C] p-3 sm:rounded-[2rem] sm:p-5 text-white shadow-xl shadow-green-900/10 sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.26em] text-[#CFE2C7]">Tucxa · acesso único</p>
-          <form onSubmit={submit} className="mt-6 grid gap-4 rounded-[1.75rem] bg-white p-4 text-[#10251C] shadow-2xl shadow-green-950/20 ring-1 ring-[#123D2C]/10 sm:p-5">
+          <form onSubmit={submit} className="mt-3 grid gap-3 rounded-[1.25rem] bg-white p-3 sm:mt-6 sm:gap-4 sm:rounded-[1.75rem] sm:p-4 text-[#10251C] shadow-2xl shadow-green-950/20 ring-1 ring-[#123D2C]/10 sm:p-5">
             <label className="grid min-w-0 gap-2">
               <span className="text-sm font-black text-[#123D2C]">WhatsApp/celular ou e-mail</span>
               <input
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}
-                className="block w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-base text-[#123D2C] outline-none transition placeholder:text-slate-400 focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
+                className="block w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-4 text-base text-[#123D2C] outline-none transition placeholder:text-slate-400 focus:border-[#31C16B] focus:ring-4 focus:ring-emerald-100"
                 placeholder="(19) 99999-9999 ou seu@email.com"
                 autoComplete="username"
                 required
@@ -145,7 +145,7 @@ export default function AgendamentoLoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   type={showPassword ? "text" : "password"}
-                  className="block min-w-0 flex-1 bg-transparent px-4 py-4 text-base text-[#123D2C] outline-none placeholder:text-slate-400"
+                  className="block min-w-0 flex-1 bg-transparent px-3 py-3 sm:px-4 sm:py-4 text-base text-[#123D2C] outline-none placeholder:text-slate-400"
                   placeholder="Digite sua senha"
                   autoComplete="current-password"
                   required
@@ -158,21 +158,21 @@ export default function AgendamentoLoginPage() {
 
             {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
 
-            <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#123D2C] px-5 py-4 text-base font-black text-white shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[#123D2C] px-4 py-3 sm:px-5 sm:py-4 text-base font-black text-white shadow-lg shadow-green-950/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
               {loading ? "Identificando seu acesso..." : "Entrar no Tucxa"}
             </button>
 
             <Link
               href={RECOVERY}
-              className="block w-full rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-center text-sm font-black text-[#123D2C] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#F7FAF2]"
+              className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-center sm:px-5 sm:py-3.5 text-sm font-black text-[#123D2C] shadow-sm transition hover:-translate-y-0.5 hover:bg-[#F7FAF2]"
             >
               Esqueci minha senha
             </Link>
           </form>
 
-          <div className="mt-4 rounded-[1.5rem] bg-white/10 p-4 ring-1 ring-white/10">
+          <div className="mt-2 rounded-[1.5rem] bg-white/10 p-3 sm:mt-4 sm:p-4 ring-1 ring-white/10">
             <p className="text-sm font-black text-white">Ainda não tem acesso?</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid gap-2 sm:mt-3 sm:grid-cols-2">
               <Link href={FILHO_FIRST_ACCESS} className="rounded-2xl bg-[#E9F2E7] px-4 py-3 text-center text-sm font-black text-[#123D2C]">
                 Primeiro acesso · Filho da Corrente
               </Link>
