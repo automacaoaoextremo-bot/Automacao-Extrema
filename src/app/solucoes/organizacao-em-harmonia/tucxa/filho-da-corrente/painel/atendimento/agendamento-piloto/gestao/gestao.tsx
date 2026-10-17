@@ -242,7 +242,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
         ) : view === "envios" ? (
           <div className="grid min-w-0 gap-3">
             <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
-              <div className="grid min-w-0 gap-3 md:grid-cols-[220px_auto_1fr] md:items-end">
+              <div className="grid min-w-0 gap-3">
                 <label className="grid gap-1 text-sm font-black">
                   Data do atendimento
                   <select
@@ -255,14 +255,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                     {availableDates.map((item) => <option key={item} value={item}>{ptBrDate(item)}</option>)}
                   </select>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => void load()}
-                  disabled={loading || !date}
-                  className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
-                >
-                  {loading ? "Carregando..." : "Carregar agendamentos"}
-                </button>
+
 
               </div>
             </section>
@@ -283,15 +276,15 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                 <div>
                   <p className="text-sm font-semibold text-slate-600">{appointments.length} registro(s) · {selectable.length} disponível(is) para envio · {selected.size} selecionado(s)</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={toggleAll} disabled={!selectable.length || sending} className="rounded-xl border border-[#123D2C]/20 px-3 py-2 text-sm font-black text-[#123D2C] disabled:opacity-40">
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                  <button type="button" onClick={toggleAll} disabled={!selectable.length || sending} className="min-w-0 rounded-xl border border-[#123D2C]/20 px-2 py-2 text-xs font-black text-[#123D2C] disabled:opacity-40 sm:px-3 sm:text-sm">
                     {allSelected ? "Limpar seleção" : "Selecionar todos"}
                   </button>
                   <button
                     type="button"
                     onClick={() => void sendSelected()}
                     disabled={sending || !selected.size || !flowsReady}
-                    className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                    className="min-w-0 rounded-xl bg-[#123D2C] px-2 py-2 text-xs font-black text-white disabled:opacity-40 sm:px-4 sm:text-sm"
                   >
                     {sending ? "Enviando..." : "Enviar selecionados"}
                   </button>

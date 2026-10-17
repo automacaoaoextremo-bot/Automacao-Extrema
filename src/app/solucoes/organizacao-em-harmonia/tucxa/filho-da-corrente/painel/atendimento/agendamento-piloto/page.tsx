@@ -1922,7 +1922,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setCadastroMode("menu");
               return;
             }
-            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
+            if (["painel", "consultar", "encaminhamento"].includes(modal)) {
               setModal("acolhimento");
               return;
             }
