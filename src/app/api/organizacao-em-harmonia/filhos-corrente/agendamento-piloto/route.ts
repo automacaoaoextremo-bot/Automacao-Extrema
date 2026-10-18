@@ -944,6 +944,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Informe uma data de hoje ou futura válida.", requestId: code }, { status: 400 });
       }
 
+      const allowedDispatchTypes = ["reminder", "confirmation", "pizza"] as const;
+      const dispatchTypes = Array.isArray(body.dispatchTypes)
+        ? Array.from(new Set(body.dispatchTypes.filter((value: unknown): value is (typeof allowedDispatchTypes)[number] =>
+            typeof value === "string" && allowedDispatchTypes.some((allowed) => allowed === value))))
+        : [];
+      if (!dispatchTypes.length) {
+        return NextResponse.json({ error: "Selecione Lembretes, Confirmações ou Pizzas antes de enviar.", requestId: code }, { status: 400 });
+      }
+
       const appointmentIds = Array.isArray(body.appointmentIds)
         ? Array.from(new Set(body.appointmentIds.map((item) => asText(item)).filter(Boolean))).slice(0, 100)
         : [];
@@ -952,7 +961,11 @@ export async function POST(request: Request) {
       }
 
       const availableRows = await loadManualDispatchAppointments(context.organizationId, appointmentDate);
-      const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id) && !item.dispatchBlockedReason && !item.dispatchComplete);
+      const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id) && !item.dispatchBlockedReason && (
+        (dispatchTypes.includes("reminder") && !item.reminderSentAt) ||
+        (dispatchTypes.includes("confirmation") && item.category === "requested" && !item.confirmationLinkSentAt) ||
+        (dispatchTypes.includes("pizza") && !item.pizzaSentAt)
+      ));
       if (!selectedRows.length) {
         return NextResponse.json({ error: "Nenhum agendamento elegível foi encontrado para a data selecionada.", requestId: code }, { status: 404 });
       }
@@ -980,7 +993,10 @@ export async function POST(request: Request) {
           continue;
         }
 
-        if (!appointment.reminderSentAt || (appointment.category === "requested" && !appointment.confirmationLinkSentAt)) {
+        const sendReminder = dispatchTypes.includes("reminder") && !appointment.reminderSentAt;
+        const sendConfirmation = dispatchTypes.includes("confirmation") && appointment.category === "requested" && !appointment.confirmationLinkSentAt;
+        // Um lembrete de solicitante já inclui o link de confirmação; enviar uma só mensagem.
+        if (sendReminder || sendConfirmation) {
           let link = "";
           if (appointment.category === "requested") {
             const token = createConfirmationToken();
@@ -1017,7 +1033,7 @@ export async function POST(request: Request) {
               : `Sua presença ainda não foi confirmada. Confirme pelo link para ajudar a Recepção a organizar as vagas. ${TUCXA_INDIVIDUAL_NOTICE}`,
           });
 
-          await upsertManualDispatchLog({
+          if (sendReminder) await upsertManualDispatchLog({
             organizationId: context.organizationId,
             appointmentId: appointment.id,
             personId: appointment.personId,
@@ -1027,9 +1043,9 @@ export async function POST(request: Request) {
             subscriberId: reminderDispatch.subscriberId,
             error: reminderDispatch.error,
           });
-          reminder = reminderDispatch.sent ? "sent" : "failed";
+          if (sendReminder) reminder = reminderDispatch.sent ? "sent" : "failed";
 
-          if (reminderDispatch.sent) {
+          if (sendReminder && reminderDispatch.sent) {
             await upsertManualDispatchLog({
               organizationId: context.organizationId,
               appointmentId: appointment.id,
@@ -1042,7 +1058,7 @@ export async function POST(request: Request) {
             });
           }
 
-          if (appointment.category === "requested") {
+          if (appointment.category === "requested" && (sendConfirmation || sendReminder)) {
             await upsertManualDispatchLog({
               organizationId: context.organizationId,
               appointmentId: appointment.id,
@@ -1079,7 +1095,7 @@ export async function POST(request: Request) {
           }
         }
 
-        if (!appointment.pizzaSentAt) {
+        if (dispatchTypes.includes("pizza") && !appointment.pizzaSentAt) {
           const pizzaDispatch = await sendTucxaAppointmentWhatsapp({
             kind: "pizza",
             fullName: firstTwoPersonNames(appointment.consulenteName),

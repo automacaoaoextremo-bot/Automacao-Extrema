@@ -8,6 +8,12 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 const API = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 
 type View = "inicio" | "envios" | "relatorios";
+type DispatchType = "reminder" | "confirmation" | "pizza";
+const DISPATCH_LABELS: Record<DispatchType, string> = {
+  reminder: "Lembretes",
+  confirmation: "Confirmações",
+  pizza: "Pizzas",
+};
 type DispatchAppointment = {
   id: string;
   personId: string;
@@ -81,13 +87,18 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datesLoading, setDatesLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dispatchTypes, setDispatchTypes] = useState<DispatchType[]>([]);
+  const [dispatchStep, setDispatchStep] = useState<"types" | "recipients">("types");
+  const [paginate, setPaginate] = useState(true);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [confirmSend, setConfirmSend] = useState(false);
   const [readiness, setReadiness] = useState<FlowReadiness>({ requestedReminder: false, confirmedReminder: false, pizza: false });
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const flowsReady = readiness.requestedReminder && readiness.confirmedReminder && readiness.pizza;
 
   const loadAvailableDates = useCallback(async () => {
     setDatesLoading(true);
@@ -118,7 +129,11 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   function navigate(next: View) {
     setView(next);
     onViewChange?.(next);
-    if (next === "envios") void loadAvailableDates();
+    if (next === "envios") {
+      setDispatchStep("types");
+      setSelected(new Set());
+      void loadAvailableDates();
+    }
   }
 
 
@@ -141,6 +156,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
       setAppointments((payload.appointments ?? []).sort((a, b) => a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })));
       setReadiness(payload.flowReadiness ?? { requestedReminder: false, confirmedReminder: false, pizza: false });
       setSelected(new Set());
+      setPage(1);
     } catch (loadError) {
       setAppointments([]);
       setSelected(new Set());
@@ -160,10 +176,21 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
     return () => window.clearTimeout(timer);
   }, [load, view]);
 
-  const selectable = useMemo(() => appointments.filter((item) => !item.dispatchBlockedReason && !item.dispatchComplete), [appointments]);
+  const relevantAppointments = useMemo(() => appointments.filter((item) => {
+    if (!dispatchTypes.length) return false;
+    return dispatchTypes.some((kind) =>
+      kind === "reminder" ? !item.reminderSentAt :
+      kind === "confirmation" ? item.category === "requested" && !item.confirmationLinkSentAt :
+      !item.pizzaSentAt
+    );
+  }), [appointments, dispatchTypes]);
+  const selectable = useMemo(() => relevantAppointments.filter((item) => !item.dispatchBlockedReason), [relevantAppointments]);
   const selectableIds = useMemo(() => new Set(selectable.map((item) => item.id)), [selectable]);
   const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id));
   const selectedAppointments = useMemo(() => selectable.filter((item) => selected.has(item.id)), [selectable, selected]);
+  const totalPages = Math.max(1, Math.ceil(relevantAppointments.length / pageSize));
+  const displayedAppointments = paginate ? relevantAppointments.slice((Math.min(page, totalPages) - 1) * pageSize, Math.min(page, totalPages) * pageSize) : relevantAppointments;
+  const flowsReady = dispatchTypes.every((kind) => kind === "pizza" ? readiness.pizza : kind === "confirmation" ? readiness.requestedReminder : readiness.confirmedReminder && readiness.requestedReminder);
 
   function toggle(id: string) {
     if (!selectableIds.has(id) || sending) return;
@@ -180,7 +207,8 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   }
 
   async function sendSelected() {
-    if (!selectedAppointments.length || sending) return;
+    if (!selectedAppointments.length || sending || !dispatchTypes.length) return;
+    setConfirmSend(false);
     setSending(true);
     setError("");
     setMessage("");
@@ -194,6 +222,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
           action: "management-dispatch-send",
           date,
           appointmentIds: selectedAppointments.map((item) => item.id),
+          dispatchTypes,
         }),
       });
       const payload = (await response.json()) as DispatchPayload;
@@ -237,9 +266,47 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
           </div>
         )}
 
+        {view === "envios" && dispatchStep === "types" && (
+          <section className="grid gap-3 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10" role="group" aria-label="Escolher tipos de envio">
+            <h2 className="text-base font-black text-[#123D2C]">Quais mensagens deseja enviar?</h2>
+            <p className="text-sm text-slate-600">Escolha uma ou mais opções para envio manual. Os lembretes automáticos continuam independentes.</p>
+            {(["reminder", "confirmation", "pizza"] as DispatchType[]).map((kind) => (
+              <label key={kind} className="flex items-center gap-3 rounded-xl border p-3 text-sm font-bold">
+                <input type="checkbox" className="h-5 w-5 accent-[#123D2C]" checked={dispatchTypes.includes(kind)} onChange={(event) => {
+                  setDispatchTypes((current) => event.target.checked ? [...current, kind] : current.filter((item) => item !== kind));
+                  setSelected(new Set());
+                }} />
+                {DISPATCH_LABELS[kind]}
+              </label>
+            ))}
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={paginate} onChange={(event) => { setPaginate(event.target.checked); setPage(1); }} />
+              Paginar resultados (20 por página)
+            </label>
+            <button type="button" disabled={!dispatchTypes.length} onClick={() => {setDispatchStep("recipients");setPage(1);}} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-40">Continuar para seleção de consulentes</button>
+          </section>
+        )}
+        {view === "envios" && dispatchStep === "recipients" && (
+          <button type="button" className="mb-3 rounded-xl border border-[#123D2C]/20 bg-white px-4 py-2 text-sm font-black text-[#123D2C]" onClick={() => {setDispatchStep("types");setSelected(new Set());}}>
+            ← Alterar tipos de envio
+          </button>
+        )}
+        {view === "envios" && confirmSend && (
+          <div role="dialog" aria-modal="true" aria-label="Confirmar disparos" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+              <h2 className="font-black">Confirmar envio real de WhatsApp</h2>
+              <p className="my-3 text-sm">{selectedAppointments.length} agendamento(s), {ptBrDate(date)}. Tipos: {dispatchTypes.map((kind) => DISPATCH_LABELS[kind]).join(", ")}.</p>
+              <p className="mb-4 text-sm font-semibold text-amber-900">Esta ação envia mensagens reais e não pode ser desfeita.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setConfirmSend(false)} className="rounded-xl border px-3 py-2">Cancelar</button>
+                <button type="button" onClick={() => void sendSelected()} className="rounded-xl bg-[#123D2C] px-3 py-2 font-bold text-white">Confirmar envio</button>
+              </div>
+            </div>
+          </div>
+        )}
         {view === "relatorios" ? (
           <div className="min-w-0"><TucxaPilotReports /></div>
-        ) : view === "envios" ? (
+        ) : view === "envios" && dispatchStep === "recipients" ? (
           <div className="grid min-w-0 gap-3">
             <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
               <div className="grid min-w-0 gap-3">
@@ -274,7 +341,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
             <section className="min-w-0 rounded-2xl bg-white p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-600">{appointments.length} registro(s) · {selectable.length} disponível(is) para envio · {selected.size} selecionado(s)</p>
+                  <p className="text-sm font-semibold text-slate-600">{relevantAppointments.length} registro(s) para os tipos selecionados · {selectable.length} disponível(is) · {selected.size} selecionado(s)</p>
                 </div>
                 <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
                   <button type="button" onClick={toggleAll} disabled={!selectable.length || sending} className="min-w-0 rounded-xl border border-[#123D2C]/20 px-2 py-2 text-xs font-black text-[#123D2C] disabled:opacity-40 sm:px-3 sm:text-sm">
@@ -282,7 +349,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                   </button>
                   <button
                     type="button"
-                    onClick={() => void sendSelected()}
+                    onClick={() => setConfirmSend(true)}
                     disabled={sending || !selected.size || !flowsReady}
                     className="min-w-0 rounded-xl bg-[#123D2C] px-2 py-2 text-xs font-black text-white disabled:opacity-40 sm:px-4 sm:text-sm"
                   >
@@ -291,13 +358,20 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                 </div>
               </div>
 
-              {!loading && !appointments.length ? (
+              {paginate && totalPages > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm font-semibold">
+                  <button type="button" className="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Anterior</button>
+                  <span>Página {Math.min(page, totalPages)} de {totalPages}</span>
+                  <button type="button" className="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>Próxima</button>
+                </div>
+              )}
+              {!loading && !relevantAppointments.length ? (
                 <div className="py-10 text-center text-sm font-semibold text-slate-500">Nenhum agendamento solicitado ou confirmado encontrado para esta data.</div>
               ) : (
                 <div className="mt-3 grid gap-3">
-                  {appointments.map((appointment) => (
-                    <label key={appointment.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-2xl border border-slate-200 p-3 ${appointment.dispatchBlockedReason || appointment.dispatchComplete ? "cursor-not-allowed bg-slate-50 opacity-75" : "cursor-pointer hover:bg-[#F7FAF2]"}`}>
-                      <input type="checkbox" disabled={Boolean(appointment.dispatchBlockedReason || appointment.dispatchComplete) || sending} checked={selected.has(appointment.id)} onChange={() => toggle(appointment.id)} className="mt-1 h-5 w-5 accent-[#123D2C] disabled:cursor-not-allowed" />
+                  {displayedAppointments.map((appointment) => (
+                    <label key={appointment.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-2xl border border-slate-200 p-3 ${appointment.dispatchBlockedReason ? "cursor-not-allowed bg-slate-50 opacity-75" : "cursor-pointer hover:bg-[#F7FAF2]"}`}>
+                      <input type="checkbox" disabled={Boolean(appointment.dispatchBlockedReason) || !selectableIds.has(appointment.id) || sending} checked={selected.has(appointment.id)} onChange={() => toggle(appointment.id)} className="mt-1 h-5 w-5 accent-[#123D2C] disabled:cursor-not-allowed" />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
@@ -308,7 +382,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                             {appointment.category === "confirmed" ? "Confirmado" : "Solicitado"}
                           </span>
                         </div>
-                        {(appointment.dispatchBlockedReason || appointment.dispatchComplete) && <p className="mt-2 text-xs font-bold text-slate-600">{appointment.dispatchBlockedReason || "Envios já concluídos: não é permitido reenviar."}</p>}
+                        {appointment.dispatchBlockedReason && <p className="mt-2 text-xs font-bold text-slate-600">{appointment.dispatchBlockedReason}</p>}
                         <div className="mt-3 grid gap-2 text-xs font-bold sm:grid-cols-3">
                           <div className={appointment.reminderSentAt ? "text-emerald-700" : "text-slate-500"}>Lembrete: {sentLabel(appointment.reminderSentAt)}</div>
                           <div className={appointment.category === "confirmed" ? "text-slate-400" : appointment.confirmationLinkSentAt ? "text-emerald-700" : "text-slate-500"}>
