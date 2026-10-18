@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   confirmationTokenHash,
+  confirmationDeadlineIso,
   isPastConfirmationDeadline,
   loadPilotSettings,
   longDateLabel,
@@ -60,7 +61,9 @@ export async function loadTucxaConfirmationAppointment(
 
   if (entityError) throw entityError;
 
-  const deadline = asText(appointment.confirmation_expires_at);
+  const deadline = settings?.confirmationCutoff && asText(appointment.appointment_date)
+    ? confirmationDeadlineIso(asText(appointment.appointment_date), settings.confirmationCutoff)
+    : asText(appointment.confirmation_expires_at);
   const expired =
     Boolean(deadline) &&
     isPastConfirmationDeadline(deadline) &&

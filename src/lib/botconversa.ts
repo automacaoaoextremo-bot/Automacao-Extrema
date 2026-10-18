@@ -1294,7 +1294,7 @@ export type TucxaAppointmentBotConversaInput = {
   reminderOffsetHours?: number | null;
   appointmentOrder?: number | null;
   individualNotice?: string;
-  kind: "confirmation" | "reminder";
+  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza";
 };
 
 export type TucxaEntityChangeBotConversaInput = {
@@ -1445,7 +1445,7 @@ export async function sendTucxaAppointmentWhatsapp(
       "BOTCONVERSA_TUCXA_FIELD_ORDER_ID",
       firstEnv("BOTCONVERSA_TUCXA_FIELD_ORDER_ID", "BOTCONVERSA_TUCXA_FIELD_ORDER"),
     ]] : []),
-    ...(input.kind === "confirmation"
+    ...(input.confirmationUrl
       ? [[
           "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID",
           firstEnv("BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL_ID", "BOTCONVERSA_TUCXA_FIELD_CONFIRMATION_URL"),
@@ -1472,15 +1472,24 @@ export async function sendTucxaAppointmentWhatsapp(
 
   const flowId = input.kind === "reminder"
     ? firstEnv("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW")
-    : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
+    : input.kind === "confirmed_reminder"
+      ? firstEnv("BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW")
+      : input.kind === "pizza"
+        ? firstEnv("BOTCONVERSA_TUCXA_PIZZA_FLOW_ID", "BOTCONVERSA_TUCXA_PIZZA_FLOW")
+        : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
 
   if (!isConfigured(flowId)) {
+    const error = input.kind === "reminder"
+      ? "Fluxo BotConversa de lembrete não configurado."
+      : input.kind === "confirmed_reminder"
+        ? "Fluxo BotConversa de lembrete para presença confirmada não configurado."
+        : input.kind === "pizza"
+          ? "Fluxo BotConversa da mensagem beneficente das pizzas não configurado."
+          : "Fluxo BotConversa de confirmação não configurado.";
     return {
       sent: false,
       provider: "disabled",
-      error: input.kind === "reminder"
-        ? "Fluxo BotConversa de lembrete não configurado."
-        : "Fluxo BotConversa de confirmação não configurado.",
+      error,
     };
   }
 
@@ -1528,7 +1537,13 @@ export async function sendTucxaAppointmentWhatsapp(
     }
 
     steps.push({
-      step: input.kind === "reminder" ? "send_tucxa_reminder_flow" : "send_tucxa_confirmation_flow",
+      step: input.kind === "reminder"
+        ? "send_tucxa_reminder_flow"
+        : input.kind === "confirmed_reminder"
+          ? "send_tucxa_confirmed_reminder_flow"
+          : input.kind === "pizza"
+            ? "send_tucxa_pizza_flow"
+            : "send_tucxa_confirmation_flow",
       ok: flow.ok,
       status: flow.status,
       path: flow.path,
@@ -1788,5 +1803,55 @@ export async function sendTucxaEntityChangeWhatsapp(
       sent: false, provider: "botconversa",
       error: error instanceof Error ? error.message : "Falha ao enviar alteração de Entidade pelo BotConversa.",
     };
+  }
+}
+
+export type TucxaOperationalSummaryBotConversaInput = {
+  recipientName: string;
+  whatsapp: string;
+  appointmentDate: string;
+  entityName: string;
+  summary: string;
+  audience: "cavalinho" | "reception";
+};
+
+/** Dispara o resumo operacional do dia usando os mesmos campos seguros do piloto. */
+export async function sendTucxaOperationalSummaryWhatsapp(
+  input: TucxaOperationalSummaryBotConversaInput,
+): Promise<TucxaAppointmentBotConversaResult> {
+  if (!tucxaAppointmentEnabled()) {
+    return { sent: false, provider: "disabled", error: "BotConversa do Agendamento não habilitado." };
+  }
+  const flowId = input.audience === "cavalinho"
+    ? firstEnv("BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_CAVALINHO_DAILY_FLOW")
+    : firstEnv("BOTCONVERSA_TUCXA_RECEPTION_DAILY_FLOW_ID", "BOTCONVERSA_TUCXA_RECEPTION_DAILY_FLOW");
+  if (!flowId) {
+    return { sent: false, provider: "disabled", error: `Fluxo diário ${input.audience} não configurado.` };
+  }
+  const fieldInput: TucxaAppointmentBotConversaInput = {
+    fullName: input.recipientName,
+    recipientName: input.recipientName,
+    whatsapp: input.whatsapp,
+    appointmentDate: input.appointmentDate,
+    entityName: input.entityName,
+    individualNotice: input.summary,
+    kind: "reminder",
+  };
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber(fieldInput);
+    if (!subscriber.subscriberId) return { sent: false, provider: "botconversa", error: subscriber.error, steps: subscriber.steps };
+    const steps = [...subscriber.steps];
+    const fieldSteps = await setCustomFields(subscriber.subscriberId, tucxaAppointmentFields(fieldInput));
+    steps.push(...fieldSteps);
+    const failed = fieldSteps.find((step) => !step.ok);
+    if (failed) return { sent: false, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId, error: `Não foi possível preparar o resumo (${failed.step}).`, steps };
+    await botConversaWait(900);
+    const flowPath = `/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`;
+    const numericFlowId = Number(flowId);
+    const flow = await botconversaRequest(flowPath, { method: "POST", body: { flow: Number.isFinite(numericFlowId) ? numericFlowId : flowId } });
+    steps.push({ step: `send_tucxa_${input.audience}_daily_flow`, ok: flow.ok, status: flow.status, path: flow.path, method: flow.method, data: flow.data, responseText: flow.ok ? undefined : flow.text });
+    return { sent: flow.ok, provider: "botconversa", subscriberId: subscriber.subscriberId, flowId, error: flow.ok ? undefined : flow.text || "Falha ao disparar resumo operacional.", steps };
+  } catch (error) {
+    return { sent: false, provider: "botconversa", flowId, error: error instanceof Error ? error.message : "Falha inesperada no resumo operacional." };
   }
 }

@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-const TO = "automacao.ao.extremo@gmail.com";
+export const TUCXA_AUDIT_EMAIL = "automacao.ao.extremo@gmail.com";
 
 function smtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -47,13 +47,38 @@ export async function sendTucxaAppointmentAuditEmail(input: {
 
     await transporter.sendMail({
       from: config.from,
-      to: TO,
+      to: TUCXA_AUDIT_EMAIL,
       subject: `[TUCXA] ${input.event}`,
       text,
     });
     return true;
   } catch (error) {
     console.error("[TUCXA auditoria e-mail]", error);
+    return false;
+  }
+}
+
+
+export async function sendTucxaOperationalSummaryEmail(input: {
+  to: string;
+  recipientName: string;
+  appointmentDate: string;
+  summary: string;
+}) {
+  const config = smtpConfig();
+  if (!config || !input.to.trim()) return false;
+  try {
+    const transporter = nodemailer.createTransport({ host: config.host, port: config.port, secure: config.secure, auth: config.auth });
+    await transporter.sendMail({
+      from: config.from,
+      to: input.to.trim(),
+      bcc: input.to.trim().toLowerCase() === TUCXA_AUDIT_EMAIL ? undefined : TUCXA_AUDIT_EMAIL,
+      subject: `[TUCXA] Resumo dos agendamentos - ${input.appointmentDate}`,
+      text: [`Olá, ${input.recipientName}.`, "", "Resumo dos atendimentos do TUCXA:", "", input.summary].join("\n"),
+    });
+    return true;
+  } catch (error) {
+    console.error("[TUCXA resumo operacional e-mail]", error);
     return false;
   }
 }

@@ -22,7 +22,7 @@ const headerActions = [
     action: "openAgendamentoHours" as const,
   },
   {
-    label: "Agendamento",
+    label: "Entrar",
     href: LOGIN_HREF,
     variant: "primary" as const,
   },
@@ -131,7 +131,7 @@ export default function AgendamentoTucxaPublicPage() {
               href={LOGIN_HREF}
               className="flex min-h-11 flex-col items-center justify-center rounded-xl bg-white px-2.5 py-2 text-center text-[0.78rem] font-black leading-tight text-[#123D2C] shadow-lg shadow-green-950/10 ring-1 ring-white/20 transition hover:-translate-y-0.5 sm:min-h-12 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base"
             >
-              <span>Agendamento</span>
+              <span>Entrar no Tucxa</span>
               <TouchHint />
             </Link>
           </div>

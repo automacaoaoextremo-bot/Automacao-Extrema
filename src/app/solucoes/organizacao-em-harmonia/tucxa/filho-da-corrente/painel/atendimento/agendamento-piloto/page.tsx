@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilhoCorrentePanelHeader,
@@ -8,6 +7,8 @@ import {
   filhoSupportAction,
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaGestaoContent } from "./gestao/gestao";
+import { disambiguatedPersonDisplayNames, firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
@@ -16,20 +17,24 @@ const pageHref = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/pain
 const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atualizar-dados";
 
 type ViewMode = "entity_day" | "day_entity" | "both";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type TriageDisplayOrder = "booking" | "alphabetical";
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
 type BookingMode = "date" | "entity";
-type ConsultStatus = "confirm" | "arrived" | "absent" | "cancelled";
+type ConsultStatus = "requested" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
+const ALL_CONSULT_STATUSES: ConsultStatus[] = ["requested", "confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
 type DateOption = { date: string; weekday: "segunda" | "terca"; monthOccurrence: number; label: string };
 type Medium = { personId: string; name: string; whatsapp: string; whatsappUrl: string };
 type Entity = { id: string; name: string; slug: string; capacity: number; booked: number; available: number; isAvailable: boolean; suspendedReason: string; mediums: Medium[] };
 type EntityCatalogItem = {
   id: string;
   name: string;
+  line: string;
   slug: string;
   description: string;
   capacity: number;
   active: boolean;
   appointmentEnabled: boolean;
+  cavalinhoWhatsappEnabled: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -50,10 +55,42 @@ type Appointment = {
   status: string;
   confirmationStatus: string;
   confirmationExpiresAt: string;
+  createdAt: string;
   order: number | null;
   arrivalStatus: string;
   arrivalOrder: number | null;
+  forwardedAt: string;
+  forwardedByPersonId: string;
+  cancelledAt: string;
+  cancellationReason: string;
+  previousEntityId: string;
+  previousEntityName: string;
+  entityChangeReason: string;
+  entityChangeMode: string;
+  entityChangedAt: string;
+  isFirstTimeAppointment: boolean;
+  firstTimeIndicatorActive: boolean;
+  firstTimeOriginalEntityId: string;
+  firstTimeOriginalEntityName: string;
 };
+type RelatedConsulente = {
+  relationshipId: string;
+  historyAppointmentId: string;
+  relatedPersonId: string;
+  fullName: string;
+  relationship: string;
+  defaultEntityId: string;
+  defaultEntityName: string;
+  allowDifferentEntity: boolean;
+};
+
+function relatedConsulenteKey(item: RelatedConsulente) {
+  if (item.relationshipId) return `relationship:${item.relationshipId}`;
+  if (item.historyAppointmentId) return `history:${item.historyAppointmentId}`;
+  if (item.relatedPersonId) return `person:${item.relatedPersonId}`;
+  return `snapshot:${item.fullName}|${item.relationship}`;
+}
+
 type Settings = {
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
@@ -69,7 +106,18 @@ type Settings = {
   useDefaultEntity: boolean;
   allowDifferentEntity: boolean;
   serviceOrderMode: "booking" | "arrival";
+  triageDisplayOrder: TriageDisplayOrder;
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
+  forwardingPaginationEnabled: boolean;
   confirmationReminderOffsetsHours: number[];
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 type ReceptionPreferences = { receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
@@ -81,10 +129,11 @@ type Payload = {
   entityCatalog: EntityCatalogItem[];
   cavalinhos: Array<{ id: string; name: string; whatsapp: string }>;
   appointments: Appointment[];
+  dayClosures: Array<{ stage: string; finalizedAt: string }>;
   receptionPreferences: ReceptionPreferences;
   summary: SummaryCounts;
 };
-type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; defaultEntityName?: string; allowDifferentEntity?: boolean };
+type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; defaultEntityName?: string; allowDifferentEntity?: boolean; relatedConsulentes?: RelatedConsulente[] };
 type AccessInfo = { login?: string; temporaryPassword?: string; loginUrl?: string; whatsappUrl?: string; emailSent?: boolean };
 type BookingResult = {
   appointment?: { id: string; personName: string; appointmentDate: string; appointmentTime: string; entityName: string; order: number | null; confirmationDeadline: string };
@@ -92,6 +141,8 @@ type BookingResult = {
 };
 type CompletedBooking = BookingResult & { whatsapp: string; contactName?: string; alternateContact?: boolean };
 type SuccessNotice = { title: string; message: string };
+type RescheduleOption = { entityId: string; name: string; line: string; dates: Array<{ date: string; label: string; available: number }> };
+type RescheduleRequest = { appointmentId: string; consulenteName: string; currentEntityId: string; selectedEntityId: string; selectedDate: string; options: RescheduleOption[]; otherEntityAllowed: boolean };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string; attachment: File | null };
 type EntityChangeRequest = {
@@ -100,12 +151,14 @@ type EntityChangeRequest = {
   consulenteName: string;
   currentEntityId: string;
   currentEntityName: string;
+  firstTimeCount: number;
   newEntityId: string;
   reason: string;
   notify: boolean;
   attachment: File | null;
 };
 type AlphabetPickerState = { letter: string; people: FoundPerson[] };
+type EntityAlphabetPickerState = { letter: string; entities: EntityCatalogItem[] };
 type SummaryMode = "date" | "future" | "period" | "before";
 type SummaryCounts = {
   mode: SummaryMode;
@@ -113,19 +166,31 @@ type SummaryCounts = {
   fromDate: string;
   scheduled: number;
   confirmed: number;
+  unconfirmed: number;
   arrived: number;
 };
 
 type SettingsDraft = {
   serviceOrderMode: "booking" | "arrival";
+  triageDisplayOrder: TriageDisplayOrder;
   confirmationCutoff: string;
   autoCancelExpiredConfirmations: boolean;
   enforceArrivalWindow: boolean;
+  triageEntityPaginationEnabled: boolean;
+  triageConsulentePaginationEnabled: boolean;
+  triageCadernoPaginationEnabled: boolean;
+  forwardingPaginationEnabled: boolean;
   reminderOffsets: string;
   summaryEmail: boolean;
   summaryWhatsapp: boolean;
   summaryViewMode: ViewMode;
   openAcolhimentoOnLogin: boolean;
+  cavalinhoDailyWhatsappEnabled: boolean;
+  cavalinhoDailyWhatsappTime: string;
+  receptionDailyWhatsappEnabled: boolean;
+  receptionDailyWhatsappTime: string;
+  automaticDispatchWeekdays: number[];
+  cavalinhoNoticeEntityIds: string[];
 };
 
 function shortDate(value: string) {
@@ -181,11 +246,80 @@ function todaySaoPaulo() {
 function statusLabel(item: Appointment) {
   if (item.status === "cancelado") return "Cancelado";
   if (item.arrivalStatus === "arrived") return item.arrivalOrder ? `Chegou · ordem ${item.arrivalOrder}` : "Chegou";
-  if (item.arrivalStatus === "absent") return "Ausente";
+  if (item.arrivalStatus === "absent") return "Não Chegou";
   if (item.confirmationStatus === "confirmed") return "Confirmado";
   if (item.confirmationStatus === "expired") return "Prazo encerrado";
   if (item.confirmationStatus === "declined") return "Não comparecerá";
-  return "Aguardando confirmação";
+  if (item.status === "solicitado") return "Solicitado";
+  return "Não Confirmado";
+}
+
+function statusClasses(item: Appointment) {
+  if (item.status === "cancelado") return "bg-red-50 text-red-700 ring-red-200";
+  if (item.arrivalStatus === "arrived") return "bg-blue-50 text-blue-800 ring-blue-200";
+  if (item.arrivalStatus === "absent") return "bg-orange-50 text-orange-800 ring-orange-200";
+  if (item.confirmationStatus === "confirmed") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (item.confirmationStatus === "expired") return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (item.confirmationStatus === "declined") return "bg-rose-50 text-rose-800 ring-rose-200";
+  if (item.status === "solicitado") return "bg-amber-50 text-amber-900 ring-amber-200";
+  return "bg-violet-50 text-violet-800 ring-violet-200";
+}
+
+function cancellationDisplayReason(reason: string) {
+  const normalized = reason
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "informou pelo link de confirmacao que nao podera comparecer") {
+    return "consulente não poderá comparecer";
+  }
+  return reason.trim();
+}
+
+function compareTriageAppointments(
+  left: Appointment,
+  right: Appointment,
+  displayOrder: TriageDisplayOrder,
+) {
+  if (displayOrder === "alphabetical") {
+    const personOrder = left.consulenteName.localeCompare(right.consulenteName, "pt-BR", { sensitivity: "base" });
+    if (personOrder !== 0) return personOrder;
+  }
+
+  const leftBookingOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+  const rightBookingOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+  if (leftBookingOrder !== rightBookingOrder) return leftBookingOrder - rightBookingOrder;
+
+  const createdOrder = left.createdAt.localeCompare(right.createdAt);
+  if (createdOrder !== 0) return createdOrder;
+
+  return left.id.localeCompare(right.id);
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+}
+
+function FirstTimeBadge({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-fuchsia-800 ring-1 ring-fuchsia-200">
+      Primeira vez
+    </span>
+  );
+}
+
+function entityDirectoryKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleUpperCase("pt-BR");
 }
 
 function displayWhatsapp(phone: string) {
@@ -207,11 +341,26 @@ async function authToken() {
   return data.session?.access_token || "";
 }
 
+function eligiblePilotExceptionDates(mondays: number[], tuesdays: number[], start: string): string[] {
+  const dates: string[] = [];
+  for (let offset = 0; offset < 120; offset += 1) {
+    const date = new Date(`${start}T12:00:00`);
+    date.setDate(date.getDate() + offset);
+    const occurrence = Math.floor((date.getDate() - 1) / 7) + 1;
+    if ((date.getDay() === 1 && mondays.includes(occurrence)) || (date.getDay() === 2 && tuesdays.includes(occurrence))) {
+      dates.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+    }
+  }
+  return dates;
+}
+
 export default function AgendamentoPilotoRecepcaoPage() {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [gestaoView, setGestaoView] = useState<"inicio" | "envios" | "relatorios">("inicio");
+  const [gestaoResetKey, setGestaoResetKey] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
@@ -219,25 +368,43 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingMode, setBookingMode] = useState<BookingMode>("date");
   const [bookingEntityLookupId, setBookingEntityLookupId] = useState("");
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
+  const [bookingEntityAvailable, setBookingEntityAvailable] = useState<number | null>(null);
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
-  const [alphabetLetters, setAlphabetLetters] = useState<string[]>([]);
+  const [alphabetLetters, setAlphabetLetters] = useState<string[]>(() => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
+  const [alphabetReturnLetter, setAlphabetReturnLetter] = useState("");
   const [alphabetLoading, setAlphabetLoading] = useState(false);
+  const [entityDirectoryQuery, setEntityDirectoryQuery] = useState("");
+  const [entityDirectorySearch, setEntityDirectorySearch] = useState("");
+  const [entityAlphabetPicker, setEntityAlphabetPicker] = useState<EntityAlphabetPickerState | null>(null);
+  const [entityReturnLetter, setEntityReturnLetter] = useState("");
+  const [entityEditorOpen, setEntityEditorOpen] = useState(false);
+  const [entityExceptionDate, setEntityExceptionDate] = useState(() => todaySaoPaulo());
+  const [entityExceptions, setEntityExceptions] = useState<Array<{ id: string; date: string; reason: string }>>([]);
+  const [entityExceptionReason, setEntityExceptionReason] = useState("");
   const [foundPerson, setFoundPerson] = useState<FoundPerson | null>(null);
   const [personNotFound, setPersonNotFound] = useState(false);
   const [entityId, setEntityId] = useState("");
   const [notes, setNotes] = useState("");
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
-  const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "" });
-  const [alternateRelationshipOption, setAlternateRelationshipOption] = useState<"" | "Mãe" | "Filho" | "Outro">("");
-  const [newPerson, setNewPerson] = useState({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+  const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+  const [alternateRelationshipOption, setAlternateRelationshipOption] = useState("");
+  const [selectedRelatedKey, setSelectedRelatedKey] = useState("");
+  const [relatedPreferenceKey, setRelatedPreferenceKey] = useState("");
+  const [relatedPreferenceDraft, setRelatedPreferenceDraft] = useState({ defaultEntityId: "", allowDifferentEntity: false });
+  const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
   const [bookingResult, setBookingResult] = useState<CompletedBooking | null>(null);
+  const [bookingReturnToTriagem, setBookingReturnToTriagem] = useState(false);
+  const [bookingReturnModal, setBookingReturnModal] = useState<ModalKind>(null);
   const [successNotice, setSuccessNotice] = useState<SuccessNotice | null>(null);
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
   const [entityChangeRequest, setEntityChangeRequest] = useState<EntityChangeRequest | null>(null);
+  const [rescheduleRequest, setRescheduleRequest] = useState<RescheduleRequest | null>(null);
+  const [rescheduleConfirmationUrl, setRescheduleConfirmationUrl] = useState("");
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("date");
   const [summaryDate, setSummaryDate] = useState("");
   const [summaryDateTo, setSummaryDateTo] = useState("");
@@ -246,15 +413,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityOverview, setEntityOverview] = useState<Record<string, EntityOverview>>({});
   const [entityOverviewLoading, setEntityOverviewLoading] = useState(false);
   const [entityPage, setEntityPage] = useState(1);
+  const [entityAvailabilityQuery, setEntityAvailabilityQuery] = useState("");
+  const [entityAvailabilityLetter, setEntityAvailabilityLetter] = useState("");
+  const [entitiesReturnToBooking, setEntitiesReturnToBooking] = useState(false);
   const [entityCalendar, setEntityCalendar] = useState<EntityCalendarState | null>(null);
   const [consultView, setConsultView] = useState<"entity_day" | "day_entity">("entity_day");
-  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(["confirm", "arrived", "absent", "cancelled"]);
+  const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(ALL_CONSULT_STATUSES);
   const [consultPage, setConsultPage] = useState(1);
   const [consultSearch, setConsultSearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno">("caderno");
+  const [forwardingView, setForwardingView] = useState<"entity" | "consulente">("entity");
+  const [forwardingStage, setForwardingStage] = useState<"pending" | "completed">("pending");
+  const [finalizingStage, setFinalizingStage] = useState<"triage" | "forwarding" | null>(null);
+  const [forwardingPage, setForwardingPage] = useState(1);
+  const [forwardingSearch, setForwardingSearch] = useState("");
+  const [forwardingLetter, setForwardingLetter] = useState("");
+  const [cadernoOrders, setCadernoOrders] = useState<Record<string, string>>({});
   const [openAppointmentActions, setOpenAppointmentActions] = useState<Record<string, boolean>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
+  const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
   const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
@@ -265,6 +446,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
     active: true,
+    cavalinhoWhatsappEnabled: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -308,7 +490,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const open = new URL(window.location.href).searchParams.get("abrir");
-      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes"].includes(open || "")) setModal(open as ModalKind);
+      if (["agendar", "consultar", "entidades", "cadastros", "configuracoes", "acolhimento"].includes(open || "")) setModal(open as ModalKind);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -345,16 +527,63 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [modal]);
 
   const usableEntities = useMemo(() => (payload?.entities ?? []).filter((item) => item.isAvailable && item.available > 0), [payload?.entities]);
+  const selectedRelatedForBooking = useMemo(
+    () => foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === selectedRelatedKey) ?? null,
+    [foundPerson?.relatedConsulentes, selectedRelatedKey],
+  );
+  const selectedRelatedDefaultAvailable = useMemo(
+    () => Boolean(
+      selectedRelatedForBooking?.defaultEntityId
+      && usableEntities.some((entity) => entity.id === selectedRelatedForBooking.defaultEntityId),
+    ),
+    [selectedRelatedForBooking, usableEntities],
+  );
+  const selectedRelatedForPreferences = useMemo(
+    () => foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === relatedPreferenceKey) ?? null,
+    [foundPerson?.relatedConsulentes, relatedPreferenceKey],
+  );
   const activeEntityCatalog = useMemo(
     () => (payload?.entityCatalog ?? []).filter((entity) => entity.active && entity.appointmentEnabled),
     [payload?.entityCatalog],
   );
+  const entityDirectoryLetters = useMemo(
+    () => Array.from(new Set(
+      (payload?.entityCatalog ?? [])
+        .map((entity) => entityDirectoryKey(entity.name).charAt(0))
+        .filter((letter) => /^[A-Z]$/.test(letter)),
+    )).sort((left, right) => left.localeCompare(right, "pt-BR")),
+    [payload?.entityCatalog],
+  );
+  const entityDirectoryResults = useMemo(() => {
+    const query = entityDirectoryKey(entityDirectorySearch);
+    if (!query) return [];
+    return (payload?.entityCatalog ?? [])
+      .filter((entity) => {
+        const haystack = entityDirectoryKey([
+          entity.name,
+          entity.slug,
+          ...entity.mediums.map((medium) => medium.name),
+        ].join(" "));
+        return haystack.includes(query);
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  }, [entityDirectorySearch, payload?.entityCatalog]);
+  const filteredAvailabilityEntities = useMemo(() => {
+    const query = entityDirectoryKey(entityAvailabilityQuery);
+    return activeEntityCatalog.filter((entity) => {
+      if (entityAvailabilityLetter && !entityDirectoryKey(entity.name).startsWith(entityAvailabilityLetter)) return false;
+      if (!query) return true;
+      return entityDirectoryKey([entity.name, entity.slug, ...entity.mediums.map((medium) => medium.name)].join(" ")).includes(query);
+    });
+  }, [activeEntityCatalog, entityAvailabilityQuery, entityAvailabilityLetter]);
+  const availabilityLetters = useMemo(() => Array.from(new Set(activeEntityCatalog.map((entity) => entityDirectoryKey(entity.name).charAt(0)).filter((letter) => /^[A-Z]$/.test(letter)))).sort(), [activeEntityCatalog]);
+  const relatedForSelectedEntity = useMemo(() => (foundPerson?.relatedConsulentes ?? []).filter((related) => Boolean(entityId) && related.defaultEntityId === entityId), [foundPerson?.relatedConsulentes, entityId]);
   const entityPageSize = 4;
-  const entityPageCount = Math.max(1, Math.ceil(activeEntityCatalog.length / entityPageSize));
+  const entityPageCount = Math.max(1, Math.ceil(filteredAvailabilityEntities.length / entityPageSize));
   const effectiveEntityPage = Math.min(entityPage, entityPageCount);
   const paginatedEntityCatalog = useMemo(
-    () => activeEntityCatalog.slice((effectiveEntityPage - 1) * entityPageSize, effectiveEntityPage * entityPageSize),
-    [activeEntityCatalog, effectiveEntityPage],
+    () => filteredAvailabilityEntities.slice((effectiveEntityPage - 1) * entityPageSize, effectiveEntityPage * entityPageSize),
+    [filteredAvailabilityEntities, effectiveEntityPage],
   );
   const entityCalendarMonths = useMemo(() => {
     const groups = new Map<string, EntityAvailableDate[]>();
@@ -380,74 +609,205 @@ export default function AgendamentoPilotoRecepcaoPage() {
     fromDate: effectiveSummaryDate,
     scheduled: 0,
     confirmed: 0,
+    unconfirmed: 0,
     arrived: 0,
   };
   const effectiveConsultView = consultView;
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      const first = alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
       if (first) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [effectiveConsultView, payload?.appointments]);
+  }, [payload?.appointments]);
+  const selectedStatusLabel = useMemo(() => {
+    if (consultStatuses.length === ALL_CONSULT_STATUSES.length) return "todos";
+    if (consultStatuses.length === 0) return "nenhum status";
+    const labels: Record<ConsultStatus, string> = {
+      requested: "Solicitados",
+      confirmed: "Confirmados",
+      unconfirmed: "Não confirmados",
+      arrived: "Chegaram",
+      absent: "Não chegaram",
+      cancelled: "Cancelados",
+    };
+    return consultStatuses.map((status) => labels[status]).join(" + ");
+  }, [consultStatuses]);
+
+  function entityHeading(entityName: string) {
+    const baseName = entityName.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const entity = payload?.entities.find((item) => item.name === entityName)
+      ?? payload?.entities.find((item) => item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === baseName);
+    const catalogEntity = payload?.entityCatalog.find((item) => item.id === entity?.id)
+      ?? payload?.entityCatalog.find((item) => item.name === baseName);
+    const cavalinho = catalogEntity?.mediums?.[0]?.name?.trim()
+      || entity?.mediums?.[0]?.name?.trim()
+      || entityName.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()
+      || "";
+    const cleanEntityName = catalogEntity?.name || baseName || entityName;
+    const line = catalogEntity?.line?.trim() === "ATENDIMENTO FILHO DE FORA" ? "" : (catalogEntity?.line?.trim() || "");
+    const firstMediumName = cavalinho.split(/\s+/)[0] || "";
+    const title = `${cleanEntityName.toLocaleUpperCase("pt-BR")} (${line})${firstMediumName ? ` (${firstMediumName})` : ""}`;
+    const booked = entity?.booked ?? (payload?.appointments ?? []).filter((item) => item.entityId === catalogEntity?.id && item.status !== "cancelado").length;
+    const capacity = entity?.capacity ?? catalogEntity?.capacity ?? 0;
+    return `${title} ${booked}/${capacity}${entity?.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
+  }
+
+  function entityWithLine(name: string) {
+    const base = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const entity = payload?.entityCatalog.find((item) => item.name === name || item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === base);
+    const line = entity?.line?.trim();
+    return `${base}${line && line.toLocaleUpperCase("pt-BR") !== "ATENDIMENTO FILHO DE FORA" ? ` (${line})` : ""}`;
+  }
+
   const filteredAppointments = useMemo(() => {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
     const normalizedSearch = consultSearch.trim().toLocaleLowerCase("pt-BR");
     return appointments.filter((item) => {
-      const statusMatches = item.status === "cancelado"
-        ? consultStatuses.includes("cancelled")
+      const statusBucket: ConsultStatus = item.status === "cancelado"
+        ? "cancelled"
         : item.arrivalStatus === "arrived"
-          ? consultStatuses.includes("arrived")
+          ? "arrived"
           : item.arrivalStatus === "absent"
-            ? consultStatuses.includes("absent")
-            : consultStatuses.includes("confirm");
+            ? "absent"
+            : item.confirmationStatus === "confirmed"
+              ? "confirmed"
+              : item.status === "solicitado" && item.confirmationStatus === "pending"
+                ? "requested"
+                : "unconfirmed";
+      const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
-      const alphabeticValue = effectiveConsultView === "entity_day" ? item.entityName : item.consulenteName;
-      if (consultLetter && alphabeticValue.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, effectiveConsultView, payload?.appointments]);
+  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
+    const displayOrder = payload?.settings.triageDisplayOrder ?? "booking";
     return [...filteredAppointments].sort((a, b) => {
-      if (effectiveConsultView === "day_entity") {
-        const nameOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
-        if (nameOrder !== 0) return nameOrder;
-        return a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
-      }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
-      const bookingOrder = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
-      if (bookingOrder !== 0) return bookingOrder;
-      return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      return compareTriageAppointments(a, b, displayOrder);
     });
-  }, [effectiveConsultView, filteredAppointments]);
+  }, [filteredAppointments, payload?.settings.triageDisplayOrder]);
+  const orderedConsulenteAppointments = useMemo(
+    () => [...filteredAppointments].sort((a, b) => {
+      const personOrder = a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      if (personOrder !== 0) return personOrder;
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
+      return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+    }),
+    [filteredAppointments],
+  );
+  const activeListAppointments = consultDisplayMode === "lista_consulente"
+    ? orderedConsulenteAppointments
+    : orderedConsultAppointments;
   const consultPageSize = 2;
-  const consultPageCount = Math.max(1, Math.ceil(orderedConsultAppointments.length / consultPageSize));
+  const triagePaginationEnabled = consultDisplayMode === "lista"
+    ? payload?.settings.triageEntityPaginationEnabled !== false
+    : consultDisplayMode === "lista_consulente"
+      ? payload?.settings.triageConsulentePaginationEnabled !== false
+      : payload?.settings.triageCadernoPaginationEnabled === true;
+  const consultPageCount = triagePaginationEnabled
+    ? Math.max(1, Math.ceil(activeListAppointments.length / consultPageSize))
+    : 1;
   const effectiveConsultPage = Math.min(consultPage, consultPageCount);
-  const paginatedAppointments = useMemo(
-    () => orderedConsultAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize),
-    [effectiveConsultPage, orderedConsultAppointments],
+  const visibleConsultAppointments = useMemo(
+    () => triagePaginationEnabled
+      ? activeListAppointments.slice((effectiveConsultPage - 1) * consultPageSize, effectiveConsultPage * consultPageSize)
+      : activeListAppointments,
+    [activeListAppointments, effectiveConsultPage, triagePaginationEnabled],
   );
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
     if (effectiveConsultView === "entity_day") {
       const groups = new Map<string, Appointment[]>();
-      for (const appointment of paginatedAppointments) {
+      for (const appointment of visibleConsultAppointments) {
         const list = groups.get(appointment.entityName) ?? [];
         list.push(appointment);
         groups.set(appointment.entityName, list);
       }
       return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([label, appointments]) => ({ label, appointments }));
     }
-    return [{ label: "Consulentes", appointments: [...paginatedAppointments] }];
-  }, [effectiveConsultView, paginatedAppointments, payload]);
+    return [{ label: "Consulentes", appointments: [...visibleConsultAppointments] }];
+  }, [effectiveConsultView, payload, visibleConsultAppointments]);
+  const forwardingAppointments = useMemo(
+    () => (payload?.appointments ?? []).filter(
+      (item) => item.status !== "cancelado" && item.arrivalStatus === "arrived" && (item.arrivalOrder ?? 0) > 0 && (forwardingStage === "completed" ? Boolean(item.forwardedAt) : !item.forwardedAt),
+    ),
+    [payload?.appointments, forwardingStage],
+  );
+  const forwardingLetters = useMemo(() => {
+    const letters = new Set<string>();
+    for (const item of forwardingAppointments) {
+      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
+      if (first) letters.add(first);
+    }
+    return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }, [forwardingAppointments]);
+  const filteredForwardingAppointments = useMemo(() => {
+    const normalizedSearch = forwardingSearch.trim().toLocaleLowerCase("pt-BR");
+    return forwardingAppointments.filter((item) => {
+      if (forwardingLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== forwardingLetter) return false;
+      if (normalizedSearch) {
+        const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
+        if (!haystack.includes(normalizedSearch)) return false;
+      }
+      return true;
+    });
+  }, [forwardingAppointments, forwardingLetter, forwardingSearch]);
+  const orderedForwardingAppointments = useMemo(
+    () => [...filteredForwardingAppointments].sort((a, b) => {
+      if (forwardingView === "consulente") {
+        const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
+        if (arrivalOrder !== 0) return arrivalOrder;
+        return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+      }
+      const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
+      if (entityOrder !== 0) return entityOrder;
+      const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
+      if (arrivalOrder !== 0) return arrivalOrder;
+      return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
+    }),
+    [filteredForwardingAppointments, forwardingView],
+  );
+  const forwardingPageSize = 2;
+  const forwardingPaginationEnabled = payload?.settings.forwardingPaginationEnabled !== false;
+  const forwardingPageCount = forwardingPaginationEnabled
+    ? Math.max(1, Math.ceil(orderedForwardingAppointments.length / forwardingPageSize))
+    : 1;
+  const effectiveForwardingPage = Math.min(forwardingPage, forwardingPageCount);
+  const visibleForwardingAppointments = useMemo(
+    () => forwardingPaginationEnabled
+      ? orderedForwardingAppointments.slice(
+          (effectiveForwardingPage - 1) * forwardingPageSize,
+          effectiveForwardingPage * forwardingPageSize,
+        )
+      : orderedForwardingAppointments,
+    [effectiveForwardingPage, forwardingPaginationEnabled, orderedForwardingAppointments],
+  );
+  const forwardingGroups = useMemo(() => {
+    if (forwardingView !== "entity") return [] as Array<{ label: string; appointments: Appointment[] }>;
+    const groups = new Map<string, Appointment[]>();
+    for (const appointment of visibleForwardingAppointments) {
+      const current = groups.get(appointment.entityName) ?? [];
+      current.push(appointment);
+      groups.set(appointment.entityName, current);
+    }
+    return [...groups.entries()]
+      .sort(([left], [right]) => left.localeCompare(right, "pt-BR", { sensitivity: "base" }))
+      .map(([label, appointments]) => ({ label, appointments }));
+  }, [forwardingView, visibleForwardingAppointments]);
+
+  const triageFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "triage");
+  const forwardingFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "forwarding");
+
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
 
   async function postPilot(body: Record<string, unknown>) {
@@ -497,10 +857,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setPersonNotFound(false);
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
+    setRelatedPreferenceKey("");
+    setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
+  }
+
+  function openNewConsulenteEditor() {
+    setAlphabetReturnLetter("");
+    setAlphabetPicker(null);
+    setPhone("");
+    clearPersonSearch();
+    setShowCreateConsulente(true);
   }
 
   function resetBookingForm() {
@@ -511,9 +881,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityId("");
     setNotes("");
     setContactMode("consulente");
-    setAlternateContact({ name: "", relationship: "", whatsapp: "" });
+    setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
     setAlternateRelationshipOption("");
-    setNewPerson({ fullName: "", birthDate: "", email: "", password: "12345678", privacyAccepted: false });
+    setSelectedRelatedKey("");
+    setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
     setAccessInfo(null);
     setBookingMode("date");
@@ -523,12 +894,23 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setAlphabetPicker(null);
   }
 
-  function openBookingModal() {
+  function openBookingModal(returnToTriagem = false) {
     resetBookingForm();
+    setAlphabetReturnLetter("");
     setBookingResult(null);
+    setBookingReturnToTriagem(returnToTriagem);
+    setBookingReturnModal(null);
     setError("");
+    setEntitiesReturnToBooking(false);
     setModal("agendar");
-    void loadConsulenteAlphabet();
+    void load();
+    // As iniciais já estão disponíveis localmente; a consulta ocorre ao selecionar uma letra.
+  }
+
+  function openBookingFromCurrentModal() {
+    const origin = modal;
+    openBookingModal(false);
+    setBookingReturnModal(origin);
   }
 
   async function loadEntityOverview() {
@@ -547,7 +929,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  function openEntitiesModal() {
+  function openEntitiesModal(fromBooking = false) {
+    setEntitiesReturnToBooking(fromBooking);
+    setEntityAvailabilityQuery("");
+    setEntityAvailabilityLetter("");
     setEntityPage(1);
     setModal("entidades");
     setEntityOverview({});
@@ -555,7 +940,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   function openEntityCadastro(entityId: string) {
-    selectEntityForEdit(entityId);
+    openExistingEntityEditor(entityId);
     setCadastroMode("entidades");
     setModal("cadastros");
   }
@@ -619,7 +1004,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setEntityId("");
           setErrorNotice({
             title: "Consulente indisponível para esta data",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade. ${defaultEntityName} não atende ou não possui vaga na data selecionada.`,
           });
           return;
         }
@@ -628,7 +1013,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           setFoundPerson(null);
           setErrorNotice({
             title: "Entidade padrão diferente",
-            message: `${detailedPerson.fullName || person.fullName} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
+            message: `${firstTwoPersonNames(detailedPerson.fullName || person.fullName)} possui ${defaultEntityName} como Entidade padrão e não está autorizado(a) a escolher outra Entidade para este agendamento.`,
           });
           return;
         }
@@ -637,7 +1022,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setFoundPerson(detailedPerson);
       const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
-      setAlternateContact({ name: "", relationship: "", whatsapp: "" });
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
     setAlternateRelationshipOption("");
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
@@ -660,10 +1045,108 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  function selectRelatedForBooking(value: string) {
+    setSelectedRelatedKey(value);
+    setErrorNotice(null);
+
+    if (!value || value === "__manual__") {
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+      setAlternateRelationshipOption("");
+      return;
+    }
+
+    const related = foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === value);
+    if (!related) {
+      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+      setAlternateRelationshipOption("");
+      return;
+    }
+
+    const knownRelationship = ["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].includes(related.relationship);
+    setAlternateRelationshipOption(knownRelationship ? related.relationship : "Outro");
+    setAlternateContact({
+      name: related.fullName,
+      relationship: related.relationship,
+      whatsapp: "",
+      relatedPersonId: related.relatedPersonId,
+      relationshipId: related.relationshipId,
+      historyAppointmentId: related.historyAppointmentId,
+    });
+
+    if (related.defaultEntityId) {
+      const defaultAvailable = usableEntities.some((entity) => entity.id === related.defaultEntityId);
+      if (!bookingContextLocked && bookingMode === "date" && defaultAvailable) {
+        // A Entidade padrão é sempre a sugestão inicial. Quando a permissão estiver
+        // liberada, a Recepção ainda poderá escolher outra Entidade.
+        setEntityId(related.defaultEntityId);
+      } else if (
+        related.allowDifferentEntity === false
+        && bookingContextLocked
+        && entityId
+        && defaultAvailable
+        && entityId !== related.defaultEntityId
+      ) {
+        setErrorNotice({
+          title: "Entidade padrão diferente",
+          message: `${firstTwoPersonNames(related.fullName)} possui ${related.defaultEntityName || "outra Entidade"} como Entidade padrão e não está autorizado(a) a escolher outra Entidade.`,
+        });
+      }
+    }
+  }
+
+  async function saveRelatedConsulentePreferences() {
+    if (!foundPerson || !relatedPreferenceKey) return;
+
+    const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === relatedPreferenceKey);
+    if (!related) return;
+    if (!relatedPreferenceDraft.defaultEntityId) {
+      setErrorNotice({
+        title: "Entidade padrão obrigatória",
+        message: "Selecione a Entidade padrão desta pessoa vinculada antes de salvar.",
+      });
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setErrorNotice(null);
+
+    try {
+      const result = await postPilot({
+        action: "update-related-consulente",
+        ownerPersonId: foundPerson.id,
+        relationshipId: related.relationshipId,
+        historyAppointmentId: related.historyAppointmentId,
+        defaultEntityId: relatedPreferenceDraft.defaultEntityId,
+        allowDifferentEntity: relatedPreferenceDraft.allowDifferentEntity,
+      });
+
+      const relatedConsulentes = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : foundPerson.relatedConsulentes ?? [];
+
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
+      setRelatedPreferenceKey("");
+      setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
+      setSuccessNotice({
+        title: "Pessoa vinculada atualizada",
+        message: typeof result.message === "string" ? result.message : "Preferências da pessoa vinculada atualizadas.",
+      });
+    } catch (saveError) {
+      setErrorNotice({
+        title: "Não foi possível salvar a pessoa vinculada",
+        message: saveError instanceof Error ? saveError.message : "Não foi possível atualizar a pessoa vinculada.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function selectBookingEntity(value: string) {
     setBookingEntityLookupId(value);
     setEntityId("");
     setBookingEntityDateLabel("");
+    setBookingEntityAvailable(null);
     if (!value) return;
     setSaving(true);
     setError("");
@@ -673,6 +1156,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const label = typeof result.label === "string" ? result.label : "";
       if (!date) throw new Error("Não encontramos uma próxima data com vaga para esta Entidade.");
       setBookingEntityDateLabel(label || shortDate(date));
+      const resultEntity = result.entity && typeof result.entity === "object" ? result.entity as { available?: number } : null;
+      setBookingEntityAvailable(typeof resultEntity?.available === "number" ? resultEntity.available : null);
       await load(date);
       setEntityId(value);
     } catch (lookupError) {
@@ -689,13 +1174,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const letters = Array.isArray(result.letters)
         ? result.letters.filter((item): item is string => typeof item === "string" && /^[A-Z]$/.test(item))
         : [];
-      setAlphabetLetters(letters);
+      setAlphabetLetters(letters.length ? letters : "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
 
       if (letter) {
         const people = Array.isArray(result.people)
           ? result.people.filter((item): item is FoundPerson => Boolean(item && typeof item === "object"))
           : [];
         setAlphabetPicker({ letter, people });
+        if (modal === "cadastros" && cadastroMode === "consulentes") {
+          setAlphabetReturnLetter(letter);
+        }
       }
     } catch (alphabetError) {
       setErrorNotice({
@@ -708,6 +1196,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   async function selectAlphabetPerson(person: FoundPerson) {
+    if (alphabetPicker?.letter && modal === "cadastros" && cadastroMode === "consulentes") {
+      setAlphabetReturnLetter(alphabetPicker.letter);
+    }
     setAlphabetPicker(null);
     setPhone(person.fullName);
     await selectPerson(person);
@@ -717,6 +1208,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setAlphabetReturnLetter("");
     clearPersonSearch();
     try {
       const result = await postLegacy({ action: "search-consulente", query: phone, whatsapp: phone });
@@ -738,6 +1230,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  function registrationDateInSaoPaulo() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
   async function createPerson(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -747,9 +1248,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: "create-consulente",
         fullName: newPerson.fullName || (!searchHasPhone ? phone : ""),
         whatsapp: searchHasPhone ? (newPersonWhatsapp || phone) : newPersonWhatsapp,
-        birthDate: newPerson.birthDate,
+        birthDate: registrationDateInSaoPaulo(),
         email: newPerson.email,
-        password: newPersonWhatsapp || phone ? newPerson.password : "",
+        password: newPerson.password,
         privacyAccepted: newPerson.privacyAccepted,
       });
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
@@ -758,8 +1259,37 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: false });
       setAccessInfo(result.access && typeof result.access === "object" ? result.access as AccessInfo : null);
       setPersonNotFound(false);
+      setShowCreateConsulente(false);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Não foi possível criar o cadastro.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function registerDependentForBooking() {
+    if (!foundPerson || !alternateContact.name.trim() || !alternateContact.relationship.trim()) {
+      setErrorNotice({ title: "Cadastro incompleto", message: "Informe o nome completo e o parentesco antes de cadastrar a pessoa sem WhatsApp." });
+      return;
+    }
+    setSaving(true);
+    setErrorNotice(null);
+    try {
+      const result = await postPilot({ action: "register-dependent", ownerPersonId: foundPerson.id,
+        fullName: alternateContact.name.trim(), relationship: alternateContact.relationship.trim() });
+      const related = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : [];
+      const registered = related.find((item) => item.relatedPersonId === result.personId);
+      if (!registered) throw new Error("Cadastro criado, mas nao foi possivel selecionar o vinculo. Reabra a busca do contato antes de prosseguir.");
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes: related } : current);
+      setSelectedRelatedKey(relatedConsulenteKey(registered));
+      setAlternateContact({ name: registered.fullName, relationship: registered.relationship,
+        whatsapp: "", relatedPersonId: registered.relatedPersonId,
+        relationshipId: registered.relationshipId, historyAppointmentId: "" });
+      setSuccessNotice({ title: "Dependente cadastrado", message: "Pessoa identificada por cadastro individual, sem WhatsApp proprio. Confira os dados e clique em Criar agendamento." });
+    } catch (error) {
+      setErrorNotice({ title: "Nao foi possivel cadastrar dependente", message: error instanceof Error ? error.message : "Revise os dados informados." });
     } finally {
       setSaving(false);
     }
@@ -788,6 +1318,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         contactMode,
         contactName: contactMode === "alternate" ? alternateContact.name : "",
         contactRelationship: contactMode === "alternate" ? alternateContact.relationship : "",
+        relatedPersonId: contactMode === "alternate" ? alternateContact.relatedPersonId : "",
+        relatedRelationshipId: contactMode === "alternate" ? alternateContact.relationshipId : "",
+        relatedHistoryAppointmentId: contactMode === "alternate" ? alternateContact.historyAppointmentId : "",
         contactWhatsapp: "",
       }) as BookingResult;
       const selectedDate = payload.selectedDate;
@@ -795,7 +1328,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
       await refreshSummary(summaryMode, summaryMode === "date" ? effectiveSummaryDate : selectedDate);
       setBookingResult({ ...result, whatsapp: bookingWhatsapp, contactName: foundPerson.fullName, alternateContact: contactMode === "alternate" });
       resetBookingForm();
-      setModal(null);
+      const returnToTriagem = bookingReturnToTriagem;
+      setBookingReturnToTriagem(false);
+      setModal(returnToTriagem ? "consultar" : bookingReturnModal);
+      setBookingReturnModal(null);
     } catch (bookError) {
       setError("");
       setErrorNotice({
@@ -929,6 +1465,96 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function saveCadernoArrival(appointmentId: string) {
+    const raw = (cadernoOrders[appointmentId] ?? "").trim();
+    const arrivalOrder = raw === "" ? "" : Number(raw);
+    if (arrivalOrder !== "" && (!Number.isInteger(arrivalOrder) || arrivalOrder < 0)) {
+      setErrorNotice({ title: "Ordem inválida", message: "Informe uma ordem válida ou deixe em branco para desfazer a chegada." });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "set-caderno-arrival", appointmentId, arrivalOrder });
+      setSuccessNotice({ title: arrivalOrder === "" ? "Chegada desfeita" : "Chegada registrada", message: typeof result.message === "string" ? result.message : "Ordem atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível salvar a ordem", message: actionError instanceof Error ? actionError.message : "Não foi possível registrar a chegada." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function finalizeOperationalStage(stage: "triage" | "forwarding") {
+    if (!payload) return;
+    const label = stage === "triage" ? "Triagem" : "Encaminhamento";
+    if (!window.confirm(`FINALIZAR ${label} em ${formatDateInputPtBr(payload.selectedDate)}?\n\nEsta operação é definitiva. Não será possível alterar os registros desta etapa após confirmar.`)) return;
+    setFinalizingStage(stage);
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "finalize-operational-stage", appointmentDate: payload.selectedDate, stage, confirmation: "FINALIZAR" });
+      setSuccessNotice({ title: `${label} finalizado`, message: typeof result.message === "string" ? result.message : "Etapa finalizada." });
+      await load(payload.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: `Não foi possível finalizar ${label}`, message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+      setFinalizingStage(null);
+    }
+  }
+
+  async function markForwarded(appointmentId: string, forwarded: boolean) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "mark-forwarded", appointmentId, forwarded });
+      setSuccessNotice({ title: forwarded ? "Encaminhamento registrado" : "Encaminhamento desfeito", message: typeof result.message === "string" ? result.message : "Situação atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível atualizar o encaminhamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openReschedule(appointment: Appointment) {
+    setRescheduleLoading(true);
+    setRescheduleConfirmationUrl("");
+    try {
+      const response = await postPilot({ action: "reschedule-options", appointmentId: appointment.id });
+      const options = Array.isArray(response.options) ? response.options as RescheduleOption[] : [];
+      const preferred = options.find((item) => item.entityId === appointment.entityId) ?? options[0];
+      if (!preferred?.dates.length) throw new Error("Nenhuma data com vaga foi encontrada para este agendamento.");
+      setRescheduleRequest({ appointmentId: appointment.id, consulenteName: appointment.consulenteName,
+        currentEntityId: appointment.entityId, selectedEntityId: preferred.entityId,
+        selectedDate: preferred.dates[0].date, options, otherEntityAllowed: response.otherEntityAllowed === true });
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível consultar reagendamento", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setRescheduleLoading(false);
+    }
+  }
+
+  async function saveReschedule() {
+    if (!rescheduleRequest) return;
+    const option = rescheduleRequest.options.find((item) => item.entityId === rescheduleRequest.selectedEntityId);
+    if (!option?.dates.some((item) => item.date === rescheduleRequest.selectedDate)) return;
+    const confirmed = window.confirm(`Reagendar ${rescheduleRequest.consulenteName} para ${formatDateInputPtBr(rescheduleRequest.selectedDate)}?\n\nO link de confirmação anterior deixará de funcionar. Será necessário enviar o novo link.`);
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "reschedule-appointment", appointmentId: rescheduleRequest.appointmentId,
+        entityId: rescheduleRequest.selectedEntityId, appointmentDate: rescheduleRequest.selectedDate, confirmation: "REAGENDAR" });
+      setRescheduleConfirmationUrl(typeof result.confirmationUrl === "string" ? result.confirmationUrl : "");
+      setRescheduleRequest(null);
+      setOpenAppointmentActions({});
+      setSuccessNotice({ title: "Agendamento reagendado", message: "Vaga atualizada. Copie e envie o novo link de confirmação ao Consulente." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível reagendar", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openIndividualEntityChange(appointment: Appointment) {
     setEntityChangeRequest({
       mode: "individual",
@@ -936,6 +1562,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       consulenteName: appointment.consulenteName,
       currentEntityId: appointment.entityId,
       currentEntityName: appointment.entityName,
+      firstTimeCount: appointment.isFirstTimeAppointment || appointment.firstTimeIndicatorActive || normalizeSearchText(appointment.entityName).includes("primeira vez") ? 1 : 0,
       newEntityId: "",
       reason: "",
       notify: true,
@@ -954,6 +1581,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       consulenteName: `${active.length} agendamento(s)`,
       currentEntityId: entity.id,
       currentEntityName: entity.name,
+      firstTimeCount: active.filter((item) => item.isFirstTimeAppointment || item.firstTimeIndicatorActive || normalizeSearchText(item.entityName).includes("primeira vez")).length,
       newEntityId: "",
       reason: "",
       notify: true,
@@ -961,16 +1589,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }
 
+
   async function submitEntityChange(event: FormEvent) {
     event.preventDefault();
     if (!entityChangeRequest) return;
-    const reason = entityChangeRequest.reason.trim();
+    const reason = entityChangeRequest.reason.trim() || "Troca realizada pela Recepção.";
     if (!entityChangeRequest.newEntityId) {
       setErrorNotice({ title: "Escolha a nova Entidade", message: "Selecione a Entidade de destino antes de confirmar a troca." });
-      return;
-    }
-    if (!reason) {
-      setErrorNotice({ title: "Informe o motivo", message: "O motivo da troca é obrigatório e ficará registrado no histórico." });
       return;
     }
 
@@ -1015,35 +1640,76 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function sendConfirmationReminder(appointment: Appointment) {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await postPilot({ action: "send-confirmation-reminder", appointmentId: appointment.id });
+      setSuccessNotice({ title: "Lembrete enviado", message: typeof result.message === "string" ? result.message : `Lembrete enviado para ${firstTwoPersonNames(appointment.consulenteName)}.` });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível enviar o lembrete", message: actionError instanceof Error ? actionError.message : "Tente novamente em instantes." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openSettings() {
     if (!payload) return;
     setSettingsDraft({
       serviceOrderMode: payload.settings.serviceOrderMode,
+      triageDisplayOrder: payload.settings.triageDisplayOrder,
       confirmationCutoff: payload.settings.confirmationCutoff,
       autoCancelExpiredConfirmations: payload.settings.autoCancelExpiredConfirmations,
       enforceArrivalWindow: payload.settings.enforceArrivalWindow,
+      triageEntityPaginationEnabled: payload.settings.triageEntityPaginationEnabled,
+      triageConsulentePaginationEnabled: payload.settings.triageConsulentePaginationEnabled,
+      triageCadernoPaginationEnabled: payload.settings.triageCadernoPaginationEnabled,
+      forwardingPaginationEnabled: payload.settings.forwardingPaginationEnabled,
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
       openAcolhimentoOnLogin: payload.receptionPreferences.receptionOpenAcolhimentoOnLogin,
+      cavalinhoDailyWhatsappEnabled: payload.settings.cavalinhoDailyWhatsappEnabled,
+      cavalinhoDailyWhatsappTime: payload.settings.cavalinhoDailyWhatsappTime,
+      receptionDailyWhatsappEnabled: payload.settings.receptionDailyWhatsappEnabled,
+      receptionDailyWhatsappTime: payload.settings.receptionDailyWhatsappTime,
+      automaticDispatchWeekdays: payload.settings.automaticDispatchWeekdays,
+      cavalinhoNoticeEntityIds: payload.entityCatalog.filter((entity) => entity.cavalinhoWhatsappEnabled).map((entity) => entity.id),
     });
+    setSettingsSection(null);
     setModal("configuracoes");
   }
 
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
     if (!settingsDraft) return;
+    if (settingsDraft.cavalinhoDailyWhatsappEnabled && settingsDraft.cavalinhoNoticeEntityIds.length === 0) {
+      setErrorNotice({ title: "Selecione uma Entidade/Cavalinho", message: "Para ativar o envio aos Cavalinhos, selecione pelo menos uma Entidade/Cavalinho." });
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       await postPilot({
         action: "save-settings",
         serviceOrderMode: settingsDraft.serviceOrderMode,
+        triageDisplayOrder: settingsDraft.triageDisplayOrder,
         confirmationCutoff: settingsDraft.confirmationCutoff,
         autoCancelExpiredConfirmations: settingsDraft.autoCancelExpiredConfirmations,
         enforceArrivalWindow: settingsDraft.enforceArrivalWindow,
+        triageEntityPaginationEnabled: settingsDraft.triageEntityPaginationEnabled,
+        triageConsulentePaginationEnabled: settingsDraft.triageConsulentePaginationEnabled,
+        triageCadernoPaginationEnabled: settingsDraft.triageCadernoPaginationEnabled,
+        forwardingPaginationEnabled: settingsDraft.forwardingPaginationEnabled,
         confirmationReminderOffsetsHours: settingsDraft.reminderOffsets,
+        cavalinhoDailyWhatsappEnabled: settingsDraft.cavalinhoDailyWhatsappEnabled,
+        cavalinhoDailyWhatsappTime: settingsDraft.cavalinhoDailyWhatsappTime,
+        receptionDailyWhatsappEnabled: settingsDraft.receptionDailyWhatsappEnabled,
+        receptionDailyWhatsappTime: settingsDraft.receptionDailyWhatsappTime,
+        automaticDispatchWeekdays: settingsDraft.automaticDispatchWeekdays,
+        cavalinhoNoticeEntityIds: settingsDraft.cavalinhoNoticeEntityIds,
       });
       await postPilot({
         action: "save-reception-preferences",
@@ -1053,7 +1719,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       });
       setMessage("");
       await load(payload?.selectedDate);
-      setModal(null);
+      setSettingsSection(null);
       setSuccessNotice({
         title: "Configurações salvas",
         message: "Configurações do piloto atualizadas com sucesso.",
@@ -1069,20 +1735,118 @@ export default function AgendamentoPilotoRecepcaoPage() {
   async function updateConsulente(event: FormEvent) {
     event.preventDefault();
     if (!foundPerson) return;
+    if (!editPerson.defaultEntityId) {
+      setErrorNotice({
+        title: "Entidade padrão obrigatória",
+        message: "Selecione a Entidade padrão do Consulente antes de salvar.",
+      });
+      return;
+    }
     setSaving(true);
     setError("");
     try {
       const result = await postPilot({ action: "update-consulente", personId: foundPerson.id, ...editPerson });
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro de Consulente atualizado com sucesso.";
       setMessage("");
-      setFoundPerson({ id: foundPerson.id, fullName: editPerson.fullName, whatsapp: editPerson.whatsapp, email: editPerson.email });
-      setModal(null);
-      setCadastroMode("menu");
+      setFoundPerson({
+        ...foundPerson,
+        fullName: editPerson.fullName,
+        whatsapp: editPerson.whatsapp,
+        email: editPerson.email,
+        defaultEntityId: editPerson.defaultEntityId,
+        defaultEntityName: payload?.entityCatalog.find((entity) => entity.id === editPerson.defaultEntityId)?.name || "",
+        allowDifferentEntity: editPerson.allowDifferentEntity,
+      });
+
+      if (alphabetReturnLetter) {
+        const returnLetter = alphabetReturnLetter;
+        clearPersonSearch();
+        setPhone("");
+        await loadConsulenteAlphabet(returnLetter);
+      } else {
+        setModal(null);
+        setCadastroMode("menu");
+      }
+
       setSuccessNotice({ title: "Cadastro de Consulente salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível atualizar o Consulente.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function resetEntityDraft() {
+    setEditEntity({
+      entityId: "",
+      name: "",
+      description: "",
+      capacity: "4",
+      cavalinhoPersonId: "",
+      mondayOccurrences: [],
+      tuesdayOccurrences: [],
+      active: true,
+      cavalinhoWhatsappEnabled: false,
+    });
+  }
+
+  function entitiesForInitial(letter: string) {
+    const normalizedLetter = entityDirectoryKey(letter).charAt(0);
+    return (payload?.entityCatalog ?? [])
+      .filter((entity) => entityDirectoryKey(entity.name).startsWith(normalizedLetter))
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  }
+
+  function openEntityAlphabet(letter: string) {
+    setEntityAlphabetPicker({ letter, entities: entitiesForInitial(letter) });
+  }
+
+  function openNewEntityEditor() {
+    setEntityReturnLetter("");
+    setEntityAlphabetPicker(null);
+    resetEntityDraft();
+    setEntityEditorOpen(true);
+  }
+
+  async function loadEntityExceptions(entityId: string) {
+    try {
+      const result = await postPilot({ action: "list-entity-exceptions", entityId });
+      setEntityExceptions(Array.isArray(result.exceptions) ? result.exceptions as Array<{ id: string; date: string; reason: string }> : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível consultar as exceções da Entidade.");
+    }
+  }
+
+  async function removeEntityException(exceptionId: string) {
+    if (!editEntity.entityId || !window.confirm("Excluir a indisponibilidade desta Entidade e reabrir esta data?")) return;
+    setSaving(true);
+    try {
+      await postPilot({ action: "delete-entity-exception", entityId: editEntity.entityId, exceptionId });
+      await loadEntityExceptions(editEntity.entityId);
+      await load(payload?.selectedDate);
+      setSuccessNotice({ title: "Exceção excluída", message: "A data voltou a seguir o calendário normal desta Entidade." });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir a exceção.");
+    } finally { setSaving(false); }
+  }
+
+  function openExistingEntityEditor(entityId: string, returnLetter = "") {
+    setEntityReturnLetter(returnLetter);
+    setEntityAlphabetPicker(null);
+    selectEntityForEdit(entityId);
+    setEntityEditorOpen(true);
+    setEntityExceptions([]);
+    void loadEntityExceptions(entityId);
+  }
+
+  function closeEntityEditor() {
+    const returnLetter = entityReturnLetter;
+    setEntityEditorOpen(false);
+    setEntityReturnLetter("");
+    resetEntityDraft();
+
+    if (returnLetter) {
+      setEntityAlphabetPicker({ letter: returnLetter, entities: entitiesForInitial(returnLetter) });
     }
   }
 
@@ -1097,6 +1861,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
       active: entity?.active !== false,
+      cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
     });
   }
 
@@ -1127,13 +1892,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
         active: editEntity.active,
+        cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
       });
+      if (editEntity.entityId && entityExceptionDate && entityExceptionReason.trim()) {
+        await postPilot({
+          action: "save-entity-exception",
+          entityId: editEntity.entityId,
+          date: entityExceptionDate,
+          reason: entityExceptionReason.trim(),
+        });
+        setEntityExceptionReason("");
+      }
       const successMessage = typeof result.message === "string" ? result.message : "Cadastro e calendário da Entidade atualizados com sucesso.";
       setMessage("");
-      setEditEntity({ entityId: "", name: "", description: "", capacity: "4", cavalinhoPersonId: "", mondayOccurrences: [], tuesdayOccurrences: [], active: true });
+      const returnLetter = entityReturnLetter;
+      setEntityEditorOpen(false);
+      setEntityReturnLetter("");
+      resetEntityDraft();
       await load(payload?.selectedDate);
       setModal("cadastros");
       setCadastroMode("entidades");
+      if (returnLetter) {
+        setEntityAlphabetPicker({ letter: returnLetter, entities: entitiesForInitial(returnLetter) });
+      }
       setSuccessNotice({ title: "Cadastro de Entidade salvo", message: successMessage });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar a Entidade.");
@@ -1182,14 +1963,66 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
+          headerAction={modal === "agendar" ? (
+            <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
+          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao"].includes(modal) ? (
+            <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
+          ) : undefined}
           onClose={() => {
+            if (modal === "configuracoes" && settingsSection) {
+              setSettingsSection(null);
+              return;
+            }
+            if (modal === "cadastros" && cadastroMode === "consulentes" && foundPerson && alphabetReturnLetter) {
+              const returnLetter = alphabetReturnLetter;
+              clearPersonSearch();
+              setPhone("");
+              void loadConsulenteAlphabet(returnLetter);
+              return;
+            }
+            if (modal === "cadastros" && cadastroMode === "entidades" && entityEditorOpen) {
+              closeEntityEditor();
+              return;
+            }
             if (modal === "cadastros" && cadastroMode !== "menu") {
               clearPersonSearch();
               setPhone("");
+              setAlphabetReturnLetter("");
               setCadastroMode("menu");
               return;
             }
-            if (modal === "agendar") resetBookingForm();
+            if (["painel", "consultar", "encaminhamento", "gestao"].includes(modal)) {
+              setModal("acolhimento");
+              return;
+            }
+            if (modal === "entidades" && entitiesReturnToBooking) {
+              setEntitiesReturnToBooking(false);
+              setModal("agendar");
+              return;
+            }
+            if (modal === "agendar") {
+              resetBookingForm();
+              if (bookingReturnModal) {
+                const returnModal = bookingReturnModal;
+                setBookingReturnModal(null);
+                setModal(returnModal);
+                return;
+              }
+              if (bookingReturnToTriagem) {
+                setBookingReturnToTriagem(false);
+                setModal("consultar");
+                return;
+              }
+            }
+            if (modal === "gestao") {
+              if (gestaoView !== "inicio") {
+                setGestaoResetKey((current) => current + 1);
+                setGestaoView("inicio");
+              } else {
+                setModal("acolhimento");
+              }
+              return;
+            }
             setModal(null);
           }}
         >
@@ -1198,13 +2031,31 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <button type="button" onClick={() => setModal("painel")} className="rounded-2xl bg-[#E9F2E7] p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Painel</span><span className="text-sm font-semibold text-slate-600">Indicadores dos atendimentos e acesso à Triagem.</span>
               </button>
-              <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+              <button type="button" onClick={() => { setConsultPage(1); setOpenAppointmentActions({}); setModal("consultar"); void load(); }} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
                 <span className="block text-lg font-black text-[#123D2C]">Triagem</span><span className="text-sm font-semibold text-slate-600">Consultar agendamentos e registrar chegada, ausência e demais ações do atendimento.</span>
               </button>
-              <Link href="/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel/atendimento/agendamento-piloto/gestao" className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
-                <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
-              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setForwardingView("entity");
+                  setForwardingPage(1);
+                  setForwardingSearch("");
+                  setForwardingLetter("");
+                  setModal("encaminhamento");
+                }}
+                className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10"
+              >
+                <span className="block text-lg font-black text-[#123D2C]">Encaminhamento</span>
+                <span className="text-sm font-semibold text-slate-600">Controlar quem já foi encaminhado da Recepção para o atendimento da Entidade.</span>
+              </button>
+              <button type="button" onClick={() => setModal("gestao")} className="rounded-2xl bg-white p-4 text-left ring-1 ring-[#123D2C]/10">
+                <span className="block text-lg font-black text-[#123D2C]">Gestão</span><span className="text-sm font-semibold text-slate-600">Envios WhatsApp e relatórios de Atendimentos, Consulentes e Entidades/Cavalinhos.</span>
+              </button>
             </div>
+          )}
+
+          {modal === "gestao" && (
+            <TucxaGestaoContent key={gestaoResetKey} embedded onViewChange={setGestaoView} />
           )}
 
           {modal === "painel" && (
@@ -1215,16 +2066,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <option value="date">Data específica</option><option value="future">Todos a partir da data atual</option><option value="period">Período específico</option><option value="before">Somente anteriores à data específica</option>
                   </select>
                 </label>
-                {(summaryMode === "date" || summaryMode === "period") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data inicial" : "Data"}<input value={summaryDate ? formatDateInputPtBr(summaryDate) : ""} onChange={(event) => setSummaryDate(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
-                {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /></label>}
+                {(summaryMode === "date" || summaryMode === "period") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data inicial" : "Data"}<div className="grid grid-cols-[1fr_auto] gap-2"><input value={summaryDate ? formatDateInputPtBr(summaryDate) : ""} onChange={(event) => setSummaryDate(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /><span className="relative flex min-w-[8.5rem] cursor-pointer items-center justify-center rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold text-[#123D2C]">
+                      <span aria-hidden="true">{formatDateInputPtBr(summaryDate || effectiveSummaryDate)}</span>
+                      <input type="date" value={summaryDate || effectiveSummaryDate} onChange={(event) => setSummaryDate(event.target.value)} aria-label="Escolher data inicial no calendário" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                    </span></div></label>}
+                {(summaryMode === "period" || summaryMode === "before") && <label className="grid gap-1 text-sm font-black text-[#123D2C]">{summaryMode === "period" ? "Data final" : "Anteriores a"}<div className="grid grid-cols-[1fr_auto] gap-2"><input value={summaryDateTo ? formatDateInputPtBr(summaryDateTo) : ""} onChange={(event) => setSummaryDateTo(parseDateInputPtBr(event.target.value))} placeholder="dd/mm/aaaa" inputMode="numeric" maxLength={10} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" /><span className="relative flex min-w-[8.5rem] cursor-pointer items-center justify-center rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold text-[#123D2C]">
+                      <span aria-hidden="true">{formatDateInputPtBr(summaryDateTo)}</span>
+                      <input type="date" value={summaryDateTo} onChange={(event) => setSummaryDateTo(event.target.value)} aria-label="Escolher data final no calendário" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                    </span></div></label>}
                 <button type="button" onClick={() => void refreshSummary(summaryMode, summaryDate || payload.selectedDate, summaryDateTo)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Atualizar indicadores</button>
               </section>
-              <div className="grid grid-cols-3 gap-2">
-                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirm", "arrived", "absent"]); setConsultPage(1); setModal("consultar"); }} />
-                <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirm", "arrived"]); setConsultPage(1); setModal("consultar"); }} />
-                <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultPage(1); setModal("consultar"); }} />
+              <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-center text-xs font-black text-[#123D2C]">Indicadores considerando: {summaryMode === "date" ? formatDateInputPtBr(displayedSummary.date || effectiveSummaryDate) : summaryMode === "future" ? `a partir de ${formatDateInputPtBr(displayedSummary.fromDate)}` : summaryMode === "period" ? `${formatDateInputPtBr(displayedSummary.date)} a ${formatDateInputPtBr(summaryDateTo)}` : `anteriores a ${formatDateInputPtBr(summaryDateTo)}`}</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Summary label="Agendados" value={displayedSummary.scheduled} onClick={() => { setConsultStatuses(["confirmed", "unconfirmed", "arrived", "absent"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Confirmados" value={displayedSummary.confirmed} onClick={() => { setConsultStatuses(["confirmed"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Não Confirmados" value={displayedSummary.unconfirmed} onClick={() => { setConsultStatuses(["unconfirmed"]); setConsultDisplayMode("lista"); setConsultPage(1); setModal("consultar"); }} />
+                <Summary label="Chegaram" value={displayedSummary.arrived} onClick={() => { setConsultStatuses(["arrived"]); setConsultDisplayMode("caderno"); setConsultPage(1); setModal("consultar"); }} />
               </div>
-              <button type="button" onClick={() => setModal("consultar")} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
+              <button type="button" onClick={() => { setModal("consultar"); void load(); }} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">Abrir Triagem</button>
             </div>
           )}
 
@@ -1248,7 +2107,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                       {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
                     </select>
-                    <input type="date" value={payload.selectedDate} min={payload.dates[0]?.date} max={payload.dates.at(-1)?.date} onChange={(event) => { if (event.target.value) { setEntityId(""); void load(event.target.value); } }} aria-label="Escolher data pelo calendário" className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold" />
                   </div>
                 </label>
               ) : (
@@ -1256,14 +2114,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                     <select value={bookingEntityLookupId} onChange={(event) => void selectBookingEntity(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
                       <option value="">Escolha uma Entidade</option>
-                      {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                      {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.mediums.length ? ` (${entity.mediums.map((medium) => firstTwoPersonNames(medium.name)).join(", ")})` : ""}</option>)}
                     </select>
                   </label>
-                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Próxima data com vaga: {bookingEntityDateLabel}</p>}
+                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Próxima data com vaga: {bookingEntityDateLabel}{bookingEntityAvailable !== null ? ` · ${bookingEntityAvailable} vaga(s) disponível(is)` : ""}</p>}
                 </div>
               )}
 
-              {!foundPerson && (<>
+              {!foundPerson && !personNotFound && (<>
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                 <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
@@ -1300,18 +2158,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                   {searchResults.map((person) => (
                     <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                      <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                      <span className="block font-black text-[#123D2C]">{disambiguatedPersonDisplayNames(searchResults).get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                       <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                     </button>
                   ))}
                 </section>
               )}
 
+              </>)}
+
               {personNotFound && searchHasPhone && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" aria-label="Data de nascimento" className="rounded-xl border border-amber-200 p-3" required />
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <div className="grid gap-1">
                     <div className="flex items-center justify-between gap-2">
@@ -1329,36 +2188,46 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {personNotFound && !searchHasPhone && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Cadastre o Consulente sem WhatsApp.</p>
-                  <p className="text-xs font-semibold text-amber-900">Para não identificar a pessoa somente pelo nome, informe também a data de nascimento. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
+                  <p className="text-xs font-semibold text-amber-900">A data do cadastro será registrada automaticamente. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
                   <input value={newPerson.fullName || phone} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
-                  <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                    <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
-                  </label>
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
                   <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Criar cadastro sem WhatsApp</button>
                 </form>
               )}
-              </>)}
 
               {foundPerson && (
                 <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                  <p className="font-black text-[#123D2C]">{foundPerson.fullName}</p>
+                  <p className="font-black text-[#123D2C]">{firstTwoPersonNames(foundPerson.fullName)}</p>
                   <p className="text-sm font-semibold text-slate-600">{displayWhatsapp(foundPerson.whatsapp)}{foundPerson.email ? ` · ${foundPerson.email}` : ""}</p>
                   <a href={whatsappHref(foundPerson.whatsapp, "Olá! Estou falando pela Recepção do Tucxa sobre seu agendamento.")} target="_blank" rel="noreferrer" className="text-sm font-black text-[#176A3A] underline">Falar no WhatsApp</a>
                   {bookingMode === "date" ? (
                     <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                       <select
                         value={entityId}
-                        onChange={(event) => setEntityId(event.target.value)}
-                        disabled={Boolean(foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)}
+                        onChange={(event) => { setEntityId(event.target.value); setSelectedRelatedKey(""); setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" }); }}
+                        disabled={Boolean(
+                          (contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false)
+                          || (
+                            contactMode === "alternate"
+                            && selectedRelatedForBooking?.defaultEntityId
+                            && selectedRelatedForBooking.allowDifferentEntity === false
+                            && selectedRelatedDefaultAvailable
+                          )
+                        )}
                         className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100 disabled:text-slate-500"
                       >
                         <option value="">Escolha uma Entidade</option>
                         {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                       </select>
-                      {foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
+                      {contactMode !== "alternate" && foundPerson.defaultEntityId && foundPerson.allowDifferentEntity === false && (
                         <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro deste Consulente.</span>
+                      )}
+                      {contactMode === "alternate" && selectedRelatedForBooking?.defaultEntityId && selectedRelatedForBooking.allowDifferentEntity === false && selectedRelatedDefaultAvailable && (
+                        <span className="text-xs font-semibold text-slate-500">Entidade definida pelo cadastro da pessoa que será atendida.</span>
+                      )}
+                      {contactMode === "alternate" && selectedRelatedForBooking?.defaultEntityId && selectedRelatedForBooking.allowDifferentEntity === false && !selectedRelatedDefaultAvailable && (
+                        <span className="text-xs font-semibold text-amber-700">A Entidade padrão desta pessoa não atende ou não possui vaga nesta data. Se houver vaga, a Recepção pode selecionar Passe.</span>
                       )}
                     </label>
                   ) : (
@@ -1367,40 +2236,137 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <div className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                     <p className="text-sm font-black text-[#123D2C]">WhatsApp para confirmação e lembretes</p>
                     <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <input type="radio" name="booking-contact" checked={contactMode === "consulente"} onChange={() => setContactMode("consulente")} disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10} />
-                      Agendamento Próprio{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · WhatsApp não informado"}
+                      <input
+                        type="radio"
+                        name="booking-contact"
+                        checked={contactMode === "consulente"}
+                        onChange={() => {
+                          setContactMode("consulente");
+                          setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
+                          setAlternateRelationshipOption("");
+                          setSelectedRelatedKey("");
+                        }}
+                        disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10}
+                      />
+                      Para a própria pessoa cadastrada{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · WhatsApp não informado"}
                     </label>
                     <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <input type="radio" name="booking-contact" checked={contactMode === "alternate"} onChange={() => setContactMode("alternate")} />
-                      Outro contato / familiar / responsável
+                      <input
+                        type="radio"
+                        name="booking-contact"
+                        checked={contactMode === "alternate"}
+                        onChange={() => setContactMode("alternate")}
+                      />
+                      Agendar para outra pessoa
                     </label>
                     {contactMode === "alternate" && (
                       <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <p className="text-sm font-black text-[#123D2C]">Quem está fazendo o agendamento?</p>
-                        <input value={alternateContact.name} onChange={(event) => setAlternateContact((current) => ({ ...current, name: event.target.value }))} placeholder="Nome do contato" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
-                        <select
-                          value={alternateRelationshipOption}
-                          onChange={(event) => {
-                            const option = event.target.value as "" | "Mãe" | "Filho" | "Outro";
-                            setAlternateRelationshipOption(option);
-                            setAlternateContact((current) => ({ ...current, relationship: option === "Outro" ? "" : option }));
-                          }}
-                          className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
-                        >
-                          <option value="">Escolha o parentesco</option>
-                          <option value="Mãe">Mãe</option>
-                          <option value="Filho">Filho</option>
-                          <option value="Outro">Outro</option>
-                        </select>
-                        {alternateRelationshipOption === "Outro" && (
-                          <input value={alternateContact.relationship} onChange={(event) => setAlternateContact((current) => ({ ...current, relationship: event.target.value }))} placeholder="Informe o parentesco/vínculo" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
+                        <p className="text-sm font-black text-[#123D2C]">Pessoa que será atendida</p>
+
+                        {relatedForSelectedEntity.length > 0 ? (
+                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                            Escolher pessoa
+                            <select
+                              value={selectedRelatedKey}
+                              onChange={(event) => selectRelatedForBooking(event.target.value)}
+                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold"
+                            >
+                              <option value="">Abra para escolher</option>
+                              {relatedForSelectedEntity.map((related) => (
+                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
+                                  {firstTwoPersonNames(related.fullName)}
+                                  {related.relationship ? ` · ${related.relationship}` : ""}
+                                  {related.defaultEntityName ? ` · ${related.defaultEntityName}` : ""}
+                                </option>
+                              ))}
+                              <option value="__manual__">Outra pessoa</option>
+                            </select>
+                          </label>
+                        ) : (
+                          <p className="text-xs font-semibold text-slate-600">{entityId ? "Não há pessoa vinculada a este contato com esta Entidade. Você pode informar outra pessoa abaixo." : "Selecione uma Entidade antes de escolher a pessoa atendida."}</p>
+                        )}
+
+                        {selectedRelatedForBooking && selectedRelatedKey !== "__manual__" && (
+                          <div className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                            <p className="text-sm font-black text-[#123D2C]">{firstTwoPersonNames(selectedRelatedForBooking.fullName)}</p>
+                            <p className="mt-1 text-xs font-semibold text-slate-600">
+                              {[selectedRelatedForBooking.relationship, selectedRelatedForBooking.defaultEntityName || "Sem Entidade padrão"].filter(Boolean).join(" · ")}
+                            </p>
+                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                              {selectedRelatedForBooking.allowDifferentEntity
+                                ? "Pode agendar com Entidade diferente da padrão."
+                                : "Usa a Entidade padrão, salvo a regra de Passe quando ela não atende ou está sem vaga."}
+                            </p>
+                          </div>
+                        )}
+
+                        {(relatedForSelectedEntity.length === 0 || selectedRelatedKey === "__manual__") && (
+                          <>
+                            <input
+                              value={alternateContact.name}
+                              onChange={(event) => setAlternateContact((current) => ({
+                                ...current,
+                                name: event.target.value,
+                                relatedPersonId: "",
+                                relationshipId: "",
+                                historyAppointmentId: "",
+                              }))}
+                              placeholder="Nome da pessoa atendida"
+                              className="rounded-xl border border-[#123D2C]/15 p-2.5"
+                            />
+                            <select
+                              value={alternateRelationshipOption}
+                              onChange={(event) => {
+                                const option = event.target.value;
+                                setAlternateRelationshipOption(option);
+                                setAlternateContact((current) => ({
+                                  ...current,
+                                  relationship: option === "Outro" ? "" : option,
+                                  relatedPersonId: "",
+                                  relationshipId: "",
+                                  historyAppointmentId: "",
+                                }));
+                              }}
+                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
+                            >
+                              <option value="">Escolha o parentesco/vínculo</option>
+                              {["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].map((relationship) => (
+                                <option key={relationship} value={relationship}>{relationship}</option>
+                              ))}
+                              <option value="Outro">Outro</option>
+                            </select>
+                            {alternateRelationshipOption === "Outro" && (
+                              <input
+                                value={alternateContact.relationship}
+                                onChange={(event) => setAlternateContact((current) => ({
+                                  ...current,
+                                  relationship: event.target.value,
+                                  relatedPersonId: "",
+                                  relationshipId: "",
+                                  historyAppointmentId: "",
+                                }))}
+                                placeholder="Informe o parentesco/vínculo"
+                                className="rounded-xl border border-[#123D2C]/15 p-2.5"
+                              />
+                            )}
+                            <button type="button" disabled={saving || !alternateContact.name.trim() || !alternateContact.relationship.trim()}
+                              onClick={() => void registerDependentForBooking()}
+                              className="rounded-xl bg-[#E9F2E7] p-3 text-sm font-black text-[#123D2C] disabled:opacity-50">
+                              Cadastrar pessoa vinculada sem WhatsApp proprio
+                            </button>
+                            <p className="text-xs font-semibold text-slate-600">Para Primeira Vez, cadastre primeiro a identidade individual. Depois confirme o agendamento normalmente. O contato do responsavel recebera as notificacoes.</p>
+                          </>
                         )}
                       </div>
                     )}
-                    {contactMode === "alternate" && <p className="text-xs font-semibold text-slate-500">O agendamento será para a pessoa informada e o Consulente já cadastrado receberá as informações.</p>}
+                    {contactMode === "alternate" && (
+                      <p className="text-xs font-semibold text-slate-500">
+                        O atendimento será criado para a pessoa escolhida acima; confirmações e lembretes continuam sendo enviados ao WhatsApp do contato responsável selecionado.
+                      </p>
+                    )}
                   </div>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Observação opcional" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
-                  <button type="button" onClick={() => void book()} disabled={saving || !entityId} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
+                  <button type="button" onClick={() => void book()} disabled={saving || !entityId || (contactMode === "alternate" && (!alternateContact.name.trim() || !alternateContact.relationship.trim()))} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
                 </div>
               )}
 
@@ -1411,19 +2377,31 @@ export default function AgendamentoPilotoRecepcaoPage() {
           {modal === "consultar" && (
             <div className="grid gap-3">
               <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
-                <div className="grid grid-cols-[minmax(0,1fr)_7.25rem] gap-2">
-                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
                     {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
                   </select>
-                  <select value={effectiveConsultView} onChange={(event) => { setConsultView(event.target.value as "entity_day" | "day_entity"); setConsultPage(1); setOpenAppointmentActions({}); }} className="w-full rounded-xl border border-[#123D2C]/15 bg-white px-2 py-2.5 text-xs font-bold text-[#123D2C]">
-                    <option value="entity_day">Entidade</option>
-                    <option value="day_entity">Consulente</option>
-                  </select>
+                  <button type="button" disabled={saving || triageFinalized} onClick={() => void finalizeOperationalStage("triage")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{triageFinalized ? "Finalizada" : finalizingStage === "triage" ? "Finalizando..." : "FINALIZAR"}</button>
                 </div>
 
                 <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2">
-                  <span className="text-sm font-black text-[#123D2C]">Total agendado na data</span>
-                  <span className="text-sm font-black text-[#123D2C]">{(payload.appointments ?? []).filter((item) => item.status !== "cancelado").length}</span>
+                  <span className="text-sm font-black text-[#123D2C]">Total na data · {selectedStatusLabel}</span>
+                  <span className="text-sm font-black text-[#123D2C]">{filteredAppointments.length}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Entidade</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("day_entity"); setConsultDisplayMode("lista_consulente"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista_consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Consulente</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista_consulente" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
+                  <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("caderno"); setConsultPage(1); setCadernoOrders(Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""]))); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "caderno" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
+                    <span className="block">Caderno</span>
+                    <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "caderno" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -1439,29 +2417,67 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {groupedAppointments.map((group) => (
+              {consultDisplayMode === "caderno" && (
+                <div className="grid gap-3">
+                  {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort((a, b) => a.localeCompare(b, "pt-BR")).map((entityName) => (
+                    <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
+                      {(() => {
+                        const entity = payload.entities.find((item) => item.name === entityName);
+                        return (
+                          <>
+                            <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
+                              <h3 className="text-sm font-black uppercase">{entityHeading(entityName)}</h3>
+                            </div>
+                            {entity?.isAvailable === false && <p className="bg-red-50 px-3 pb-2 text-center text-[10px] font-bold text-red-800">⚠ {entity.suspendedReason || "Atendimento suspenso para esta data."}</p>}
+                          </>
+                        );
+                      })()}
+                      <div className="divide-y divide-[#123D2C]/10 bg-white">
+                        {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
+                          <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
+                            <div className="min-w-0">
+                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
+                              <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
+                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                              {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
+                              {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
+                            </div>
+                            <input disabled={triageFinalized || appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem ou vazio" />
+                            <button type="button" disabled={saving || triageFinalized || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {consultDisplayMode === "lista" && groupedAppointments.map((group) => (
                 <section key={group.label} className="grid gap-2">
                   <h3 className="flex items-center justify-between gap-2 rounded-xl bg-[#E9F2E7] px-3 py-2 font-black text-[#123D2C]">
-                    <span>{group.label}</span>
+                    <span>{effectiveConsultView === "entity_day" ? entityHeading(group.label) : group.label}</span>
                     {effectiveConsultView === "entity_day" && (() => {
-                      const entity = payload.entities.find((item) => item.name === group.label);
+                      const groupEntityId = group.appointments[0]?.entityId || "";
+                      const baseName = group.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
+                      const entity = payload.entities.find((item) => item.id === groupEntityId)
+                        ?? payload.entities.find((item) => item.name === group.label)
+                        ?? payload.entities.find((item) => item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === baseName);
                       if (!entity) return null;
                       const activeEntityAppointments = (payload.appointments ?? []).filter(
                         (item) => item.entityId === entity.id && item.status !== "cancelado",
                       );
                       return (
-                        <span className="flex items-center gap-2">
-                          <span className="text-xs">{entity.booked}/{entity.capacity}</span>
-                          {activeEntityAppointments.length > 0 && (
-                            <button
-                              type="button"
-                              disabled={saving}
-                              onClick={() => openBulkEntityChange(entity)}
-                              className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15"
-                            >
-                              Trocar todos
-                            </button>
-                          )}
+                        <span className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={saving || activeEntityAppointments.length === 0}
+                            onClick={() => openBulkEntityChange(entity)}
+                            className="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
+                            title={activeEntityAppointments.length > 0 ? "Trocar todos os atendimentos ativos desta Entidade" : "Nenhum atendimento ativo para trocar"}
+                          >
+                            Trocar todos
+                          </button>
                         </span>
                       );
                     })()}
@@ -1469,26 +2485,45 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {group.appointments.map((appointment) => {
                     const detail = effectiveConsultView === "entity_day"
                       ? (appointment.order ? `Ordem de agendamento ${appointment.order}` : "")
-                      : [appointment.entityName, appointment.order ? `ordem de agendamento ${appointment.order}` : ""].filter(Boolean).join(" · ");
+                      : [entityWithLine(appointment.entityName), appointment.order ? `ordem de agendamento ${appointment.order}` : ""].filter(Boolean).join(" · ");
                     const actionsOpen = openAppointmentActions[appointment.id] === true;
                     return (
-                      <article key={appointment.id} className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <div className="flex items-start justify-between gap-3">
+                      <article key={appointment.id} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="truncate font-black text-[#123D2C]">{appointment.consulenteName}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">{statusLabel(appointment)}</span>
+                          <div className="flex max-w-full shrink-0 flex-col items-end">
+                            <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
+                              <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
+                                <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                              )}
+                            </div>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
                         </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
                         <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
                         {actionsOpen && (
                           <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                               {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black text-white">Chegou</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
-                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${appointment.consulenteName}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
                               <button
@@ -1508,15 +2543,273 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               ))}
 
+              {consultDisplayMode === "lista_consulente" && (
+                <section className="grid gap-2">
+                  {visibleConsultAppointments.map((appointment) => {
+                    const actionsOpen = openAppointmentActions[appointment.id] === true;
+                    return (
+                      <article key={`lista-consulente-${appointment.id}`} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {entityWithLine(appointment.entityName)}</h4>
+                            {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
+                          </div>
+                          <div className="flex max-w-full shrink-0 flex-col items-end">
+                            <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
+                              <span className={`rounded-full px-1.5 py-1 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status !== "cancelado" && appointment.arrivalStatus !== "arrived" && (
+                                <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "arrived")} className="shrink-0 rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-black text-white disabled:opacity-50" aria-label={`Registrar chegada de ${appointment.consulenteName}`}>Chegou</button>
+                              )}
+                            </div>
+                            <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                          </div>
+                        </div>
+                        {appointment.status === "cancelado" && (
+                          <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-800 ring-1 ring-red-100">
+                            Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}
+                          </p>
+                        )}
+                        {appointment.previousEntityName && (
+                          <p className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 ring-1 ring-blue-100">
+                            Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · Motivo: ${appointment.entityChangeReason}` : ""}
+                          </p>
+                        )}
+                        <button type="button" onClick={() => setOpenAppointmentActions((current) => ({ ...current, [appointment.id]: !current[appointment.id] }))} className="mt-2 w-full rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">{actionsOpen ? "Fechar ações" : "Ações"}</button>
+                        {actionsOpen && (
+                          <div className="mt-2 grid gap-2 rounded-xl bg-white p-2 ring-1 ring-[#123D2C]/10">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void appointmentAction("confirm-manual", appointment.id)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Confirmar</button>}
+                              {appointment.confirmationStatus !== "confirmed" && appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => void sendConfirmationReminder(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100">Enviar lembrete</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
+                              {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
+                            </div>
+                            {appointment.status !== "cancelado" && (
+                              <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
+                                Trocar Entidade
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
               {!filteredAppointments.length && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">Nenhum agendamento para este filtro.</p>}
 
-              {consultPageCount > 1 && (
+              {triagePaginationEnabled && consultPageCount > 1 && (
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <button type="button" disabled={effectiveConsultPage <= 1} onClick={() => { setConsultPage((current) => Math.max(1, current - 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
                   <span className="text-xs font-black text-[#123D2C]">{effectiveConsultPage} / {consultPageCount}</span>
                   <button type="button" disabled={effectiveConsultPage >= consultPageCount} onClick={() => { setConsultPage((current) => Math.min(consultPageCount, current + 1)); setOpenAppointmentActions({}); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {modal === "encaminhamento" && (
+            <div className="grid gap-3">
+              <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                  <select
+                    value={payload.selectedDate}
+                    onChange={(event) => {
+                      setForwardingPage(1);
+                      setForwardingLetter("");
+                      void load(event.target.value);
+                    }}
+                    className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]"
+                  >
+                    {payload.dates.map((item) => (
+                      <option key={`enc-data-${item.date}`} value={item.date}>
+                        {acolhimentoDateLabel(item.date)}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" disabled={saving || forwardingFinalized || !triageFinalized} onClick={() => void finalizeOperationalStage("forwarding")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{forwardingFinalized ? "Finalizado" : "FINALIZAR"}</button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setForwardingStage("pending"); setForwardingPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${forwardingStage === "pending" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Encaminhar</button>
+                  <button type="button" onClick={() => { setForwardingStage("completed"); setForwardingPage(1); }} className={`rounded-xl px-3 py-2 text-xs font-black ${forwardingStage === "completed" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Encaminhados</button>
+                  <span className="col-span-2 text-center text-[10px] font-black uppercase tracking-wide text-[#2F6B43]">TOQUE PARA VER</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForwardingView("entity");
+                      setForwardingPage(1);
+                    }}
+                    className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${forwardingView === "entity" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}
+                  >
+                    <span className="block">Entidade</span>
+
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForwardingView("consulente");
+                      setForwardingPage(1);
+                    }}
+                    className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${forwardingView === "consulente" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}
+                  >
+                    <span className="block">Consulente</span>
+
+                  </button>
+                </div>
+
+                <input
+                  value={forwardingSearch}
+                  onChange={(event) => {
+                    setForwardingSearch(event.target.value);
+                    setForwardingPage(1);
+                  }}
+                  placeholder="Buscar por nome ou WhatsApp"
+                  className="w-full rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold"
+                />
+
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForwardingLetter("");
+                      setForwardingPage(1);
+                    }}
+                    className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!forwardingLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}
+                  >
+                    Todos
+                  </button>
+                  {forwardingLetters.map((letter) => (
+                    <button
+                      key={`enc-letter-${letter}`}
+                      type="button"
+                      onClick={() => {
+                        setForwardingLetter(letter);
+                        setForwardingPage(1);
+                      }}
+                      className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${forwardingLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}
+                    >
+                      {letter}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {forwardingView === "entity" && forwardingGroups.map((group) => (
+                <section key={`enc-group-${group.label}`} className="grid gap-2">
+                  <h3 className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black uppercase text-[#123D2C]">
+                    {entityHeading(group.label)}
+                  </h3>
+                  {group.appointments.map((appointment) => (
+                    <article key={`enc-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">Chegada {appointment.arrivalOrder ?? "-"}</p>
+                        <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving || forwardingFinalized}
+                        onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
+                        className="min-h-10 shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
+                      </button>
+                    </article>
+                  ))}
+                </section>
+              ))}
+
+              {forwardingView === "consulente" && visibleForwardingAppointments.map((appointment) => (
+                <article key={`enc-person-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
+                    <p className="mt-1 text-sm font-semibold text-slate-600">
+                      {appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}
+                    </p>
+                    <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving || forwardingFinalized}
+                    onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
+                    className="min-h-10 shrink-0 rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                  >
+                    {forwardingStage === "completed" ? "Desfazer Encaminhamento" : "Marcar Encaminhado"}
+                  </button>
+                </article>
+              ))}
+
+              {!orderedForwardingAppointments.length && (
+                <p className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                  Nenhum Consulente aguardando encaminhamento para este filtro.
+                </p>
+              )}
+
+              {forwardingPaginationEnabled && forwardingPageCount > 1 && (
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={effectiveForwardingPage <= 1}
+                    onClick={() => setForwardingPage((current) => Math.max(1, current - 1))}
+                    className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-xs font-black text-[#123D2C]">
+                    {effectiveForwardingPage} / {forwardingPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={effectiveForwardingPage >= forwardingPageCount}
+                    onClick={() => setForwardingPage((current) => Math.min(forwardingPageCount, current + 1))}
+                    className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {rescheduleRequest && (
+            <div className="fixed inset-0 z-[260] grid place-items-center bg-[#10251C]/75 p-3" role="dialog" aria-modal="true" aria-label="Reagendar Consulente">
+              <section className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-4 shadow-xl">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-black text-[#123D2C]">Reagendar {firstTwoPersonNames(rescheduleRequest.consulenteName)}</h3>
+                  <button type="button" disabled={saving} onClick={() => setRescheduleRequest(null)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
+                </div>
+                <p className="mt-2 text-xs font-semibold text-slate-600">Selecione uma data com vaga. A troca de Entidade só aparece quando o cadastro individual permitir.</p>
+                <label className="mt-4 grid gap-1 text-sm font-black text-[#123D2C]">Entidade
+                  <select value={rescheduleRequest.selectedEntityId} disabled={!rescheduleRequest.otherEntityAllowed || saving} onChange={(event) => {
+                    const next = rescheduleRequest.options.find((item) => item.entityId === event.target.value);
+                    setRescheduleRequest((current) => current ? { ...current, selectedEntityId: event.target.value, selectedDate: next?.dates[0]?.date ?? "" } : current);
+                  }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm">
+                    {rescheduleRequest.options.map((item) => <option key={item.entityId} value={item.entityId}>{item.name}{item.line ? ` (${item.line})` : ""}</option>)}
+                  </select>
+                </label>
+                <label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Nova data
+                  <select value={rescheduleRequest.selectedDate} disabled={saving} onChange={(event) => setRescheduleRequest((current) => current ? { ...current, selectedDate: event.target.value } : current)} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-3 text-sm">
+                    {(rescheduleRequest.options.find((item) => item.entityId === rescheduleRequest.selectedEntityId)?.dates ?? []).map((item) => <option key={item.date} value={item.date}>{item.label} · {item.available} vaga(s)</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={saving || !rescheduleRequest.selectedDate} onClick={() => void saveReschedule()} className="mt-4 w-full rounded-xl bg-[#123D2C] px-4 py-3 text-sm font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Confirmar reagendamento"}</button>
+              </section>
+            </div>
+          )}
+          {rescheduleConfirmationUrl && (
+            <div className="fixed inset-0 z-[260] grid place-items-center bg-[#10251C]/75 p-3" role="dialog" aria-modal="true" aria-label="Novo link de confirmação">
+              <section className="w-full max-w-lg rounded-3xl bg-white p-4 shadow-xl">
+                <h3 className="text-lg font-black text-[#123D2C]">Novo link de confirmação</h3>
+                <p className="mt-2 break-all text-xs text-slate-600">{rescheduleConfirmationUrl}</p>
+                <button type="button" onClick={() => void navigator.clipboard.writeText(rescheduleConfirmationUrl)} className="mt-3 w-full rounded-xl bg-[#123D2C] p-3 text-sm font-black text-white">Copiar link</button>
+                <button type="button" onClick={() => setRescheduleConfirmationUrl("")} className="mt-2 w-full rounded-xl bg-slate-100 p-3 text-sm font-black text-[#123D2C]">Fechar</button>
+              </section>
             </div>
           )}
 
@@ -1528,8 +2821,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" onClick={() => setShowConsultStatusFilter(false)} className="rounded-xl bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Fechar</button>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setConsultStatuses(ALL_CONSULT_STATUSES); setConsultPage(1); }} className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#2F6B43]/30">Selecionar tudo</button>
+                  <button type="button" onClick={() => { setConsultStatuses([]); setConsultPage(1); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Desselecionar tudo</button>
                   {([
-                    ["confirm", "Confirmado"],
+                    ["requested", "Solicitado"],
+                    ["confirmed", "Confirmado"],
+                    ["unconfirmed", "Não Confirmado"],
                     ["arrived", "Chegou"],
                     ["absent", "Não Chegou"],
                     ["cancelled", "Cancelado"],
@@ -1546,18 +2843,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
           {modal === "entidades" && (
             <div className="grid gap-2">
+              <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                <input type="search" value={entityAvailabilityQuery} onChange={(event) => { setEntityAvailabilityQuery(event.target.value); setEntityPage(1); }} placeholder="Buscar Entidade ou Cavalinho" aria-label="Buscar Entidade ou Cavalinho" className="w-full rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold" />
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" onClick={() => { setEntityAvailabilityLetter(""); setEntityPage(1); }} className={`rounded-lg px-2 py-1.5 text-xs font-black ${!entityAvailabilityLetter ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Todas</button>
+                  {availabilityLetters.map((letter) => <button type="button" key={letter} onClick={() => { setEntityAvailabilityLetter(letter); setEntityPage(1); }} className={`rounded-lg px-2 py-1.5 text-xs font-black ${entityAvailabilityLetter === letter ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>{letter}</button>)}
+                </div>
+              </div>
               {entityOverviewLoading && (
                 <p className="rounded-2xl bg-[#F7FAF2] p-3 text-sm font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando próximas disponibilidades...</p>
               )}
-              {payload.entityCatalog
-                .filter((entity) => paginatedEntityCatalog.some((pageEntity) => pageEntity.id === entity.id))
+              {paginatedEntityCatalog
                 .map((entity) => {
                   const overview = entityOverview[entity.id];
                   return (
                     <article key={entity.id} className="rounded-2xl bg-[#F7FAF2] px-3 py-2.5 ring-1 ring-[#123D2C]/10">
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                         <div className="min-w-0">
-                          <h3 className="truncate text-sm font-black text-[#123D2C]">{entity.name}</h3>
+                          <h3 className="break-words text-sm font-black text-[#123D2C]">{entityWithLine(entity.name)}</h3>
                           <p className="truncate text-[10px] font-semibold text-slate-600">
                             {overview?.nextDate ? `${shortDate(overview.nextDate)} · ${overview.available} vaga(s)` : entityOverviewLoading ? "carregando..." : "sem vaga no período"}
                           </p>
@@ -1577,6 +2880,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </article>
                   );
                 })}
+              {filteredAvailabilityEntities.length === 0 && <p className="rounded-xl bg-[#F7FAF2] p-3 text-sm font-semibold text-slate-600">Nenhuma Entidade encontrada.</p>}
               {entityPageCount > 1 && (
                 <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-white px-2 py-1.5 ring-1 ring-[#123D2C]/10">
                   <button type="button" disabled={effectiveEntityPage <= 1} onClick={() => setEntityPage((current) => Math.max(1, current - 1))} className="rounded-lg px-3 py-1.5 text-xs font-black text-[#123D2C] disabled:opacity-40">Anterior</button>
@@ -1591,11 +2895,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <div className="grid gap-4">
               {cadastroMode === "menu" && (
                 <div className="grid grid-cols-2 gap-3">
-                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setCadastroMode("consulentes"); void loadConsulenteAlphabet(); }} className="rounded-2xl bg-[#E9F2E7] p-5 text-left ring-1 ring-[#123D2C]/10">
+                  <button type="button" onClick={() => { clearPersonSearch(); setPhone(""); setAlphabetReturnLetter(""); setCadastroMode("consulentes"); void loadConsulenteAlphabet(); }} className="rounded-2xl bg-[#E9F2E7] p-5 text-left ring-1 ring-[#123D2C]/10">
                     <span className="block text-lg font-black text-[#123D2C]">Consulentes</span>
                     <span className="mt-1 block text-sm font-semibold text-slate-600">Buscar, atualizar ou cadastrar Filho de Fora/Consulente.</span>
                   </button>
-                  <button type="button" onClick={() => setCadastroMode("entidades")} className="rounded-2xl bg-white p-5 text-left ring-1 ring-[#123D2C]/10">
+                  <button type="button" onClick={() => { setEntityDirectoryQuery(""); setEntityDirectorySearch(""); setEntityAlphabetPicker(null); setEntityReturnLetter(""); setEntityEditorOpen(false); resetEntityDraft(); setCadastroMode("entidades"); }} className="rounded-2xl bg-white p-5 text-left ring-1 ring-[#123D2C]/10">
                     <span className="block text-lg font-black text-[#123D2C]">Entidades</span>
                     <span className="mt-1 block text-sm font-semibold text-slate-600">Cadastrar, atualizar calendário, vagas e Cavalinho.</span>
                   </button>
@@ -1608,6 +2912,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "consulentes" && (
                 <section className="grid gap-2">
+                  {!showCreateConsulente && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                     <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
@@ -1639,12 +2944,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     )}
                   </section>
 
+                  </>)}
+
+                  {!showCreateConsulente && !foundPerson && (
+                    <button
+                      type="button"
+                      onClick={openNewConsulenteEditor}
+                      className="rounded-2xl bg-[#123D2C] px-4 py-3.5 text-base font-black text-white shadow-sm"
+                    >
+                      Novo Consulente
+                    </button>
+                  )}
+
                   {searchResults.length > 1 && (
                     <div className="grid gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                       <p className="text-sm font-black text-[#123D2C]">Encontramos mais de um cadastro. Escolha a pessoa:</p>
                       {searchResults.map((person) => (
                         <button key={person.id} type="button" onClick={() => void selectPerson(person)} className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10">
-                          <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                          <span className="block font-black text-[#123D2C]">{disambiguatedPersonDisplayNames(searchResults).get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                           <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                         </button>
                       ))}
@@ -1675,17 +2992,21 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <label className="grid gap-1 text-xs font-black text-amber-950">Nome completo
                         <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} className="rounded-xl border border-amber-200 p-3" required />
                       </label>
-                      <label className="grid gap-1 text-xs font-black text-amber-950">Data de nascimento
-                        <input value={newPerson.birthDate} onChange={(event) => setNewPerson((current) => ({ ...current, birthDate: event.target.value }))} type="date" className="rounded-xl border border-amber-200 p-3" required />
-                      </label>
                       <label className="grid gap-1 text-xs font-black text-amber-950">WhatsApp com DDD
                         <input value={newPersonWhatsapp} onChange={(event) => setNewPersonWhatsapp(event.target.value)} className="rounded-xl border border-amber-200 p-3" required />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-amber-950">E-mail opcional
                         <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} type="email" className="rounded-xl border border-amber-200 p-3" />
                       </label>
+                      <label className="grid gap-1 text-xs font-black text-amber-950">Senha inicial
+                        <span className="flex gap-2"><input value={newPerson.password} onChange={(event) => setNewPerson((current) => ({ ...current, password: event.target.value }))} type={showNewPersonPassword ? "text" : "password"} minLength={8} required className="min-w-0 flex-1 rounded-xl border border-amber-200 p-3" /><button type="button" onClick={() => setShowNewPersonPassword((current) => !current)} className="rounded-xl border border-amber-300 bg-white px-3">{showNewPersonPassword ? "Ocultar" : "Mostrar"}</button></span>
+                        <span className="text-[11px] font-semibold">Senha inicial padrão: 12345678. Solicitar troca no primeiro acesso.</span>
+                      </label>
                       <label className="flex gap-2 text-sm font-semibold text-amber-950"><input type="checkbox" checked={newPerson.privacyAccepted} onChange={(event) => setNewPerson((current) => ({ ...current, privacyAccepted: event.target.checked }))} required /> Ciência do Aviso de Privacidade (LGPD)</label>
-                      <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white">Cadastrar Consulente</button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" disabled={saving} onClick={clearPersonSearch} className="rounded-xl bg-white px-4 py-3 font-black text-amber-950 ring-1 ring-amber-200 disabled:opacity-60">Voltar à lista</button>
+                        <button disabled={saving} className="rounded-xl bg-amber-900 px-4 py-3 font-black text-white disabled:opacity-60">Cadastrar Consulente</button>
+                      </div>
                     </form>
                   )}
 
@@ -1702,13 +3023,80 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <input value={editPerson.email} onChange={(event) => setEditPerson((current) => ({ ...current, email: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" type="email" />
                       </label>
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
-                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
-                          <option value="">Sem Entidade padrão</option>
-                          {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
+                        <select value={editPerson.defaultEntityId} onChange={(event) => setEditPerson((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required>
+                          <option value="">Selecione a Entidade padrão</option>
+                          {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
                         </select>
                       </label>
                       <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
                       <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
+
+                      {(foundPerson.relatedConsulentes?.length ?? 0) > 0 && (
+                        <section className="mt-1 grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                          <p className="text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Pessoas vinculadas a este contato</p>
+                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                            Pessoa sem WhatsApp / dependente
+                            <select
+                              value={relatedPreferenceKey}
+                              onChange={(event) => {
+                                const key = event.target.value;
+                                setRelatedPreferenceKey(key);
+                                const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === key);
+                                setRelatedPreferenceDraft({
+                                  defaultEntityId: related?.defaultEntityId || "",
+                                  allowDifferentEntity: related?.allowDifferentEntity === true,
+                                });
+                              }}
+                              className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
+                            >
+                              <option value="">Escolha uma pessoa vinculada</option>
+                              {foundPerson.relatedConsulentes!.map((related) => (
+                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
+                                  {firstTwoPersonNames(related.fullName)}
+                                  {related.relationship ? ` · ${related.relationship}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {selectedRelatedForPreferences && (
+                            <>
+                              <p className="text-xs font-semibold text-slate-600">
+                                Configurações de {firstTwoPersonNames(selectedRelatedForPreferences.fullName)}.
+                                Estas opções não alteram a Entidade padrão do contato responsável.
+                              </p>
+                              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
+                                Entidade padrão da pessoa vinculada
+                                <select
+                                  value={relatedPreferenceDraft.defaultEntityId}
+                                  onChange={(event) => setRelatedPreferenceDraft((current) => ({ ...current, defaultEntityId: event.target.value }))}
+                                  className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
+                                  required
+                                >
+                                  <option value="">Selecione a Entidade padrão</option>
+                                  {payload.entityCatalog
+                                    .filter((entity) => entity.active && entity.appointmentEnabled)
+                                    .map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
+                                </select>
+                              </label>
+                              <Toggle
+                                checked={relatedPreferenceDraft.allowDifferentEntity}
+                                onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: checked }))}
+                                label="Permitir que esta pessoa agende com Entidade diferente da padrão"
+                              />
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void saveRelatedConsulentePreferences()}
+                                className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-60"
+                              >
+                                Salvar pessoa vinculada
+                              </button>
+                            </>
+                          )}
+                        </section>
+                      )}
+
                       <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">Salvar Consulente</button>
                     </form>
                   )}
@@ -1716,89 +3104,226 @@ export default function AgendamentoPilotoRecepcaoPage() {
               )}
 
               {cadastroMode === "entidades" && (
-                <form onSubmit={saveEntity} className="grid gap-1.5">
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cadastro
-                    <select value={editEntity.entityId} onChange={(event) => selectEntityForEdit(event.target.value)} className="rounded-lg border border-[#123D2C]/15 p-2">
-                      <option value="">Nova Entidade</option>
-                      {payload.entityCatalog.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.active && entity.appointmentEnabled ? "" : " · inativa"}</option>)}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
-                    <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
-                    <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
-                    <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
-                    <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
-                      <option value="">Sem Cavalinho associado</option>
-                      {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
-                    </select>
-                  </label>
-                  {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
-                  <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
-                  <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
-                  <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque em quais ocorrências do mês a Entidade atende. Salvar uma Entidade existente substitui o calendário do piloto dessa Entidade.</p>
-                  <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
-                </form>
+                <section className="grid gap-3">
+                  {!entityEditorOpen ? (
+                    <>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          setEntityDirectorySearch(entityDirectoryQuery.trim());
+                        }}
+                        className="grid grid-cols-[1fr_auto] gap-2"
+                      >
+                        <input
+                          value={entityDirectoryQuery}
+                          onChange={(event) => setEntityDirectoryQuery(event.target.value)}
+                          placeholder="Nome da Entidade ou Cavalinho"
+                          className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2"
+                        />
+                        <button type="submit" disabled={!entityDirectoryQuery.trim()} className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-40">
+                          Buscar
+                        </button>
+                      </form>
+
+                      <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ou escolha pela inicial</p>
+                        {entityDirectoryLetters.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {entityDirectoryLetters.map((letter) => (
+                              <button
+                                key={letter}
+                                type="button"
+                                onClick={() => openEntityAlphabet(letter)}
+                                className="flex h-10 min-w-10 items-center justify-center rounded-lg bg-white px-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/10"
+                              >
+                                {letter}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl bg-white p-3 text-xs font-bold text-slate-500 ring-1 ring-[#123D2C]/10">Nenhuma Entidade cadastrada.</p>
+                        )}
+                      </section>
+
+                      {entityDirectorySearch && (
+                        <section className="grid gap-2">
+                          {entityDirectoryResults.length === 0 ? (
+                            <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">Nenhuma Entidade encontrada para esta busca.</p>
+                          ) : (
+                            entityDirectoryResults.map((entity) => (
+                              <button
+                                key={entity.id}
+                                type="button"
+                                onClick={() => openExistingEntityEditor(entity.id)}
+                                className="rounded-xl bg-white p-3 text-left ring-1 ring-[#123D2C]/10"
+                              >
+                                <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                                <span className="mt-1 block text-xs font-semibold text-slate-600">
+                                  {entity.mediums[0]?.name ? `Cavalinho: ${entity.mediums[0].name}` : "Sem Cavalinho associado"}
+                                  {entity.active && entity.appointmentEnabled ? "" : " · inativa"}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </section>
+                      )}
+
+                      <button type="button" onClick={openNewEntityEditor} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white">
+                        Nova Entidade
+                      </button>
+                    </>
+                  ) : (
+                    <form onSubmit={saveEntity} className="grid gap-1.5">
+                      <section className="mb-1 rounded-xl bg-[#E9F2E7] p-3 ring-1 ring-[#123D2C]/10">
+                        <p className="text-[10px] font-black uppercase tracking-[0.1em] text-[#2F6B43]">{editEntity.entityId ? "Atualizar Entidade" : "Nova Entidade"}</p>
+                        <p className="mt-1 text-sm font-black text-[#123D2C]">{editEntity.entityId ? editEntity.name : "Preencha os dados da nova Entidade"}</p>
+                      </section>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
+                        <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
+                        <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Quantidade de vagas por dia de atendimento
+                        <input type="number" min={1} value={editEntity.capacity} onChange={(event) => setEditEntity((current) => ({ ...current, capacity: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
+                      </label>
+                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Cavalinho associado
+                        <select value={editEntity.cavalinhoPersonId} onChange={(event) => setEditEntity((current) => ({ ...current, cavalinhoPersonId: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2">
+                          <option value="">Sem Cavalinho associado</option>
+                          {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
+                        </select>
+                      </label>
+                      {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
+                      <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
+                      <details className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
+                        <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Dias de atendimento · toque para configurar</summary>
+                        <div className="mt-3 grid gap-2">
+                          <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
+                          <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
+                          <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque as ocorrências do mês. Salvar substitui o calendário do piloto desta Entidade.</p>
+                        </div>
+                      </details>
+                      {editEntity.entityId && (
+                        <details className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <summary className="cursor-pointer text-sm font-black text-amber-950">Indisponibilidades · bloquear ou reativar data</summary>
+                          <div className="mt-3 grid gap-2">
+                          <label className="grid gap-1 text-xs font-black text-amber-950">
+                            Data prevista da Entidade
+                            <select value={eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).includes(entityExceptionDate) ? entityExceptionDate : ""} onChange={(event) => setEntityExceptionDate(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2">
+                              <option value="">Sem nova indisponibilidade</option>
+                              {eligiblePilotExceptionDates(editEntity.mondayOccurrences, editEntity.tuesdayOccurrences, todaySaoPaulo()).map((date) => <option key={date} value={date}>{date.split("-").reverse().join("/")}</option>)}
+                            </select>
+                          </label>
+                          <label className="grid gap-1 text-xs font-black text-amber-950">Motivo da nova indisponibilidade
+                            <input value={entityExceptionReason} onChange={(event) => setEntityExceptionReason(event.target.value)} placeholder="Preencha somente se desejar bloquear a data" className="rounded-lg border border-amber-200 bg-white p-2" />
+                          </label>
+                          <p className="text-xs font-semibold text-amber-900">Se ja existirem atendimentos na data, o sistema impedira o bloqueio. Primeiro abra o Acolhimento da data e use a troca de Entidade em massa para confirmar a realocacao e avisar os Consulentes; depois volte aqui e salve a indisponibilidade.</p>
+                          {entityExceptions.filter((exception) => exception.date >= todaySaoPaulo()).map((exception) => (
+                            <div key={exception.id} className="flex items-center justify-between gap-2 rounded-lg bg-white p-2 text-xs text-amber-950">
+                              <span>{exception.date.split("-").reverse().join("/")} — {exception.reason || "Sem motivo"}</span>
+                              <div className="flex gap-2">
+                                <button type="button" disabled={saving} onClick={() => { setEntityExceptionDate(exception.date); setEntityExceptionReason(exception.reason); }} className="font-black text-amber-900">Editar</button>
+                                <button type="button" disabled={saving} onClick={() => void removeEntityException(exception.id)} className="font-black text-red-700">Reativar</button>
+                              </div>
+                            </div>
+                          ))}
+                          </div>
+                        </details>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" disabled={saving} onClick={closeEntityEditor} className="rounded-xl bg-white px-4 py-2.5 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar à lista</button>
+                        <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">{editEntity.entityId ? "Salvar Entidade" : "Cadastrar Entidade"}</button>
+                      </div>
+                    </form>
+                  )}
+                </section>
               )}
             </div>
           )}
 
           {modal === "configuracoes" && settingsDraft && (
             <form onSubmit={saveSettings} className="grid gap-3">
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos
-                <select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Prazo de confirmação</p>
-                <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
-                  Horário-limite no dia do atendimento
-                  <input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required />
-                </label>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p>
-                <div className="mt-3">
-                  <Toggle
-                    checked={settingsDraft.autoCancelExpiredConfirmations}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)}
-                    label="Cancelar automaticamente agendamentos não confirmados após o prazo"
-                  />
+              {!settingsSection ? (
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                  {[
+                    ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
+                    ["ordem-exibicao", "Ordem de exibição", "Entidade e Caderno"],
+                    ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
+                    ["chegada", "Registro de chegada", "Regra do botão Chegou"],
+                    ["visualizacao", "Visualização", "Paginação da Triagem e Encaminhamento"],
+                    ["lembretes", "Lembretes e confirmações", `Antecedência: ${settingsDraft.reminderOffsets || "não definida"} h`],
+                    ["envios", "Dias dos envios automáticos", "Escolha os dias da semana"],
+                    ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
+                    ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
+                    ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
+                  ].map(([key, title, subtitle]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSettingsSection(key)}
+                      className="flex min-h-[68px] items-center justify-between gap-1.5 rounded-xl bg-[#F7FAF2] px-2.5 py-2 text-left ring-1 ring-[#123D2C]/10 sm:min-h-[76px] sm:gap-3 sm:rounded-2xl sm:p-3"
+                    >
+                      <span className="min-w-0">
+                        <strong className="block text-xs leading-4 text-[#123D2C] sm:text-sm">{title}</strong>
+                        <span className="mt-0.5 block text-[10px] font-semibold leading-3 text-slate-500 sm:text-xs sm:leading-4">
+                          {subtitle} · TOQUE PARA ABRIR
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-lg font-black text-[#2F6B43] sm:text-xl">›</span>
+                    </button>
+                  ))}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Por enquanto, deixe desativado para manter os agendamentos pendentes mesmo depois do horário-limite.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Registro de chegada</p>
-                <div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Desative temporariamente durante a homologação para testar a ordem de chegada fora da janela normal. Em produção, recomenda-se manter habilitado.</p>
-              </section>
-              <label className="grid gap-1 text-sm font-black text-[#123D2C]">Lembretes/confirmações · antecedência em horas
-                <input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 48, 24, 4" />
-                <span className="text-xs font-semibold text-slate-500">Informe até 8 momentos, separados por vírgula. Os avisos do piloto serão enviados pelo WhatsApp/BotConversa.</span>
-              </label>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Ao entrar no sistema</p>
-                <div className="mt-2">
-                  <Toggle
-                    checked={settingsDraft.openAcolhimentoOnLogin}
-                    onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)}
-                    label="Abrir Acolhimento automaticamente na próxima data de atendimento"
-                  />
+              ) : (
+                <div className="grid gap-3">
+
+                  {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
+
+                  {settingsSection === "ordem-exibicao" && (
+                    <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+                      <p className="font-black text-[#123D2C]">Ordem de exibição na Triagem</p>
+                      <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
+                        Exibir Consulentes nas visões Entidade e Caderno por
+                        <select
+                          value={settingsDraft.triageDisplayOrder}
+                          onChange={(event) => setSettingsDraft((current) => current ? {
+                            ...current,
+                            triageDisplayOrder: event.target.value as TriageDisplayOrder,
+                          } : current)}
+                          className="rounded-xl border border-[#123D2C]/15 bg-white p-3"
+                        >
+                          <option value="booking">Ordem de Agendamento</option>
+                          <option value="alphabetical">Ordem Alfabética</option>
+                        </select>
+                      </label>
+                      <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                        Esta opção altera somente a ordem visual nas abas Entidade e Caderno.
+                        A ordem de agendamento gravada e a ordem de chegada continuam inalteradas.
+                      </p>
+                    </section>
+                  )}
+
+                  {settingsSection === "confirmacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Prazo de confirmação</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário-limite no dia do atendimento<input type="time" value={settingsDraft.confirmationCutoff} onChange={(event) => setSettingsDraft((current) => current ? { ...current, confirmationCutoff: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" required /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Este horário limita a confirmação do Consulente. A Recepção continua podendo criar novos agendamentos depois dele.</p><div className="mt-3"><Toggle checked={settingsDraft.autoCancelExpiredConfirmations} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, autoCancelExpiredConfirmations: checked } : current)} label="Cancelar automaticamente agendamentos não confirmados após o prazo" /></div></section>}
+
+                  {settingsSection === "chegada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Registro de chegada</p><div className="mt-2"><Toggle checked={settingsDraft.enforceArrivalWindow} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, enforceArrivalWindow: checked } : current)} label="Restringir o botão ‘Chegou’ ao dia e horário previstos" /></div></section>}
+
+                  {settingsSection === "visualizacao" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Visualização</p><div className="mt-2 grid gap-2"><Toggle checked={settingsDraft.triageEntityPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageEntityPaginationEnabled: checked } : current)} label="Paginar a visão Entidade da Triagem" /><Toggle checked={settingsDraft.triageConsulentePaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageConsulentePaginationEnabled: checked } : current)} label="Paginar a visão Consulente da Triagem" /><Toggle checked={settingsDraft.triageCadernoPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, triageCadernoPaginationEnabled: checked } : current)} label="Paginar a visão Caderno da Triagem" /><Toggle checked={settingsDraft.forwardingPaginationEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, forwardingPaginationEnabled: checked } : current)} label="Paginar a tela Encaminhamento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Quando a paginação estiver desativada, todos os atendimentos do filtro atual aparecem em uma única rolagem.</p></section>}
+
+                  {settingsSection === "lembretes" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes e confirmações</p><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Antecedência em horas<input value={settingsDraft.reminderOffsets} onChange={(event) => setSettingsDraft((current) => current ? { ...current, reminderOffsets: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 p-3" placeholder="Ex.: 68, 24, 4" /></label><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">A antecedência é calculada a partir do início do atendimento ({payload.settings.appointmentTime}). Como o scheduler gratuito executa uma vez ao dia, cada limiar pendente é enviado na primeira execução diária em que entrar na janela, sem duplicidade.</p></section>}
+
+                  {settingsSection === "envios" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Dias dos envios automáticos</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Escolha em quais dias da semana a execução diária poderá enviar lembretes e avisos.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [0,1,2,3,4,5,6] } : current)} className="rounded-lg bg-[#E9F2E7] px-3 py-2 text-xs font-black text-[#123D2C]">Selecionar tudo</button><button type="button" onClick={() => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: [] } : current)} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Deselecionar tudo</button></div><div className="mt-3 grid grid-cols-2 gap-2">{[[0,"Domingo"],[1,"Segunda"],[2,"Terça"],[3,"Quarta"],[4,"Quinta"],[5,"Sexta"],[6,"Sábado"]].map(([value,label]) => { const day=Number(value); const checked=settingsDraft.automaticDispatchWeekdays.includes(day); return <label key={day} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={checked} onChange={(event) => setSettingsDraft((current) => current ? { ...current, automaticDispatchWeekdays: event.target.checked ? Array.from(new Set([...current.automaticDispatchWeekdays, day])).sort((a,b)=>a-b) : current.automaticDispatchWeekdays.filter((item)=>item!==day) } : current)} />{String(label)}</label>; })}</div></section>}
+
+                  {settingsSection === "entrada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Ao entrar no sistema</p><div className="mt-2"><Toggle checked={settingsDraft.openAcolhimentoOnLogin} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)} label="Abrir Acolhimento automaticamente na próxima data de atendimento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal para cada integrante da Recepção.</p></section>}
+
+                  {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
+
+                  {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3 rounded-xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes dos Consulentes</p><p className="mt-1 text-[#2F6B43]">Horário programado: 12:00 (Campinas). Configurado no cron da Vercel, separado dos avisos aos Cavalinhos e à Recepção.</p><p className="mt-1 text-xs text-[#2F6B43]">No plano Hobby, a execução pode ocorrer durante a hora das 12h; este horário não é editável nesta tela.</p></div><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal: cada integrante da Recepção decide se deseja abrir o Acolhimento após o próprio login.</p>
-              </section>
-              <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                <p className="font-black text-[#123D2C]">Receber resumo agendamentos</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" />
-                  <Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" />
-                </div>
-                <p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p>
-                <select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select>
-              </section>
-              <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Salvar configurações"}</button>
+              )}
+              {settingsSection && (
+                <button disabled={saving || settingsDraft.automaticDispatchWeekdays.length === 0} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">
+                  {saving ? "Salvando..." : "Salvar configurações"}
+                </button>
+              )}
             </form>
           )}
 
@@ -1813,6 +3338,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
           )}
         </Modal>
       )}
+
+      {showCavalinhoPicker && settingsDraft && payload && (() => {
+        const eligible = payload.entityCatalog.filter((entity) => entity.active);
+        const pageSize = 4;
+        const pageCount = Math.max(1, Math.ceil(eligible.length / pageSize));
+        const page = Math.min(cavalinhoPickerPage, pageCount);
+        const visible = eligible.slice((page - 1) * pageSize, page * pageSize);
+        return (
+          <Modal title="Entidades/Cavalinhos que receberão" onClose={() => setShowCavalinhoPicker(false)}>
+            <div className="grid gap-3">
+              <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold text-[#123D2C]">Selecione pelo menos uma Entidade/Cavalinho para manter o envio automático ativado.</p>
+              <div className="grid gap-2">{visible.map((entity) => <label key={`picker-${entity.id}`} className="flex items-center gap-2 rounded-xl bg-white p-3 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10"><input type="checkbox" checked={settingsDraft.cavalinhoNoticeEntityIds.includes(entity.id)} disabled={entity.mediums.length === 0} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoNoticeEntityIds: event.target.checked ? Array.from(new Set([...current.cavalinhoNoticeEntityIds, entity.id])) : current.cavalinhoNoticeEntityIds.filter((id) => id !== entity.id) } : current)} /><span>{entity.name}{entity.mediums[0]?.name ? ` (${entity.mediums[0].name})` : ""}{entity.mediums.length === 0 ? " · sem Cavalinho associado" : ""}</span></label>)}</div>
+              <div className="grid grid-cols-3 items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setCavalinhoPickerPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button><span className="text-center text-xs font-black text-slate-500">{page}/{pageCount}</span><button type="button" disabled={page >= pageCount} onClick={() => setCavalinhoPickerPage((current) => Math.min(pageCount, current + 1))} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button></div>
+              <button type="button" disabled={settingsDraft.cavalinhoNoticeEntityIds.length === 0} onClick={() => setShowCavalinhoPicker(false)} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-40">Concluir seleção</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {entityCalendar && (
         <Modal title={`Agendar · ${entityCalendar.entity.name}`} onClose={() => setEntityCalendar(null)}>
@@ -1860,6 +3403,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
         />
       )}
 
+      {entityAlphabetPicker && (
+        <AlphabetEntityPopup
+          letter={entityAlphabetPicker.letter}
+          entities={entityAlphabetPicker.entities}
+          onClose={() => setEntityAlphabetPicker(null)}
+          onSelect={(entity) => openExistingEntityEditor(entity.id, entityAlphabetPicker.letter)}
+        />
+      )}
+
       {cancelRequest && (
         <CancelAppointmentPopup
           request={cancelRequest}
@@ -1902,13 +3454,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
         <Modal title="Agendamento criado" onClose={() => setBookingResult(null)}>
           <div className="grid gap-3">
             <section className="rounded-2xl bg-[#E9F2E7] p-4 ring-1 ring-[#123D2C]/10">
-              <p className="text-lg font-black text-[#123D2C]">{bookingResult.appointment.personName}</p>
+              <p className="text-lg font-black text-[#123D2C]">{firstTwoPersonNames(bookingResult.appointment.personName)}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
               {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
             </section>
             <a
-              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${bookingResult.contactName || ""}. Você está recebendo esta mensagem como contato de ${bookingResult.appointment.personName}. O atendimento de ${bookingResult.appointment.personName} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${bookingResult.appointment.personName}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
+              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${firstTwoPersonNames(bookingResult.contactName || "")}. Você está recebendo esta mensagem como contato de ${firstTwoPersonNames(bookingResult.appointment.personName)}. O atendimento de ${firstTwoPersonNames(bookingResult.appointment.personName)} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${firstTwoPersonNames(bookingResult.appointment.personName)}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
               target="_blank"
               rel="noreferrer"
               className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"
@@ -1936,21 +3488,22 @@ function AlphabetConsulentePopup({
   onClose: () => void;
   onSelect: (person: FoundPerson) => void;
 }) {
-  const pageSize = 6;
+  const pageSize = 4;
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(people.length / pageSize));
   const effectivePage = Math.min(page, pageCount);
   const pagePeople = people.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+  const displayNames = disambiguatedPersonDisplayNames(people);
 
   return (
     <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Consulentes com a letra ${letter}`}>
       <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
+        <header className="flex min-w-0 shrink-0 items-center justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-3 sm:px-5 sm:py-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
             <h2 className="text-xl font-black text-[#123D2C]">Consulentes · {letter}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
           {loading ? (
@@ -1961,7 +3514,7 @@ function AlphabetConsulentePopup({
             <div className="grid gap-2">
               {pagePeople.map((person) => (
                 <button key={person.id} type="button" onClick={() => onSelect(person)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
-                  <span className="block font-black text-[#123D2C]">{person.fullName}</span>
+                  <span className="block font-black text-[#123D2C]">{displayNames.get(person.id) || firstTwoPersonNames(person.fullName)}</span>
                   <span className="mt-1 block text-sm font-semibold text-slate-600">{person.whatsapp ? displayWhatsapp(person.whatsapp) : "WhatsApp não informado"}</span>
                   {person.defaultEntityName && (
                     <span className="mt-1 block text-xs font-black text-[#2F6B43]">
@@ -1973,6 +3526,65 @@ function AlphabetConsulentePopup({
             </div>
           )}
           {!loading && people.length > pageSize && (
+            <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <button type="button" disabled={effectivePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
+              <span className="text-xs font-black text-slate-600">{effectivePage} / {pageCount}</span>
+              <button type="button" disabled={effectivePage >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Próxima</button>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AlphabetEntityPopup({
+  letter,
+  entities,
+  onClose,
+  onSelect,
+}: {
+  letter: string;
+  entities: EntityCatalogItem[];
+  onClose: () => void;
+  onSelect: (entity: EntityCatalogItem) => void;
+}) {
+  const pageSize = 4;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(entities.length / pageSize));
+  const effectivePage = Math.min(page, pageCount);
+  const pageEntities = entities.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+
+  return (
+    <div className="fixed inset-0 z-[290] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Entidades com a letra ${letter}`}>
+      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#2F6B43]">Seleção alfabética</p>
+            <h2 className="text-xl font-black text-[#123D2C]">Entidades · {letter}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+          {entities.length === 0 ? (
+            <p className="rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-900">Nenhuma Entidade encontrada com esta inicial.</p>
+          ) : (
+            <div className="grid gap-2">
+              {pageEntities.map((entity) => (
+                <button key={entity.id} type="button" onClick={() => onSelect(entity)} className="rounded-xl bg-[#F7FAF2] p-3 text-left ring-1 ring-[#123D2C]/10">
+                  <span className="block font-black text-[#123D2C]">{entity.name}</span>
+                  <span className="mt-1 block text-sm font-semibold text-slate-600">
+                    {entity.mediums[0]?.name ? `Cavalinho: ${entity.mediums[0].name}` : "Sem Cavalinho associado"}
+                  </span>
+                  <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-black text-[#2F6B43]">
+                    <span>{entity.capacity} vaga(s) · {entity.active && entity.appointmentEnabled ? "Ativa" : "Inativa"}</span>
+                    <span className="text-[10px] uppercase tracking-[0.08em] text-[#123D2C]">Clique para ver/editar</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {entities.length > pageSize && (
             <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
               <button type="button" disabled={effectivePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-40">Anterior</button>
               <span className="text-xs font-black text-slate-600">{effectivePage} / {pageCount}</span>
@@ -2008,11 +3620,11 @@ function EntityChangePopup({
           <h2 className="text-xl font-black text-[#123D2C]">
             {request.mode === "bulk" ? "Trocar Entidade de todos" : "Trocar Entidade"}
           </h2>
-          <button type="button" disabled={saving} onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" disabled={saving} onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </div>
         <div className="grid gap-4 p-5">
           <div className="rounded-2xl bg-[#E9F2E7] p-4 text-sm font-semibold text-[#123D2C]">
-            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : request.consulenteName}</strong></p>
+            <p><strong>{request.mode === "bulk" ? `${request.appointmentIds.length} agendamento(s)` : firstTwoPersonNames(request.consulenteName)}</strong></p>
             <p className="mt-1">Entidade atual: <strong>{request.currentEntityName}</strong></p>
             {request.mode === "bulk" && <p className="mt-1">A troca será aplicada a todos os agendamentos ativos deste grupo/data.</p>}
           </div>
@@ -2040,12 +3652,11 @@ function EntityChangePopup({
           )}
 
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
-            Motivo da troca
+            Motivo da troca <span className="font-semibold text-slate-500">(opcional)</span>
             <textarea
               value={request.reason}
               onChange={(event) => onChange({ reason: event.target.value })}
               rows={3}
-              required
               placeholder="Ex.: A Entidade Frei Francisco não poderá comparecer."
               className="rounded-xl border border-[#123D2C]/15 p-3 font-semibold"
             />
@@ -2074,7 +3685,7 @@ function EntityChangePopup({
 
           <button
             type="submit"
-            disabled={saving || !request.newEntityId || !request.reason.trim()}
+            disabled={saving || !request.newEntityId}
             className="rounded-xl bg-[#176A3A] px-4 py-3 font-black text-white disabled:opacity-50"
           >
             {saving ? "Alterando..." : request.mode === "bulk" ? "Confirmar troca de todos" : "Confirmar troca"}
@@ -2112,7 +3723,7 @@ function CancelAppointmentPopup({
         </header>
         <form onSubmit={onSubmit} className="grid gap-3 p-4 sm:p-5">
           <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-5 text-red-800 ring-1 ring-red-100">
-            Você está cancelando o atendimento de {request.consulenteName}. A vaga será liberada e o motivo ficará registrado no histórico.
+            Você está cancelando o atendimento de {firstTwoPersonNames(request.consulenteName)}. A vaga será liberada e o motivo ficará registrado no histórico.
           </p>
           <label className="grid gap-1 text-sm font-black text-[#123D2C]">
             Motivo do cancelamento
@@ -2151,8 +3762,8 @@ function SuccessPopup({ title, message, onClose }: { title: string; message: str
     <div className="fixed inset-0 z-[410] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4">
-          <h2 className="text-xl font-black text-[#123D2C]">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <h2 className="min-w-0 flex-1 break-words text-[11px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="p-4 sm:p-5">
           <p className="rounded-2xl bg-[#E9F2E7] p-4 font-bold leading-6 text-[#123D2C] ring-1 ring-[#123D2C]/10">{message}</p>
@@ -2168,7 +3779,7 @@ function ErrorPopup({ title, message, onClose }: { title: string; message: strin
       <section className="w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
         <header className="flex items-center justify-between gap-3 border-b border-red-100 px-5 py-4">
           <h2 className="text-xl font-black text-red-800">{title}</h2>
-          <button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button>
         </header>
         <div className="p-4 sm:p-5">
           <p className="rounded-2xl bg-red-50 p-4 font-bold leading-6 text-red-800 ring-1 ring-red-100">{message}</p>
@@ -2207,8 +3818,8 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
   );
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#123D2C]/10 px-5 py-4"><h2 className="text-xl font-black text-[#123D2C]">{title}</h2><button type="button" onClick={onClose} className="rounded-xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button></header><div className="min-h-0 overflow-y-auto p-4 sm:p-5">{children}</div></section></div>;
+function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5"><h2 className="min-w-0 flex-1 break-words text-[13px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {
@@ -2220,6 +3831,8 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "acolhimento") return "Acolhimento";
   if (modal === "painel") return "Painel do Acolhimento";
   if (modal === "consultar") return "Triagem";
+  if (modal === "encaminhamento") return "Encaminhamento";
+  if (modal === "gestao") return "Gestão";
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasReceptionFunction, normalizeReceptionSchedule, receptionScheduleIsValid } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import nodemailer from "nodemailer";
 import { getOrganizacaoAuthContext } from "@/lib/organizacao-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -889,6 +890,10 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     const requestedCavalinhoConsulenteDefinitionCompleted =
       requestedProfile.cavalinhoConsulenteDefinitionCompleted === true ||
       requestSummary.cavalinhoConsulenteDefinitionCompleted === true;
+    const requestedReceptionSchedule = normalizeReceptionSchedule(requestedProfile.receptionSchedule);
+    if (hasReceptionFunction(requestedFunctionSlugs) && !receptionScheduleIsValid(requestedProfile.receptionSchedule)) {
+      throw new Error("A escala de Recepção da solicitação não contém ocorrências válidas.");
+    }
     const requestedFullName = asText(requestedPerson.fullName ?? validationRequest?.full_name) || asText(person.full_name);
     const requestedWhatsapp = normalizePhone(requestedPerson.whatsapp ?? validationRequest?.whatsapp) || normalizePhone(person.whatsapp);
     const requestedEmail = asText(requestedPerson.email ?? validationRequest?.email).toLowerCase();
@@ -918,6 +923,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         },
         profile: {
           functionSlugs: requestedFunctionSlugs,
+          receptionSchedule: requestedReceptionSchedule,
           agendaSlugs: requestedAgendaSlugs,
           selectedFunctions: requestedSelectedFunctions,
           selectedAgenda: requestedSelectedAgenda,
@@ -931,6 +937,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
       };
       const nextProfile = mergeProfile(currentProfile, {
         functionSlugs: requestedFunctionSlugs,
+        receptionSchedule: hasReceptionFunction(requestedFunctionSlugs) ? requestedReceptionSchedule : { monday: [], tuesday: [] },
         agendaSlugs: requestedAgendaSlugs,
         selectedFunctions: requestedSelectedFunctions,
         selectedAgenda: requestedSelectedAgenda,
@@ -1051,6 +1058,14 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     };
   }
 
+  // Primeiro Acesso: a escala deve existir no perfil pendente antes da aprovação.
+  // Não atualizar o perfil ativo se uma solicitação antiga de Recepção não a tiver.
+  const firstAccessProfile = asRecord(currentMembership.agenda_viva_profile);
+  const firstAccessFunctions = asTextList(firstAccessProfile.functionSlugs ?? validationRequest?.function_slugs);
+  if (approved && hasReceptionFunction(firstAccessFunctions) && !receptionScheduleIsValid(firstAccessProfile.receptionSchedule)) {
+    throw new Error("Escala da Recepção ausente no Primeiro Acesso. Solicite ajuste do cadastro antes da aprovação.");
+  }
+
   const firstAccessEntityIds = asTextList(
     requestSummary.selectedEntityIds ??
     requestSummary.cavalinhoEntityIds,
@@ -1135,7 +1150,8 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
     if (authError) throw authError;
   }
 
-  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/login`;
+  const loginUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/agendamento/login?context=portal&returnTo=${encodeURIComponent("/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/painel")}`;
+  const firstAccessUrl = `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/filho-da-corrente/primeiro-acesso`;
   const email = displayEmail(person.email);
   const emailMessage = approved
     ? [
@@ -1156,7 +1172,7 @@ async function updateAccessStatus(organizationId: string, body: Record<string, u
         reviewNotes || "Por favor, confirme seu nome completo, WhatsApp e vínculo com o Tucxa.",
         "",
         "Você pode atualizar seus dados pelo primeiro acesso:",
-        loginUrl,
+        firstAccessUrl,
       ].join("\n");
 
   if (email) {
