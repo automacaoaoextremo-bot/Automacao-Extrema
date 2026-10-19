@@ -49,11 +49,11 @@ const transformationCards = [
 
 const examples = [
   {
-    name: "Bingo Sementinha",
-    url: "https://bingo-sementinha.vercel.app/",
+    name: "Bingo no Controle",
+    url: "/solucoes/bingo-no-controle",
     label: "Bingo no Controle",
     description:
-      "Módulo do Festa no Controle para atender bingos e sorteios beneficentes com cartelas/números, participantes, pagamentos, conferência e transparência.",
+      "Plataforma de bingos beneficentes com organizações independentes, rodadas, prêmios, cartelas, pagamentos e prestação de contas.",
     transformation: "Transforma sorteios e bingos beneficentes em uma operação mais clara e conferível.",
   },
   {
