@@ -60,6 +60,7 @@ export type PilotPersonPreferences = {
   reminderOffsetsHours: number[];
   receptionSummaryChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
+  receptionEntityOrderMode: "alphabetical" | "custom";
   receptionOpenAcolhimentoOnLogin: boolean;
   consulenteOpenUpcomingOnLogin: boolean;
 };
@@ -570,7 +571,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_summary_view_mode, reception_entity_order_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -585,6 +586,7 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
       ? data.reception_summary_channels.map(asText).filter((item) => item === "email" || item === "whatsapp")
       : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
+    receptionEntityOrderMode: data?.reception_entity_order_mode === "custom" ? "custom" : "alphabetical",
     receptionOpenAcolhimentoOnLogin: data?.reception_open_acolhimento_on_login !== false,
     consulenteOpenUpcomingOnLogin: data?.consulente_open_upcoming_on_login !== false,
   };
@@ -609,6 +611,7 @@ export async function savePilotPersonPreferences(
       ? current.receptionSummaryChannels
       : Array.from(new Set(input.receptionSummaryChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
+    reception_entity_order_mode: input.receptionEntityOrderMode ?? current.receptionEntityOrderMode,
     reception_open_acolhimento_on_login: input.receptionOpenAcolhimentoOnLogin ?? current.receptionOpenAcolhimentoOnLogin,
     consulente_open_upcoming_on_login: input.consulenteOpenUpcomingOnLogin ?? current.consulenteOpenUpcomingOnLogin,
     updated_at: new Date().toISOString(),
@@ -911,17 +914,21 @@ export async function loadPilotDates(organizationId: string, daysAhead: number):
   if (!candidates.length) return [];
   const weekdayValues = Array.from(new Set(candidates.map((item) => item.weekday)));
   const occurrences = Array.from(new Set(candidates.map((item) => item.monthOccurrence)));
-  const { data, error } = await supabaseAdmin
-    .from("oh_tucxa_pilot_entity_schedule")
-    .select("weekday, month_occurrence")
-    .eq("organization_id", organizationId)
-    .eq("active", true)
-    .in("weekday", weekdayValues)
-    .in("month_occurrence", occurrences);
+  const [{ data, error }, { data: additions, error: additionsError }] = await Promise.all([
+    supabaseAdmin.from("oh_tucxa_pilot_entity_schedule")
+      .select("weekday,month_occurrence")
+      .eq("organization_id", organizationId).eq("active", true)
+      .in("weekday", weekdayValues).in("month_occurrence", occurrences),
+    supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+      .select("entity_id,starts_on,ends_on")
+      .eq("organization_id", organizationId).eq("available", true)
+      .lte("starts_on", addDaysIso(today, daysAhead)).gte("ends_on", today),
+  ]);
   if (error) throw error;
-
-  const availableKeys = new Set((data ?? []).map((item) => `${item.weekday}:${item.month_occurrence}`));
-  return candidates.filter((item) => availableKeys.has(`${item.weekday}:${item.monthOccurrence}`));
+  if (additionsError) throw additionsError;
+  const regular = new Set((data ?? []).map((item) => `${item.weekday}:${item.month_occurrence}`));
+  return candidates.filter((item) => regular.has(`${item.weekday}:${item.monthOccurrence}`) ||
+    (additions ?? []).some((special) => item.date >= special.starts_on && item.date <= special.ends_on));
 }
 
 export async function loadPilotDay(organizationId: string, date: string): Promise<PilotEntityAvailability[]> {
@@ -937,13 +944,22 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
     .eq("month_occurrence", occurrence)
     .eq("active", true);
   if (scheduleError) throw scheduleError;
-  const entityIds = Array.from(new Set((scheduleRows ?? []).map((row) => asText(row.entity_id)).filter(Boolean)));
+  const { data: specialRows, error: specialError } = await supabaseAdmin
+    .from("oh_tucxa_pilot_entity_overrides")
+    .select("entity_id")
+    .eq("organization_id", organizationId).eq("available", true)
+    .lte("starts_on", date).gte("ends_on", date);
+  if (specialError) throw specialError;
+  const entityIds = Array.from(new Set([
+    ...(scheduleRows ?? []).map((row) => asText(row.entity_id)),
+    ...(specialRows ?? []).map((row) => asText(row.entity_id)),
+  ].filter(Boolean)));
   if (!entityIds.length) return [];
 
   const [{ data: entities, error: entityError }, { data: overrides, error: overrideError }, { data: appointments, error: appointmentError }] = await Promise.all([
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, slug, daily_capacity, active, appointment_enabled")
+      .select("id, name, slug, daily_capacity, pilot_display_order, active, appointment_enabled")
       .eq("organization_id", organizationId)
       .in("id", entityIds),
     supabaseAdmin

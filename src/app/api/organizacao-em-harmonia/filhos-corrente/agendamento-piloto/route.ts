@@ -667,7 +667,17 @@ async function loadEntityAvailableDatesIndex(
     const occurrence = monthOccurrence(date.date);
     if (!weekday || occurrence < 1 || occurrence > 4) continue;
 
-    const schedules = schedulesByKey.get(`${weekday}:${occurrence}`) ?? [];
+    const regularSchedules = schedulesByKey.get(`${weekday}:${occurrence}`) ?? [];
+    const schedules = [...regularSchedules];
+    const scheduledIds = new Set(schedules.map((item) => item.entityId));
+    for (const [id, extraRows] of overridesByEntity) {
+      if (scheduledIds.has(id)) continue;
+      const extra = extraRows.find((item) => item.available === true &&
+        asText(item.starts_on) <= date.date && asText(item.ends_on) >= date.date);
+      if (!extra) continue;
+      scheduledIds.add(id);
+      schedules.push({ entityId: id, defaultCapacity: Math.max(1, Number(extra.capacity ?? entityMap.get(id)?.["daily_capacity"] ?? 4) || 4) });
+    }
     for (const schedule of schedules) {
       const entity = entityMap.get(schedule.entityId);
       if (!entity) continue;
@@ -754,7 +764,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,line,daily_capacity,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
+      .select("id,name,slug,line,daily_capacity,pilot_display_order,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -791,6 +801,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       id: asText(entity.id),
       name: asText(entity.name),
       line: asText(entity.line),
+      displayOrder: Number(entity.pilot_display_order ?? 1000),
       slug: asText(entity.slug),
       description: asText(entity.appointment_notes) || asText(entity.notes),
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
@@ -1747,6 +1758,57 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: `Lembrete de confirmação enviado para ${firstTwoPersonNames(fullName)}.` });
     }
 
+    if (action === "list-extraordinary-dates" || action === "save-extraordinary-date" || action === "delete-extraordinary-date") {
+      const entityId = asText(body.entityId);
+      if (!entityId) return NextResponse.json({ error: "Entidade obrigatória.", requestId: code }, { status: 400 });
+      const { data: entity, error: entityError } = await supabaseAdmin.from("oh_spiritual_entities")
+        .select("id,active,appointment_enabled")
+        .eq("organization_id", context.organizationId).eq("id", entityId).maybeSingle();
+      if (entityError) throw entityError;
+      if (!entity?.id) return NextResponse.json({ error: "Entidade não localizada.", requestId: code }, { status: 404 });
+      if (action === "list-extraordinary-dates") {
+        const { data, error } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+          .select("id,starts_on,ends_on,reason,capacity")
+          .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+          .eq("available", true).order("starts_on", { ascending: true });
+        if (error) throw error;
+        return NextResponse.json({ ok: true, dates: (data ?? []).filter((item) => item.starts_on === item.ends_on) });
+      }
+      const date = asText(body.date);
+      const parsed = new Date(`${date}T12:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed.getTime()) ||
+          parsed.toISOString().slice(0,10) !== date || date < todayInSaoPaulo() ||
+          ![1,2].includes(parsed.getUTCDay())) {
+        return NextResponse.json({ error: "Escolha uma segunda ou terça-feira futura válida.", requestId: code }, { status: 400 });
+      }
+      if (action === "delete-extraordinary-date") {
+        const { count, error: countError } = await supabaseAdmin.from("oh_consulente_appointments")
+          .select("id", { count: "exact", head: true }).eq("organization_id", context.organizationId)
+          .eq("entity_id", entityId).eq("appointment_date", date).in("status", PILOT_ACTIVE_STATUSES);
+        if (countError) throw countError;
+        if ((count ?? 0) > 0) return NextResponse.json({ error: "Existem agendamentos; realoque-os antes de excluir a data extraordinária.", requestId: code }, { status: 409 });
+        const { error } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").delete()
+          .eq("organization_id", context.organizationId).eq("entity_id", entityId)
+          .eq("starts_on", date).eq("ends_on", date).eq("available", true);
+        if (error) throw error;
+        return NextResponse.json({ ok: true });
+      }
+      if (!entity.active || !entity.appointment_enabled) return NextResponse.json({ error: "Entidade não está ativa para agendamentos.", requestId: code }, { status: 409 });
+      const { data: existing, error: existingError } = await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides")
+        .select("id,available").eq("organization_id", context.organizationId).eq("entity_id", entityId)
+        .eq("starts_on", date).eq("ends_on", date).limit(1).maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.available === false) return NextResponse.json({ error: "A data está bloqueada; reative a indisponibilidade antes.", requestId: code }, { status: 409 });
+      const capacity = Number(body.capacity);
+      if (!Number.isInteger(capacity) || capacity < 1 || capacity > 200) return NextResponse.json({ error: "Capacidade deve ser entre 1 e 200.", requestId: code }, { status: 400 });
+      const payload = { available: true, capacity, reason: asText(body.reason) || "Atendimento extraordinário", updated_at: new Date().toISOString() };
+      const { error } = existing?.id
+        ? await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").update(payload).eq("id", existing.id).eq("organization_id", context.organizationId)
+        : await supabaseAdmin.from("oh_tucxa_pilot_entity_overrides").insert({ ...payload, organization_id: context.organizationId, entity_id: entityId, starts_on: date, ends_on: date, created_by_person_id: context.personId });
+      if (error) throw error;
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === "list-entity-exceptions" || action === "save-entity-exception" || action === "delete-entity-exception") {
       const entityId = asText(body.entityId);
       if (!entityId) return NextResponse.json({ error: "Entidade não informada.", requestId: code }, { status: 400 });
@@ -1952,6 +2014,7 @@ export async function POST(request: Request) {
       await savePilotPersonPreferences(context.organizationId, context.personId, {
         receptionSummaryChannels: channels,
         receptionSummaryViewMode: mode,
+        receptionEntityOrderMode: asText(body.entityOrderMode) === "custom" ? "custom" : "alphabetical",
         receptionOpenAcolhimentoOnLogin: asBoolean(body.openAcolhimentoOnLogin, true),
       });
       return NextResponse.json({ ok: true, message: "Preferências da Recepção atualizadas." });
@@ -2782,6 +2845,8 @@ export async function POST(request: Request) {
       const requestedEntityId = asText(body.entityId);
       const name = asText(body.name);
       const description = asText(body.description);
+      const displayOrder = Number(body.displayOrder);
+      if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 9999) return NextResponse.json({ error: "Ordem de exibição deve ser de 0 a 9999." }, { status: 400 });
       const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const entityActive = body.active !== false;
@@ -2801,6 +2866,7 @@ export async function POST(request: Request) {
             name,
             appointment_notes: description || null,
             daily_capacity: capacity,
+            pilot_display_order: displayOrder,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
@@ -2840,6 +2906,7 @@ export async function POST(request: Request) {
             entity_type: "Entidade de atendimento",
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
+            pilot_display_order: displayOrder,
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",

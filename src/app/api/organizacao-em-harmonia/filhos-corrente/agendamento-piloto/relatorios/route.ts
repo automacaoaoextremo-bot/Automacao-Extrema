@@ -215,6 +215,13 @@ export async function GET(request: Request) {
         ...(entityChanges ?? []).flatMap((item) => [text(item.previous_entity_id), text(item.new_entity_id)]),
       ].filter(Boolean)));
       const names = await entityNames(context.organizationId, allEntityIds);
+      const { data: orderedEntities, error: orderError } = allEntityIds.length
+        ? await supabaseAdmin.from("oh_spiritual_entities")
+          .select("id,pilot_display_order").eq("organization_id", context.organizationId).in("id", allEntityIds)
+        : { data: [], error: null };
+      if (orderError) throw orderError;
+      const entityOrderIndex = new Map((orderedEntities ?? []).map((entity) => [text(entity.id), Number(entity.pilot_display_order ?? 1000)]));
+
 
       const sourcePersonIds = Array.from(new Set(source.map((item) => text(item.person_id)).filter(Boolean)));
       const { data: people, error: peopleError } = sourcePersonIds.length
@@ -303,6 +310,7 @@ export async function GET(request: Request) {
           return {
             _appointmentId: text(item.id),
             _entityId: entityId,
+            _entityOrder: entityOrderIndex.get(entityId) ?? 1000,
             _entityAvailable: availability?.isAvailable === false ? "0" : "1",
             _entitySuspendedReason: availability?.suspendedReason || "",
             _capacity: availability?.capacity ?? "",
@@ -384,6 +392,7 @@ export async function GET(request: Request) {
             rows.push({
               _appointmentId: "",
               _entityId: entity.id,
+              _entityOrder: entityOrderIndex.get(entity.id) ?? 1000,
               _entityAvailable: entity.isAvailable === false ? "0" : "1",
               _entitySuspendedReason: text(entity.suspendedReason),
               _capacity: Math.max(1, Number(entity.capacity ?? 0) || 1),
