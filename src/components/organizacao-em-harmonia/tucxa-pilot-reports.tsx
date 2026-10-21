@@ -198,7 +198,16 @@ function printableEntityCard(entity: string, items: Row[]) {
     </div>`;
 }
 
-function printableTable(rows: Row[], title: string, grouped: boolean) {
+function compareCadernoEntries(a: [string, Row[]], b: [string, Row[]], mode: "alphabetical" | "custom") {
+  if (mode === "custom") {
+    const aOrder = Number(a[1][0]?._entityOrder ?? 1000);
+    const bOrder = Number(b[1][0]?._entityOrder ?? 1000);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+  }
+  return a[0].localeCompare(b[0], "pt-BR");
+}
+
+function printableTable(rows: Row[], title: string, grouped: boolean, orderMode: "alphabetical" | "custom" = "alphabetical") {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
   if (!grouped) {
@@ -208,7 +217,7 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   const groups = cadernoGroups(rows);
   return [...groups.entries()].map(([date, entities], dateIndex, dateEntries) => {
     const summary = cadernoSummary(entities);
-    const sortedEntities = [...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
+    const sortedEntities = [...entities.entries()].sort((a,b) => compareCadernoEntries(a,b,orderMode));
     // Ajuste 69: no PDF, cada card passa a fluir independentemente em três colunas.
     // Antes, os cards eram agrupados em linhas fixas de três; um card alto em uma
     // coluna aumentava a altura de toda a linha e deixava grandes vazios nas outras
@@ -248,6 +257,7 @@ export function TucxaPilotReports() {
   const [person, setPerson] = useState("");
   const [lineFilter, setLineFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
+  const [reportOrderMode, setReportOrderMode] = useState<"alphabetical" | "custom">("alphabetical");
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -357,6 +367,12 @@ export function TucxaPilotReports() {
         <button onClick={() => void load()} disabled={loading} className="self-end rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-60">{loading ? "Consultando..." : "Consultar"}</button>
       </div>
 
+      {kind === "caderno" && <label className="grid gap-1 text-sm font-bold">Ordem de exibição e impressão das Entidades
+        <select value={reportOrderMode} onChange={(event) => setReportOrderMode(event.target.value as "alphabetical" | "custom")} className="rounded-xl border p-3 font-normal">
+          <option value="alphabetical">Alfabética</option>
+          <option value="custom">Ordem cadastrada das Entidades</option>
+        </select>
+      </label>}
       {kind === "caderno" && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">Visão do Caderno da Triagem organizada por Data → Entidade → Consulentes. Cancelamentos permanecem visíveis como histórico e liberam vaga; Entidades indisponíveis na data são destacadas.</p>}
       {kind === "sem_whatsapp_terceiros" && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-950">Lista atendimentos cadastrados como realizados por outro contato/familiar/responsável, exibindo quem recebe as comunicações.</p>}
       {error && <p className="rounded-xl bg-red-50 p-3 font-bold text-red-700">{error}</p>}
@@ -399,7 +415,7 @@ export function TucxaPilotReports() {
             .status-requested{border-color:#e5c56f;background:#fff8df;color:#725000}
             .row-note{margin-top:2px;font-size:8px;color:#555}
             .cancelled-row .consulente-name{text-decoration:line-through;color:#777}
-          </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno")}</body></html>`);
+          </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno", reportOrderMode)}</body></html>`);
           report.document.close(); report.focus(); window.setTimeout(() => report.print(), 250);
         }} className="rounded-xl border bg-white px-4 py-2 font-black">PDF / Imprimir</button>
         <button onClick={exportCsv} className="rounded-xl border bg-white px-4 py-2 font-black">CSV</button>
