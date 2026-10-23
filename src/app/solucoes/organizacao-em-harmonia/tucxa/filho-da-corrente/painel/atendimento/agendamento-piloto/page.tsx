@@ -30,6 +30,8 @@ type EntityCatalogItem = {
   name: string;
   line: string;
   displayOrder: number;
+  displayOrderMonday: number;
+  displayOrderTuesday: number;
   slug: string;
   description: string;
   capacity: number;
@@ -71,6 +73,7 @@ type Appointment = {
   entityChangedAt: string;
   isFirstTimeAppointment: boolean;
   firstTimeIndicatorActive: boolean;
+  priorityFirstService: boolean;
   firstTimeOriginalEntityId: string;
   firstTimeOriginalEntityName: string;
 };
@@ -449,6 +452,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     description: "",
     capacity: "4",
     displayOrder: "1000",
+    displayOrderMonday: "1000",
+    displayOrderTuesday: "1000",
     cavalinhoPersonId: "",
     mondayOccurrences: [] as number[],
     tuesdayOccurrences: [] as number[],
@@ -584,7 +589,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }, [activeEntityCatalog, entityAvailabilityQuery, entityAvailabilityLetter]);
   const availabilityLetters = useMemo(() => Array.from(new Set(activeEntityCatalog.map((entity) => entityDirectoryKey(entity.name).charAt(0)).filter((letter) => /^[A-Z]$/.test(letter)))).sort(), [activeEntityCatalog]);
-  const relatedForSelectedEntity = useMemo(() => (foundPerson?.relatedConsulentes ?? []).filter((related) => Boolean(entityId) && related.defaultEntityId === entityId), [foundPerson?.relatedConsulentes, entityId]);
+  const relatedForSelectedEntity = useMemo(() => foundPerson?.relatedConsulentes ?? [], [foundPerson?.relatedConsulentes]);
   const entityPageSize = 4;
   const entityPageCount = Math.max(1, Math.ceil(filteredAvailabilityEntities.length / entityPageSize));
   const effectiveEntityPage = Math.min(entityPage, entityPageCount);
@@ -733,7 +738,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   );
   const compareEntityLabels = useCallback((a: string, b: string) => {
     if (payload?.receptionPreferences.receptionEntityOrderMode === "custom") {
-      const byName = (name: string) => payload.entityCatalog.find((item) => item.name === name || name.startsWith(`${item.name} (`))?.displayOrder ?? 1000;
+      const weekday = payload.selectedDate ? new Date(`${payload.selectedDate}T12:00:00Z`).getUTCDay() : 1;
+      const byName = (name: string) => {
+        const item = payload.entityCatalog.find((entry) => entry.name === name || name.startsWith(`${entry.name} (`));
+        return weekday === 2 ? (item?.displayOrderTuesday ?? 1000) : (item?.displayOrderMonday ?? 1000);
+      };
       const order = byName(a) - byName(b);
       if (order) return order;
     }
@@ -780,13 +789,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const orderedForwardingAppointments = useMemo(
     () => [...filteredForwardingAppointments].sort((a, b) => {
       if (forwardingView === "consulente") {
+        const priorityOrder = Number(b.priorityFirstService) - Number(a.priorityFirstService);
+        if (priorityOrder !== 0) return priorityOrder;
         const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
         if (arrivalOrder !== 0) return arrivalOrder;
         return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
       }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
-      const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
+      const priorityOrder = Number(b.priorityFirstService) - Number(a.priorityFirstService);
+        if (priorityOrder !== 0) return priorityOrder;
+        const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
       if (arrivalOrder !== 0) return arrivalOrder;
       return a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" });
     }),
@@ -1517,6 +1530,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function toggleFirstServicePriority(appointment: Appointment) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "set-first-service-priority", appointmentId: appointment.id, enabled: !appointment.priorityFirstService });
+      setSuccessNotice({ title: "Prioridade de atendimento", message: typeof result.message === "string" ? result.message : "Prioridade atualizada." });
+      await load(payload?.selectedDate);
+    } catch (actionError) {
+      setErrorNotice({ title: "Não foi possível atualizar a prioridade", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
+    } finally { setSaving(false); }
+  }
+
   async function markForwarded(appointmentId: string, forwarded: boolean) {
     setSaving(true);
     try {
@@ -1800,6 +1824,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       description: "",
       capacity: "4",
       displayOrder: "1000",
+    displayOrderMonday: "1000",
+    displayOrderTuesday: "1000",
       cavalinhoPersonId: "",
       mondayOccurrences: [],
       tuesdayOccurrences: [],
@@ -1908,6 +1934,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
       description: entity?.description || "",
       capacity: String(entity?.capacity ?? 4),
       displayOrder: String(entity?.displayOrder ?? 1000),
+      displayOrderMonday: String(entity?.displayOrderMonday ?? entity?.displayOrder ?? 1000),
+      displayOrderTuesday: String(entity?.displayOrderTuesday ?? entity?.displayOrder ?? 1000),
       cavalinhoPersonId: entity?.mediums[0]?.personId || "",
       mondayOccurrences: entity?.mondayOccurrences ?? [],
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
@@ -1940,7 +1968,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         description: editEntity.description,
         cavalinhoPersonId: editEntity.cavalinhoPersonId,
         capacity: Number(editEntity.capacity),
-        displayOrder: Number(editEntity.displayOrder),
+        displayOrder: Number(editEntity.displayOrderMonday),
+        displayOrderMonday: Number(editEntity.displayOrderMonday),
+        displayOrderTuesday: Number(editEntity.displayOrderTuesday),
         mondayOccurrences: editEntity.mondayOccurrences,
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
         active: editEntity.active,
@@ -2335,7 +2365,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             </select>
                           </label>
                         ) : (
-                          <p className="text-xs font-semibold text-slate-600">{entityId ? "Não há pessoa vinculada a este contato com esta Entidade. Você pode informar outra pessoa abaixo." : "Selecione uma Entidade antes de escolher a pessoa atendida."}</p>
+                          <p className="text-xs font-semibold text-slate-600">{entityId ? "Não há pessoas vinculadas a este contato. Você pode cadastrar outra pessoa abaixo." : "Selecione uma pessoa vinculada ou cadastre outra pessoa."}</p>
                         )}
 
                         {selectedRelatedForBooking && selectedRelatedKey !== "__manual__" && (
@@ -2492,6 +2522,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
                               <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
                               {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
                               {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
                             </div>
@@ -2554,6 +2585,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
                           </div>
                         </div>
                         {appointment.status === "cancelado" && (
@@ -2575,6 +2607,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void toggleFirstServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.priorityFirstService ? "Retirar primeiro atendimento" : "Marcar primeiro atendimento"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -2614,6 +2647,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
                           </div>
                         </div>
                         {appointment.status === "cancelado" && (
@@ -2635,6 +2669,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void toggleFirstServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.priorityFirstService ? "Retirar primeiro atendimento" : "Marcar primeiro atendimento"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -3233,9 +3268,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Nome da Entidade
                         <input value={editEntity.name} onChange={(event) => setEditEntity((current) => ({ ...current, name: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
                       </label>
-                      <label className="grid gap-1 text-xs font-black text-[#123D2C]">Ordem de exibição da Entidade (0 a 9999)
-                        <input type="number" min={0} max={9999} value={editEntity.displayOrder} onChange={(event) => setEditEntity((current) => ({ ...current, displayOrder: event.target.value }))} className="rounded-lg border border-[#123D2C]/15 p-2" required />
-                      </label>
+
                       <label className="grid gap-1 text-xs font-black text-[#123D2C]">Descrição
                         <textarea value={editEntity.description} onChange={(event) => setEditEntity((current) => ({ ...current, description: event.target.value }))} rows={1} className="rounded-lg border border-[#123D2C]/15 p-2" placeholder="Como esta Entidade atua no atendimento." />
                       </label>
@@ -3254,7 +3287,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Dias de atendimento · toque para configurar</summary>
                         <div className="mt-3 grid gap-2">
                           <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
+                          <label className="grid gap-1 text-xs font-black">Ordem de exibição — segunda-feira (0 a 9999)
+                            <input type="number" min={0} max={9999} required value={editEntity.displayOrderMonday} onChange={(event) => setEditEntity((current) => ({ ...current, displayOrderMonday: event.target.value }))} className="rounded-lg border bg-white p-2" />
+                          </label>
                           <EntityOccurrencePicker label="Terça-feira" values={editEntity.tuesdayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("tuesdayOccurrences", occurrence)} />
+                          <label className="grid gap-1 text-xs font-black">Ordem de exibição — terça-feira (0 a 9999)
+                            <input type="number" min={0} max={9999} required value={editEntity.displayOrderTuesday} onChange={(event) => setEditEntity((current) => ({ ...current, displayOrderTuesday: event.target.value }))} className="rounded-lg border bg-white p-2" />
+                          </label>
                           <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque as ocorrências do mês. Salvar substitui o calendário do piloto desta Entidade.</p>
                         </div>
                       </details>

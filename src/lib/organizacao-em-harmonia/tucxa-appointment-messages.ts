@@ -11,10 +11,6 @@ function datePtBr(value: string) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
 
-function orderLine(order?: number | null) {
-  return order && order > 0 ? `Ordem de Agendamento: ${order}.` : "";
-}
-
 export function appointmentConfirmationMessage(input: {
   fullName: string;
   appointmentDate: string;
@@ -24,7 +20,6 @@ export function appointmentConfirmationMessage(input: {
 }) {
   return [
     `Olá! O agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
-    orderLine(input.order),
     "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
     "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
     input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
@@ -44,7 +39,6 @@ export function appointmentReminderMessage(input: {
 }) {
   return [
     `Lembrete do agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
-    orderLine(input.order),
     input.confirmed
       ? "Sua presença já está confirmada. Agradecemos por avisar com antecedência; isso ajuda a Recepção a organizar o atendimento de todos."
       : "Sua presença ainda não foi confirmada. Confirmar agora ajuda a Recepção a organizar as vagas e evita que uma vaga fique reservada sem necessidade.",
@@ -64,7 +58,6 @@ export function receptionConfirmationMessage(input: {
 }) {
   return [
     `Confirmação recebida: ${firstTwoPersonNames(input.fullName)} confirmou presença no TUCXA para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
-    orderLine(input.order),
     input.loginUrl ? `Acesse o painel da Recepção: ${input.loginUrl}` : "",
   ].filter(Boolean).join("\n\n");
 }
