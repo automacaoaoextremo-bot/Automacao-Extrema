@@ -915,10 +915,10 @@ export async function POST(request: Request) {
       if (!existing?.id || existing.status === "cancelado") return NextResponse.json({ error: "Agendamento inexistente ou cancelado." }, { status: 404 });
       const { data: closure, error: closureError } = await supabaseAdmin
         .from("oh_tucxa_pilot_day_closures")
-        .select("id").eq("organization_id", context.organizationId)
+        .select("stage").eq("organization_id", context.organizationId)
         .eq("appointment_date", existing.appointment_date).eq("stage", "forwarding").maybeSingle();
       if (closureError) throw closureError;
-      if (closure?.id) return NextResponse.json({ error: "Encaminhamento já finalizado nesta data." }, { status: 409 });
+      if (closure?.stage) return NextResponse.json({ error: "Encaminhamento já finalizado nesta data." }, { status: 409 });
       const updatedMetadata = { ...asRecord(existing.metadata), priority_first_service: enabled,
         priority_first_service_updated_by: context.personId,
         priority_first_service_updated_at: new Date().toISOString() };
