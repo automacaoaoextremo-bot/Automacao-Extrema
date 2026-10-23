@@ -74,6 +74,7 @@ type Appointment = {
   isFirstTimeAppointment: boolean;
   firstTimeIndicatorActive: boolean;
   priorityFirstService: boolean;
+  servicePriority: number | null;
   firstTimeOriginalEntityId: string;
   firstTimeOriginalEntityName: string;
 };
@@ -763,7 +764,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }, [compareEntityLabels, effectiveConsultView, payload, visibleConsultAppointments]);
   const forwardingAppointments = useMemo(
     () => (payload?.appointments ?? []).filter(
-      (item) => item.status !== "cancelado" && item.arrivalStatus === "arrived" && (item.arrivalOrder ?? 0) > 0 && (forwardingStage === "completed" ? Boolean(item.forwardedAt) : !item.forwardedAt),
+      (item) => item.status !== "cancelado" && item.arrivalStatus === "arrived" && ((item.arrivalOrder ?? 0) > 0 || (item.servicePriority ?? 0) > 0) && (forwardingStage === "completed" ? Boolean(item.forwardedAt) : !item.forwardedAt),
     ),
     [payload?.appointments, forwardingStage],
   );
@@ -789,7 +790,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const orderedForwardingAppointments = useMemo(
     () => [...filteredForwardingAppointments].sort((a, b) => {
       if (forwardingView === "consulente") {
-        const priorityOrder = Number(b.priorityFirstService) - Number(a.priorityFirstService);
+        const priorityOrder = (a.servicePriority ?? Number.MAX_SAFE_INTEGER) - (b.servicePriority ?? Number.MAX_SAFE_INTEGER);
         if (priorityOrder !== 0) return priorityOrder;
         const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
         if (arrivalOrder !== 0) return arrivalOrder;
@@ -797,7 +798,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
       const entityOrder = a.entityName.localeCompare(b.entityName, "pt-BR", { sensitivity: "base" });
       if (entityOrder !== 0) return entityOrder;
-      const priorityOrder = Number(b.priorityFirstService) - Number(a.priorityFirstService);
+      const priorityOrder = (a.servicePriority ?? Number.MAX_SAFE_INTEGER) - (b.servicePriority ?? Number.MAX_SAFE_INTEGER);
         if (priorityOrder !== 0) return priorityOrder;
         const arrivalOrder = (a.arrivalOrder ?? Number.MAX_SAFE_INTEGER) - (b.arrivalOrder ?? Number.MAX_SAFE_INTEGER);
       if (arrivalOrder !== 0) return arrivalOrder;
@@ -1494,6 +1495,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   async function saveCadernoArrival(appointmentId: string) {
+    const prioritizedAppointment = payload?.appointments.find((item) => item.id === appointmentId);
+    if ((prioritizedAppointment?.servicePriority ?? 0) > 0) {
+      setErrorNotice({ title: "Ordem não permitida", message: "Atendimentos prioritários mantêm Chegou, mas não entram na ordem comum do Caderno." });
+      return;
+    }
     const raw = (cadernoOrders[appointmentId] ?? "").trim();
     const arrivalOrder = raw === "" ? "" : Number(raw);
     if (arrivalOrder !== "" && (!Number.isInteger(arrivalOrder) || arrivalOrder < 0)) {
@@ -1530,10 +1536,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  async function toggleFirstServicePriority(appointment: Appointment) {
+  async function setServicePriority(appointment: Appointment) {
+    const current = appointment.servicePriority ?? 0;
+    const raw = window.prompt(`Prioridade de ${firstTwoPersonNames(appointment.consulenteName)}\nInforme 1, 2, 3... (0 para remover):`, String(current));
+    if (raw === null) return;
+    const priority = Number(raw.trim());
+    if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(priority) || priority > 999) {
+      setErrorNotice({ title: "Prioridade inválida", message: "Use um número inteiro de 0 a 999. Zero remove a prioridade." });
+      return;
+    }
     setSaving(true);
     try {
-      const result = await postPilot({ action: "set-first-service-priority", appointmentId: appointment.id, enabled: !appointment.priorityFirstService });
+      const result = await postPilot({ action: "set-service-priority", appointmentId: appointment.id, priority });
       setSuccessNotice({ title: "Prioridade de atendimento", message: typeof result.message === "string" ? result.message : "Prioridade atualizada." });
       await load(payload?.selectedDate);
     } catch (actionError) {
@@ -2522,12 +2536,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
                               <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
-                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
+                        {(appointment.servicePriority ?? 0) > 0 && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIORIDADE {appointment.servicePriority}</span>}
                               {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
                               {appointment.previousEntityName && <p className="mt-1 text-[10px] font-semibold text-blue-800">Realocado de: {appointment.previousEntityName}{appointment.entityChangeReason ? ` · ${appointment.entityChangeReason}` : ""}</p>}
                             </div>
-                            <input disabled={triageFinalized || appointment.status === "cancelado"} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem ou vazio" />
-                            <button type="button" disabled={saving || triageFinalized || appointment.status === "cancelado"} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
+                            <input disabled={triageFinalized || appointment.status === "cancelado" || (appointment.servicePriority ?? 0) > 0} aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`} inputMode="numeric" value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")} onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))} className="w-full rounded-lg border border-[#123D2C]/20 p-2 text-center text-sm font-black disabled:bg-slate-100 disabled:opacity-50" placeholder="Ordem ou vazio" />
+                            <button type="button" disabled={saving || triageFinalized || appointment.status === "cancelado" || (appointment.servicePriority ?? 0) > 0} onClick={() => void saveCadernoArrival(appointment.id)} className="rounded-lg bg-[#123D2C] px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">Salvar</button>
                           </div>
                         ))}
                       </div>
@@ -2585,7 +2599,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
-                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
+                        {(appointment.servicePriority ?? 0) > 0 && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIORIDADE {appointment.servicePriority}</span>}
                           </div>
                         </div>
                         {appointment.status === "cancelado" && (
@@ -2607,7 +2621,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void toggleFirstServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.priorityFirstService ? "Retirar primeiro atendimento" : "Marcar primeiro atendimento"}</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir prioridade"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -2647,7 +2661,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               )}
                             </div>
                             <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
-                        {appointment.priorityFirstService && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIMEIRO ATENDIMENTO</span>}
+                        {(appointment.servicePriority ?? 0) > 0 && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIORIDADE {appointment.servicePriority}</span>}
                           </div>
                         </div>
                         {appointment.status === "cancelado" && (
@@ -2669,7 +2683,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 ring-1 ring-amber-100">Não chegou</button>}
                               {appointment.whatsapp && <a href={whatsappHref(appointment.whatsapp, `Olá, ${firstTwoPersonNames(appointment.consulenteName)}. Estou falando pela Recepção do Tucxa sobre seu agendamento.`)} target="_blank" rel="noreferrer" className="rounded-xl bg-white px-3 py-2 text-center text-xs font-black text-[#176A3A] ring-1 ring-[#123D2C]/15">WhatsApp</a>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
-                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void toggleFirstServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.priorityFirstService ? "Retirar primeiro atendimento" : "Marcar primeiro atendimento"}</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir prioridade"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
                             </div>
                             {appointment.status !== "cancelado" && (
@@ -2796,7 +2810,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <article key={`enc-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                       <div className="min-w-0 flex-1">
                         <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
-                        <p className="mt-1 text-sm font-semibold text-slate-600">Chegada {appointment.arrivalOrder ?? "-"}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-600">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority}` : `Chegada ${appointment.arrivalOrder ?? "-"}`}</p>
                         <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
                       </div>
                       <button
@@ -2817,7 +2831,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <div className="min-w-0 flex-1">
                     <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
                     <p className="mt-1 text-sm font-semibold text-slate-600">
-                      {appointment.entityName} · chegada {appointment.arrivalOrder ?? "-"}
+                      {appointment.entityName} · {appointment.servicePriority ? `Prioridade ${appointment.servicePriority}` : `chegada ${appointment.arrivalOrder ?? "-"}`}
                     </p>
                     <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
                   </div>

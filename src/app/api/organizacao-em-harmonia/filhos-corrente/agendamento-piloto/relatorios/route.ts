@@ -176,7 +176,7 @@ export async function GET(request: Request) {
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,cancelled_at,cancellation_reason,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
+        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,cancelled_at,cancellation_reason,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,priority_order,metadata,created_at")
         .eq("organization_id", context.organizationId)
         .order("appointment_date", { ascending: true })
         .order("created_at", { ascending: true });
@@ -328,6 +328,7 @@ export async function GET(request: Request) {
             _entityChangeReason: changeReason,
             _cancellationReason: cancellationReason,
             _firstTimeIndicatorActive: (item.metadata as Record<string, unknown> | null)?.firstTimeIndicatorActive === true ? "1" : "0",
+            _servicePriority: Number(item.priority_order ?? 0) || 0,
             Data: dateLabel(item.appointment_date),
             Entidade: cadernoLabels.get(key) || entity,
             Consulente: firstTwoPersonNames(consulenteName),
@@ -410,6 +411,7 @@ export async function GET(request: Request) {
               _entityChangeReason: "",
               _cancellationReason: "",
               _firstTimeIndicatorActive: "0",
+              _servicePriority: 0,
               Data: dateLabel(date),
               Entidade: cadernoEntityName,
               Consulente: "",

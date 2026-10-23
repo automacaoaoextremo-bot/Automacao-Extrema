@@ -1084,7 +1084,7 @@ export async function expirePastPilotConfirmations(organizationId: string, perso
 export async function loadPilotAppointments(organizationId: string, startDate: string, endDate: string, personId?: string) {
   let query = supabaseAdmin
     .from("oh_consulente_appointments")
-    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, cancelled_at, cancellation_reason, metadata, notes, created_at")
+    .select("id, person_id, entity_id, scheduled_by_person_id, consulente_name, whatsapp, appointment_date, appointment_time, status, booking_channel, confirmation_status, confirmation_expires_at, confirmation_sent_at, confirmation_channel, confirmed_at, arrival_status, arrived_at, arrival_order, forwarded_at, forwarded_by_person_id, cancelled_at, cancellation_reason, priority_order, metadata, notes, created_at")
     .eq("organization_id", organizationId)
     .gte("appointment_date", startDate)
     .lte("appointment_date", endDate)
@@ -1171,7 +1171,8 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
       order: Number(metadata.order ?? 0) || null,
       isFirstTimeAppointment: firstTime.isFirstTimeAppointment,
       firstTimeIndicatorActive: firstTime.indicatorActive,
-      priorityFirstService: metadata.priority_first_service === true,
+      priorityFirstService: Number(item.priority_order ?? 0) > 0,
+      servicePriority: Number(item.priority_order ?? 0) || null,
       firstTimeOriginalEntityId: firstTime.originalEntityId,
       firstTimeOriginalEntityName: firstTime.originalEntityName,
     };

@@ -187,10 +187,12 @@ function printableEntityCard(entity: string, items: Row[]) {
           ${visibleItems.map((item) => {
             const status = cadernoStatus(item);
             const note = cadernoRowNote(item);
+            const priorityBadge = Number(item._servicePriority ?? 0) > 0
+              ? `<span class="status-badge">Prioridade ${Number(item._servicePriority)}</span>` : "";
             const firstTimeBadge = String(item._firstTimeIndicatorActive ?? "0") === "1"
               ? `<span class="status-badge status-first-time">Primeira vez</span>`
               : "";
-            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${priorityBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
           ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
@@ -218,10 +220,8 @@ function printableTable(rows: Row[], title: string, grouped: boolean, orderMode:
   return [...groups.entries()].map(([date, entities], dateIndex, dateEntries) => {
     const summary = cadernoSummary(entities);
     const sortedEntities = [...entities.entries()].sort((a,b) => compareCadernoEntries(a,b,orderMode));
-    // Ajuste 69: no PDF, cada card passa a fluir independentemente em três colunas.
-    // Antes, os cards eram agrupados em linhas fixas de três; um card alto em uma
-    // coluna aumentava a altura de toda a linha e deixava grandes vazios nas outras
-    // duas colunas. O fluxo em colunas compacta esses vazios sem dividir um card.
+    // Ajuste V2-03: preenchimento por linhas, da esquerda para a direita,
+    // idêntico à sequência da consulta na tela.
     const printableCards = sortedEntities
       .map(([entity, items]) => printableEntityCard(entity, items))
       .join("");
@@ -398,8 +398,8 @@ export function TucxaPilotReports() {
             .report-title{color:#123D2C;font-size:17px;font-weight:700;text-align:left;margin:0 0 8px}
             .report-date{color:#123D2C;font-size:13px;font-weight:700;text-align:center;margin:4px 0 6px}
             .entity-flow-row{break-inside:auto;page-break-inside:auto}
-            .entity-flow{column-count:3;column-gap:6px;column-fill:balance}
-            .entity-card{display:inline-block;width:100%;box-sizing:border-box;vertical-align:top;break-inside:avoid;page-break-inside:avoid;margin:0 0 6px}
+            .entity-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;align-items:start}
+            .entity-card{display:block;min-width:0;width:100%;box-sizing:border-box;vertical-align:top;break-inside:avoid;page-break-inside:avoid;margin:0}
             .entity-table{border-collapse:collapse;width:100%}
             .entity-card td{border:1px solid #aaa;height:16px;padding:2px 4px}
             .entity-card .order{width:18px;text-align:center}
@@ -443,8 +443,8 @@ export function TucxaPilotReports() {
                   <span className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">Vagas disponíveis: {summary.vacancies}</span>
                   {summaryEntries(summary).map(([label, count]) => <span key={label} className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">{label}: {count}</span>)}
                 </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
+                <div className="overflow-x-auto"><div className="grid min-w-[690px] grid-cols-3 items-start gap-3">
+                  {[...entities.entries()].sort((a, b) => compareCadernoEntries(a, b, reportOrderMode)).map(([entity, items]) => {
                     const state = cadernoEntityState(items);
                     const visibleItems = cadernoVisibleItems(items);
                     const blankSlots = cadernoBlankSlots(items);
@@ -476,6 +476,7 @@ export function TucxaPilotReports() {
                                       Primeira vez
                                     </span>
                                   )}
+                                  {Number(item._servicePriority ?? 0) > 0 && <span className="ml-1 mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">Prioridade {Number(item._servicePriority)}</span>}
                                   {note && <p className="mt-1 text-[10px] font-semibold text-slate-600">{note}</p>}
                                 </div>
                               </div>
@@ -491,7 +492,7 @@ export function TucxaPilotReports() {
                       </div>
                     );
                   })}
-                </div>
+                </div></div>
               </section>
               );
             })}

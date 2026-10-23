@@ -903,29 +903,26 @@ export async function POST(request: Request) {
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
 
-    if (action === "set-first-service-priority") {
+    if (action === "set-service-priority") {
       const appointmentId = asText(body.appointmentId);
-      const enabled = body.enabled === true;
-      if (!/^[a-f0-9-]{36}$/i.test(appointmentId)) return NextResponse.json({ error: "Agendamento inválido." }, { status: 400 });
-      const { data: existing, error: lookupError } = await supabaseAdmin
-        .from("oh_consulente_appointments")
-        .select("id,status,metadata,appointment_date")
-        .eq("organization_id", context.organizationId).eq("id", appointmentId).maybeSingle();
-      if (lookupError) throw lookupError;
-      if (!existing?.id || existing.status === "cancelado") return NextResponse.json({ error: "Agendamento inexistente ou cancelado." }, { status: 404 });
-      const { data: closure, error: closureError } = await supabaseAdmin
-        .from("oh_tucxa_pilot_day_closures")
-        .select("stage").eq("organization_id", context.organizationId)
-        .eq("appointment_date", existing.appointment_date).eq("stage", "forwarding").maybeSingle();
-      if (closureError) throw closureError;
-      if (closure?.stage) return NextResponse.json({ error: "Encaminhamento já finalizado nesta data." }, { status: 409 });
-      const updatedMetadata = { ...asRecord(existing.metadata), priority_first_service: enabled,
-        priority_first_service_updated_by: context.personId,
-        priority_first_service_updated_at: new Date().toISOString() };
-      const { error: updateError } = await supabaseAdmin.from("oh_consulente_appointments")
-        .update({ metadata: updatedMetadata }).eq("organization_id", context.organizationId).eq("id", appointmentId);
-      if (updateError) throw updateError;
-      return NextResponse.json({ ok: true, message: enabled ? "Atendimento prioritário marcado." : "Prioridade removida." });
+      const requestedPriority = Number(body.priority ?? 0);
+      if (!/^[a-f0-9-]{36}$/i.test(appointmentId) || !Number.isSafeInteger(requestedPriority) || requestedPriority < 0 || requestedPriority > 999) {
+        return NextResponse.json({ error: "Informe uma prioridade inteira entre 0 e 999 (0 remove a prioridade)." }, { status: 400 });
+      }
+      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_set_service_priority", {
+        p_organization_id: context.organizationId,
+        p_appointment_id: appointmentId,
+        p_actor_person_id: context.personId,
+        p_priority: requestedPriority,
+      });
+      if (error) {
+        const detail = String(error.message || "");
+        if (detail.includes("PRIORITY_IN_USE")) return NextResponse.json({ error: "Esta prioridade já pertence a outro agendamento da mesma Entidade nesta data." }, { status: 409 });
+        if (detail.includes("FORWARDING_FINALIZED")) return NextResponse.json({ error: "Encaminhamento finalizado: prioridade não pode ser alterada." }, { status: 409 });
+        if (detail.includes("PRIORITY_ALREADY_FORWARDED")) return NextResponse.json({ error: "Desfaça o encaminhamento antes de alterar a prioridade." }, { status: 409 });
+        throw error;
+      }
+      return NextResponse.json({ ok: true, priority: data, message: requestedPriority ? `Prioridade ${requestedPriority} atribuída.` : "Prioridade removida." });
     }
 
     if (action === "summary") {
@@ -2280,13 +2277,13 @@ export async function POST(request: Request) {
       }
       const { data: appointment, error: appointmentError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,arrival_status,arrival_order,status")
+        .select("id,arrival_status,arrival_order,priority_order,status")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
       if (appointmentError) throw appointmentError;
       if (!appointment?.id) return NextResponse.json({ error: "Agendamento não localizado.", requestId: code }, { status: 404 });
-      if (forwarded && (asText(appointment.arrival_status) !== "arrived" || Number(appointment.arrival_order ?? 0) < 1)) {
+      if (forwarded && (asText(appointment.arrival_status) !== "arrived" || (Number(appointment.arrival_order ?? 0) < 1 && Number(appointment.priority_order ?? 0) < 1))) {
         return NextResponse.json({ error: "Registre primeiro a chegada do Consulente na Triagem.", requestId: code }, { status: 409 });
       }
       const { error } = await supabaseAdmin
