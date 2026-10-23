@@ -257,7 +257,7 @@ export function TucxaPilotReports() {
   const [person, setPerson] = useState("");
   const [lineFilter, setLineFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
-  const [reportOrderMode, setReportOrderMode] = useState<"alphabetical" | "custom">("alphabetical");
+  const [reportOrderMode, setReportOrderMode] = useState<"alphabetical" | "custom">("custom");
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

@@ -215,10 +215,13 @@ export async function GET(request: Request) {
         ...(entityChanges ?? []).flatMap((item) => [text(item.previous_entity_id), text(item.new_entity_id)]),
       ].filter(Boolean)));
       const names = await entityNames(context.organizationId, allEntityIds);
-      const { data: orderedEntities, error: orderError } = allEntityIds.length
-        ? await supabaseAdmin.from("oh_spiritual_entities")
-          .select("id,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday").eq("organization_id", context.organizationId).in("id", allEntityIds)
-        : { data: [], error: null };
+      // O Caderno também inclui Entidades sem agendamentos (inclusive indisponíveis).
+      // A ordenação deve ser carregada para TODAS as Entidades da organização,
+      // não apenas para aquelas presentes nos agendamentos consultados.
+      const { data: orderedEntities, error: orderError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday")
+        .eq("organization_id", context.organizationId);
       if (orderError) throw orderError;
       const entityOrderIndex = new Map((orderedEntities ?? []).map((entity) => [text(entity.id), {
         monday: Number(entity.pilot_display_order_monday ?? entity.pilot_display_order ?? 1000),
