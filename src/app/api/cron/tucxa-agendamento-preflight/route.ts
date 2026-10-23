@@ -177,7 +177,7 @@ export async function GET(request: Request) {
       receptionSummaryPreview: {
         appointmentCount: rows.length,
         entitiesCount: entityIds.length,
-        format: "entity_then_alphabetical_with_original_appointment_order",
+        format: "entity_then_alphabetical_without_appointment_order",
         summary: formatTucxaReceptionSummary({ date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames }),
       },
       sharedContactReminderGroups: Object.values(consulentes.reduce<Record<string, typeof consulentes>>((groups, item) => {

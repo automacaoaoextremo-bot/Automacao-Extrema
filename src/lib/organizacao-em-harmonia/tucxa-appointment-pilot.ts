@@ -1171,6 +1171,7 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
       order: Number(metadata.order ?? 0) || null,
       isFirstTimeAppointment: firstTime.isFirstTimeAppointment,
       firstTimeIndicatorActive: firstTime.indicatorActive,
+      priorityFirstService: metadata.priority_first_service === true,
       firstTimeOriginalEntityId: firstTime.originalEntityId,
       firstTimeOriginalEntityName: firstTime.originalEntityName,
     };

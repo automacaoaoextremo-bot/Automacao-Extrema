@@ -764,7 +764,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,line,daily_capacity,pilot_display_order,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
+      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -802,6 +802,8 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       name: asText(entity.name),
       line: asText(entity.line),
       displayOrder: Number(entity.pilot_display_order ?? 1000),
+      displayOrderMonday: Number(entity.pilot_display_order_monday ?? entity.pilot_display_order ?? 1000),
+      displayOrderTuesday: Number(entity.pilot_display_order_tuesday ?? entity.pilot_display_order ?? 1000),
       slug: asText(entity.slug),
       description: asText(entity.appointment_notes) || asText(entity.notes),
       capacity: Math.max(1, Number(entity.daily_capacity ?? 4) || 4),
@@ -900,6 +902,31 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action);
     const settings = await loadPilotSettings(context.organizationId);
+
+    if (action === "set-first-service-priority") {
+      const appointmentId = asText(body.appointmentId);
+      const enabled = body.enabled === true;
+      if (!/^[a-f0-9-]{36}$/i.test(appointmentId)) return NextResponse.json({ error: "Agendamento inválido." }, { status: 400 });
+      const { data: existing, error: lookupError } = await supabaseAdmin
+        .from("oh_consulente_appointments")
+        .select("id,status,metadata,appointment_date")
+        .eq("organization_id", context.organizationId).eq("id", appointmentId).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!existing?.id || existing.status === "cancelado") return NextResponse.json({ error: "Agendamento inexistente ou cancelado." }, { status: 404 });
+      const { data: closure, error: closureError } = await supabaseAdmin
+        .from("oh_tucxa_pilot_day_closures")
+        .select("id").eq("organization_id", context.organizationId)
+        .eq("appointment_date", existing.appointment_date).eq("stage", "forwarding").maybeSingle();
+      if (closureError) throw closureError;
+      if (closure?.id) return NextResponse.json({ error: "Encaminhamento já finalizado nesta data." }, { status: 409 });
+      const updatedMetadata = { ...asRecord(existing.metadata), priority_first_service: enabled,
+        priority_first_service_updated_by: context.personId,
+        priority_first_service_updated_at: new Date().toISOString() };
+      const { error: updateError } = await supabaseAdmin.from("oh_consulente_appointments")
+        .update({ metadata: updatedMetadata }).eq("organization_id", context.organizationId).eq("id", appointmentId);
+      if (updateError) throw updateError;
+      return NextResponse.json({ ok: true, message: enabled ? "Atendimento prioritário marcado." : "Prioridade removida." });
+    }
 
     if (action === "summary") {
       const requestedMode = asText(body.mode);
@@ -2845,8 +2872,12 @@ export async function POST(request: Request) {
       const requestedEntityId = asText(body.entityId);
       const name = asText(body.name);
       const description = asText(body.description);
-      const displayOrder = Number(body.displayOrder);
-      if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 9999) return NextResponse.json({ error: "Ordem de exibição deve ser de 0 a 9999." }, { status: 400 });
+      const displayOrderMonday = Number(body.displayOrderMonday);
+      const displayOrderTuesday = Number(body.displayOrderTuesday);
+      if (![displayOrderMonday, displayOrderTuesday].every((value) => Number.isInteger(value) && value >= 0 && value <= 9999)) {
+        return NextResponse.json({ error: "A ordem de segunda e terça deve ser de 0 a 9999." }, { status: 400 });
+      }
+      const displayOrder = displayOrderMonday;
       const cavalinhoPersonId = asText(body.cavalinhoPersonId);
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const entityActive = body.active !== false;
@@ -2867,6 +2898,8 @@ export async function POST(request: Request) {
             appointment_notes: description || null,
             daily_capacity: capacity,
             pilot_display_order: displayOrder,
+            pilot_display_order_monday: displayOrderMonday,
+            pilot_display_order_tuesday: displayOrderTuesday,
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
@@ -2907,6 +2940,8 @@ export async function POST(request: Request) {
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             daily_capacity: capacity,
             pilot_display_order: displayOrder,
+            pilot_display_order_monday: displayOrderMonday,
+            pilot_display_order_tuesday: displayOrderTuesday,
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
