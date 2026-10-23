@@ -41,15 +41,18 @@ export function homologationMediumAllowed(date: string, personId: string, phone:
 }
 export function homologationAppointmentId(): string { return TEST_APPOINTMENT_ID; }
 
-/** Liberação pontual da operação real em 19 e 20/10; fail-closed.
- * Configurar TUCXA_AGENDAMENTO_GENERAL_DISPATCH_DATES=2026-10-19,2026-10-20
- * e TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED=true SOMENTE após validar o preflight.
+/** Operação recorrente: libera dias regulares de atendimento (segunda/terça),
+ * sem lista manual de datas. A verificação de feriados, escala, vagas,
+ * destinatários autorizados e duplicidade permanece nos crons respectivos.
+ * TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED=false é um bloqueio emergencial.
  */
 export function generalDispatchAllowed(date: string): boolean {
-  const dates = (process.env.TUCXA_AGENDAMENTO_GENERAL_DISPATCH_DATES || "")
-    .split(",").map((value) => value.trim());
-  return process.env.TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED === "true" &&
-    dates.includes(date) && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  if (process.env.TUCXA_AGENDAMENTO_GENERAL_DISPATCH_ENABLED === "false") return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const parsed = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return false;
+  const weekday = parsed.getUTCDay();
+  return weekday === 1 || weekday === 2;
 }
 export function dispatchDateAllowed(date: string): boolean {
   return homologationActiveToday(date) || generalDispatchAllowed(date);
