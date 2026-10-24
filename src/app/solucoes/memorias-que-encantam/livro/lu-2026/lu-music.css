@@ -107,3 +107,73 @@
 .lu-helptext{background:#f0f9f3;padding:16px;border-radius:15px;line-height:1.6;font-size:13px;margin:20px 0}
 @media(max-width:720px){.lu-curation-grid{grid-template-columns:1fr}}
 @media(max-width:530px){.lu-brandhead{padding:10px}.lu-brandbottom{gap:7px;padding:10px}.lu-brandbottom>span{font-size:11px}.lu-brandbottom img{max-width:115px}.lu-headbuttons{width:100%;justify-content:flex-end}.lu-brandtop{gap:9px}.lu-brandicon{width:54px;height:54px}.lu-curation-card{padding:12px}}
+
+/* V3 — cabeçalho consistente com as demais soluções e navegação mobile em janelas */
+.lu-brandhead{padding:12px clamp(12px,3vw,28px)}
+.lu-brandtop{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;gap:12px}
+.lu-brandidentity{display:flex;align-items:center;gap:12px;min-width:0}
+.lu-brandidentity>div{min-width:0}
+.lu-brandtop .lu-brandidentity strong{font-size:clamp(17px,3.8vw,27px);line-height:1.18}
+.lu-brandtop .lu-brandidentity div>span{letter-spacing:.035em;font-size:11px}
+.lu-teacher-link{display:inline-flex;align-items:center;justify-content:center;padding:11px 15px;text-decoration:none;color:#155142;background:#e7f7eb;border:1px solid #b8d8c9;border-radius:999px;min-height:43px;font-size:13px;font-weight:800;white-space:nowrap}
+.lu-brandbottom{display:grid;grid-template-columns:auto auto 1fr;align-items:center;justify-content:center;gap:10px;padding:9px 14px;max-width:1160px;flex-wrap:nowrap}
+.lu-brandbottom>strong{font-weight:800;font-size:clamp(11px,1.8vw,16px);white-space:nowrap;color:#174634}
+.lu-brandbottom>a{display:inline-flex;border-radius:16px;overflow:hidden;background:#082f46;align-items:center;justify-content:center}
+.lu-brandbottom>a:focus-visible{outline:3px solid #008e90;outline-offset:3px}
+.lu-brandbottom img{display:block;border-radius:15px;width:clamp(100px,19vw,165px);height:auto;max-width:none}
+.lu-brandbottom>span{text-align:center;line-height:1.35;font-size:clamp(10px,1.6vw,15px);font-weight:650;color:#557078}
+.lu-collection-entry{max-width:880px;margin:24px auto 0}
+.lu-collection-caption{font-size:11px;color:#008e90;font-weight:850;letter-spacing:.11em}
+.lu-open-card{width:100%;margin-top:6px;background:white;border:2px solid #d7ebe4;border-radius:23px;box-shadow:0 4px 14px #143e3915;min-height:87px;padding:14px 17px;display:flex;align-items:center;gap:15px;text-align:left;color:var(--lu-ink)}
+.lu-open-card>span:first-child{display:flex;flex:1;flex-direction:column;gap:5px}
+.lu-open-card strong{font-size:clamp(20px,3vw,27px);line-height:1.2}
+.lu-open-card small{color:#008e90;font-size:10px;letter-spacing:.1em;font-weight:850}
+.lu-open-card>span:last-child{font-size:25px;color:#008e90}
+.lu-note{max-width:880px;margin:16px auto}
+.lu-feedback{max-width:880px;margin:18px auto}
+.lu-feedback h2{font-size:20px;font-weight:800;margin:0 0 8px}
+.lu-feedback textarea{width:100%;display:block;margin-bottom:10px}
+.lu-dialog-backdrop{position:fixed;inset:0;z-index:5000;background:#103d42c7;display:flex;justify-content:center;align-items:center;padding:12px;overscroll-behavior:contain}
+.lu-dialog{display:flex;flex-direction:column;overflow:hidden;width:min(100%,560px);max-height:calc(100dvh - 24px);background:#fffdf9;border:1px solid #f1e3d5;border-radius:24px;box-shadow:0 18px 60px #04252970;padding:14px;color:var(--lu-ink)}
+.lu-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 3px 12px}
+.lu-dialog-head strong{font-size:clamp(16px,4vw,21px);line-height:1.22}
+.lu-dialog-close{flex:0 0 43px;width:43px;height:43px;border:1px solid #d0e5df;background:#fff;border-radius:14px;font-size:22px;color:#1e5445}
+.lu-dialog-list{min-height:0;display:grid;gap:10px;grid-template-columns:1fr;overflow:hidden}
+.lu-dialog-list .lu-track{min-height:72px;padding:8px;box-shadow:0 1px 6px #183a4210;border:1px solid #e1eeeb}
+.lu-dialog-list .lu-art{flex-basis:52px;height:52px;font-size:29px}
+.lu-dialog-list .lu-track-main small{font-size:9px}
+.lu-dialog-list .lu-track-main strong{font-size:14px}
+.lu-pager{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 2px 3px}
+.lu-pager>span{font-size:12px;font-weight:750;white-space:nowrap}
+.lu-pager button{font-size:12px;font-weight:800;color:#136c5c;background:#e3f4e9;border:0;border-radius:12px;min-height:44px;padding:8px 13px}
+.lu-pager button:disabled{opacity:.4;cursor:not-allowed}
+.lu-dialog-player{text-align:center;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 5px 8px}
+.lu-dialog-player .lu-player-illustration{height:min(23dvh,150px);max-height:150px}
+.lu-dialog-player .lu-player-illustration span{font-size:clamp(48px,12vw,85px)}
+.lu-dialog-player h2{font-size:clamp(19px,4.5vw,26px);font-weight:850;margin:10px 0 4px}
+.lu-dialog-player>p{font-size:12px;color:#60777c;margin:0 0 13px}
+.lu-dialog-player .lu-controls{margin:9px 0}
+.lu-dialog-player .lu-controls .lu-play{height:59px;width:59px}
+.lu-dialog-player .lu-lyrics-toggle{min-height:44px}
+.lu-list-back{border:0;background:transparent;color:#008e90;font-weight:800;min-height:43px;padding:9px 12px}
+.lu-dialog-versions{overflow-y:auto;min-height:0;overscroll-behavior:contain;padding:3px}
+.lu-dialog-versions .lu-curation-title{margin:0 0 11px}
+.lu-dialog-versions .lu-curation-version{padding:10px;margin-bottom:8px}
+.lu-dialog-versions .lu-curation-version audio{height:42px}
+.lu-dialog-versions .lu-upload{padding:10px}
+.lu-teacher-panel{width:min(100%,520px);margin:30px auto;padding:clamp(16px,4vw,28px);border-radius:24px;background:linear-gradient(145deg,#e9f8ed,#fffdf3);box-shadow:0 5px 20px #193a481a}
+.lu-teacher-panel h1{font-size:clamp(25px,5vw,35px);margin:14px 0 9px;line-height:1.12}
+.lu-teacher-panel>p{font-size:14px;line-height:1.55;color:#46636a;margin:6px 0 17px}
+.lu-teacher-form{display:flex;flex-direction:column;gap:13px;background:#fff;border-radius:18px;padding:17px}
+.lu-teacher-form>label{font-size:13px;display:flex;flex-direction:column;gap:7px;font-weight:750}
+.lu-teacher-form input:not([type=checkbox]){height:46px;border:1px solid #cddad4;padding:12px;border-radius:12px;width:100%;font-size:15px}
+.lu-teacher-form input[readonly]{background:#f3f6f3;color:#59706b}
+.lu-teacher-form .lu-consent{flex-direction:row;align-items:flex-start;line-height:1.45;font-size:12px;font-weight:500}
+.lu-consent input{margin-top:3px;flex:none;width:18px;height:18px}
+.lu-recovery{font-size:12px!important;text-align:center;margin:13px 0 0!important}
+@media(max-width:530px){.lu-brandtop{padding-bottom:7px}.lu-brandicon{width:45px;height:45px;font-size:24px}.lu-brandbottom{padding:8px;gap:6px}.lu-brandbottom img{width:104px}.lu-brandbottom>span{font-size:11px}.lu-teacher-link{font-size:12px;padding:9px 10px}.lu-dialog{padding:10px;border-radius:18px}.lu-dialog-list{gap:7px}.lu-dialog-list .lu-track{min-height:70px}.lu-dialog-list .lu-art{flex-basis:47px;height:47px;font-size:27px}.lu-pager{padding-top:10px}.lu-pager button{padding:7px 9px}.lu-open-card{padding:12px}.lu-track-count{font-size:10px!important;padding:7px}}
+@media(max-height:650px){.lu-dialog-list{gap:5px}.lu-dialog-list .lu-track{min-height:59px;padding:5px}.lu-dialog-list .lu-art{flex-basis:41px;height:41px;font-size:24px}.lu-dialog-list .lu-track-main{gap:2px}.lu-dialog-list .lu-track-main small:last-child{display:none}.lu-dialog-player .lu-player-illustration{height:85px}.lu-dialog-player .lu-controls{margin:5px 0}}
+
+.lu-brandtop .lu-brandidentity{display:flex;flex-direction:row;align-items:center;gap:12px}
+
+.lu-password-row{display:flex;align-items:center;position:relative}.lu-password-row input{padding-right:90px!important}.lu-password-row>button{position:absolute;right:8px;background:transparent;color:#316e62;border:0;font-size:12px;padding:9px;border-radius:8px;font-weight:750}
