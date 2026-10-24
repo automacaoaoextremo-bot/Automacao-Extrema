@@ -12,12 +12,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
-type Props = { searchParams: Promise<{ erro?: string }> };
+type Props = { searchParams: Promise<{ erro?: string; musica?: string }> };
 
 export default async function LuPilotPage({ searchParams }: Props) {
   const access = await hasLuPreviewAccess();
   const configured = luPreviewConfigured();
-  const { erro } = await searchParams;
+  const { erro, musica } = await searchParams;
 
   if (!access) {
     return (
@@ -28,9 +28,9 @@ export default async function LuPilotPage({ searchParams }: Props) {
           <Image src="/ae-logo-horizontal.png" alt="Automação Extrema" width={210} height={63} className="lu-logo" priority />
           <span className="lu-eyebrow">💛 Acesso de homologação</span>
           <h1 id="lu-gate-heading">Nosso Livro Musical <span>🎵</span></h1>
-          <p>Uma prévia feita com carinho para a Lu e sua colega conferirem a experiência que acompanhará o livro das crianças.</p>
+          <p>Um espaço para conhecer as músicas e ilustrações do livro, com acesso reservado.</p>
           {!configured ? (
-            <div className="lu-alert" role="status">A demonstração está em preparação. O administrador precisa configurar as variáveis de acesso no ambiente Preview.</div>
+            <div className="lu-alert" role="status">A página está em preparação. Configure MEMORIAS_LU_ACCESS_CODE e MEMORIAS_LU_SESSION_SECRET.</div>
           ) : (
             <form action={`${LU_BASE_PATH}/acesso`} method="post" className="lu-gate-form">
               <label htmlFor="codigo">Código de acesso recebido</label>
@@ -39,10 +39,10 @@ export default async function LuPilotPage({ searchParams }: Props) {
               <button type="submit" className="lu-button lu-button-primary">Entrar no livro musical <span aria-hidden="true">→</span></button>
             </form>
           )}
-          <small>🔒 Prévia privada • Ainda não é a versão final das famílias.</small>
+          <small>🔒 Acesso reservado • Conteúdo em homologação.</small>
         </section>
       </main>
     );
   }
-  return <LuMusicExperience />;
+  return <LuMusicExperience initialTrackId={musica} />;
 }

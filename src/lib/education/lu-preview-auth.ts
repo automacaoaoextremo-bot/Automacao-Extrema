@@ -2,53 +2,38 @@ import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 
 export const LU_COOKIE = "ae_lu_preview";
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 3;
+export const LU_ADMIN_COOKIE = "ae_lu_admin";
+export const LU_COOKIE_MAX_AGE = 60 * 60 * 24;
 
-function settings() {
-  const code = process.env.MEMORIAS_LU_PREVIEW_CODE ?? "";
-  const secret = process.env.MEMORIAS_LU_SESSION_SECRET ?? "";
-  if (code.length < 8 || secret.length < 32) return null;
-  return { code, secret };
+type Role = "reader" | "admin";
+const accessCode = () => process.env.MEMORIAS_LU_ACCESS_CODE || process.env.MEMORIAS_LU_PREVIEW_CODE || "";
+const adminCode = () => process.env.MEMORIAS_LU_ADMIN_CODE || "";
+const secret = () => process.env.MEMORIAS_LU_SESSION_SECRET || "";
+const enabled = (role: Role) => (role === "admin" ? adminCode().length >= 12 : accessCode().length >= 8) && secret().length >= 32;
+export const luPreviewConfigured = () => enabled("reader");
+export const luAdminConfigured = () => enabled("admin");
+function equals(a: string, b: string): boolean {
+  return timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 }
-
-export function luPreviewConfigured(): boolean {
-  return settings() !== null;
+export function verifyLuPreviewCode(code: string): boolean { return enabled("reader") && equals(code, accessCode()); }
+export function verifyLuAdminCode(code: string): boolean { return enabled("admin") && equals(code, adminCode()); }
+function signature(payload: string): string { return createHmac("sha256", secret()).update(payload).digest("hex"); }
+export function createLuSession(role: Role): string {
+  if (!enabled(role)) throw new Error("Acesso não configurado");
+  const payload = `v2.${role}.${Math.floor(Date.now() / 1000)}`;
+  return `${payload}.${signature(payload)}`;
 }
-
-export function verifyLuPreviewCode(submitted: string): boolean {
-  const config = settings();
-  if (!config) return false;
-  const a = createHash("sha256").update(submitted).digest();
-  const b = createHash("sha256").update(config.code).digest();
-  return timingSafeEqual(a, b);
+export function isLuSessionValid(value: string | undefined, role: Role): boolean {
+  if (!enabled(role) || !value) return false;
+  const match = /^v2\.(reader|admin)\.(\d{10})\.([a-f0-9]{64})$/.exec(value);
+  if (!match || match[1] !== role) return false;
+  const issued = Number(match[2]); const now = Math.floor(Date.now()/1000);
+  if (!Number.isSafeInteger(issued) || issued > now+60 || now-issued > LU_COOKIE_MAX_AGE) return false;
+  return equals(match[3], signature(`v2.${role}.${match[2]}`));
 }
-
-function signature(payload: string, secret: string): string {
-  return createHmac("sha256", secret).update(payload).digest("hex");
-}
-
-export function createLuPreviewSession(): string {
-  const config = settings();
-  if (!config) throw new Error("Homologação não configurada.");
-  const payload = `v1.${Math.floor(Date.now() / 1000)}`;
-  return `${payload}.${signature(payload, config.secret)}`;
-}
-
-export function isLuPreviewSessionValid(value?: string): boolean {
-  const config = settings();
-  if (!config || !value) return false;
-  const [version, issued, supplied, extra] = value.split(".");
-  if (version !== "v1" || !issued || !supplied || extra || !/^\d+$/.test(issued) || !/^[a-f0-9]{64}$/.test(supplied)) return false;
-  const issuedAt = Number(issued);
-  const current = Math.floor(Date.now() / 1000);
-  if (!Number.isSafeInteger(issuedAt) || issuedAt > current + 60 || current - issuedAt > MAX_AGE_SECONDS) return false;
-  const correct = signature(`${version}.${issued}`, config.secret);
-  return timingSafeEqual(Buffer.from(supplied, "hex"), Buffer.from(correct, "hex"));
-}
-
 export async function hasLuPreviewAccess(): Promise<boolean> {
-  const cookieStore = await cookies();
-  return isLuPreviewSessionValid(cookieStore.get(LU_COOKIE)?.value);
+  return isLuSessionValid((await cookies()).get(LU_COOKIE)?.value,"reader");
 }
-
-export const LU_COOKIE_MAX_AGE = MAX_AGE_SECONDS;
+export async function hasLuAdminAccess(): Promise<boolean> {
+  return isLuSessionValid((await cookies()).get(LU_ADMIN_COOKIE)?.value,"admin");
+}

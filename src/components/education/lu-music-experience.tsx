@@ -7,10 +7,11 @@ import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 const ALL = luTracks;
 const fmt = (num: number) => `${Math.floor(num / 60)}:${String(Math.floor(num % 60)).padStart(2, "0")}`;
 
+type PublicVersion = { id:string; track_id:string; url?:string };
 type Feedback = { celular: boolean; ordem: boolean; visual: boolean; audio: boolean; letras: boolean };
 
-export function LuMusicExperience() {
-  const [current, setCurrent] = useState(0);
+export function LuMusicExperience({initialTrackId}:{initialTrackId?:string}) {
+  const [current, setCurrent] = useState(() => Math.max(0, ALL.findIndex(song=>song.id===initialTrackId)));
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [time, setTime] = useState(0);
@@ -19,8 +20,12 @@ export function LuMusicExperience() {
   const [notes, setNotes] = useState("");
   const [feedbackReady, setFeedbackReady] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
+  const [released,setReleased]=useState<PublicVersion[]>([]);
+  const [familyReleased,setFamilyReleased]=useState(false);
   const track = ALL[current];
-  const demoUrl = `/education-demo/audio/musica-${track.id}.mp3`;
+  const selectedAudio=released.find(v=>v.track_id===track.id);
+  const demoUrl = selectedAudio?.url || `/education-demo/audio/musica-${track.id}.mp3`;
+  useEffect(()=>{let active=true;fetch(`${LU_BASE_PATH}/api`,{cache:"no-store"}).then(r=>r.ok?r.json():null).then(data=>{if(active&&data){setReleased(data.versions||[]);setFamilyReleased(!!data.project?.family_released);}}).catch(()=>{});return()=>{active=false};},[]);
 
   const selectTrack = useCallback((index: number) => {
     setPlaying(false);
@@ -76,12 +81,9 @@ export function LuMusicExperience() {
 
   return (
     <main className="lu-root lu-book">
-      <header className="lu-header">
-        <div className="lu-header-inner">
-          <Image src="/ae-logo-horizontal.png" alt="Automação Extrema" width={186} height={55} className="lu-header-logo" priority />
-          <span className="lu-header-label">🌷 Projeto-piloto • Lu 2026</span>
-          <form method="post" action={`${LU_BASE_PATH}/sair`}><button className="lu-out" type="submit">Sair</button></form>
-        </div>
+      <header className="lu-brandhead">
+       <div className="lu-brandtop"><span className="lu-brandicon">📖</span><div><strong>Nosso Livro Musical</strong><span>Projeto da Lu • 2026</span></div></div>
+       <div className="lu-brandbottom"><span>Desenvolvido por</span><Image src="/ae-logo-horizontal.png" alt="Automação Extrema" width={165} height={50} priority /><div className="lu-headbuttons"><a href="#musicas">Voltar</a><a href="#feedback">Ajuda</a><form method="post" action={`${LU_BASE_PATH}/sair`}><button type="submit">Sair</button></form></div></div>
       </header>
       <div className="lu-container">
         <section className="lu-hero" aria-label="Apresentação do livro musical">
@@ -95,10 +97,10 @@ export function LuMusicExperience() {
 
         <aside className="lu-preview-alert" role="status">
           <span aria-hidden="true">🧪</span>
-          <div><strong>Versão para validação das professoras</strong><p>Os títulos estão em ordem provisória. Os sons são demonstrações instrumentais, <strong>não gravações das crianças</strong>. As letras e ilustrações serão incluídas após conferência e autorização.</p></div>
+          <div><strong>Versão para validação das professoras</strong><p>Os títulos estão em ordem provisória. {familyReleased ? "Você está ouvindo as versões liberadas pela escola." : "Esta página ainda utiliza demonstrações instrumentais. As vozes das crianças só aparecerão após a autorização e liberação final da escola."} As letras e ilustrações serão incluídas após conferência.</p></div>
         </aside>
 
-        <section className="lu-grid" aria-label="Biblioteca musical">
+        <section className="lu-grid" id="musicas" aria-label="Biblioteca musical">
           <div>
             <div className="lu-section-heading"><div><span>✨ NOSSA COLEÇÃO</span><h2>Escolha uma música</h2></div><span className="lu-track-count">{ALL.length} canções</span></div>
             <div className="lu-tracks">
@@ -112,7 +114,7 @@ export function LuMusicExperience() {
                   aria-label={`Selecionar música ${song.id}: ${song.title}`}
                 >
                   <span className="lu-art" aria-hidden="true">{song.art}</span>
-                  <span className="lu-track-main"><small>MÚSICA {song.id}</small><strong>{song.title}</strong><small>Ouvir demonstração</small></span>
+                  <span className="lu-track-main"><small>MÚSICA {song.id}</small><strong>{song.title}</strong><small>{released.some(v => v.track_id === song.id && v.url) ? "Ouvir gravação aprovada" : "Ouvir demonstração"}</small></span>
                   <span className="lu-track-arrow" aria-hidden="true">{index === current ? "♫" : "›"}</span>
                 </button>
               ))}
@@ -124,7 +126,7 @@ export function LuMusicExperience() {
               <div className={`lu-player-illustration lu-tint-${track.tint}`} aria-hidden="true"><span>{track.art}</span><i>♪</i><b>✦</b></div>
               <span className="lu-playing-number">Música {track.id} de 12</span>
               <h2>{track.title}</h2>
-              <p>Trecho instrumental demonstrativo</p>
+              <p>{selectedAudio?.url ? "Gravação aprovada pela escola" : "Trecho instrumental demonstrativo"}</p>
               <audio
                 ref={audio}
                 preload="metadata"
