@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import Image from "next/image";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 import { LuHeader } from "@/components/education/lu-header";
 
@@ -21,6 +22,7 @@ type Data = {
     family_released: boolean;
   };
   versions: Version[];
+  trackOrder?: string[];
 };
 
 const labels: Record<string, string> = {
@@ -45,19 +47,24 @@ async function loadCurationData(signal?: AbortSignal): Promise<Data> {
   return payload as Data;
 }
 
-export function LuCuration() {
+export function LuCuration({ teacherName }: { teacherName: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
   const [page, setPage] = useState(0);
+  const [panel, setPanel] = useState<"list" | "order" | "qr">("list");
+  const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
+  const [qrTrack, setQrTrack] = useState("geral");
+  const [success, setSuccess] = useState("");
 
   // Usado apenas depois de a professora escolher, ocultar ou enviar um audio.
   const refresh = useCallback(async () => {
     try {
       const nextData = await loadCurationData();
       setData(nextData);
+      if (nextData.trackOrder?.length === 12) setTrackOrder(nextData.trackOrder);
       setErr("");
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Falha no carregamento");
@@ -73,6 +80,7 @@ export function LuCuration() {
       .then((nextData) => {
         if (controller.signal.aborted) return;
         setData(nextData);
+        if (nextData.trackOrder?.length === 12) setTrackOrder(nextData.trackOrder);
         setErr("");
       })
       .catch((error: unknown) => {
@@ -162,6 +170,34 @@ export function LuCuration() {
     }
   }
 
+  const tracks = trackOrder.map((id) => luTracks.find((track) => track.id === id)).filter((track): track is typeof luTracks[number] => Boolean(track));
+  const pages = Math.ceil(tracks.length / PAGE_SIZE);
+  const swap = (position: number, direction: number) => {
+    const next = position + direction;
+    if (next < 0 || next >= trackOrder.length) return;
+    setTrackOrder((old) => {
+      const result = [...old];
+      [result[position], result[next]] = [result[next], result[position]];
+      return result;
+    });
+    setSuccess("");
+  };
+  async function saveOrder() {
+    setBusy("order"); setErr(""); setSuccess("");
+    try {
+      const response = await fetch(`${LU_BASE_PATH}/api/order`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: trackOrder }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a ordem");
+      setSuccess("Nova sequência salva. Os QR Codes antigos continuam válidos.");
+    } catch (error) { setErr(error instanceof Error ? error.message : "Falha ao salvar a ordem"); }
+    finally { setBusy(""); }
+  }
+  const qrSrc = `${LU_BASE_PATH}/api/qr${qrTrack === "geral" ? "" : `?musica=${qrTrack}`}`;
+  const qrDownload = `${qrSrc}${qrSrc.includes("?") ? "&" : "?"}download=1`;
+
   const close = () => {
     setOpen(false);
     setCurrent(null);
@@ -176,7 +212,7 @@ export function LuCuration() {
 
   return (
     <main className="lu-root lu-book">
-      <LuHeader admin />
+      <LuHeader admin teacherName={teacherName} />
       <div className="lu-container">
         <section className="lu-hero">
           <h1>🎤 Escolha as vozes da turma</h1>
@@ -199,6 +235,7 @@ export function LuCuration() {
             type="button"
             onClick={() => {
               setPage(0);
+              setPanel("list");
               setOpen(true);
               setCurrent(null);
             }}
@@ -212,6 +249,14 @@ export function LuCuration() {
           </button>
         </section>
 
+        <div className="lu-curation-tools">
+          <button type="button" onClick={() => { setPanel("order"); setCurrent(null); setOpen(true); }}>
+            ↕ Definir ordem <small>CLIQUE PARA ABRIR</small>
+          </button>
+          <button type="button" onClick={() => { setPanel("qr"); setQrTrack("geral"); setCurrent(null); setOpen(true); }}>
+            ▦ Gerar QR Codes <small>CLIQUE PARA ABRIR</small>
+          </button>
+        </div>
         <div className="lu-helptext">
           <strong>Como funciona:</strong> “Escolher esta” define a gravação
           preferida. “Ocultar” esconde a opção sem apagar o original. Para as
@@ -231,11 +276,11 @@ export function LuCuration() {
             className="lu-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={current === null ? "Definir vozes" : "Escolher gravação"}
+            aria-label={panel === "qr" ? "Gerar QR Codes" : panel === "order" ? "Definir ordem" : current === null ? "Definir vozes" : "Escolher gravação"}
           >
             <div className="lu-dialog-head">
               <strong>
-                {current === null
+                {panel === "qr" ? "▦ QR Codes do livro" : panel === "order" ? "↕ Definir ordem" : current === null
                   ? "🎤 Definir Vozes"
                   : `🎤 ${luTracks[current].title}`}
               </strong>
@@ -249,21 +294,47 @@ export function LuCuration() {
               </button>
             </div>
 
-            {current === null ? (
+            {panel === "order" ? (
+              <div className="lu-dialog-versions">
+                <p>Use as setas para organizar a sequência. Cada música mantém seu identificador permanente.</p>
+                {tracks.map((track, position) => (
+                  <div className="lu-order-row" key={track.id}>
+                    <span className="lu-order-label">{position + 1}. {track.art} {track.title}</span>
+                    <div className="lu-order-controls">
+                      <button type="button" aria-label={`Subir ${track.title}`} disabled={busy !== "" || position === 0} onClick={() => swap(position, -1)}>↑</button>
+                      <button type="button" aria-label={`Descer ${track.title}`} disabled={busy !== "" || position === tracks.length - 1} onClick={() => swap(position, 1)}>↓</button>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="lu-button lu-button-primary lu-order-save" disabled={busy !== ""} onClick={() => void saveOrder()}>{busy === "order" ? "Salvando..." : "Salvar ordem"}</button>
+                {success && <p role="status" className="lu-pill-ok">{success}</p>}
+              </div>
+            ) : panel === "qr" ? (
+              <div className="lu-dialog-versions lu-qr-chooser">
+                <label htmlFor="lu-qr-song">QR Code do livro ou de uma música</label>
+                <select id="lu-qr-song" value={qrTrack} onChange={(event) => setQrTrack(event.target.value)}>
+                  <option value="geral">Livro completo — 12 canções</option>
+                  {tracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
+                </select>
+                <Image key={qrSrc} src={qrSrc} width={245} height={245} unoptimized alt={`QR Code de ${qrTrack === "geral" ? "Livro Musical" : luTracks.find((track) => track.id === qrTrack)?.title}`} className="lu-qr-image" />
+                <p>Este código aponta para o endereço permanente no domínio oficial. Teste-o no celular antes da impressão.</p>
+                <a className="lu-button lu-button-primary" href={qrDownload}>Baixar QR Code PNG</a>
+              </div>
+            ) : current === null ? (
               <>
                 <div className="lu-dialog-list">
-                  {luTracks
+                  {tracks
                     .slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
                     .map((track, index) => (
                       <button
                         className="lu-track"
                         type="button"
                         key={track.id}
-                        onClick={() => setCurrent(page * PAGE_SIZE + index)}
+                        onClick={() => setCurrent(luTracks.findIndex((song) => song.id === track.id))}
                       >
                         <span className="lu-art">{track.art}</span>
                         <span className="lu-track-main">
-                          <small>MÚSICA {track.id}</small>
+                          <small>MÚSICA {String(page * PAGE_SIZE + index + 1).padStart(2, "0")}</small>
                           <strong>{track.title}</strong>
                           <small>
                             {data?.versions.some(
@@ -288,10 +359,10 @@ export function LuCuration() {
                   >
                     ‹ Anterior
                   </button>
-                  <span>Página {page + 1} de 3</span>
+                  <span>Página {page + 1} de {pages}</span>
                   <button
                     type="button"
-                    disabled={page === 2}
+                    disabled={page === pages - 1}
                     onClick={() => setPage((value) => value + 1)}
                   >
                     Próxima ›
@@ -397,6 +468,7 @@ export function LuCuration() {
                 </button>
               </div>
             )}
+            {err && <p role="alert" className="lu-alert">{err}</p>}
           </section>
         </div>
       )}

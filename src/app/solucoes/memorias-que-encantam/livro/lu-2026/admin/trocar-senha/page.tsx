@@ -9,7 +9,7 @@ export default async function TrocarSenha({searchParams}:Props){
  const teacher=await getLuTeacherSession();if(!teacher)redirect(`${LU_BASE_PATH}/admin`);
  if(!teacher.must_change_password)redirect(`${LU_BASE_PATH}/admin`);
  const {erro}=await searchParams;
- return <main className="lu-root lu-book"><LuHeader admin/><div className="lu-container"><section className="lu-teacher-panel"><h1>Primeiro acesso</h1><p>Confirme seus dados e escolha uma senha pessoal para continuar.</p><form className="lu-teacher-form" method="post" action={`${LU_BASE_PATH}/admin/trocar-senha/salvar`}>
+ return <main className="lu-root lu-book"><LuHeader admin teacherName={teacher.name}/><div className="lu-container"><section className="lu-teacher-panel"><h1>Primeiro acesso</h1><p>Confirme seus dados e escolha uma senha pessoal para continuar.</p><form className="lu-teacher-form" method="post" action={`${LU_BASE_PATH}/admin/trocar-senha/salvar`}>
  <label>Nome<input type="text" name="nome" defaultValue={teacher.name} minLength={2} required maxLength={120}/></label>
  <label>Celular / WhatsApp<input type="text" value={teacher.phone_digits} readOnly/></label>
  <label>E-mail (opcional)<input type="email" name="email" maxLength={200} defaultValue={teacher.email||""}/></label>
