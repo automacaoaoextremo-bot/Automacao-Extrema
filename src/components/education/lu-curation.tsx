@@ -54,10 +54,12 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
   const [page, setPage] = useState(0);
-  const [panel, setPanel] = useState<"list" | "order" | "qr">("list");
+  const [panel, setPanel] = useState<"list" | "order" | "qr" | "help">("list");
+  const [qrPreview, setQrPreview] = useState(false);
   const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
   const [qrTrack, setQrTrack] = useState("geral");
   const [success, setSuccess] = useState("");
+  const [playbackErrors, setPlaybackErrors] = useState<Record<string, boolean>>({});
 
   // Usado apenas depois de a professora escolher, ocultar ou enviar um audio.
   const refresh = useCallback(async () => {
@@ -103,11 +105,12 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  async function action(id: string, verb: "choose" | "hide" | "restore") {
+  async function action(id: string, verb: "choose" | "hide" | "restore" | "delete") {
+    if (verb === "delete" && !window.confirm("Excluir permanentemente esta gravação? Esta ação não poderá ser desfeita.")) return;
     setBusy(id);
     setErr("");
     try {
-      const response = await fetch(`${LU_BASE_PATH}/api/action`, {
+      const response = await fetch(verb === "delete" ? `${LU_BASE_PATH}/api/delete` : `${LU_BASE_PATH}/api/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action: verb }),
@@ -195,10 +198,13 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     } catch (error) { setErr(error instanceof Error ? error.message : "Falha ao salvar a ordem"); }
     finally { setBusy(""); }
   }
-  const qrSrc = `${LU_BASE_PATH}/api/qr${qrTrack === "geral" ? "" : `?musica=${qrTrack}`}`;
-  const qrDownload = `${qrSrc}${qrSrc.includes("?") ? "&" : "?"}download=1`;
+  const qrSingleId = qrTrack === "todas" ? trackOrder[0] : qrTrack;
+  const qrSrc = `${LU_BASE_PATH}/api/qr${qrSingleId === "geral" ? "" : `?musica=${qrSingleId}`}`;
+  const qrPdf = `${LU_BASE_PATH}/api/qr/pdf?selecao=${encodeURIComponent(qrTrack)}`;
+  const qrTitle = qrTrack === "geral" ? "Nosso Livro Musical" : qrTrack === "todas" ? "Todos os QR Codes das 12 músicas" : (luTracks.find((track) => track.id === qrTrack)?.title || "Música");
 
   const close = () => {
+    setQrPreview(false);
     setOpen(false);
     setCurrent(null);
   };
@@ -253,11 +259,12 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           <button type="button" onClick={() => { setPanel("order"); setCurrent(null); setOpen(true); }}>
             ↕ Definir ordem <small>CLIQUE PARA ABRIR</small>
           </button>
-          <button type="button" onClick={() => { setPanel("qr"); setQrTrack("geral"); setCurrent(null); setOpen(true); }}>
+          <button type="button" onClick={() => { setPanel("qr"); setQrTrack("geral"); setQrPreview(false); setCurrent(null); setOpen(true); }}>
             ▦ Gerar QR Codes <small>CLIQUE PARA ABRIR</small>
           </button>
         </div>
         <div className="lu-helptext">
+          <button type="button" className="lu-button lu-help-button" onClick={() => { setPanel("help"); setOpen(true); setCurrent(null); }}>❔ Ajuda para gravar e enviar áudios</button>
           <strong>Como funciona:</strong> “Escolher esta” define a gravação
           preferida. “Ocultar” esconde a opção sem apagar o original. Para as
           famílias, somente uma versão selecionada e liberada pela escola
@@ -276,11 +283,11 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
             className="lu-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={panel === "qr" ? "Gerar QR Codes" : panel === "order" ? "Definir ordem" : current === null ? "Definir vozes" : "Escolher gravação"}
+            aria-label={panel === "qr" ? "Gerar QR Codes" : panel === "order" ? "Definir ordem" : panel === "help" ? "Ajuda para gravar áudios" : current === null ? "Definir vozes" : "Escolher gravação"}
           >
             <div className="lu-dialog-head">
               <strong>
-                {panel === "qr" ? "▦ QR Codes do livro" : panel === "order" ? "↕ Definir ordem" : current === null
+                {panel === "qr" ? "▦ QR Codes do livro" : panel === "order" ? "↕ Definir ordem" : panel === "help" ? "❔ Ajuda: gravação e envio" : current === null
                   ? "🎤 Definir Vozes"
                   : `🎤 ${luTracks[current].title}`}
               </strong>
@@ -290,13 +297,13 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
                 onClick={close}
                 aria-label="Fechar janela"
               >
-                ✕
+                FECHAR
               </button>
             </div>
 
             {panel === "order" ? (
               <div className="lu-dialog-versions">
-                <p>Use as setas para organizar a sequência. Cada música mantém seu identificador permanente.</p>
+                <p>Use as setas para organizar a sequência e depois toque em Salvar ordem.</p>
                 {tracks.map((track, position) => (
                   <div className="lu-order-row" key={track.id}>
                     <span className="lu-order-label">{position + 1}. {track.art} {track.title}</span>
@@ -309,16 +316,36 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
                 <button type="button" className="lu-button lu-button-primary lu-order-save" disabled={busy !== ""} onClick={() => void saveOrder()}>{busy === "order" ? "Salvando..." : "Salvar ordem"}</button>
                 {success && <p role="status" className="lu-pill-ok">{success}</p>}
               </div>
+            ) : panel === "help" ? (
+              <div className="lu-dialog-versions lu-help-guide">
+                <h2>Como gravar as músicas das crianças</h2>
+                <ol>
+                  <li><strong>Escolha um ambiente tranquilo.</strong> Feche portas e janelas, desligue TV e ventilador barulhento. Peça silêncio antes de começar.</li>
+                  <li><strong>Use o celular normalmente.</strong> Abra o Gravador de Voz do Android ou o app Gravador/Notas de Voz do iPhone. Não precisa de microfone profissional.</li>
+                  <li><strong>Faça um teste de 10 segundos.</strong> Deixe o celular parado, aproximadamente a um braço de distância do grupo, e confira se todas as vozes aparecem sem distorção.</li>
+                  <li><strong>Grave uma música por arquivo.</strong> Aguarde dois segundos em silêncio antes e depois da canção. Não diga nomes completos das crianças.</li>
+                  <li><strong>Salve com nome fácil de reconhecer.</strong> Exemplo: <code>01_Borboleta_Eufridia.m4a</code>. Mantenha uma pasta chamada <strong>Musicas do Livro</strong> no celular ou em Arquivos/Downloads.</li>
+                  <li><strong>Encontre a gravação.</strong> No Android, abra Arquivos/Meus Arquivos e procure Gravações ou a pasta escolhida; no iPhone, use Gravador → Compartilhar → Salvar em Arquivos.</li>
+                  <li><strong>Envie pelo site.</strong> Acesse <strong>Docentes → Definir Vozes</strong>, escolha a música, toque em <strong>Enviar outra gravação</strong>, escolha o arquivo e aguarde a confirmação.</li>
+                  <li><strong>Confira e escolha.</strong> Ouça o áudio enviado. Depois, toque em <strong>Escolher esta</strong> para definir a versão do livro. A liberação para as famílias depende da autorização da escola.</li>
+                </ol>
+                <p><strong>Dica:</strong> mantenha uma cópia original das gravações em local seguro. Para gravar e armazenar vozes infantis, siga as orientações e autorizações da escola.</p>
+              </div>
             ) : panel === "qr" ? (
               <div className="lu-dialog-versions lu-qr-chooser">
-                <label htmlFor="lu-qr-song">QR Code do livro ou de uma música</label>
-                <select id="lu-qr-song" value={qrTrack} onChange={(event) => setQrTrack(event.target.value)}>
+                <label htmlFor="lu-qr-song">Escolha o QR Code que deseja criar</label>
+                <select id="lu-qr-song" value={qrTrack} onChange={(event) => { setQrTrack(event.target.value); setQrPreview(false); }}>
                   <option value="geral">Livro completo — 12 canções</option>
+                  <option value="todas">Todas as 12 músicas — PDF com 12 páginas</option>
                   {tracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
                 </select>
-                <Image key={qrSrc} src={qrSrc} width={245} height={245} unoptimized alt={`QR Code de ${qrTrack === "geral" ? "Livro Musical" : luTracks.find((track) => track.id === qrTrack)?.title}`} className="lu-qr-image" />
-                <p>Este código aponta para o endereço permanente no domínio oficial. Teste-o no celular antes da impressão.</p>
-                <a className="lu-button lu-button-primary" href={qrDownload}>Baixar QR Code PNG</a>
+                <button type="button" className="lu-button lu-button-primary" onClick={() => setQrPreview(true)}>Pré-visualizar antes de salvar</button>
+                {qrPreview && <div className="lu-qr-preview" role="region" aria-label="Prévia do QR Code">
+                  <h2>{qrTitle}</h2>
+                  <p>{qrTrack === "todas" ? "Prévia da primeira página. O PDF terá uma página com título e QR Code para cada música." : "Veja como ficará o QR Code no PDF."}</p>
+                  <Image key={qrSrc} src={qrSrc} width={245} height={245} unoptimized alt={`QR Code para ${qrTitle}`} className="lu-qr-image" />
+                  <a className="lu-button lu-button-primary" href={qrPdf}>Salvar PDF {qrTrack === "todas" ? "(12 páginas)" : ""}</a>
+                </div>}
               </div>
             ) : current === null ? (
               <>
@@ -404,10 +431,14 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
                           controls
                           preload="none"
                           src={version.url}
+                          onError={() => setPlaybackErrors((old) => ({ ...old, [version.id]: true }))}
+                          onLoadedMetadata={() => setPlaybackErrors((old) => ({ ...old, [version.id]: false }))}
                           aria-label={`${luTracks[current!].title}: ${labels[version.source_type] || version.source_type}`}
                         />
                       )}
 
+                      {version.status === "available" && !version.url && <p role="alert" className="lu-audio-warning">Não foi possível carregar o áudio do armazenamento privado.</p>}
+                      {playbackErrors[version.id] && <p role="alert" className="lu-audio-warning">Arquivo não reproduzido neste aparelho. Verifique o formato e tente enviar uma gravação compatível.</p>}
                       <div className="lu-curation-actions">
                         {version.status !== "hidden" ? (
                           <>
@@ -435,6 +466,13 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
                             Restaurar
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className="lu-delete-audio"
+                          disabled={busy !== "" || version.is_selected}
+                          title={version.is_selected ? "Escolha outra versão antes de excluir" : "Excluir permanentemente este arquivo"}
+                          onClick={() => void action(version.id, "delete")}
+                        >Excluir áudio</button>
                       </div>
                     </div>
                   ))

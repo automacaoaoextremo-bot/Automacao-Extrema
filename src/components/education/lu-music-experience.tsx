@@ -21,29 +21,38 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const [versions, setVersions] = useState<PublicVersion[]>([]);
   const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
   const [familyReleased, setFamilyReleased] = useState(false);
+  const [teacherPreview, setTeacherPreview] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [audioError, setAudioError] = useState("");
+  const [refreshingAudio, setRefreshingAudio] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
 
   const tracks = useMemo(() => trackOrder.map((id) => luTracks.find((track) => track.id === id)).filter((track): track is typeof luTracks[number] => Boolean(track)), [trackOrder]);
   const index = Math.max(0, tracks.findIndex((track) => track.id === trackId));
   const song = tracks[index] || luTracks[0];
   const active = versions.find((v) => v.track_id === song.id && v.url);
-  const source = active?.url || `/education-demo/audio/musica-${song.id}.mp3`;
+  // Não substituir gravações reais por demonstração após a liberação.
+  const source = active?.url || (!loaded || (!familyReleased && !teacherPreview) ? `/education-demo/audio/musica-${song.id}.mp3` : undefined);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(`${LU_BASE_PATH}/api`, { cache: "no-store", signal: controller.signal })
+    void fetch(`${LU_BASE_PATH}/api?view=public`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => { if (!response.ok) throw new Error("Conteúdo não disponível"); return response.json(); })
       .then((data) => {
         if (controller.signal.aborted) return;
         setVersions(data.versions || []);
         setFamilyReleased(Boolean(data.project?.family_released));
+        setTeacherPreview(Boolean(data.teacherPreview));
+        setLoadError("");
+        setLoaded(true);
         const received = data.trackOrder as unknown;
         const allowed = new Set(luTracks.map((track) => track.id));
         if (Array.isArray(received) && received.length === 12 && new Set(received).size === 12 && received.every((id) => allowed.has(id))) {
           setTrackOrder(received);
         }
       })
-      .catch(() => { /* Exibe a demonstracao quando a API estiver indisponivel. */ });
+      .catch(() => { if (!controller.signal.aborted) { setLoaded(true); setLoadError("Não foi possível carregar as gravações. Atualize a página e tente novamente."); } });
     return () => controller.abort();
   }, []);
 
@@ -64,10 +73,25 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   }, [trackId, source]);
 
   const select = (id: string) => {
-    setTrackId(id); setTime(0); setDuration(0); setPlaying(false); setLyrics(false); setDialog("player");
+    setTrackId(id); setTime(0); setDuration(0); setPlaying(false); setAudioError(""); setLyrics(false); setDialog("player");
+    // URLs privadas expiram. Renovar a assinatura ao entrar em cada canção.
+    setRefreshingAudio(true);
+    void fetch(`${LU_BASE_PATH}/api?view=public`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível renovar o acesso ao áudio.");
+        return response.json();
+      })
+      .then((payload) => {
+        setVersions(payload.versions || []);
+        setFamilyReleased(Boolean(payload.project?.family_released));
+        setTeacherPreview(Boolean(payload.teacherPreview));
+        setLoadError("");
+      })
+      .catch(() => setLoadError("Falha ao atualizar a gravação. Feche a janela e tente novamente."))
+      .finally(() => setRefreshingAudio(false));
   };
   const play = async () => {
-    if (!audio.current) return;
+    if (!audio.current || !source || refreshingAudio) return;
     if (audio.current.paused) { try { await audio.current.play(); } catch { setPlaying(false); } }
     else audio.current.pause();
   };
@@ -97,12 +121,12 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
       </div>
       {dialog !== "closed" && <div className="lu-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
         <section className="lu-dialog" role="dialog" aria-modal="true" aria-label={dialog === "list" ? "Escolha uma música" : song.title}>
-          <div className="lu-dialog-head"><strong>{dialog === "list" ? "🎶 Escolha uma música" : `🎧 Música ${String(index + 1).padStart(2, "0")} de 12`}</strong><button type="button" aria-label="Fechar janela" className="lu-dialog-close" onClick={close}>✕</button></div>
+          <div className="lu-dialog-head"><strong>{dialog === "list" ? "🎶 Escolha uma música" : `🎧 Música ${String(index + 1).padStart(2, "0")} de 12`}</strong><button type="button" aria-label="Fechar janela" className="lu-dialog-close" onClick={close}>FECHAR</button></div>
           {dialog === "list" ? <>
             <div className="lu-dialog-list">
               {tracks.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((track, position) => <button type="button" key={track.id} className="lu-track" onClick={() => select(track.id)}>
                 <span className="lu-art" aria-hidden="true">{track.art}</span>
-                <span className="lu-track-main"><small>MÚSICA {String(page * PAGE_SIZE + position + 1).padStart(2, "0")}</small><strong>{track.title}</strong><small>{versions.some((v) => v.track_id === track.id && v.url) ? "Ouvir gravação escolhida" : "Ouvir demonstração"}</small></span>
+                <span className="lu-track-main"><small>MÚSICA {String(page * PAGE_SIZE + position + 1).padStart(2, "0")}</small><strong>{track.title}</strong><small>{versions.some((v) => v.track_id === track.id && v.url) ? "Ouvir gravação escolhida" : (familyReleased || teacherPreview) ? "Gravação indisponível" : "Demonstração temporária"}</small></span>
                 <span className="lu-track-arrow" aria-hidden="true">›</span>
               </button>)}
             </div>
@@ -110,12 +134,14 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
           </> : <div className="lu-dialog-player">
             <div className={`lu-player-illustration lu-tint-${song.tint}`} aria-hidden="true"><span>{song.art}</span></div>
             <h2>{song.title}</h2>
-            <p>{active?.url ? "Gravação escolhida pela escola" : familyReleased ? "Demonstração enquanto a música é preparada" : "Demonstração instrumental até a liberação da escola"}</p>
-            <audio ref={audio} preload="metadata" src={source} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+            <p>{active?.url ? (teacherPreview ? "Prévia docente: gravação selecionada, ainda não liberada às famílias" : "Gravação escolhida pelos docentes") : (familyReleased || teacherPreview) ? "Áudio não disponível para esta música" : "Demonstração instrumental — aguardando liberação da escola"}</p>
+            {loadError && <p role="alert" className="lu-alert">{loadError}</p>}
+            {audioError && <p role="alert" className="lu-alert">{audioError}</p>}
+            <audio ref={audio} preload="metadata" src={source} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onError={() => { setPlaying(false); if (source) setAudioError("Não foi possível reproduzir este áudio. Tente recarregar a página."); }} />
             <label className="lu-sr-only" htmlFor="lu-seek-v4">Posição da música</label>
             <input id="lu-seek-v4" type="range" className="lu-seek" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(time, Math.max(duration, 1))} onChange={(event) => { if (audio.current) audio.current.currentTime = Number(event.target.value); }} />
             <div className="lu-time"><span>{fmt(time)}</span><span>{fmt(duration)}</span></div>
-            <div className="lu-controls"><button type="button" aria-label="Música anterior" onClick={() => change(-1)}>⏮</button><button type="button" aria-label={playing ? "Pausar" : "Reproduzir"} className="lu-play" onClick={play}>{playing ? "Ⅱ" : "▶"}</button><button type="button" aria-label="Próxima música" onClick={() => change(1)}>⏭</button></div>
+            <div className="lu-controls"><button type="button" aria-label="Música anterior" onClick={() => change(-1)}>⏮</button><button type="button" aria-label={playing ? "Pausar" : "Reproduzir"} className="lu-play" onClick={play} disabled={!source || refreshingAudio}>{playing ? "Ⅱ" : "▶"}</button><button type="button" aria-label="Próxima música" onClick={() => change(1)}>⏭</button></div>
             <button type="button" className="lu-lyrics-toggle" onClick={() => setLyrics((v) => !v)} aria-expanded={lyrics}>📖 {lyrics ? "Ocultar espaço da letra" : "Ver espaço da letra"}<span>{lyrics ? "−" : "+"}</span></button>
             {lyrics && <div className="lu-lyrics"><p>As letras e as ilustrações originais aparecerão aqui após a conferência e autorização da escola.</p></div>}
             <button type="button" className="lu-list-back" onClick={openList}>← Voltar à lista de músicas</button>

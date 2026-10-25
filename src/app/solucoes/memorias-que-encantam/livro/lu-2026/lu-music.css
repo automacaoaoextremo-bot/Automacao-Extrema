@@ -352,3 +352,25 @@
 @media (max-width: 350px) {
   .lu-first-access-columns { grid-template-columns: 1fr; }
 }
+
+/* AJUSTES 04 / V6 - controles simples para dispositivos moveis */
+.lu-brandtop .lu-teacher-link{flex-direction:column;gap:2px;line-height:1.1;min-width:94px;text-align:center}
+.lu-brandtop .lu-teacher-link strong{font-size:13px}
+.lu-brandtop .lu-teacher-link small{font-size:8px;letter-spacing:.04em}
+.lu-dialog-close{width:auto;min-width:78px;padding:0 12px;font-size:11px;font-weight:850;letter-spacing:.04em}
+.lu-delete-audio{background:#fff0ef!important;color:#963a39!important;border:1px solid #f1baba!important}
+.lu-curation-actions{flex-wrap:wrap}
+.lu-help-button{display:block;width:100%;max-width:340px;margin:0 0 12px;padding:10px;background:#fff;color:#135d48;border:1px solid #b9ded8;border-radius:11px;font-weight:800}
+.lu-help-guide{line-height:1.65;text-align:left}
+.lu-help-guide h2{font-size:20px;margin:4px 0 10px}
+.lu-help-guide ol{padding-left:23px;margin:8px 0}
+.lu-help-guide li{padding:0 0 12px;font-size:14px}
+.lu-help-guide p{font-size:13px;background:#ecf7ed;padding:12px;border-radius:11px}
+.lu-help-guide code{font-size:12px;overflow-wrap:anywhere}
+.lu-qr-preview{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;background:#fff;border:1px solid #e0ece7;border-radius:15px;padding:15px}
+.lu-qr-preview h2{font-size:19px;margin:4px 0}
+.lu-qr-preview p{font-size:12px;line-height:1.45;color:#506b72;margin:0}
+.lu-qr-preview a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;min-height:44px}
+@media(max-width:530px){.lu-brandtop .lu-teacher-link{min-width:78px;padding:7px}.lu-brandtop .lu-teacher-link strong{font-size:12px}.lu-brandtop .lu-teacher-link small{font-size:7px}.lu-dialog-close{min-width:68px;min-height:39px}}
+
+.lu-audio-warning{font-size:12px;color:#94452b;background:#fff3eb;padding:8px;border-radius:8px;margin:8px 0}

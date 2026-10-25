@@ -20,7 +20,7 @@ export function LuHeader({ admin = false, login = false, teacherName }: Props) {
           </div>
         ) : (
           <Link className="lu-teacher-link" href={login ? LU_BASE_PATH : `${LU_BASE_PATH}/admin`}>
-            {login ? "Voltar ao livro" : "Professor(a)"}
+            {login ? "Voltar ao livro" : <><strong>Docentes</strong><small>CLIQUE PARA ACESSAR</small></>}
           </Link>
         )}
       </div>
