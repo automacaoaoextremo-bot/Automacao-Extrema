@@ -98,13 +98,18 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
-        setCurrent(null);
+        if (panel === "qr" && qrPreview) {
+          setQrPreview(false);
+          setQrPreviewIndex(0);
+        } else {
+          setOpen(false);
+          setCurrent(null);
+        }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, panel, qrPreview]);
 
   async function action(id: string, verb: "choose" | "hide" | "restore" | "delete") {
     if (verb === "delete" && !window.confirm("Excluir permanentemente esta gravação? Esta ação não poderá ser desfeita.")) return;
@@ -216,7 +221,13 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     : "";
   const qrPdf = `${LU_BASE_PATH}/api/qr/pdf?selecao=${encodeURIComponent(qrTrack)}`;
 
+  // Na revisão dos QR Codes, FECHAR retorna ao seletor, sem encerrar o fluxo.
   const close = () => {
+    if (panel === "qr" && qrPreview) {
+      setQrPreview(false);
+      setQrPreviewIndex(0);
+      return;
+    }
     setQrPreview(false);
     setOpen(false);
     setCurrent(null);
