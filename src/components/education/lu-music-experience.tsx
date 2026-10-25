@@ -77,7 +77,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const pages = Math.ceil(tracks.length / PAGE_SIZE);
 
   return (
-    <main className="lu-root lu-book">
+    <main className="lu-root lu-book lu-public-home">
       <LuHeader />
       <div className="lu-container">
         <section className="lu-hero">

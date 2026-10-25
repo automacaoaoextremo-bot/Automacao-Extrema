@@ -6,6 +6,8 @@ import { LU_BASE_PATH } from "@/lib/education/lu-pilot";
 
 export const LU_TEACHER_COOKIE = "ae_lu_teacher_v3";
 export const LU_TEACHER_MAX_AGE = 60 * 60 * 12;
+// Validade mais curta para concluir a primeira troca de senha.
+export const LU_FIRST_ACCESS_MAX_AGE = 60 * 15;
 export const teacherCookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: LU_BASE_PATH, maxAge: LU_TEACHER_MAX_AGE };
 
 export type LuTeacher = { id: string; name: string; phone_digits: string; email: string | null; password_hash: string; must_change_password: boolean; session_version: number; failed_attempts: number; locked_until: string | null };
@@ -38,6 +40,7 @@ export async function getLuTeacherSession(): Promise<LuTeacher|null> {
   if(!timingSafeEqual(Buffer.from(expected,"hex"),Buffer.from(match[5],"hex"))) return null;
   const {data,error}=await supabaseAdmin.from("ae_education_teachers").select(teacherFields).eq("id",match[2]).eq("project_slug","lu-2026").eq("active",true).maybeSingle();
   if(error||!data||data.session_version!==Number(match[3])) return null;
+  if (data.must_change_password && now - issued > LU_FIRST_ACCESS_MAX_AGE) return null;
   return data as LuTeacher;
 }
 export async function hasLuAdminAccess(): Promise<boolean> {
