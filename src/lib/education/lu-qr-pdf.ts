@@ -59,6 +59,10 @@ export function buildLuQrPdf(selection: "geral" | "todas" | string, orderedIds: 
     drawing += line(id ? `Musica ${id} de 12` : "Livro completo - 12 cancoes", 105, 685, 12, false);
     drawing += line("Aponte a camera do celular para o codigo", 105, 239, 12, false);
     drawing += line("Projeto da Lu - 2026", 105, 210, 11, false);
+    // O link impresso permite conferir o destino mesmo antes de escanear.
+    const destination = url.toString();
+    drawing += line(destination.slice(0, 70), 65, 173, 8, false);
+    if (destination.length > 70) drawing += line(destination.slice(70), 65, 161, 8, false);
     drawing += line(`${pageIndex + 1} / ${pages.length}`, 500, 70, 10, false);
     const stream = deflateSync(Buffer.from(drawing, "ascii"), { level: 9 });
     const contentRef = add(Buffer.concat([Buffer.from(`<< /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`), stream, Buffer.from("\nendstream")]));

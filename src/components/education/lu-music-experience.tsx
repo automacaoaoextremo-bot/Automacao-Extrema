@@ -107,7 +107,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
         <section className="lu-hero">
           <span className="lu-eyebrow">✨ Uma recordação que ganha voz</span>
           <h1>Nosso Livro <em>Musical!</em> 🎶</h1>
-          <p>Uma página para guardar músicas, desenhos e momentos especiais vividos na escola. Feita para ouvir e cantar em família!</p>
+          <p>Uma página para guardar músicas, desenhos e momentos especiais vividos na escola.<span className="lu-hero-family-line">Feita para ouvir e cantar em família!</span></p>
           <div className="lu-hero-tags"><span>🎵 12 músicas</span><span>🎨 desenhos da turma em breve</span><span>📱 feito para o celular</span></div>
         </section>
         <section className="lu-collection-entry">
