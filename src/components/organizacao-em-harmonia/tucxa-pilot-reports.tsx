@@ -187,10 +187,12 @@ function printableEntityCard(entity: string, items: Row[]) {
           ${visibleItems.map((item) => {
             const status = cadernoStatus(item);
             const note = cadernoRowNote(item);
+            const priorityBadge = Number(item._servicePriority ?? 0) > 0
+              ? `<span class="status-badge">Prioridade ${Number(item._servicePriority)}</span>` : "";
             const firstTimeBadge = String(item._firstTimeIndicatorActive ?? "0") === "1"
               ? `<span class="status-badge status-first-time">Primeira vez</span>`
               : "";
-            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${priorityBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
           ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
@@ -198,7 +200,16 @@ function printableEntityCard(entity: string, items: Row[]) {
     </div>`;
 }
 
-function printableTable(rows: Row[], title: string, grouped: boolean) {
+function compareCadernoEntries(a: [string, Row[]], b: [string, Row[]], mode: "alphabetical" | "custom") {
+  if (mode === "custom") {
+    const aOrder = Number(a[1][0]?._entityOrder ?? 1000);
+    const bOrder = Number(b[1][0]?._entityOrder ?? 1000);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+  }
+  return a[0].localeCompare(b[0], "pt-BR");
+}
+
+function printableTable(rows: Row[], title: string, grouped: boolean, orderMode: "alphabetical" | "custom" = "alphabetical") {
   if (!rows.length) return "";
   const headers = visibleHeaders(rows[0]);
   if (!grouped) {
@@ -208,11 +219,9 @@ function printableTable(rows: Row[], title: string, grouped: boolean) {
   const groups = cadernoGroups(rows);
   return [...groups.entries()].map(([date, entities], dateIndex, dateEntries) => {
     const summary = cadernoSummary(entities);
-    const sortedEntities = [...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
-    // Ajuste 69: no PDF, cada card passa a fluir independentemente em três colunas.
-    // Antes, os cards eram agrupados em linhas fixas de três; um card alto em uma
-    // coluna aumentava a altura de toda a linha e deixava grandes vazios nas outras
-    // duas colunas. O fluxo em colunas compacta esses vazios sem dividir um card.
+    const sortedEntities = [...entities.entries()].sort((a,b) => compareCadernoEntries(a,b,orderMode));
+    // Ajuste V2-03: preenchimento por linhas, da esquerda para a direita,
+    // idêntico à sequência da consulta na tela.
     const printableCards = sortedEntities
       .map(([entity, items]) => printableEntityCard(entity, items))
       .join("");
@@ -248,6 +257,7 @@ export function TucxaPilotReports() {
   const [person, setPerson] = useState("");
   const [lineFilter, setLineFilter] = useState("");
   const [entityFilter, setEntityFilter] = useState("");
+  const [reportOrderMode, setReportOrderMode] = useState<"alphabetical" | "custom">("custom");
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -357,6 +367,12 @@ export function TucxaPilotReports() {
         <button onClick={() => void load()} disabled={loading} className="self-end rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-60">{loading ? "Consultando..." : "Consultar"}</button>
       </div>
 
+      {kind === "caderno" && <label className="grid gap-1 text-sm font-bold">Ordem de exibição e impressão das Entidades
+        <select value={reportOrderMode} onChange={(event) => setReportOrderMode(event.target.value as "alphabetical" | "custom")} className="rounded-xl border p-3 font-normal">
+          <option value="alphabetical">Alfabética</option>
+          <option value="custom">Ordem cadastrada das Entidades</option>
+        </select>
+      </label>}
       {kind === "caderno" && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">Visão do Caderno da Triagem organizada por Data → Entidade → Consulentes. Cancelamentos permanecem visíveis como histórico e liberam vaga; Entidades indisponíveis na data são destacadas.</p>}
       {kind === "sem_whatsapp_terceiros" && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-950">Lista atendimentos cadastrados como realizados por outro contato/familiar/responsável, exibindo quem recebe as comunicações.</p>}
       {error && <p className="rounded-xl bg-red-50 p-3 font-bold text-red-700">{error}</p>}
@@ -382,8 +398,8 @@ export function TucxaPilotReports() {
             .report-title{color:#123D2C;font-size:17px;font-weight:700;text-align:left;margin:0 0 8px}
             .report-date{color:#123D2C;font-size:13px;font-weight:700;text-align:center;margin:4px 0 6px}
             .entity-flow-row{break-inside:auto;page-break-inside:auto}
-            .entity-flow{column-count:3;column-gap:6px;column-fill:balance}
-            .entity-card{display:inline-block;width:100%;box-sizing:border-box;vertical-align:top;break-inside:avoid;page-break-inside:avoid;margin:0 0 6px}
+            .entity-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;align-items:start}
+            .entity-card{display:block;min-width:0;width:100%;box-sizing:border-box;vertical-align:top;break-inside:avoid;page-break-inside:avoid;margin:0}
             .entity-table{border-collapse:collapse;width:100%}
             .entity-card td{border:1px solid #aaa;height:16px;padding:2px 4px}
             .entity-card .order{width:18px;text-align:center}
@@ -399,7 +415,7 @@ export function TucxaPilotReports() {
             .status-requested{border-color:#e5c56f;background:#fff8df;color:#725000}
             .row-note{margin-top:2px;font-size:8px;color:#555}
             .cancelled-row .consulente-name{text-decoration:line-through;color:#777}
-          </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno")}</body></html>`);
+          </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno", reportOrderMode)}</body></html>`);
           report.document.close(); report.focus(); window.setTimeout(() => report.print(), 250);
         }} className="rounded-xl border bg-white px-4 py-2 font-black">PDF / Imprimir</button>
         <button onClick={exportCsv} className="rounded-xl border bg-white px-4 py-2 font-black">CSV</button>
@@ -427,8 +443,8 @@ export function TucxaPilotReports() {
                   <span className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">Vagas disponíveis: {summary.vacancies}</span>
                   {summaryEntries(summary).map(([label, count]) => <span key={label} className="rounded-full bg-white px-2 py-1 ring-1 ring-[#123D2C]/10">{label}: {count}</span>)}
                 </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {[...entities.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR")).map(([entity, items]) => {
+                <div className="overflow-x-auto"><div className="grid min-w-[690px] grid-cols-3 items-start gap-3">
+                  {[...entities.entries()].sort((a, b) => compareCadernoEntries(a, b, reportOrderMode)).map(([entity, items]) => {
                     const state = cadernoEntityState(items);
                     const visibleItems = cadernoVisibleItems(items);
                     const blankSlots = cadernoBlankSlots(items);
@@ -460,6 +476,7 @@ export function TucxaPilotReports() {
                                       Primeira vez
                                     </span>
                                   )}
+                                  {Number(item._servicePriority ?? 0) > 0 && <span className="ml-1 mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">Prioridade {Number(item._servicePriority)}</span>}
                                   {note && <p className="mt-1 text-[10px] font-semibold text-slate-600">{note}</p>}
                                 </div>
                               </div>
@@ -475,7 +492,7 @@ export function TucxaPilotReports() {
                       </div>
                     );
                   })}
-                </div>
+                </div></div>
               </section>
               );
             })}

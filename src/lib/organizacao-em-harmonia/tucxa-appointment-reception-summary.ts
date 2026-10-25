@@ -6,13 +6,6 @@ export type ReceptionSummaryAppointment = {
   metadata: unknown;
 };
 
-function appointmentNumber(metadata: unknown): number | null {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const value = (metadata as Record<string, unknown>).order;
-  const number = Number(value);
-  return Number.isInteger(number) && number > 0 ? number : null;
-}
-
 export function formatTucxaReceptionSummary(input: {
   date: string;
   appointments: ReceptionSummaryAppointment[];
@@ -36,8 +29,7 @@ export function formatTucxaReceptionSummary(input: {
         (a.consulente_name ?? "").localeCompare(b.consulente_name ?? "", "pt-BR", { sensitivity: "base" })
         || a.id.localeCompare(b.id));
       const lines = sorted.map((item) => {
-        const number = appointmentNumber(item.metadata);
-        return `${number === null ? "Nº não informado" : `Nº ${number}`} - ${item.consulente_name || "Consulente não informado"}`;
+        return item.consulente_name || "Consulente não informado";
       });
       const name = input.entityNames.get(id) || "Entidade não informada";
       const line = input.entityLines?.get(id) || "";

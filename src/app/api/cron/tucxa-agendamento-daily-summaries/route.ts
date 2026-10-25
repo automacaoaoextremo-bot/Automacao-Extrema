@@ -333,7 +333,7 @@ export async function GET(request: Request) {
               const list = grouped.get(entityId) ?? [];
               const entityName = entityNames.get(entityId) || "Entidade";
               const capacity = entityCapacities.get(entityId) || 4;
-              const lines = [...list].sort((a, b) => text(a.consulente_name).localeCompare(text(b.consulente_name), "pt-BR")).map((item, index) => `${index + 1}. ${text(item.consulente_name)}`).join("\n");
+              const lines = [...list].sort((a, b) => text(a.consulente_name).localeCompare(text(b.consulente_name), "pt-BR")).map((item) => `- ${text(item.consulente_name)}`).join("\n");
               return `Atendimentos de hoje - ${entityName} ${list.length}/${capacity}\n${lines}`;
             })
             .filter(Boolean);

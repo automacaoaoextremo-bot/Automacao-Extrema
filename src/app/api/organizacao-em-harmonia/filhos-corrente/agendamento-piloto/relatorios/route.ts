@@ -176,7 +176,7 @@ export async function GET(request: Request) {
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,cancelled_at,cancellation_reason,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,metadata,created_at")
+        .select("id,person_id,source_contact_person_id,entity_id,consulente_name,whatsapp,appointment_date,appointment_time,status,confirmation_status,arrival_status,cancelled_at,cancellation_reason,notification_contact_type,notification_contact_name,notification_contact_relationship,notification_contact_whatsapp,priority_order,metadata,created_at")
         .eq("organization_id", context.organizationId)
         .order("appointment_date", { ascending: true })
         .order("created_at", { ascending: true });
@@ -215,6 +215,24 @@ export async function GET(request: Request) {
         ...(entityChanges ?? []).flatMap((item) => [text(item.previous_entity_id), text(item.new_entity_id)]),
       ].filter(Boolean)));
       const names = await entityNames(context.organizationId, allEntityIds);
+      // O Caderno também inclui Entidades sem agendamentos (inclusive indisponíveis).
+      // A ordenação deve ser carregada para TODAS as Entidades da organização,
+      // não apenas para aquelas presentes nos agendamentos consultados.
+      const { data: orderedEntities, error: orderError } = await supabaseAdmin
+        .from("oh_spiritual_entities")
+        .select("id,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday")
+        .eq("organization_id", context.organizationId);
+      if (orderError) throw orderError;
+      const entityOrderIndex = new Map((orderedEntities ?? []).map((entity) => [text(entity.id), {
+        monday: Number(entity.pilot_display_order_monday ?? entity.pilot_display_order ?? 1000),
+        tuesday: Number(entity.pilot_display_order_tuesday ?? entity.pilot_display_order ?? 1000),
+      }]));
+      const orderForDate = (entityId: string, date: string) => {
+        const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+        const entry = entityOrderIndex.get(entityId);
+        return (day === 2 ? entry?.tuesday : entry?.monday) ?? 1000;
+      };
+
 
       const sourcePersonIds = Array.from(new Set(source.map((item) => text(item.person_id)).filter(Boolean)));
       const { data: people, error: peopleError } = sourcePersonIds.length
@@ -303,6 +321,7 @@ export async function GET(request: Request) {
           return {
             _appointmentId: text(item.id),
             _entityId: entityId,
+            _entityOrder: orderForDate(entityId, text(item.appointment_date)),
             _entityAvailable: availability?.isAvailable === false ? "0" : "1",
             _entitySuspendedReason: availability?.suspendedReason || "",
             _capacity: availability?.capacity ?? "",
@@ -312,6 +331,7 @@ export async function GET(request: Request) {
             _entityChangeReason: changeReason,
             _cancellationReason: cancellationReason,
             _firstTimeIndicatorActive: (item.metadata as Record<string, unknown> | null)?.firstTimeIndicatorActive === true ? "1" : "0",
+            _servicePriority: Number(item.priority_order ?? 0) || 0,
             Data: dateLabel(item.appointment_date),
             Entidade: cadernoLabels.get(key) || entity,
             Consulente: firstTwoPersonNames(consulenteName),
@@ -384,6 +404,7 @@ export async function GET(request: Request) {
             rows.push({
               _appointmentId: "",
               _entityId: entity.id,
+              _entityOrder: orderForDate(entity.id, date),
               _entityAvailable: entity.isAvailable === false ? "0" : "1",
               _entitySuspendedReason: text(entity.suspendedReason),
               _capacity: Math.max(1, Number(entity.capacity ?? 0) || 1),
@@ -393,6 +414,7 @@ export async function GET(request: Request) {
               _entityChangeReason: "",
               _cancellationReason: "",
               _firstTimeIndicatorActive: "0",
+              _servicePriority: 0,
               Data: dateLabel(date),
               Entidade: cadernoEntityName,
               Consulente: "",
