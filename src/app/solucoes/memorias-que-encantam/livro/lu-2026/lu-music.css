@@ -429,3 +429,18 @@
   .lu-root .lu-order-list .lu-order-row{min-height:39px}
   .lu-root .lu-order-list .lu-order-controls button{min-height:39px;min-width:39px}
 }
+
+/* AJUSTES 06 / V8 — playlist familiar na ordem definida pelos docentes */
+.lu-root.lu-public-home .lu-sequence-entry{margin-top:10px}
+.lu-root.lu-public-home .lu-sequence-entry .lu-open-card{border-color:#cceadd;background:linear-gradient(115deg,#fff,#f1fcf5)}
+.lu-root.lu-public-home .lu-sequence-entry .lu-open-card strong{font-size:clamp(17px,3.6vw,21px)}
+.lu-root .lu-sequence-hint{font-size:12px;line-height:1.45;background:#eef9f3;color:#235947;border-radius:12px;padding:9px 11px;margin:2px 0 10px;text-align:left}
+.lu-root .lu-sequence-loading{color:#386982;font-size:12px;font-weight:750}
+.lu-root .lu-sequence-finished{background:#e8f8e9;color:#225c37;border-radius:11px;padding:10px;font-weight:750}
+.lu-root .lu-sequence-restart{border:1px solid #bcded4;background:#ebf7f2;color:#185a40;border-radius:12px;padding:10px 14px;min-height:44px;font-size:12px;font-weight:800;margin:1px auto 7px}
+.lu-root .lu-controls button:disabled{opacity:.35;cursor:not-allowed}
+@media(max-width:530px){
+  .lu-root.lu-public-home .lu-sequence-entry{margin-top:8px}
+  .lu-root.lu-public-home .lu-sequence-entry .lu-open-card{min-height:65px;padding:8px 11px}
+  .lu-root .lu-sequence-hint{font-size:11px;padding:8px}
+}
