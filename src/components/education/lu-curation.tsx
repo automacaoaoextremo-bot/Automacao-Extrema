@@ -56,6 +56,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
   const [page, setPage] = useState(0);
   const [panel, setPanel] = useState<"list" | "order" | "qr" | "help">("list");
   const [qrPreview, setQrPreview] = useState(false);
+  const [qrPreviewIndex, setQrPreviewIndex] = useState(0);
   const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
   const [qrTrack, setQrTrack] = useState("geral");
   const [success, setSuccess] = useState("");
@@ -194,14 +195,26 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a ordem");
+      setData((currentData) => currentData ? { ...currentData, trackOrder: [...trackOrder] } : currentData);
       setSuccess("Nova sequência salva. Os QR Codes antigos continuam válidos.");
     } catch (error) { setErr(error instanceof Error ? error.message : "Falha ao salvar a ordem"); }
     finally { setBusy(""); }
   }
-  const qrSingleId = qrTrack === "todas" ? trackOrder[0] : qrTrack;
-  const qrSrc = `${LU_BASE_PATH}/api/qr${qrSingleId === "geral" ? "" : `?musica=${qrSingleId}`}`;
+  // A prévia usa exatamente os IDs permanentes e a mesma origem da geração do PDF.
+  // A reordenação altera somente a sequência do PDF em lote, nunca os destinos impressos.
+  const savedQrOrder = data?.trackOrder?.length === luTracks.length ? data.trackOrder : luTracks.map((track) => track.id);
+  const qrTracks = savedQrOrder.map((id) => luTracks.find((track) => track.id === id)).filter((track): track is typeof luTracks[number] => Boolean(track));
+  const qrPreviewItems = qrTrack === "geral"
+    ? [{ id: "", title: "Nosso Livro Musical" }]
+    : qrTrack === "todas"
+      ? qrTracks.map((track) => ({ id: track.id, title: track.title }))
+      : luTracks.filter((track) => track.id === qrTrack).map((track) => ({ id: track.id, title: track.title }));
+  const qrActive = qrPreviewItems[Math.min(qrPreviewIndex, qrPreviewItems.length - 1)];
+  const qrSrc = qrActive ? `${LU_BASE_PATH}/api/qr${qrActive.id ? `?musica=${encodeURIComponent(qrActive.id)}` : ""}` : "";
+  const qrDestination = qrActive
+    ? `https://www.automacaoextrema.com${LU_BASE_PATH}${qrActive.id ? `?musica=${encodeURIComponent(qrActive.id)}` : ""}`
+    : "";
   const qrPdf = `${LU_BASE_PATH}/api/qr/pdf?selecao=${encodeURIComponent(qrTrack)}`;
-  const qrTitle = qrTrack === "geral" ? "Nosso Livro Musical" : qrTrack === "todas" ? "Todos os QR Codes das 12 músicas" : (luTracks.find((track) => track.id === qrTrack)?.title || "Música");
 
   const close = () => {
     setQrPreview(false);
@@ -264,7 +277,14 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           </button>
         </div>
         <div className="lu-helptext">
-          <button type="button" className="lu-button lu-help-button" onClick={() => { setPanel("help"); setOpen(true); setCurrent(null); }}>❔ Ajuda para gravar e enviar áudios</button>
+          <button type="button" className="lu-help-button" onClick={() => { setPanel("help"); setOpen(true); setCurrent(null); }}>
+            <span aria-hidden="true" className="lu-help-icon">❔</span>
+            <span className="lu-help-button-copy">
+              <strong>Ajuda para gravar e enviar áudios</strong>
+              <small>CLIQUE PARA ABRIR</small>
+            </span>
+            <span aria-hidden="true" className="lu-help-arrow">›</span>
+          </button>
           <strong>Como funciona:</strong> “Escolher esta” define a gravação
           preferida. “Ocultar” esconde a opção sem apagar o original. Para as
           famílias, somente uma versão selecionada e liberada pela escola
@@ -287,7 +307,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           >
             <div className="lu-dialog-head">
               <strong>
-                {panel === "qr" ? "▦ QR Codes do livro" : panel === "order" ? "↕ Definir ordem" : panel === "help" ? "❔ Ajuda: gravação e envio" : current === null
+                {panel === "qr" ? (qrPreview ? "▦ Conferir QR Code antes de salvar" : "▦ QR Codes do livro") : panel === "order" ? "↕ Definir ordem" : panel === "help" ? "❔ Ajuda: gravação e envio" : current === null
                   ? "🎤 Definir Vozes"
                   : `🎤 ${luTracks[current].title}`}
               </strong>
@@ -302,8 +322,8 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
             </div>
 
             {panel === "order" ? (
-              <div className="lu-dialog-versions">
-                <p>Use as setas para organizar a sequência e depois toque em Salvar ordem.</p>
+              <div className="lu-dialog-versions lu-order-list">
+                <p className="lu-order-instructions">Use as setas para organizar a sequência e depois toque em Salvar ordem.</p>
                 {tracks.map((track, position) => (
                   <div className="lu-order-row" key={track.id}>
                     <span className="lu-order-label">{position + 1}. {track.art} {track.title}</span>
@@ -332,21 +352,43 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
                 <p><strong>Dica:</strong> mantenha uma cópia original das gravações em local seguro. Para gravar e armazenar vozes infantis, siga as orientações e autorizações da escola.</p>
               </div>
             ) : panel === "qr" ? (
-              <div className="lu-dialog-versions lu-qr-chooser">
-                <label htmlFor="lu-qr-song">Escolha o QR Code que deseja criar</label>
-                <select id="lu-qr-song" value={qrTrack} onChange={(event) => { setQrTrack(event.target.value); setQrPreview(false); }}>
-                  <option value="geral">Livro completo — 12 canções</option>
-                  <option value="todas">Todas as 12 músicas — PDF com 12 páginas</option>
-                  {tracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
-                </select>
-                <button type="button" className="lu-button lu-button-primary" onClick={() => setQrPreview(true)}>Pré-visualizar antes de salvar</button>
-                {qrPreview && <div className="lu-qr-preview" role="region" aria-label="Prévia do QR Code">
-                  <h2>{qrTitle}</h2>
-                  <p>{qrTrack === "todas" ? "Prévia da primeira página. O PDF terá uma página com título e QR Code para cada música." : "Veja como ficará o QR Code no PDF."}</p>
-                  <Image key={qrSrc} src={qrSrc} width={245} height={245} unoptimized alt={`QR Code para ${qrTitle}`} className="lu-qr-image" />
-                  <a className="lu-button lu-button-primary" href={qrPdf}>Salvar PDF {qrTrack === "todas" ? "(12 páginas)" : ""}</a>
-                </div>}
-              </div>
+              qrPreview ? (
+                <div className="lu-dialog-versions lu-qr-review" aria-label="Revisão do QR Code antes de salvar o PDF">
+                  <p className="lu-qr-review-intro">Confira o título, o endereço e o QR Code. Só salve o PDF depois de validar.</p>
+                  {qrActive && (
+                    <div className="lu-qr-preview" role="region" aria-live="polite" aria-label="Prévia do QR Code selecionado">
+                      <span className="lu-qr-page-count">{qrPreviewIndex + 1} de {qrPreviewItems.length}</span>
+                      <h2>{qrActive.title}</h2>
+                      {qrActive.id && <p className="lu-qr-track-id">Música {qrActive.id} — identificador permanente</p>}
+                      <Image key={qrSrc} src={qrSrc} width={245} height={245} unoptimized alt={`QR Code para ${qrActive.title}`} className="lu-qr-image" />
+                      <div className="lu-qr-link-check">
+                        <strong>Link de acesso que será gravado no QR Code</strong>
+                        <a href={qrDestination} target="_blank" rel="noopener noreferrer">{qrDestination}</a>
+                      </div>
+                    </div>
+                  )}
+                  {qrPreviewItems.length > 1 && (
+                    <div className="lu-pager lu-qr-preview-pager">
+                      <button type="button" disabled={qrPreviewIndex === 0} onClick={() => setQrPreviewIndex((index) => Math.max(0, index - 1))}>‹ Anterior</button>
+                      <span>{qrPreviewIndex + 1} / {qrPreviewItems.length}</span>
+                      <button type="button" disabled={qrPreviewIndex === qrPreviewItems.length - 1} onClick={() => setQrPreviewIndex((index) => Math.min(qrPreviewItems.length - 1, index + 1))}>Próxima ›</button>
+                    </div>
+                  )}
+                  <a className="lu-button lu-button-primary lu-qr-save" href={qrPdf} download>Salvar PDF {qrTrack === "todas" ? "(12 páginas)" : ""}</a>
+                  <button type="button" className="lu-qr-back" onClick={() => setQrPreview(false)}>← Voltar às opções</button>
+                </div>
+              ) : (
+                <div className="lu-dialog-versions lu-qr-chooser">
+                  <label htmlFor="lu-qr-song">Escolha o QR Code que deseja criar</label>
+                  <select id="lu-qr-song" value={qrTrack} onChange={(event) => { setQrTrack(event.target.value); setQrPreviewIndex(0); }}>
+                    <option value="geral">Livro completo — 12 canções</option>
+                    <option value="todas">Todas as 12 músicas — PDF com 12 páginas</option>
+                    {qrTracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
+                  </select>
+                  <button type="button" className="lu-button lu-button-primary" onClick={() => { setQrPreviewIndex(0); setQrPreview(true); }}>Abrir pré-visualização</button>
+                  <p className="lu-qr-hint">A revisão abrirá nesta janela. Na opção de 12 músicas, use Próxima/Anterior para conferir todas as páginas antes de salvar.</p>
+                </div>
+              )
             ) : current === null ? (
               <>
                 <div className="lu-dialog-list">

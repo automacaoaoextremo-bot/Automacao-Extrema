@@ -374,3 +374,58 @@
 @media(max-width:530px){.lu-brandtop .lu-teacher-link{min-width:78px;padding:7px}.lu-brandtop .lu-teacher-link strong{font-size:12px}.lu-brandtop .lu-teacher-link small{font-size:7px}.lu-dialog-close{min-width:68px;min-height:39px}}
 
 .lu-audio-warning{font-size:12px;color:#94452b;background:#fff3eb;padding:8px;border-radius:8px;margin:8px 0}
+
+/* AJUSTES 05 / V7 — layout, fechar, ordenacao e revisão dos QR Codes. */
+.lu-root .lu-hero-family-line{display:block;margin-top:7px;font-weight:700;color:#345c57}
+.lu-root .lu-dialog-close{
+  flex:0 0 auto;width:auto;min-width:80px;min-height:43px;padding:8px 13px;
+  background:#185a40;color:#fff;border:1px solid #185a40;
+  font-size:12px;font-weight:850;letter-spacing:.035em;border-radius:12px;
+}
+.lu-root .lu-dialog-close:hover{background:#0e4632;border-color:#0e4632}
+.lu-root .lu-dialog-close:focus-visible{outline:3px solid #ffb15b;outline-offset:2px}
+.lu-root .lu-help-button{
+  display:flex;align-items:center;gap:11px;text-align:left;width:100%;max-width:none;
+  min-height:70px;margin:0 0 14px;padding:11px 15px;
+  border:2px solid #d7ebe4;border-radius:18px;background:#fff;
+  box-shadow:0 3px 10px #143e3912;color:#174158;
+}
+.lu-root .lu-help-button-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.lu-root .lu-help-button-copy strong{font-size:clamp(15px,3.3vw,19px);line-height:1.25}
+.lu-root .lu-help-button-copy small{color:#008e90;font-size:10px;font-weight:850;letter-spacing:.08em}
+.lu-root .lu-help-icon{font-size:23px}
+.lu-root .lu-help-arrow{color:#008e90;font-size:26px;font-weight:900}
+/* A lista com 12 músicas fica compacta sem perder leitura e controles de toque. */
+.lu-root .lu-order-list{display:flex;flex-direction:column;gap:3px}
+.lu-root .lu-order-list .lu-order-row{
+  margin:0;padding:2px 8px;gap:5px;min-height:42px;border-radius:9px;
+}
+.lu-root .lu-order-list .lu-order-label{font-size:12px;line-height:1.22;overflow-wrap:anywhere}
+.lu-root .lu-order-list .lu-order-controls{gap:4px;flex:0 0 auto}
+.lu-root .lu-order-list .lu-order-controls button{
+  min-width:41px;min-height:41px;padding:0 8px;border-radius:9px;font-size:18px;
+}
+.lu-root .lu-order-instructions{font-size:12px;line-height:1.35;margin:0 0 8px}
+.lu-root .lu-order-save{min-height:43px;margin-top:8px}
+.lu-root .lu-qr-review{display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.lu-root .lu-qr-review-intro{font-size:12px;line-height:1.45;margin:0;color:#466970}
+.lu-root .lu-qr-preview{gap:10px;padding:12px;text-align:center}
+.lu-root .lu-qr-preview h2{font-size:clamp(17px,4vw,21px);line-height:1.25}
+.lu-root .lu-qr-page-count{color:#0e766e;font-size:11px;font-weight:850}
+.lu-root .lu-qr-track-id{font-size:11px;color:#647777}
+.lu-root .lu-qr-link-check{width:100%;display:flex;flex-direction:column;gap:5px;background:#f0f9f5;border-radius:10px;padding:10px;text-align:left}
+.lu-root .lu-qr-link-check strong{font-size:11px;color:#205541}
+.lu-root .lu-qr-link-check a{font-size:11px;overflow-wrap:anywhere;word-break:break-word;color:#075e75;text-decoration:underline}
+.lu-root .lu-qr-save{min-height:44px;width:100%}
+.lu-root .lu-qr-back{min-height:42px;background:#edf7f3;border:1px solid #c4e1d6;color:#185a40;font-weight:800;border-radius:12px;padding:9px}
+.lu-root .lu-qr-hint{font-size:12px;line-height:1.5;margin:5px 0;color:#506b72}
+@media(max-width:530px){
+  .lu-root .lu-dialog-close{min-width:75px;min-height:42px;font-size:11px}
+  .lu-root .lu-order-list .lu-order-row{padding:1px 5px;min-height:41px}
+  .lu-root .lu-order-list .lu-order-controls button{min-width:40px;min-height:40px}
+  .lu-root .lu-qr-preview .lu-qr-image{max-width:min(58vw,220px)}
+}
+@media(max-height:720px){
+  .lu-root .lu-order-list .lu-order-row{min-height:39px}
+  .lu-root .lu-order-list .lu-order-controls button{min-height:39px;min-width:39px}
+}
