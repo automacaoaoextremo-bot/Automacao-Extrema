@@ -432,6 +432,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultPage, setConsultPage] = useState(1);
   const [consultSearch, setConsultSearch] = useState("");
   const [consultEntitySearch, setConsultEntitySearch] = useState("");
+  const [consultEntityLetter, setConsultEntityLetter] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
   const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno" | "caderno_amplo">("caderno");
@@ -635,6 +636,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   }, [payload?.appointments]);
+  // Letras das Entidades que realmente possuem atendimentos ativos na data.
+  // Este filtro e independente da busca pelo Consulente e do filtro de status.
+  const consultEntityLetters = useMemo(() => {
+    const letters = new Set<string>();
+    for (const appointment of payload?.appointments ?? []) {
+      if (appointment.status === "cancelado") continue;
+      const first = appointment.entityName.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toLocaleUpperCase("pt-BR");
+      if (/^[A-Z]$/.test(first)) letters.add(first);
+    }
+    return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [payload?.appointments]);
   const selectedStatusLabel = useMemo(() => {
     if (consultStatuses.length === ALL_CONSULT_STATUSES.length) return "todos";
     if (consultStatuses.length === 0) return "nenhum status";
@@ -694,7 +706,14 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 : "unconfirmed";
       const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
-      if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) return false;
+      if (consultDisplayMode === "caderno_amplo") {
+        if (consultEntityLetter) {
+          const first = item.entityName.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toLocaleUpperCase("pt-BR");
+          if (first !== consultEntityLetter) return false;
+        }
+      } else if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) {
+        return false;
+      }
       if (normalizedSearch) {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
@@ -702,7 +721,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       if (normalizedEntitySearch && !item.entityName.toLocaleLowerCase("pt-BR").includes(normalizedEntitySearch)) return false;
       return true;
     });
-  }, [consultDisplayMode, consultEntitySearch, consultLetter, consultSearch, consultStatuses, payload?.appointments]);
+  }, [consultDisplayMode, consultEntityLetter, consultEntitySearch, consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     const displayOrder = payload?.settings.triageDisplayOrder ?? "booking";
     return [...filteredAppointments].sort((a, b) => {
@@ -740,19 +759,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
       : activeListAppointments,
     [activeListAppointments, effectiveConsultPage, triagePaginationEnabled],
   );
-  // O resumo da data usa todos os agendamentos, independentemente dos filtros de busca.
-  const triageDayCounts = useMemo(() => {
-    const appointments = payload?.appointments ?? [];
-    const active = appointments.filter((item) => item.status !== "cancelado");
-    return {
-      expected: active.length,
-      available: (payload?.entities ?? []).reduce((total, entity) => total + Math.max(0, entity.available), 0),
-      confirmed: active.filter((item) => item.confirmationStatus === "confirmed").length,
-      requested: active.filter((item) => item.status === "solicitado" && item.confirmationStatus !== "confirmed").length,
-      cancelled: appointments.length - active.length,
-    };
-  }, [payload?.appointments, payload?.entities]);
-
   const compareEntityLabels = useCallback((a: string, b: string) => {
     if (payload?.receptionPreferences.receptionEntityOrderMode === "custom") {
       const weekday = payload.selectedDate ? new Date(`${payload.selectedDate}T12:00:00Z`).getUTCDay() : 1;
@@ -1516,7 +1522,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setErrorNotice({ title: "Ordem não permitida", message: "Atendimentos prioritários mantêm Chegou, mas não entram na ordem comum do Caderno." });
       return;
     }
-    const raw = (cadernoOrders[appointmentId] ?? "").trim();
+    const raw = (cadernoOrders[appointmentId] ?? (prioritizedAppointment?.arrivalOrder ? String(prioritizedAppointment.arrivalOrder) : "")).trim();
     const arrivalOrder = raw === "" ? "" : Number(raw);
     if (arrivalOrder !== "" && (!Number.isInteger(arrivalOrder) || arrivalOrder < 0)) {
       setErrorNotice({ title: "Ordem inválida", message: "Informe uma ordem válida ou deixe em branco para desfazer a chegada." });
@@ -2082,6 +2088,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
+            // Na Triagem ampliada, FECHAR retorna ao Caderno Compacto e nao sai da Triagem.
+            if (modal === "consultar" && consultDisplayMode === "caderno_amplo") {
+              setConsultDisplayMode("caderno");
+              setConsultEntityLetter("");
+              setConsultPage(1);
+              return;
+            }
             if (modal === "configuracoes" && settingsSection) {
               setSettingsSection(null);
               return;
@@ -2491,7 +2504,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <div className="grid gap-3">
               <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setOpenAppointmentActions({}); void load(event.target.value); }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
+                  <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setConsultEntityLetter(""); setConsultLetter(""); setOpenAppointmentActions({}); void load(event.target.value); }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
                     {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
                   </select>
                   <button type="button" disabled={saving || triageFinalized} onClick={() => void finalizeOperationalStage("triage")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{triageFinalized ? "Finalizada" : finalizingStage === "triage" ? "Finalizando..." : "FINALIZAR"}</button>
@@ -2502,7 +2515,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <span className="text-sm font-black text-[#123D2C]">{filteredAppointments.length}</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                {consultDisplayMode !== "caderno_amplo" && <div className="grid grid-cols-3 gap-2">
                   <button type="button" onClick={() => { setConsultView("entity_day"); setConsultDisplayMode("lista"); setConsultPage(1); setOpenAppointmentActions({}); }} className={`rounded-xl px-2 py-2 text-[11px] font-black ring-1 ${consultDisplayMode === "lista" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>
                     <span className="block">Entidade</span>
                     <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "lista" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
@@ -2515,25 +2528,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <span className="block">Caderno</span>
                     <span className={`mt-0.5 block text-[8px] font-black uppercase tracking-[0.08em] ${consultDisplayMode === "caderno" ? "text-white/80" : "text-[#2F6B43]"}`}>TOQUE PARA VER</span>
                   </button>
-                </div>
+                </div>}
 
-                <button
+                {consultDisplayMode !== "caderno_amplo" && <button
                   type="button"
-                  onClick={() => { setConsultDisplayMode(consultDisplayMode === "caderno_amplo" ? "caderno" : "caderno_amplo"); setConsultPage(1); setOpenAppointmentActions({}); }}
-                  className={`hidden rounded-xl px-3 py-2 text-left text-xs font-black ring-1 md:block ${consultDisplayMode === "caderno_amplo" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-[#E9F2E7] text-[#123D2C] ring-[#123D2C]/15"}`}
+                  onClick={() => { setConsultDisplayMode("caderno_amplo"); setConsultEntityLetter(""); setConsultPage(1); setOpenAppointmentActions({}); setCadernoOrders((current) => ({ ...Object.fromEntries((payload.appointments ?? []).map((item) => [item.id, item.arrivalOrder ? String(item.arrivalOrder) : ""])), ...current })); }}
+                  className="hidden rounded-xl bg-[#E9F2E7] px-3 py-2 text-left text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 md:block"
                 >
-                  {consultDisplayMode === "caderno_amplo" ? "← Voltar ao Caderno compacto" : "Abrir Triagem em Caderno — tablet/notebook"}
-                </button>
-
-                {consultDisplayMode === "caderno_amplo" && (
-                  <div className="grid grid-cols-2 gap-1 text-[10px] font-bold text-[#123D2C] sm:grid-cols-3 xl:grid-cols-5" aria-label="Resumo da data">
-                    <span className="rounded-lg border px-2 py-1">Total previsto: {triageDayCounts.expected}</span>
-                    <span className="rounded-lg border px-2 py-1">Vagas disponíveis: {triageDayCounts.available}</span>
-                    <span className="rounded-lg border px-2 py-1">Confirmados: {triageDayCounts.confirmed}</span>
-                    <span className="rounded-lg border px-2 py-1">Solicitados: {triageDayCounts.requested}</span>
-                    <span className="rounded-lg border px-2 py-1">Cancelados: {triageDayCounts.cancelled}</span>
-                  </div>
-                )}
+                  Abrir Triagem em Caderno — tablet/notebook
+                </button>}
                 <div className={`grid gap-2 ${consultDisplayMode === "caderno_amplo" ? "grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[1fr_auto]"}`}>
                   <input aria-label="Buscar consulente" value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder={consultDisplayMode === "caderno_amplo" ? "Buscar nome do consulente ou WhatsApp" : "Buscar por nome ou WhatsApp"} className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
                   {consultDisplayMode === "caderno_amplo" && (
@@ -2542,12 +2545,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
                 </div>
 
-                <div className="flex flex-wrap gap-1">
-                  <button type="button" onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
-                  {consultLetters.map((letter) => (
-                    <button key={letter} type="button" onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
-                  ))}
-                </div>
+                {consultDisplayMode === "caderno_amplo" ? (
+                  <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar Entidades com atendimentos pela letra inicial">
+                    <span className="mr-1 text-[11px] font-black text-[#123D2C]">Entidades:</span>
+                    <button type="button" aria-pressed={!consultEntityLetter} onClick={() => { setConsultEntityLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultEntityLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                    {consultEntityLetters.map((letter) => (
+                      <button key={`entidade-${letter}`} type="button" aria-pressed={consultEntityLetter === letter} onClick={() => { setConsultEntityLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultEntityLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1" role="group" aria-label="Filtrar Consulentes pela letra inicial">
+                    <button type="button" onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                    {consultLetters.map((letter) => (
+                      <button key={letter} type="button" onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {consultDisplayMode === "caderno_amplo" && (
@@ -2577,6 +2590,28 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                   <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700 disabled:opacity-50">Cancelar</button>
                                   <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir Prioridade"}</button>
                                   <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold text-orange-900 disabled:opacity-50">Não Chegou</button>
+                                </div>
+                              )}
+                              {appointment.status !== "cancelado" && (
+                                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_5rem_auto] items-center gap-2" aria-label={`Definir ordem de chegada de ${appointment.consulenteName}`}>
+                                  <span className="text-[11px] font-black text-[#123D2C]">Ordem de chegada</span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    aria-label={`Ordem de chegada de ${firstTwoPersonNames(appointment.consulenteName)}`}
+                                    disabled={saving || triageFinalized || (appointment.servicePriority ?? 0) > 0}
+                                    value={cadernoOrders[appointment.id] ?? (appointment.arrivalOrder ? String(appointment.arrivalOrder) : "")}
+                                    onChange={(event) => setCadernoOrders((current) => ({ ...current, [appointment.id]: event.target.value.replace(/\D/g, "") }))}
+                                    placeholder="Ordem"
+                                    className="min-w-0 rounded-lg border border-[#123D2C]/20 p-2 text-center text-xs font-black disabled:bg-slate-100 disabled:opacity-50"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={saving || triageFinalized || (appointment.servicePriority ?? 0) > 0}
+                                    onClick={() => void saveCadernoArrival(appointment.id)}
+                                    className="rounded-lg bg-[#123D2C] px-3 py-2 text-[11px] font-black text-white disabled:opacity-50"
+                                  >Salvar</button>
                                 </div>
                               )}
                               {appointment.status === "cancelado" && <p className="text-[10px] font-semibold text-red-700">Vaga liberada</p>}
