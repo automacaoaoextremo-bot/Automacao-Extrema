@@ -437,6 +437,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
   const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno" | "caderno_amplo">("caderno");
   const [forwardingView, setForwardingView] = useState<"entity" | "consulente">("entity");
+  const [forwardingWide, setForwardingWide] = useState(false);
   const [forwardingStage, setForwardingStage] = useState<"pending" | "completed">("pending");
   const [finalizingStage, setFinalizingStage] = useState<"triage" | "forwarding" | null>(null);
   const [forwardingPage, setForwardingPage] = useState(1);
@@ -631,8 +632,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const consultLetters = useMemo(() => {
     const letters = new Set<string>();
     for (const item of payload?.appointments ?? []) {
-      const first = item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR");
-      if (first) letters.add(first);
+      if (item.status === "cancelado") continue;
+      const first = entityDirectoryKey(item.consulenteName).charAt(0);
+      if (/^[A-Z]$/.test(first)) letters.add(first);
     }
     return [...letters].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   }, [payload?.appointments]);
@@ -706,12 +708,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 : "unconfirmed";
       const statusMatches = consultStatuses.includes(statusBucket);
       if (!statusMatches) return false;
-      if (consultDisplayMode === "caderno_amplo") {
-        if (consultEntityLetter) {
-          const first = item.entityName.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toLocaleUpperCase("pt-BR");
-          if (first !== consultEntityLetter) return false;
-        }
-      } else if (consultLetter && item.consulenteName.trim().charAt(0).toLocaleUpperCase("pt-BR") !== consultLetter) {
+      if (consultDisplayMode === "caderno_amplo" && consultEntityLetter) {
+        if (entityDirectoryKey(item.entityName).charAt(0) !== consultEntityLetter) return false;
+      }
+      if (consultLetter && entityDirectoryKey(item.consulenteName).charAt(0) !== consultLetter) {
         return false;
       }
       if (normalizedSearch) {
@@ -829,7 +829,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     [filteredForwardingAppointments, forwardingView],
   );
   const forwardingPageSize = 2;
-  const forwardingPaginationEnabled = payload?.settings.forwardingPaginationEnabled !== false;
+  const forwardingPaginationEnabled = !forwardingWide && payload?.settings.forwardingPaginationEnabled !== false;
   const forwardingPageCount = forwardingPaginationEnabled
     ? Math.max(1, Math.ceil(orderedForwardingAppointments.length / forwardingPageSize))
     : 1;
@@ -855,6 +855,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
       .sort(([left], [right]) => compareEntityLabels(left, right))
       .map(([label, appointments]) => ({ label, appointments }));
   }, [compareEntityLabels, forwardingView, visibleForwardingAppointments]);
+
+  const forwardingWideGroups = useMemo(() => {
+    const groups = new Map<string, Appointment[]>();
+    for (const appointment of orderedForwardingAppointments) {
+      const list = groups.get(appointment.entityName) ?? [];
+      list.push(appointment);
+      groups.set(appointment.entityName, list);
+    }
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => compareEntityLabels(left, right))
+      .map(([label, appointments]) => ({ label, appointments }));
+  }, [compareEntityLabels, orderedForwardingAppointments]);
 
   const triageFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "triage");
   const forwardingFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "forwarding");
@@ -2081,7 +2093,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
-          wide={modal === "consultar" && consultDisplayMode === "caderno_amplo"}
+          wide={(modal === "consultar" && consultDisplayMode === "caderno_amplo") || (modal === "encaminhamento" && forwardingWide)}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao"].includes(modal) ? (
@@ -2093,6 +2105,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
               setConsultDisplayMode("caderno");
               setConsultEntityLetter("");
               setConsultPage(1);
+              return;
+            }
+            if (modal === "encaminhamento" && forwardingWide) {
+              setForwardingWide(false);
+              setForwardingPage(1);
               return;
             }
             if (modal === "configuracoes" && settingsSection) {
@@ -2164,6 +2181,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 type="button"
                 onClick={() => {
                   setForwardingView("entity");
+                  setForwardingWide(false);
                   setForwardingPage(1);
                   setForwardingSearch("");
                   setForwardingLetter("");
@@ -2537,29 +2555,43 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 >
                   Abrir Triagem em Caderno — tablet/notebook
                 </button>}
-                <div className={`grid gap-2 ${consultDisplayMode === "caderno_amplo" ? "grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[1fr_auto]"}`}>
-                  <input aria-label="Buscar consulente" value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder={consultDisplayMode === "caderno_amplo" ? "Buscar nome do consulente ou WhatsApp" : "Buscar por nome ou WhatsApp"} className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
-                  {consultDisplayMode === "caderno_amplo" && (
-                    <input aria-label="Buscar entidade" value={consultEntitySearch} onChange={(event) => { setConsultEntitySearch(event.target.value); setConsultPage(1); }} placeholder="Buscar pelo nome da Entidade" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
-                  )}
-                  <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
-                </div>
-
                 {consultDisplayMode === "caderno_amplo" ? (
-                  <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar Entidades com atendimentos pela letra inicial">
-                    <span className="mr-1 text-[11px] font-black text-[#123D2C]">Entidades:</span>
-                    <button type="button" aria-pressed={!consultEntityLetter} onClick={() => { setConsultEntityLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultEntityLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
-                    {consultEntityLetters.map((letter) => (
-                      <button key={`entidade-${letter}`} type="button" aria-pressed={consultEntityLetter === letter} onClick={() => { setConsultEntityLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultEntityLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
-                    ))}
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" aria-label="Filtros independentes da Triagem em Caderno">
+                    <div className="grid min-w-0 content-start gap-1.5">
+                      <input aria-label="Buscar consulente" value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar nome do consulente ou WhatsApp" className="min-w-0 w-full rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar Consulentes por inicial">
+                        <span className="mr-1 text-[10px] font-bold text-[#123D2C]">Consulentes:</span>
+                        <button type="button" aria-pressed={!consultLetter} onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex min-h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[10px] font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                        {consultLetters.map((letter) => (
+                          <button key={`consulente-amplo-${letter}`} type="button" aria-pressed={consultLetter === letter} onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex min-h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[10px] font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid min-w-0 content-start gap-1.5">
+                      <input aria-label="Buscar entidade" value={consultEntitySearch} onChange={(event) => { setConsultEntitySearch(event.target.value); setConsultPage(1); }} placeholder="Buscar pelo nome da Entidade" className="min-w-0 w-full rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar Entidades com atendimentos por inicial">
+                        <span className="mr-1 text-[10px] font-bold text-[#123D2C]">Entidades:</span>
+                        <button type="button" aria-pressed={!consultEntityLetter} onClick={() => { setConsultEntityLetter(""); setConsultPage(1); }} className={`flex min-h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[10px] font-black ring-1 ${!consultEntityLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                        {consultEntityLetters.map((letter) => (
+                          <button key={`entidade-ampla-${letter}`} type="button" aria-pressed={consultEntityLetter === letter} onClick={() => { setConsultEntityLetter(letter); setConsultPage(1); }} className={`flex min-h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[10px] font-black ring-1 ${consultEntityLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="h-10 rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-1" role="group" aria-label="Filtrar Consulentes pela letra inicial">
-                    <button type="button" onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
-                    {consultLetters.map((letter) => (
-                      <button key={letter} type="button" onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
-                    ))}
-                  </div>
+                  <>
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <input aria-label="Buscar consulente" value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar por nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                      <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
+                    </div>
+                    <div className="flex flex-wrap gap-1" role="group" aria-label="Filtrar Consulentes pela letra inicial">
+                      <button type="button" onClick={() => { setConsultLetter(""); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${!consultLetter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>Todos</button>
+                      {consultLetters.map((letter) => (
+                        <button key={letter} type="button" onClick={() => { setConsultLetter(letter); setConsultPage(1); }} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-black ring-1 ${consultLetter === letter ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#123D2C]/15"}`}>{letter}</button>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -2575,7 +2607,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
                             <div key={`triagem-ampla-${appointment.id}`} className={`grid gap-1 px-2 py-2 ${appointment.status === "cancelado" ? "bg-red-50" : ""}`}>
                               <div className="flex flex-wrap items-center justify-between gap-1">
-                                <span className={`text-xs font-bold ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</span>
+                                <span className={`text-sm font-black leading-snug ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               </div>
                               <div className="flex flex-wrap items-center gap-1">
@@ -2844,7 +2876,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <span className="col-span-2 text-center text-[10px] font-black uppercase tracking-wide text-[#2F6B43]">TOQUE PARA VER</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                {!forwardingWide && (
+                  <button
+                    type="button"
+                    onClick={() => { setForwardingWide(true); setForwardingView("entity"); setForwardingPage(1); }}
+                    className="hidden rounded-xl bg-[#E9F2E7] px-3 py-2 text-left text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 md:block"
+                  >
+                    Abrir Encaminhamento em Caderno — tablet/notebook
+                  </button>
+                )}
+
+                {!forwardingWide && <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -2867,7 +2909,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <span className="block">Consulente</span>
 
                   </button>
-                </div>
+                </div>}
 
                 <input
                   value={forwardingSearch}
@@ -2906,7 +2948,41 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               </div>
 
-              {forwardingView === "entity" && forwardingGroups.map((group) => (
+              {forwardingWide && (
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Encaminhamento em formato de Caderno para tablet e notebook">
+                  {forwardingWideGroups.map((group) => (
+                    <section key={`enc-amplo-${group.label}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-[#123D2C]/25 bg-white">
+                      <h3 className="bg-[#E9F2E7] px-3 py-2 text-xs font-black uppercase text-[#123D2C]">{entityHeading(group.label)}</h3>
+                      <div className="divide-y divide-[#123D2C]/10">
+                        {group.appointments.map((appointment) => (
+                          <article key={`enc-amplo-person-${appointment.id}`} className="grid gap-2 px-3 py-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-sm font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
+                                <p className="text-[11px] font-semibold text-slate-600">
+                                  {(appointment.servicePriority ?? 0) > 0 ? `Prioridade ${appointment.servicePriority}` : `Chegada ${appointment.arrivalOrder ?? "-"}`}
+                                </p>
+                                <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                              </div>
+                              <button
+                                type="button"
+                                disabled={saving || forwardingFinalized}
+                                onClick={() => void markForwarded(appointment.id, forwardingStage !== "completed")}
+                                className="min-h-9 shrink-0 rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                                aria-label={`${forwardingStage === "completed" ? "Desfazer encaminhamento de" : "Encaminhar"} ${appointment.consulenteName}`}
+                              >
+                                {forwardingStage === "completed" ? "Desfazer" : "Encaminhar"}
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              {!forwardingWide && forwardingView === "entity" && forwardingGroups.map((group) => (
                 <section key={`enc-group-${group.label}`} className="grid gap-2">
                   <h3 className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black uppercase text-[#123D2C]">
                     {entityHeading(group.label)}
@@ -2931,7 +3007,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </section>
               ))}
 
-              {forwardingView === "consulente" && visibleForwardingAppointments.map((appointment) => (
+              {!forwardingWide && forwardingView === "consulente" && visibleForwardingAppointments.map((appointment) => (
                 <article key={`enc-person-${appointment.id}`} className="flex flex-wrap items-center gap-2 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                   <div className="min-w-0 flex-1">
                     <h4 className="font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
