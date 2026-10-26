@@ -431,9 +431,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [consultStatuses, setConsultStatuses] = useState<ConsultStatus[]>(ALL_CONSULT_STATUSES);
   const [consultPage, setConsultPage] = useState(1);
   const [consultSearch, setConsultSearch] = useState("");
+  const [consultEntitySearch, setConsultEntitySearch] = useState("");
   const [consultLetter, setConsultLetter] = useState("");
   const [showConsultStatusFilter, setShowConsultStatusFilter] = useState(false);
-  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno">("caderno");
+  const [consultDisplayMode, setConsultDisplayMode] = useState<"lista" | "lista_consulente" | "caderno" | "caderno_amplo">("caderno");
   const [forwardingView, setForwardingView] = useState<"entity" | "consulente">("entity");
   const [forwardingStage, setForwardingStage] = useState<"pending" | "completed">("pending");
   const [finalizingStage, setFinalizingStage] = useState<"triage" | "forwarding" | null>(null);
@@ -678,6 +679,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const appointments = payload?.appointments ?? [];
     if (!consultStatuses.length) return [];
     const normalizedSearch = consultSearch.trim().toLocaleLowerCase("pt-BR");
+    const normalizedEntitySearch = consultDisplayMode === "caderno_amplo" ? consultEntitySearch.trim().toLocaleLowerCase("pt-BR") : "";
     return appointments.filter((item) => {
       const statusBucket: ConsultStatus = item.status === "cancelado"
         ? "cancelled"
@@ -697,9 +699,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
         const haystack = `${item.consulenteName} ${item.whatsapp}`.toLocaleLowerCase("pt-BR");
         if (!haystack.includes(normalizedSearch)) return false;
       }
+      if (normalizedEntitySearch && !item.entityName.toLocaleLowerCase("pt-BR").includes(normalizedEntitySearch)) return false;
       return true;
     });
-  }, [consultLetter, consultSearch, consultStatuses, payload?.appointments]);
+  }, [consultDisplayMode, consultEntitySearch, consultLetter, consultSearch, consultStatuses, payload?.appointments]);
   const orderedConsultAppointments = useMemo(() => {
     const displayOrder = payload?.settings.triageDisplayOrder ?? "booking";
     return [...filteredAppointments].sort((a, b) => {
@@ -722,7 +725,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     ? orderedConsulenteAppointments
     : orderedConsultAppointments;
   const consultPageSize = 2;
-  const triagePaginationEnabled = consultDisplayMode === "lista"
+  const triagePaginationEnabled = consultDisplayMode === "caderno_amplo" ? false : consultDisplayMode === "lista"
     ? payload?.settings.triageEntityPaginationEnabled !== false
     : consultDisplayMode === "lista_consulente"
       ? payload?.settings.triageConsulentePaginationEnabled !== false
@@ -737,6 +740,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
       : activeListAppointments,
     [activeListAppointments, effectiveConsultPage, triagePaginationEnabled],
   );
+  // O resumo da data usa todos os agendamentos, independentemente dos filtros de busca.
+  const triageDayCounts = useMemo(() => {
+    const appointments = payload?.appointments ?? [];
+    const active = appointments.filter((item) => item.status !== "cancelado");
+    return {
+      expected: active.length,
+      available: (payload?.entities ?? []).reduce((total, entity) => total + Math.max(0, entity.available), 0),
+      confirmed: active.filter((item) => item.confirmationStatus === "confirmed").length,
+      requested: active.filter((item) => item.status === "solicitado" && item.confirmationStatus !== "confirmed").length,
+      cancelled: appointments.length - active.length,
+    };
+  }, [payload?.appointments, payload?.entities]);
+
   const compareEntityLabels = useCallback((a: string, b: string) => {
     if (payload?.receptionPreferences.receptionEntityOrderMode === "custom") {
       const weekday = payload.selectedDate ? new Date(`${payload.selectedDate}T12:00:00Z`).getUTCDay() : 1;
@@ -2059,6 +2075,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {modal && payload && (
         <Modal
           title={modal === "cadastros" && cadastroMode === "entidades" ? "Cadastros · Entidades" : modal === "cadastros" && cadastroMode === "consulentes" ? "Cadastros · Consulentes" : modalTitle(modal)}
+          wide={modal === "consultar" && consultDisplayMode === "caderno_amplo"}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao"].includes(modal) ? (
@@ -2500,8 +2517,28 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder="Buscar por nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                <button
+                  type="button"
+                  onClick={() => { setConsultDisplayMode(consultDisplayMode === "caderno_amplo" ? "caderno" : "caderno_amplo"); setConsultPage(1); setOpenAppointmentActions({}); }}
+                  className={`hidden rounded-xl px-3 py-2 text-left text-xs font-black ring-1 md:block ${consultDisplayMode === "caderno_amplo" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-[#E9F2E7] text-[#123D2C] ring-[#123D2C]/15"}`}
+                >
+                  {consultDisplayMode === "caderno_amplo" ? "← Voltar ao Caderno compacto" : "Abrir Triagem em Caderno — tablet/notebook"}
+                </button>
+
+                {consultDisplayMode === "caderno_amplo" && (
+                  <div className="grid grid-cols-2 gap-1 text-[10px] font-bold text-[#123D2C] sm:grid-cols-3 xl:grid-cols-5" aria-label="Resumo da data">
+                    <span className="rounded-lg border px-2 py-1">Total previsto: {triageDayCounts.expected}</span>
+                    <span className="rounded-lg border px-2 py-1">Vagas disponíveis: {triageDayCounts.available}</span>
+                    <span className="rounded-lg border px-2 py-1">Confirmados: {triageDayCounts.confirmed}</span>
+                    <span className="rounded-lg border px-2 py-1">Solicitados: {triageDayCounts.requested}</span>
+                    <span className="rounded-lg border px-2 py-1">Cancelados: {triageDayCounts.cancelled}</span>
+                  </div>
+                )}
+                <div className={`grid gap-2 ${consultDisplayMode === "caderno_amplo" ? "grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[1fr_auto]"}`}>
+                  <input aria-label="Buscar consulente" value={consultSearch} onChange={(event) => { setConsultSearch(event.target.value); setConsultPage(1); }} placeholder={consultDisplayMode === "caderno_amplo" ? "Buscar nome do consulente ou WhatsApp" : "Buscar por nome ou WhatsApp"} className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                  {consultDisplayMode === "caderno_amplo" && (
+                    <input aria-label="Buscar entidade" value={consultEntitySearch} onChange={(event) => { setConsultEntitySearch(event.target.value); setConsultPage(1); }} placeholder="Buscar pelo nome da Entidade" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2.5 text-sm font-semibold" />
+                  )}
                   <button type="button" onClick={() => setShowConsultStatusFilter(true)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Status</button>
                 </div>
 
@@ -2512,6 +2549,45 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   ))}
                 </div>
               </div>
+
+              {consultDisplayMode === "caderno_amplo" && (
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Triagem em formato de Caderno para tablet e notebook">
+                  {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort(compareEntityLabels).map((entityName) => {
+                    const entity = payload.entities.find((item) => item.name === entityName);
+                    return (
+                      <section key={`triagem-caderno-amplo-${entityName}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-[#123D2C]/25 bg-white">
+                        <h3 className={`px-3 py-2 text-xs font-black uppercase ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>{entityHeading(entityName)}</h3>
+                        {entity?.isAvailable === false && <p className="bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Entidade indisponível nesta data"}</p>}
+                        <div className="divide-y divide-[#123D2C]/10">
+                          {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
+                            <div key={`triagem-ampla-${appointment.id}`} className={`grid gap-1 px-2 py-2 ${appointment.status === "cancelado" ? "bg-red-50" : ""}`}>
+                              <div className="flex flex-wrap items-center justify-between gap-1">
+                                <span className={`text-xs font-bold ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
+                                {(appointment.servicePriority ?? 0) > 0 && <span className="rounded bg-amber-100 px-1 text-[9px] font-black text-amber-900">Prioridade {appointment.servicePriority}</span>}
+                              </div>
+                              {appointment.status !== "cancelado" && (
+                                <div className="flex flex-wrap gap-1" aria-label={`Ações para ${appointment.consulenteName}`}>
+                                  {appointment.arrivalStatus !== "arrived" && <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "arrived")} className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-50">Chegou</button>}
+                                  <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-md bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-50">Reagendar</button>
+                                  <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-md bg-[#E9F2E7] px-2 py-1 text-[10px] font-bold text-[#123D2C] disabled:opacity-50">Trocar Entidade</button>
+                                  <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700 disabled:opacity-50">Cancelar</button>
+                                  <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir Prioridade"}</button>
+                                  <button type="button" disabled={saving || triageFinalized} onClick={() => void markArrival(appointment.id, "absent")} className="rounded-md bg-orange-50 px-2 py-1 text-[10px] font-bold text-orange-900 disabled:opacity-50">Não Chegou</button>
+                                </div>
+                              )}
+                              {appointment.status === "cancelado" && <p className="text-[10px] font-semibold text-red-700">Vaga liberada</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
 
               {consultDisplayMode === "caderno" && (
                 <div className="grid gap-3">
@@ -2533,8 +2609,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
                             <div className="min-w-0">
                               <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
-                              <p className="text-[10px] font-semibold text-slate-500">Agendamento {appointment.status === "cancelado" ? "cancelado" : (appointment.order ?? "-")}</p>
-                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              {appointment.status !== "cancelado" && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-md bg-[#E9F2E7] px-1.5 py-1 text-[9px] font-black text-[#123D2C] disabled:opacity-50">Trocar Entidade</button>
+                                  <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-md bg-blue-50 px-1.5 py-1 text-[9px] font-black text-blue-800 disabled:opacity-50">Reagendar</button>
+                                </div>
+                              )}
+                              {(appointment.status === "cancelado" || appointment.arrivalStatus === "arrived" || appointment.arrivalStatus === "absent") && (
+                                <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
+                              )}
                               <FirstTimeBadge visible={appointment.firstTimeIndicatorActive} />
                         {(appointment.servicePriority ?? 0) > 0 && <span className="rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-900">PRIORIDADE {appointment.servicePriority}</span>}
                               {appointment.status === "cancelado" && <p className="mt-1 text-[10px] font-semibold text-red-700">Vaga liberada{appointment.cancellationReason ? ` · ${cancellationDisplayReason(appointment.cancellationReason)}` : ""}</p>}
@@ -2623,17 +2706,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir prioridade"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">Trocar Entidade</button>}
                             </div>
-                            {appointment.status !== "cancelado" && (
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => openIndividualEntityChange(appointment)}
-                                className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50"
-                              >
-                                Trocar Entidade
-                              </button>
-                            )}
                           </div>
                         )}
                       </article>
@@ -2685,12 +2759,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openCancelAppointment(appointment)} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-700 ring-1 ring-red-100">Cancelar</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || forwardingFinalized} onClick={() => void setServicePriority(appointment)} className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-black text-amber-900 disabled:opacity-50">{appointment.servicePriority ? `Prioridade ${appointment.servicePriority} · Alterar` : "Definir prioridade"}</button>}
                               {appointment.status !== "cancelado" && <button type="button" disabled={saving || rescheduleLoading || appointment.arrivalStatus === "arrived" || triageFinalized} onClick={() => void openReschedule(appointment)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 ring-1 ring-blue-100 disabled:opacity-50">Reagendar</button>}
+                              {appointment.status !== "cancelado" && <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">Trocar Entidade</button>}
                             </div>
-                            {appointment.status !== "cancelado" && (
-                              <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-[#123D2C] ring-1 ring-[#123D2C]/15 disabled:opacity-50">
-                                Trocar Entidade
-                              </button>
-                            )}
                           </div>
                         )}
                       </article>
@@ -3948,8 +4018,8 @@ function EntityOccurrencePicker({ label, values, onToggle }: { label: string; va
   );
 }
 
-function Modal({ title, onClose, children, headerAction }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl"><header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5"><h2 className="min-w-0 flex-1 break-words text-[13px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
+function Modal({ title, onClose, children, headerAction, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; headerAction?: React.ReactNode; wide?: boolean }) {
+  return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#10251C]/75 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl ${wide ? "max-w-[95vw]" : "max-w-2xl"}`}><header className="flex min-w-0 shrink-0 items-start justify-between gap-1.5 border-b border-[#123D2C]/10 px-3 py-4 sm:px-5"><h2 className="min-w-0 flex-1 break-words text-[13px] font-black leading-tight text-[#123D2C] sm:text-xl">{title}</h2><div className="flex shrink-0 items-center gap-1.5">{headerAction}<button type="button" onClick={onClose} className="shrink-0 rounded-xl bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm">Fechar</button></div></header><div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-5">{children}</div></section></div>;
 }
 
 function Info({ title, children }: { title: string; children: React.ReactNode }) {
