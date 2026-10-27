@@ -8,6 +8,10 @@
       "schedule": "0 15 * * 1,2"
     },
     {
+      "path": "/api/cron/tucxa-agendamento-morning-preview",
+      "schedule": "0 11 * * 1,2"
+    },
+    {
       "path": "/api/cron/tucxa-agendamento-daily-summaries",
       "schedule": "0 19 * * 1,2"
     }
