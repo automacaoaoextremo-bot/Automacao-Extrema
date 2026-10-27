@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-export const TUCXA_AUDIT_EMAIL = "automacao.ao.extremo@gmail.com";
+export const TUCXA_AUDIT_EMAIL = "tucxacentro@gmail.com";
 
 function smtpConfig() {
   const host = process.env.SMTP_HOST;
