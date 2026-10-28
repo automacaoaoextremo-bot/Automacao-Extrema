@@ -444,3 +444,40 @@
   .lu-root.lu-public-home .lu-sequence-entry .lu-open-card{min-height:65px;padding:8px 11px}
   .lu-root .lu-sequence-hint{font-size:11px;padding:8px}
 }
+
+/* V9 — Cantigas ilustradas / celular primeiro */
+.lu-art-admin-entry{margin-top:16px}
+.lu-art-admin-dialog{max-height:min(92dvh,980px);overflow-y:auto;overscroll-behavior:contain}
+.lu-art-curation-detail,.lu-art-song-list{padding:15px clamp(12px,3vw,25px)}
+.lu-art-admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,245px),1fr));gap:14px;margin:16px 0}
+.lu-art-admin-item{border:1px solid #d8e9dd;border-radius:18px;background:#fff;padding:12px;min-width:0}
+.lu-art-admin-item>small{color:#526970;overflow-wrap:anywhere;display:block;margin:7px 0 10px}
+.lu-art-preview-button{border:0;background:#edf5ef;width:100%;height:190px;border-radius:12px;overflow:hidden;display:grid;place-items:center;padding:4px;cursor:zoom-in}
+.lu-art-preview-button img{width:100%;height:100%;object-fit:contain}
+.lu-art-status{display:flex;flex-wrap:wrap;gap:6px;font-size:11px;font-weight:800;color:#245a46;margin:8px 0}
+.lu-art-status>span{border-radius:99px;background:#e7f3e7;padding:5px 8px}
+.lu-art-admin-actions{display:flex;gap:6px;flex-wrap:wrap}
+.lu-art-admin-actions button,.lu-art-assign button,.lu-art-release-controls button{min-height:42px;border:1px solid #a7c7b4;border-radius:11px;background:#edf7f1;color:#164d3d;padding:9px 11px;font-size:12px;font-weight:800}
+.lu-art-admin-actions button:disabled,.lu-art-assign button:disabled,.lu-art-release-controls button:disabled{opacity:.4;cursor:not-allowed}
+.lu-art-assign{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.lu-art-assign label{font-size:12px;font-weight:750}
+.lu-art-assign select{min-height:44px;border:1px solid #aec5ba;border-radius:10px;background:#fff;color:#164d3d;padding:7px;max-width:100%}
+.lu-art-large{padding:15px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+.lu-art-large img{display:block;width:100%;max-width:min(100%,780px);height:auto;max-height:65dvh;object-fit:contain;border-radius:10px}
+.lu-art-release-controls{background:#ecf7f0;border:1px solid #c8dfd0;border-radius:14px;padding:14px;margin:14px 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
+.lu-art-unavailable{background:#f0f0eb;min-height:170px;display:grid;place-items:center;color:#607476;border-radius:12px}
+.lu-art-public-caption{margin:12px 0 18px;font-size:14px;color:#506c75;line-height:1.6}
+.lu-art-public-gallery{overflow-y:auto;max-height:calc(85dvh - 85px);padding:clamp(12px,3vw,24px)}
+.lu-art-gallery-song{margin:0 0 22px}.lu-art-gallery-song h2{font-size:19px;margin:8px 0 12px;color:#173d50}
+.lu-art-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(42%,155px),1fr));gap:12px;padding:8px 0}
+.lu-art-gallery-tile{border:1px solid #e1e6db;border-radius:14px;padding:8px;background:white;min-width:0;text-align:center;cursor:zoom-in}
+.lu-art-gallery-tile img{width:100%;height:170px;object-fit:contain;display:block;background:#faf9f4;border-radius:9px}
+.lu-art-gallery-tile small{font-size:11px;font-weight:800;color:#43685e;margin-top:8px;display:block}
+.lu-art-thumb{display:block;object-fit:cover;border-radius:10px;width:100%;height:100%}
+.lu-player-illustration .lu-art-player-preview{height:100%;max-width:100%;width:auto;object-fit:contain;border-radius:12px}
+.lu-art-fullscreen{position:fixed;inset:0;z-index:200;background:#f8f7f2;overflow:auto;padding:12px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.lu-art-fullscreen-head{display:flex;width:min(100%,1050px);justify-content:space-between;align-items:center;gap:15px;color:#153f37;min-height:50px}
+.lu-art-fullscreen-head strong{font-size:clamp(14px,3vw,19px)}
+.lu-art-fullscreen-head button{background:#154535;color:white;border:0;border-radius:25px;padding:11px 17px;font-weight:850;min-height:44px}
+.lu-art-fullscreen-photo{display:block;width:auto;max-width:100%;height:auto;max-height:calc(100dvh - 95px);object-fit:contain;box-shadow:0 4px 24px #17483c21;border-radius:7px}
+@media(max-width:550px){.lu-art-admin-grid{grid-template-columns:1fr}.lu-art-gallery-tile img{height:135px}.lu-art-public-gallery{padding:12px}.lu-art-admin-dialog{max-height:96dvh}.lu-art-fullscreen{padding:7px}.lu-art-fullscreen-photo{max-height:calc(100dvh - 85px)}}

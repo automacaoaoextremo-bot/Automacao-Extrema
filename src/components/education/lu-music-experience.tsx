@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 import { LuHeader } from "@/components/education/lu-header";
+import Image from "next/image";
 
 const PAGE_SIZE = 4;
 const fmt = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 type PublicVersion = { id: string; track_id: string; url?: string };
-type Dialog = "closed" | "list" | "player" | "playlist";
+type PublicIllustration = { id: string; track_id: string; is_featured: boolean; url?: string };
+type Dialog = "closed" | "list" | "player" | "playlist" | "gallery";
 
 export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string }) {
   const firstId = luTracks.find((track) => track.id === initialTrackId)?.id || luTracks[0].id;
@@ -19,6 +21,10 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const [time, setTime] = useState(0);
   const [lyrics, setLyrics] = useState(false);
   const [versions, setVersions] = useState<PublicVersion[]>([]);
+  const [illustrations, setIllustrations] = useState<PublicIllustration[]>([]);
+  const [artSelected, setArtSelected] = useState<{ trackId: string; id: string } | null>(null);
+  const [artBusy, setArtBusy] = useState(false);
+  const [artError, setArtError] = useState("");
   const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
   const [familyReleased, setFamilyReleased] = useState(false);
   const [teacherPreview, setTeacherPreview] = useState(false);
@@ -36,6 +42,11 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const index = Math.max(0, tracks.findIndex((track) => track.id === trackId));
   const song = tracks[index] || luTracks[0];
   const active = versions.find((v) => v.track_id === song.id && v.url);
+  const artworkFor = (id: string) => illustrations.filter((art) => art.track_id === id && art.url)
+    .sort((a,b) => Number(b.is_featured) - Number(a.is_featured));
+  const currentArtworks = artworkFor(song.id);
+  const mainArtwork = currentArtworks[0];
+  const enlarged = illustrations.find((art) => art.id === artSelected?.id && art.track_id === artSelected?.trackId);
   // Não substituir gravações reais por demonstração após a liberação.
   const source = active?.url || (!loaded || (!familyReleased && !teacherPreview) ? `/education-demo/audio/musica-${song.id}.mp3` : undefined);
 
@@ -46,6 +57,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
       .then((data) => {
         if (controller.signal.aborted) return;
         setVersions(data.versions || []);
+        setIllustrations(data.illustrations || []);
         setFamilyReleased(Boolean(data.project?.family_released));
         setTeacherPreview(Boolean(data.teacherPreview));
         setLoadError("");
@@ -64,6 +76,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     if (dialog === "closed") return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (artSelected) { setArtSelected(null); return; }
         requestNumber.current += 1;
         playlistAutoPlay.current = false;
         audio.current?.pause();
@@ -72,7 +85,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [dialog]);
+  }, [dialog, artSelected]);
 
   useEffect(() => {
     if (dialog !== "player" && dialog !== "playlist") audio.current?.pause();
@@ -96,6 +109,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
       const released = Boolean(payload.project?.family_released);
       const preview = Boolean(payload.teacherPreview);
       setVersions(nextVersions);
+      setIllustrations((payload.illustrations || []) as PublicIllustration[]);
       setFamilyReleased(released);
       setTeacherPreview(preview);
       setLoadError("");
@@ -125,6 +139,22 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     });
   }, [dialog, refreshingAudio, source]);
 
+  // Renova a URL privada (5 min) antes de ampliar um desenho.
+  const openArtwork = async (track: string, id: string) => {
+    setArtBusy(true); setArtError("");
+    try {
+      const response = await fetch(`${LU_BASE_PATH}/api?view=public`, { cache: "no-store" });
+      if (!response.ok) throw new Error("A imagem não está disponível no momento.");
+      const payload = await response.json();
+      const pictures = (payload.illustrations || []) as PublicIllustration[];
+      const selected = pictures.find((v) => v.id === id && v.track_id === track && v.url);
+      if (!selected) throw new Error("Esta ilustração ainda não foi liberada pela escola.");
+      setIllustrations(pictures);
+      setArtSelected({ trackId: track, id });
+    } catch (e) { setArtError(e instanceof Error ? e.message : "Falha ao carregar o desenho."); }
+    finally { setArtBusy(false); }
+  };
+
   const select = (id: string) => {
     playlistAutoPlay.current = false;
     setPlaying(false);
@@ -151,9 +181,18 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     requestNumber.current += 1;
     playlistAutoPlay.current = false;
     audio.current?.pause();
+    setArtSelected(null);
     setDialog("closed");
     setPlaying(false);
     setRefreshingAudio(false);
+  };
+
+  const openGallery = () => {
+    requestNumber.current += 1;
+    playlistAutoPlay.current = false;
+    audio.current?.pause();
+    setPlaying(false);
+    setDialog("gallery");
   };
 
   const openList = () => {
@@ -216,7 +255,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
           <span className="lu-eyebrow">✨ Uma recordação que ganha voz</span>
           <h1>Nosso Livro <em>Musical!</em> 🎶</h1>
           <p>Uma página para guardar músicas, desenhos e momentos especiais vividos na escola.<span className="lu-hero-family-line">Feita para ouvir e cantar em família!</span></p>
-          <div className="lu-hero-tags"><span>🎵 12 músicas</span><span>🎨 desenhos da turma em breve</span></div>
+          <div className="lu-hero-tags"><span>🎵 12 músicas</span><span>🎨 {illustrations.length ? "desenhos da turma" : "desenhos da turma em breve"}</span></div>
         </section>
         <section className="lu-collection-entry">
           <span className="lu-collection-caption">✨ NOSSA COLEÇÃO</span>
@@ -231,15 +270,36 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
             <span className="lu-track-count">12 canções</span><span aria-hidden="true">›</span>
           </button>
         </section>
+        {illustrations.some((item) => item.url) && <section className="lu-collection-entry lu-art-public-entry">
+          <button type="button" className="lu-open-card" onClick={openGallery}>
+            <span><strong>🎨 Desenhos da nossa turma</strong><small>VER PÁGINAS ILUSTRADAS E LETRAS</small></span>
+            <span className="lu-track-count">Galeria</span><span aria-hidden="true">›</span>
+          </button>
+        </section>}
         <section className="lu-note"><span>💚</span><div><strong>Feito com carinho</strong><p>O livro físico é a estrela! Ouça e cante junto com as crianças.</p></div></section>
       </div>
       {dialog !== "closed" && <div className="lu-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-        <section className="lu-dialog" role="dialog" aria-modal="true" aria-label={dialog === "list" ? "Escolha uma música" : dialog === "playlist" ? "Ouvir todas as músicas em sequência" : song.title}>
-          <div className="lu-dialog-head"><strong>{dialog === "list" ? "🎶 Escolha uma música" : dialog === "playlist" ? `🎶 Ouvir todas — ${index + 1} de ${tracks.length}` : `🎧 Música ${String(index + 1).padStart(2, "0")} de 12`}</strong><button type="button" aria-label="Fechar janela" className="lu-dialog-close" onClick={close}>FECHAR</button></div>
-          {dialog === "list" ? <>
+        <section className="lu-dialog" role="dialog" aria-modal="true" aria-label={dialog === "list" ? "Escolha uma música" : dialog === "gallery" ? "Galeria de ilustrações" : dialog === "playlist" ? "Ouvir todas as músicas em sequência" : song.title}>
+          <div className="lu-dialog-head"><strong>{dialog === "list" ? "🎶 Escolha uma música" : dialog === "gallery" ? "🎨 Desenhos da nossa turma" : dialog === "playlist" ? `🎶 Ouvir todas — ${index + 1} de ${tracks.length}` : `🎧 Música ${String(index + 1).padStart(2, "0")} de 12`}</strong><button type="button" aria-label="Fechar janela" className="lu-dialog-close" onClick={close}>FECHAR</button></div>
+          {dialog === "gallery" ? <div className="lu-art-public-gallery">
+            <p className="lu-art-public-caption">Páginas ilustradas pelas crianças e aprovadas pela escola. Toque em cada desenho para ampliar.</p>
+            {tracks.map((track) => {
+              const pictures = artworkFor(track.id);
+              if (!pictures.length) return null;
+              return <div key={track.id} className="lu-art-gallery-song">
+                <h2>{track.art} {track.title}</h2>
+                <div className="lu-art-gallery-grid">{pictures.map((picture) => <button type="button" key={picture.id} className="lu-art-gallery-tile" disabled={artBusy} onClick={() => void openArtwork(track.id,picture.id)}>
+                  <Image unoptimized src={picture.url!} alt={`Página ilustrada da canção ${track.title}`} width={240} height={310} />
+                  <small>{picture.is_featured ? "Principal" : "Outra ilustração"}</small>
+                </button>)}</div>
+              </div>;
+            })}
+            {artError && <p role="alert" className="lu-alert">{artError}</p>}
+          </div> : dialog === "list" ? <>
             <div className="lu-dialog-list">
               {tracks.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((track, position) => <button type="button" key={track.id} className="lu-track" onClick={() => select(track.id)}>
-                <span className="lu-art" aria-hidden="true">{track.art}</span>
+                <span className="lu-art" aria-hidden="true">{artworkFor(track.id)[0]?.url
+                  ? <Image unoptimized src={artworkFor(track.id)[0].url!} width={64} height={64} alt="" className="lu-art-thumb" /> : track.art}</span>
                 <span className="lu-track-main"><small>MÚSICA {String(page * PAGE_SIZE + position + 1).padStart(2, "0")}</small><strong>{track.title}</strong><small>{versions.some((v) => v.track_id === track.id && v.url) ? "Ouvir gravação escolhida" : (familyReleased || teacherPreview) ? "Gravação indisponível" : "Demonstração temporária"}</small></span>
                 <span className="lu-track-arrow" aria-hidden="true">›</span>
               </button>)}
@@ -247,7 +307,9 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
             <div className="lu-pager"><button type="button" onClick={() => setPage((v) => Math.max(0, v - 1))} disabled={page === 0}>‹ Anterior</button><span>Página {page + 1} de {pages}</span><button type="button" onClick={() => setPage((v) => Math.min(pages - 1, v + 1))} disabled={page === pages - 1}>Próxima ›</button></div>
           </> : <div className="lu-dialog-player">
             {dialog === "playlist" && <p className="lu-sequence-hint" role="status">🎵 Reproduzindo as músicas na ordem definida pela escola. Toque em ▶ para iniciar e use ⏭ para avançar.</p>}
-            <div className={`lu-player-illustration lu-tint-${song.tint}`} aria-hidden="true"><span>{song.art}</span></div>
+            <div className={`lu-player-illustration lu-tint-${song.tint}`}>
+              {mainArtwork?.url ? <Image unoptimized src={mainArtwork.url} width={380} height={260} className="lu-art-player-preview" alt={`Desenho da canção ${song.title}`} /> : <span aria-hidden="true">{song.art}</span>}
+            </div>
             <h2>{song.title}</h2>
             <p>{active?.url ? (teacherPreview ? "Prévia docente: gravação selecionada, ainda não liberada às famílias" : "Gravação escolhida pelos docentes") : (familyReleased || teacherPreview) ? "Áudio não disponível para esta música" : "Demonstração instrumental — aguardando liberação da escola"}</p>
             {loadError && <p role="alert" className="lu-alert">{loadError}</p>}
@@ -281,11 +343,21 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
               setPlaylistFinished(false);
               void loadTrack(tracks[0].id);
             }}>↺ Recomeçar desde a primeira música</button>}
-            <button type="button" className="lu-lyrics-toggle" onClick={() => setLyrics((v) => !v)} aria-expanded={lyrics}>📖 {lyrics ? "Ocultar espaço da letra" : "Ver espaço da letra"}<span>{lyrics ? "−" : "+"}</span></button>
-            {lyrics && <div className="lu-lyrics"><p>As letras e as ilustrações originais aparecerão aqui após a conferência e autorização da escola.</p></div>}
+            <button type="button" className="lu-lyrics-toggle" onClick={() => setLyrics((v) => !v)} aria-expanded={lyrics}>📖 {lyrics ? "Ocultar desenhos e letras" : "Ver desenhos e letras"}<span>{lyrics ? "−" : "+"}</span></button>
+            {lyrics && <div className="lu-lyrics">
+              {currentArtworks.length ? <><p>As letras estão nas páginas originais ilustradas. Toque para ampliar e ler com a família.</p>
+                <div className="lu-art-gallery-grid">{currentArtworks.map((picture) => <button type="button" className="lu-art-gallery-tile" key={picture.id} disabled={artBusy} onClick={() => void openArtwork(song.id, picture.id)}>
+                  <Image unoptimized src={picture.url!} width={250} height={330} alt={`Página da música ${song.title}`} /><small>{picture.is_featured ? "Página principal" : "Outra versão"}</small>
+                </button>)}</div></> : <p>As ilustrações ainda estão sendo organizadas e aprovadas pela escola.</p>}
+              {artError && <p role="alert" className="lu-alert">{artError}</p>}
+            </div>}
             <button type="button" className="lu-list-back" onClick={dialog === "playlist" ? close : openList}>{dialog === "playlist" ? "← Voltar ao livro" : "← Voltar à lista de músicas"}</button>
           </div>}
         </section>
+      </div>}
+      {artSelected && <div className="lu-art-fullscreen" role="dialog" aria-modal="true" aria-label="Página ilustrada ampliada">
+        <div className="lu-art-fullscreen-head"><strong>🎨 {luTracks.find((s) => s.id === artSelected.trackId)?.title}</strong><button type="button" onClick={() => setArtSelected(null)}>FECHAR</button></div>
+        {enlarged?.url ? <Image unoptimized src={enlarged.url} width={1200} height={1700} alt="Página completa ilustrada da cantiga" className="lu-art-fullscreen-photo" /> : <p>Desenho indisponível. Retorne à lista e tente novamente.</p>}
       </div>}
     </main>
   );

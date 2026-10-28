@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 import { LuHeader } from "@/components/education/lu-header";
+import { LuIllustrationCuration } from "@/components/education/lu-illustration-curation";
 
 type Version = {
   id: string;
@@ -279,6 +280,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           </button>
         </section>
 
+        <LuIllustrationCuration />
         <div className="lu-curation-tools">
           <button type="button" onClick={() => { setPanel("order"); setCurrent(null); setOpen(true); }}>
             ↕ Definir ordem <small>CLIQUE PARA ABRIR</small>
