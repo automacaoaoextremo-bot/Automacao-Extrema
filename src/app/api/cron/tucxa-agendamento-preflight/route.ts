@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   findTucxaOrganization,
+  loadPilotDay,
   isCampinasHoliday,
   loadPilotSettings,
   PILOT_ACTIVE_STATUSES,
@@ -68,7 +69,9 @@ export async function GET(request: Request) {
     if (appointmentError) throw appointmentError;
     const rows = appointments ?? [];
     const personIds = [...new Set(rows.map((a) => str(a.person_id)).filter(Boolean))];
-    const entityIds = [...new Set(rows.map((a) => str(a.entity_id)).filter(Boolean))];
+    const dayAvailability = await loadPilotDay(organization.id, date);
+    const availableEntityIds = new Set(dayAvailability.filter((entity) => entity.isAvailable).map((entity) => entity.id));
+    const entityIds = [...new Set([...rows.map((a) => str(a.entity_id)), ...availableEntityIds].filter(Boolean))];
 
     const [entitiesResult, preferencesResult, linksResult, membershipsResult] = await Promise.all([
       entityIds.length ? supabaseAdmin.from("oh_spiritual_entities")
@@ -129,7 +132,8 @@ export async function GET(request: Request) {
         eligible: !holiday && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
           && Boolean(people.get(str(link.person_id))?.whatsapp) && generalWhatsapp && cavalinhoFlow
           && mediumDispatchAllowed(date, str(link.person_id), str(people.get(str(link.person_id))?.whatsapp))
-          && rows.some((row) => (generalDispatchAllowed(date) || str(row.id) === tucxaHomologation.appointmentId) && str(row.entity_id) === str(link.entity_id)),
+          && availableEntityIds.has(str(link.entity_id))
+          && (generalDispatchAllowed(date) || rows.some((row) => str(row.id) === tucxaHomologation.appointmentId && str(row.entity_id) === str(link.entity_id))),
       }));
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
@@ -150,12 +154,14 @@ export async function GET(request: Request) {
       ok: true, dryRun: true, databaseWrites: 0, messagesSent: 0, date,
       weekday, holiday, weekdayEnabled,
       scheduling: {
-        cronUtc: "Lembretes 15:00 UTC (12:00 Campinas); resumos 19:00 UTC (16:00 Campinas)",
+        cronUtc: "Lembretes 15:00 UTC (12:00 Campinas); previa 11:00 UTC (08:00 Campinas); resumos 19:00 UTC (16:00 Campinas)",
         reminderTime: "12:00",
         cavalinhoEnabled: settings.cavalinhoDailyWhatsappEnabled,
         cavalinhoTime: settings.cavalinhoDailyWhatsappTime,
         receptionEnabled: settings.receptionDailyWhatsappEnabled,
         receptionTime: settings.receptionDailyWhatsappTime,
+        morningPreviewTime: "08:00 America/Sao_Paulo",
+        afternoonTime: "16:00 America/Sao_Paulo",
       },
       configured: {
         homologationEnabled: tucxaHomologation.enabled,
@@ -163,7 +169,7 @@ export async function GET(request: Request) {
         homologationActiveForDate: homologationActiveToday(date),
         generalDispatchAllowedForDate: generalDispatchAllowed(date),
         auditEmailConfigured: Boolean(str(process.env.SMTP_HOST) && str(process.env.SMTP_USER) && str(process.env.SMTP_PASS)),
-        auditEmailRecipient: "automacao.ao.extremo@gmail.com",
+        auditEmailRecipient: "tucxacentro@gmail.com",
         botconversaEnabled: enabled("BOTCONVERSA_ENABLED"),
         tucxaEnabled: enabled("BOTCONVERSA_TUCXA_ENABLED"),
         deploymentEnvironment: str(process.env.VERCEL_ENV) || "local",

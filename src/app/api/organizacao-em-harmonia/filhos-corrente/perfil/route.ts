@@ -44,7 +44,7 @@ type MembershipRecord = {
 };
 
 const DEFAULT_MODULE_SLUGS = ["agenda-viva", "atendimento-em-harmonia", "corrente-em-dia"];
-const DEFAULT_COPY_EMAIL = "automacao.ao.extremo@gmail.com";
+const DEFAULT_COPY_EMAIL = "tucxacentro@gmail.com";
 const DEFAULT_WHATSAPP_PHONE = "5519989848246";
 
 function asText(value: unknown) {
@@ -100,7 +100,7 @@ function siteUrl() {
 }
 
 function reviewCopyEmail() {
-  return process.env.OH_ACCESS_REVIEW_EMAIL || process.env.EMAIL_COPY_TO || DEFAULT_COPY_EMAIL;
+  return DEFAULT_COPY_EMAIL; // Comunicacoes TUCXA sempre para tucxacentro@gmail.com.
 }
 
 function whatsappSupportPhone() {
