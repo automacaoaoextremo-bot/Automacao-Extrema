@@ -1,6 +1,7 @@
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
+import { additionalReceptionRecipientsForDate, canonicalTucxaPhone } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
@@ -92,14 +93,17 @@ export async function GET(request: Request) {
     }
     const entities = entitiesResult.data ?? [];
     const preferenceMap = new Map((preferencesResult.data ?? []).map((p) => [str(p.person_id), p.reminder_whatsapp_enabled]));
-    const receptionIds = [...new Set((membershipsResult.data ?? [])
+    const scheduledReceptionIds = [...new Set((membershipsResult.data ?? [])
       .filter((m) => hasReception(m.agenda_viva_profile))
       .filter((m) => receptionScheduledForDate(obj(m.agenda_viva_profile).receptionSchedule, date))
       .map((m) => str(m.person_id)).filter(Boolean))];
+    const additional = await additionalReceptionRecipientsForDate(organization.id, date);
+    const additionalIds = new Set(additional.people.map(p => p.id));
+    const receptionIds = [...new Set([...scheduledReceptionIds, ...additionalIds])];
     const linkedIds = [...new Set((linksResult.data ?? []).map((l) => str(l.person_id)).filter(Boolean))];
     const allIds = [...new Set([...receptionIds, ...linkedIds])];
     const peopleResult = allIds.length ? await supabaseAdmin.from("oh_people")
-      .select("id,full_name,whatsapp,active").eq("organization_id", organization.id)
+      .select("id,full_name,whatsapp,normalized_whatsapp,active").eq("organization_id", organization.id)
       .in("id", allIds).eq("active", true) : { data: [], error: null };
     if (peopleResult.error) throw peopleResult.error;
     const people = new Map((peopleResult.data ?? []).map((p) => [str(p.id), p]));
@@ -135,17 +139,28 @@ export async function GET(request: Request) {
           && availableEntityIds.has(str(link.entity_id))
           && (generalDispatchAllowed(date) || rows.some((row) => str(row.id) === tucxaHomologation.appointmentId && str(row.entity_id) === str(link.entity_id))),
       }));
+    const receptionPhoneCounts = new Map<string, number>();
+    for (const personId of receptionIds) {
+      const p = people.get(personId);
+      const phone = canonicalTucxaPhone(p?.normalized_whatsapp || p?.whatsapp);
+      if (phone) receptionPhoneCounts.set(phone, (receptionPhoneCounts.get(phone) ?? 0) + 1);
+    }
     const recepcao = receptionIds.map((personId) => {
       const person = people.get(personId);
-      const whatsapp = true; // Função Recepção ativa e escala aprovada autorizam o envio.
+      const phone = canonicalTucxaPhone(person?.normalized_whatsapp || person?.whatsapp);
+      const conflict = Boolean(person?.normalized_whatsapp && person?.whatsapp &&
+        canonicalTucxaPhone(person.normalized_whatsapp) !== canonicalTucxaPhone(person.whatsapp));
+      const uniquePhone = !!phone && receptionPhoneCounts.get(phone) === 1 && !conflict;
+      const whatsapp = true; // Autorização específica: escala OU lista adicional, sem alterar funções.
       const explicitlyAuthorized = true;
       return {
         personId, person: person?.full_name || "Não encontrado/inativo",
-        phone: masked(person?.whatsapp), whatsappSelected: whatsapp,
-        explicitlyAuthorized,
+        phone: masked(phone), whatsappSelected: whatsapp,
+        source: additionalIds.has(personId) ? "additional_recipient" : "reception_schedule",
+        explicitlyAuthorized, uniquePhone,
         eligible: !holiday && weekdayEnabled && settings.receptionDailyWhatsappEnabled
-          && Boolean(person?.whatsapp) && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow
-          && receptionDispatchAllowed(date, personId, str(person?.whatsapp))
+          && uniquePhone && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow
+          && receptionDispatchAllowed(date, personId, phone)
           && (generalDispatchAllowed(date) || rows.some((row) => str(row.id) === tucxaHomologation.appointmentId)),
       };
     });
@@ -180,6 +195,7 @@ export async function GET(request: Request) {
         individualNoticeField,
       },
       consulentes, cavalinhos, recepcao,
+      additionalReceptionDiagnostics: additional.diagnostics,
       receptionSummaryPreview: {
         appointmentCount: rows.length,
         entitiesCount: entityIds.length,
