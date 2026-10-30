@@ -6,6 +6,7 @@ import {
   todayInSaoPaulo,
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
+import { additionalReceptionRecipientsForDate } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { dispatchDateAllowed, generalDispatchAllowed, homologationAppointmentId, mediumDispatchAllowed, receptionDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
@@ -207,9 +208,13 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         const receptionIds = [...new Set((memberships ?? []).filter(m => hasReception(m.agenda_viva_profile))
           .filter(m => receptionScheduledForDate(obj(m.agenda_viva_profile).receptionSchedule, date))
           .map(m => txt(m.person_id)).filter(Boolean))];
-        const { data: receptionPeople, error: rErr } = receptionIds.length
+        const additional = await additionalReceptionRecipientsForDate(orgId, date);
+        diagnostics.push(...additional.diagnostics.map(item => ({ audience, ...item })));
+        // União pela identidade interna; a deduplicação final por telefone é feita por uniqueByPhone.
+        const recipientIds = [...new Set([...receptionIds, ...additional.people.map(person => person.id)])];
+        const { data: receptionPeople, error: rErr } = recipientIds.length
           ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp,active")
-            .eq("organization_id", orgId).eq("active", true).in("id", receptionIds)
+            .eq("organization_id", orgId).eq("active", true).in("id", recipientIds)
           : { data: [], error: null };
         if (rErr) throw rErr;
         const summary = formatTucxaReceptionSummary({

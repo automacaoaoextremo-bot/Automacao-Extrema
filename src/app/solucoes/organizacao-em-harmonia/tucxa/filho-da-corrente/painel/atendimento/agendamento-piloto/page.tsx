@@ -3555,11 +3555,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     ["entrada", "Ao entrar no sistema", "Abertura automática do Acolhimento"],
                     ["resumo", "Receber resumo de agendamentos", "Canais e ordenação"],
                     ["avisos", "Avisos operacionais pelo WhatsApp", "Cavalinhos e Recepção"],
+                    ["diagnostico", "Diagnóstico dos envios automáticos", "Simulação segura, escala e destinatários por data"],
                   ].map(([key, title, subtitle]) => (
                     <button
                       key={key}
                       type="button"
-                      onClick={() => setSettingsSection(key)}
+                      onClick={() => key === "diagnostico" ? window.location.assign(`${pageHref}/diagnostico-envios`) : setSettingsSection(key)}
                       className="flex min-h-[68px] items-center justify-between gap-1.5 rounded-xl bg-[#F7FAF2] px-2.5 py-2 text-left ring-1 ring-[#123D2C]/10 sm:min-h-[76px] sm:gap-3 sm:rounded-2xl sm:p-3"
                     >
                       <span className="min-w-0">
