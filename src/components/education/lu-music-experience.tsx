@@ -8,6 +8,7 @@ import Image from "next/image";
 const PAGE_SIZE = 4;
 const fmt = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 type PublicVersion = { id: string; track_id: string; url?: string };
+type PublicLyric = { track_id: string; body: string; is_published: boolean };
 type PublicIllustration = { id: string; track_id: string; is_featured: boolean; url?: string };
 type Dialog = "closed" | "list" | "player" | "playlist" | "gallery";
 
@@ -20,6 +21,8 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const [duration, setDuration] = useState(0);
   const [time, setTime] = useState(0);
   const [lyrics, setLyrics] = useState(false);
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const [lyricTexts, setLyricTexts] = useState<PublicLyric[]>([]);
   const [versions, setVersions] = useState<PublicVersion[]>([]);
   const [illustrations, setIllustrations] = useState<PublicIllustration[]>([]);
   const [artSelected, setArtSelected] = useState<{ trackId: string; id: string } | null>(null);
@@ -41,6 +44,14 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const tracks = useMemo(() => trackOrder.map((id) => luTracks.find((track) => track.id === id)).filter((track): track is typeof luTracks[number] => Boolean(track)), [trackOrder]);
   const index = Math.max(0, tracks.findIndex((track) => track.id === trackId));
   const song = tracks[index] || luTracks[0];
+  const rawLyrics = lyricTexts.find((entry) => entry.track_id === song.id)?.body || "";
+  const timedLyrics = rawLyrics.split("\n").map((value) => {
+    const match = /^\s*\[(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?\]\s*(.+)$/.exec(value);
+    if (!match) return null;
+    return { start: Number(match[1]) * 60 + Number(match[2]) + Number(`0.${(match[3] || "0").padEnd(3, "0")}`), text: match[4] };
+  }).filter((entry): entry is { start: number; text: string } => Boolean(entry));
+  const caption = timedLyrics.length > 0 ? [...timedLyrics].reverse().find((entry) => time >= entry.start)?.text || "Aguarde o inicio da cantiga..." : rawLyrics;
+
   const active = versions.find((v) => v.track_id === song.id && v.url);
   const artworkFor = (id: string) => illustrations.filter((art) => art.track_id === id && art.url)
     .sort((a,b) => Number(b.is_featured) - Number(a.is_featured));
@@ -58,6 +69,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
         if (controller.signal.aborted) return;
         setVersions(data.versions || []);
         setIllustrations(data.illustrations || []);
+        setLyricTexts(data.lyrics || []);
         setFamilyReleased(Boolean(data.project?.family_released));
         setTeacherPreview(Boolean(data.teacherPreview));
         setLoadError("");
@@ -110,6 +122,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
       const preview = Boolean(payload.teacherPreview);
       setVersions(nextVersions);
       setIllustrations((payload.illustrations || []) as PublicIllustration[]);
+      setLyricTexts((payload.lyrics || []) as PublicLyric[]);
       setFamilyReleased(released);
       setTeacherPreview(preview);
       setLoadError("");
@@ -333,6 +346,14 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
                 playlistAutoPlay.current = false;
                 if (source) setAudioError("Não foi possível reproduzir este áudio. Toque em Próxima para continuar.");
               }} />
+            {rawLyrics && <div className="lu-caption-box">
+              <button type="button" className="lu-caption-toggle" onClick={() => setCaptionsEnabled((prev) => !prev)} aria-pressed={captionsEnabled}>
+                {captionsEnabled ? "CC Legenda ativada — ocultar" : "CC Exibir letra durante a musica"}
+              </button>
+              {captionsEnabled && <div className="lu-captions" role="region" aria-label="Letra da cantiga">
+                {timedLyrics.length ? <p aria-live="off">{caption}</p> : <p className="lu-caption-full">{rawLyrics}</p>}
+              </div>}
+            </div>}
             <label className="lu-sr-only" htmlFor="lu-seek-v4">Posição da música</label>
             <input id="lu-seek-v4" type="range" className="lu-seek" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(time, Math.max(duration, 1))} onChange={(event) => { if (audio.current) audio.current.currentTime = Number(event.target.value); }} />
             <div className="lu-time"><span>{fmt(time)}</span><span>{fmt(duration)}</span></div>
@@ -345,6 +366,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
             }}>↺ Recomeçar desde a primeira música</button>}
             <button type="button" className="lu-lyrics-toggle" onClick={() => setLyrics((v) => !v)} aria-expanded={lyrics}>📖 {lyrics ? "Ocultar desenhos e letras" : "Ver desenhos e letras"}<span>{lyrics ? "−" : "+"}</span></button>
             {lyrics && <div className="lu-lyrics">
+              {rawLyrics && <p className="lu-lyrics-text">{rawLyrics.replace(/^\s*\[\d{1,2}:\d{2}(?:[.,]\d{1,3})?\]\s*/gm, "")}</p>}
               {currentArtworks.length ? <><p>As letras estão nas páginas originais ilustradas. Toque para ampliar e ler com a família.</p>
                 <div className="lu-art-gallery-grid">{currentArtworks.map((picture) => <button type="button" className="lu-art-gallery-tile" key={picture.id} disabled={artBusy} onClick={() => void openArtwork(song.id, picture.id)}>
                   <Image unoptimized src={picture.url!} width={250} height={330} alt={`Página da música ${song.title}`} /><small>{picture.is_featured ? "Página principal" : "Outra versão"}</small>
