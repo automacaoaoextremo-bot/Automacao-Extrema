@@ -9,6 +9,8 @@ const PAGE_SIZE = 4;
 const fmt = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 type PublicVersion = { id: string; track_id: string; url?: string };
 type PublicLyric = { track_id: string; body: string; is_published: boolean };
+type AutoCue = { start: number; end: number; text: string };
+type AutoResult = { versionId: string; status: string; cues: AutoCue[]; message?: string };
 type PublicIllustration = { id: string; track_id: string; is_featured: boolean; url?: string };
 type Dialog = "closed" | "list" | "player" | "playlist" | "gallery";
 
@@ -22,6 +24,9 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   const [time, setTime] = useState(0);
   const [lyrics, setLyrics] = useState(false);
   const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+  const [autoCaption, setAutoCaption] = useState<AutoResult | null>(null);
+  const [autoCaptionError, setAutoCaptionError] = useState("");
   const [lyricTexts, setLyricTexts] = useState<PublicLyric[]>([]);
   const [versions, setVersions] = useState<PublicVersion[]>([]);
   const [illustrations, setIllustrations] = useState<PublicIllustration[]>([]);
@@ -50,9 +55,21 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     if (!match) return null;
     return { start: Number(match[1]) * 60 + Number(match[2]) + Number(`0.${(match[3] || "0").padEnd(3, "0")}`), text: match[4] };
   }).filter((entry): entry is { start: number; text: string } => Boolean(entry));
-  const caption = timedLyrics.length > 0 ? [...timedLyrics].reverse().find((entry) => time >= entry.start)?.text || "Aguarde o inicio da cantiga..." : rawLyrics;
 
   const active = versions.find((v) => v.track_id === song.id && v.url);
+  const activeVersionId = active?.id;
+  const autoCues = active && autoCaption?.versionId === active.id && autoCaption.status === "ready"
+    ? autoCaption.cues : [];
+  const cueList: AutoCue[] = timedLyrics.length
+    ? timedLyrics.map((entry, i) => ({ ...entry, end: timedLyrics[i + 1]?.start ?? Infinity }))
+    : autoCues;
+  const cueIndex = cueList.findIndex((cue) => time >= cue.start && time < cue.end + 0.5);
+  const currentCaption = cueIndex >= 0 ? cueList[cueIndex].text :
+    (timedLyrics.length || autoCues.length ? "Aguardando o próximo trecho..." : rawLyrics);
+  const previousCaption = cueIndex > 0 ? cueList[cueIndex - 1].text : "";
+  const nextCaption = cueIndex >= 0 ? (cueList[cueIndex + 1]?.text || "") : (cueList[0]?.text || "");
+  const autoStatus = active && autoCaption?.versionId === active.id ? autoCaption.status : "missing";
+  const autoMessage = active && autoCaption?.versionId === active.id ? autoCaption.message : undefined;
   const artworkFor = (id: string) => illustrations.filter((art) => art.track_id === id && art.url)
     .sort((a,b) => Number(b.is_featured) - Number(a.is_featured));
   const currentArtworks = artworkFor(song.id);
@@ -84,10 +101,61 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     return () => controller.abort();
   }, []);
 
+  // A docente nao precisa preparar legendas: quando a familia ativa CC, a API
+  // transcreve a gravacao selecionada uma unica vez e reutiliza o resultado.
+  // Letras manuais com horarios, quando existentes, tem prioridade.
+  useEffect(() => {
+    if (!captionsEnabled || !activeVersionId || timedLyrics.length > 0 || (dialog !== "player" && dialog !== "playlist")) return;
+    const versionId = activeVersionId;
+    const controller = new AbortController();
+    let stopped = false;
+    const endpoint = `${LU_BASE_PATH}/api/auto-captions?versionId=${encodeURIComponent(versionId)}`;
+    const run = async () => {
+      try {
+        const getResponse = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
+        const first = await getResponse.json() as { status?: string; cues?: AutoCue[]; error?: string; message?: string };
+        if (!getResponse.ok) throw new Error(first.error || "Erro na consulta das legendas.");
+        if (stopped) return;
+        setAutoCaptionError("");
+        setAutoCaption({ versionId, status: first.status || "missing", cues: first.cues || [], message: first.message });
+        if (first.status === "disabled" || first.status === "ready") return;
+        const generate = await fetch(endpoint, { method: "POST", cache: "no-store", signal: controller.signal });
+        const generated = await generate.json() as { status?: string; cues?: AutoCue[]; error?: string; message?: string };
+        if (stopped) return;
+        if (!generate.ok) throw new Error(generated.error || "Falha ao gerar legendas.");
+        setAutoCaption({ versionId, status: generated.status || "processing", cues: generated.cues || [], message: generated.message });
+        if (generated.status === "ready") return;
+        if (generated.status === "failed") {
+          setAutoCaptionError("Esta tentativa nao pode ser repetida agora. Tente novamente mais tarde.");
+          return;
+        }
+        for (let attempt = 0; attempt < 25 && !stopped; attempt++) {
+          await new Promise<void>((resolve) => { setTimeout(resolve, 2500); });
+          if (stopped) return;
+          const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
+          const result = await response.json() as { status?: string; cues?: AutoCue[]; error?: string; message?: string };
+          if (!response.ok) throw new Error(result.error || "Falha ao carregar legendas.");
+          if (stopped) return;
+          setAutoCaption({ versionId, status: result.status || "processing", cues: result.cues || [], message: result.message });
+          if (result.status === "ready" || result.status === "failed" || result.status === "disabled") return;
+        }
+        if (!stopped) setAutoCaptionError("A geração está demorando. Desative e ative CC novamente mais tarde.");
+      } catch (error) {
+        if (!stopped && !controller.signal.aborted) {
+          setAutoCaptionError(error instanceof Error ? error.message : "Legendas indisponíveis.");
+        }
+      }
+    };
+    void run();
+    return () => { stopped = true; controller.abort(); };
+    // active?.id é chave canônica da gravação; nao usar nome da musica.
+  }, [captionsEnabled, activeVersionId, timedLyrics.length, dialog]);
+
   useEffect(() => {
     if (dialog === "closed") return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (captionExpanded) { setCaptionExpanded(false); return; }
         if (artSelected) { setArtSelected(null); return; }
         requestNumber.current += 1;
         playlistAutoPlay.current = false;
@@ -97,7 +165,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [dialog, artSelected]);
+  }, [dialog, artSelected, captionExpanded]);
 
   useEffect(() => {
     if (dialog !== "player" && dialog !== "playlist") audio.current?.pause();
@@ -172,6 +240,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     playlistAutoPlay.current = false;
     setPlaying(false);
     setLyrics(false);
+    setCaptionExpanded(false);
     setDialog("player");
     void loadTrack(id);
   };
@@ -182,6 +251,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     playlistAutoPlay.current = false;
     setPlaying(false);
     setPlaylistFinished(false);
+    setCaptionExpanded(false);
     setAudioError("");
     setLoadError("");
     setTime(0);
@@ -195,6 +265,7 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     playlistAutoPlay.current = false;
     audio.current?.pause();
     setArtSelected(null);
+    setCaptionExpanded(false);
     setDialog("closed");
     setPlaying(false);
     setRefreshingAudio(false);
@@ -346,12 +417,21 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
                 playlistAutoPlay.current = false;
                 if (source) setAudioError("Não foi possível reproduzir este áudio. Toque em Próxima para continuar.");
               }} />
-            {rawLyrics && <div className="lu-caption-box">
-              <button type="button" className="lu-caption-toggle" onClick={() => setCaptionsEnabled((prev) => !prev)} aria-pressed={captionsEnabled}>
-                {captionsEnabled ? "CC Legenda ativada — ocultar" : "CC Exibir letra durante a musica"}
+            {(active?.id || rawLyrics) && <div className="lu-caption-box">
+              <button type="button" className="lu-caption-toggle" onClick={() => { setCaptionsEnabled((prev) => !prev); setCaptionExpanded(false); setAutoCaptionError(""); }} aria-pressed={captionsEnabled}>
+                {captionsEnabled ? "CC Desativar legendas" : "CC Ouvir com legendas automáticas"}
               </button>
-              {captionsEnabled && <div className="lu-captions" role="region" aria-label="Letra da cantiga">
-                {timedLyrics.length ? <p aria-live="off">{caption}</p> : <p className="lu-caption-full">{rawLyrics}</p>}
+              {captionsEnabled && <div className="lu-auto-caption-stage" role="region" aria-label="Legenda sincronizada com a gravação">
+                {cueList.length ? <>
+                  <p className="lu-auto-caption-muted">{previousCaption || "♪"}</p>
+                  <p className="lu-auto-caption-current" aria-live="off">{currentCaption}</p>
+                  <p className="lu-auto-caption-muted">{nextCaption || "♪"}</p>
+                  <button type="button" className="lu-caption-expand" onClick={() => setCaptionExpanded(true)}>⛶ Ampliar tela de legendas</button>
+                </> : rawLyrics ? <p className="lu-caption-full">{rawLyrics.replace(/^\s*\[\d{1,2}:\d{2}(?:[.,]\d{1,3})?\]\s*/gm, "")}</p>
+                : <p className="lu-auto-caption-current">{autoStatus === "disabled" ? "Legendas automáticas ainda não habilitadas." : autoStatus === "failed" ? "Não foi possível gerar a legenda. Tente novamente mais tarde." : "Gerando legendas automaticamente para esta gravação..."}</p>}
+                {autoMessage && !cueList.length && <small>{autoMessage}</small>}
+                {autoCaptionError && <p className="lu-alert" role="alert">{autoCaptionError}</p>}
+                {cueList.length > 0 && timedLyrics.length === 0 && <small>Legenda automática: pode conter erros em canto coletivo.</small>}
               </div>}
             </div>}
             <label className="lu-sr-only" htmlFor="lu-seek-v4">Posição da música</label>
@@ -376,6 +456,20 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
             <button type="button" className="lu-list-back" onClick={dialog === "playlist" ? close : openList}>{dialog === "playlist" ? "← Voltar ao livro" : "← Voltar à lista de músicas"}</button>
           </div>}
         </section>
+      </div>}
+      {captionExpanded && captionsEnabled && (dialog === "player" || dialog === "playlist") && <div className="lu-caption-fullscreen" role="dialog" aria-modal="true" aria-label={`Legendas da cantiga ${song.title}`}>
+        <div className="lu-caption-fullscreen-top"><strong>🎵 {song.title}</strong><button type="button" onClick={() => setCaptionExpanded(false)}>FECHAR</button></div>
+        <div className="lu-caption-fullscreen-center">
+          <p className="lu-auto-caption-muted">{previousCaption || "♪"}</p>
+          <p className="lu-auto-caption-current" aria-live="off">{currentCaption || "Gerando legenda automática..."}</p>
+          <p className="lu-auto-caption-muted">{nextCaption || "♪"}</p>
+        </div>
+        <div className="lu-caption-fullscreen-bottom">
+          <label className="lu-sr-only" htmlFor="lu-caption-seek">Posição da gravação</label>
+          <input id="lu-caption-seek" type="range" className="lu-seek" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(time, Math.max(duration, 1))} onChange={(event) => { if (audio.current) audio.current.currentTime = Number(event.target.value); }} />
+          <div className="lu-time"><span>{fmt(time)}</span><span>{fmt(duration)}</span></div>
+          <button type="button" className="lu-caption-fullscreen-play" disabled={!source || refreshingAudio} onClick={() => void play()}>{playing ? "Ⅱ Pausar" : "▶ Reproduzir"}</button>
+        </div>
       </div>}
       {artSelected && <div className="lu-art-fullscreen" role="dialog" aria-modal="true" aria-label="Página ilustrada ampliada">
         <div className="lu-art-fullscreen-head"><strong>🎨 {luTracks.find((s) => s.id === artSelected.trackId)?.title}</strong><button type="button" onClick={() => setArtSelected(null)}>FECHAR</button></div>
