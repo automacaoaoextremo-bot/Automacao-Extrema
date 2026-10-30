@@ -481,3 +481,21 @@
 .lu-art-fullscreen-head button{background:#154535;color:white;border:0;border-radius:25px;padding:11px 17px;font-weight:850;min-height:44px}
 .lu-art-fullscreen-photo{display:block;width:auto;max-width:100%;height:auto;max-height:calc(100dvh - 95px);object-fit:contain;box-shadow:0 4px 24px #17483c21;border-radius:7px}
 @media(max-width:550px){.lu-art-admin-grid{grid-template-columns:1fr}.lu-art-gallery-tile img{height:135px}.lu-art-public-gallery{padding:12px}.lu-art-admin-dialog{max-height:96dvh}.lu-art-fullscreen{padding:7px}.lu-art-fullscreen-photo{max-height:calc(100dvh - 85px)}}
+
+/* V10 - Legendas de audio e configuracao de letras */
+.lu-caption-box{margin:12px auto;width:min(100%,540px)}
+.lu-caption-toggle{width:100%;min-height:44px;border:1px solid #9dcabc;background:#e8f6ee;color:#175543;font-size:13px;font-weight:800;padding:9px 13px;border-radius:12px;cursor:pointer}
+.lu-captions{max-height:185px;overflow-y:auto;border:1px solid #bddccd;background:#173d43;color:#fff;border-radius:12px;padding:14px;margin-top:6px;text-align:center}
+.lu-captions p{white-space:pre-wrap;font-size:17px;line-height:1.55;font-weight:750;color:#fff;margin:0}
+.lu-captions .lu-caption-full{font-size:14px;text-align:left;font-weight:500}
+.lu-lyrics .lu-lyrics-text{white-space:pre-wrap;font-size:14px;color:#204e43;line-height:1.7;background:#f1f8f1;border-radius:10px;padding:13px}
+.lu-lyrics-admin-entry{margin-top:13px}
+.lu-lyrics-admin-dialog{max-height:min(92dvh,850px);overflow-y:auto}
+.lu-lyrics-admin-body{display:flex;flex-direction:column;gap:10px;padding:18px clamp(12px,4vw,28px);color:#244e47}
+.lu-lyrics-admin-body p{font-size:13px;line-height:1.6;margin:0}
+.lu-lyrics-admin-body label{font-size:13px;font-weight:800}
+.lu-lyrics-admin-body textarea,.lu-lyrics-admin-body select{width:100%;border:1px solid #b4d0bd;border-radius:10px;padding:11px;background:#fff;color:#234d46;font:inherit;font-size:14px}
+.lu-lyrics-admin-body textarea{min-height:180px;resize:vertical}
+.lu-lyrics-admin-body small{font-size:11px;color:#60786d}
+.lu-lyrics-publish{display:flex;align-items:flex-start;gap:10px;line-height:1.4}
+.lu-lyrics-publish input{width:19px;height:19px;flex:none;accent-color:#13856e}
