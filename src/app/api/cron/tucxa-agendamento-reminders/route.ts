@@ -291,6 +291,10 @@ export async function GET(request: Request) {
   if (!authorize(request)) {
     return NextResponse.json({ error: "Cron não autorizado." }, { status: 401 });
   }
+  // Nenhum envio ou gravação de dados em Preview/Development.
+  if (process.env.VERCEL_ENV !== "production") {
+    return NextResponse.json({ ok: true, blocked: true, reason: "non_production_environment", sent: 0, messagesSent: 0 });
+  }
 
   try {
     const organization = await findTucxaOrganization();
