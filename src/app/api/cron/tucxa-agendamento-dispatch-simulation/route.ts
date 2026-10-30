@@ -70,6 +70,9 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const requestedDate = text(url.searchParams.get("date")) || todayInSaoPaulo();
     const send = url.searchParams.get("send") === "1";
+    if (send && process.env.VERCEL_ENV !== "production") {
+      return NextResponse.json({ ok: true, blocked: true, reason: "non_production_environment", messagesSent: 0 });
+    }
     const requestedEntity = text(url.searchParams.get("entity")) || "Teste";
 
     if (!validIsoDate(requestedDate)) {
