@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Tutor IA ainda não habilitado neste ambiente. Defina STUDYAGENT_AI_ENABLED=true e OPENAI_API_KEY no servidor. O Knowledge Graph e a recomendação de trilha funcionam sem IA.",
+          "O tutor integrado ainda não está disponível neste ambiente. Você pode continuar usando o mapa, a trilha e a opção de levar o contexto para o assistente de IA que já utiliza.",
       },
       { status: 503 },
     );
@@ -59,7 +59,13 @@ export async function POST(request: Request) {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "OPENAI_API_KEY não configurada no servidor." }, { status: 503 });
+    return NextResponse.json(
+      {
+        error:
+          "O tutor integrado está temporariamente indisponível. Você pode continuar usando o mapa, a trilha e a opção de levar o contexto para o seu assistente.",
+      },
+      { status: 503 },
+    );
   }
 
   const context = getCompetencyContext(competencyIds.length ? competencyIds : undefined);
@@ -70,7 +76,8 @@ export async function POST(request: Request) {
 Use prioritariamente a BASE DE CONHECIMENTO fornecida abaixo. Não invente que o estudante foi aprovado em um nível.
 Quando faltar evidência na base, diga explicitamente que a base não sustenta a conclusão e proponha o que deve ser verificado.
 Seja didático, objetivo e incentive prática + explicação + evidência.
-Os gates provisórios são: quiz >= ${STUDYAGENT_GATE.quizMin}%, prática >= ${STUDYAGENT_GATE.practiceMin}/3, explicação >= ${STUDYAGENT_GATE.explanationMin}/3 e nota final >= ${STUDYAGENT_GATE.finalMin}%.
+Sempre que ajudar a compreensão, organize a resposta como: o que é -> por que importa -> o que muda na prática -> que evidência comprova aprendizagem.
+Não use linguagem de venda nem prometa aprovação. Seja conciso e responda em até 350 palavras, salvo se o estudante pedir aprofundamento.\nOs gates provisórios são: quiz >= ${STUDYAGENT_GATE.quizMin}%, prática >= ${STUDYAGENT_GATE.practiceMin}/3, explicação >= ${STUDYAGENT_GATE.explanationMin}/3 e nota final >= ${STUDYAGENT_GATE.finalMin}%.
 
 NÍVEIS:
 ${levels}
@@ -81,7 +88,7 @@ ${nextStudies}
 BASE DE CONHECIMENTO:
 ${context}`;
 
-  const model = process.env.STUDYAGENT_OPENAI_MODEL || "gpt-6-astra";
+  const model = process.env.STUDYAGENT_OPENAI_MODEL || "gpt-6-luna";
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
