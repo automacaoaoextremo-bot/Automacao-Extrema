@@ -81,6 +81,15 @@ const examples = [
     transformation: "Transforma confirmações espalhadas no WhatsApp em uma jornada organizada, carinhosa e previsível.",
   },
   {
+    name: "StudyAgent",
+    url: "/solucoes/studyagent",
+    label: "Educação orientada por competências",
+    description:
+      "Plataforma em piloto para organizar competências em um Knowledge Graph, recomendar trilhas de estudo e apoiar prática, avaliação e evidências antes da progressão.",
+    transformation:
+      "Transforma uma lista de conteúdos em uma jornada de aprendizagem rastreável, com pré-requisitos, feedback e comprovação de evolução.",
+  },
+  {
     name: "Caixa Claro",
     url: "/solucoes/caixa-claro",
     label: "Clareza financeira familiar",
