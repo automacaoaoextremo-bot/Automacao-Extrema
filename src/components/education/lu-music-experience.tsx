@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 import { LuHeader } from "@/components/education/lu-header";
 import Image from "next/image";
@@ -73,6 +73,26 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
   // Não substituir gravações reais por demonstração após a liberação.
   const source = active?.url || (!loaded || (!familyReleased && !teacherPreview) ? `/education-demo/audio/musica-${song.id}.mp3` : undefined);
 
+  // No player individual, FECHAR volta a lista e a pagina da cantiga atual.
+  // Na playlist, galeria e lista, FECHAR continua voltando ao livro inicial.
+  // O mesmo comportamento e usado pelo botao, fundo do modal e tecla Escape.
+  const close = useCallback(() => {
+    requestNumber.current += 1;
+    playlistAutoPlay.current = false;
+    audio.current?.pause();
+    setArtSelected(null);
+    setCaptionExpanded(false);
+    setCaptionsEnabled(false);
+    setPlaying(false);
+    setRefreshingAudio(false);
+    if (dialog === "player") {
+      setPage(Math.floor(index / PAGE_SIZE));
+      setDialog("list");
+    } else {
+      setDialog("closed");
+    }
+  }, [dialog, index]);
+
   useEffect(() => {
     const controller = new AbortController();
     void fetch(`${LU_BASE_PATH}/api?view=public`, { cache: "no-store", signal: controller.signal })
@@ -105,15 +125,12 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
       if (event.key === "Escape") {
         if (captionExpanded) { setCaptionExpanded(false); setCaptionsEnabled(false); return; }
         if (artSelected) { setArtSelected(null); return; }
-        requestNumber.current += 1;
-        playlistAutoPlay.current = false;
-        audio.current?.pause();
-        setDialog("closed");
+        close();
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [dialog, artSelected, captionExpanded]);
+  }, [dialog, artSelected, captionExpanded, close]);
 
   useEffect(() => {
     if (dialog !== "player" && dialog !== "playlist") audio.current?.pause();
@@ -209,18 +226,6 @@ export function LuMusicExperience({ initialTrackId }: { initialTrackId?: string 
     setDuration(0);
     setTrackId(tracks[0].id);
     setDialog("playlist");
-  };
-
-  const close = () => {
-    requestNumber.current += 1;
-    playlistAutoPlay.current = false;
-    audio.current?.pause();
-    setArtSelected(null);
-    setCaptionExpanded(false);
-    setCaptionsEnabled(false);
-    setDialog("closed");
-    setPlaying(false);
-    setRefreshingAudio(false);
   };
 
   const openGallery = () => {
