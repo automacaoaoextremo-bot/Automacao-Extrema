@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasLuAdminAccess } from "@/lib/education/lu-teacher-auth";
 import { getLuProject, LU_BUCKET, LU_PROJECT } from "@/lib/education/lu-storage";
 
 export const runtime = "nodejs";
@@ -43,6 +44,8 @@ async function read(versionId: string): Promise<Stored | null> {
 }
 
 export async function GET(request: NextRequest) {
+  // As transcricoes brutas ainda nao foram revisadas: somente docentes autenticados.
+  if (!(await hasLuAdminAccess())) return json({ error: "Nao autorizado" }, 401);
   try {
     const version = await context(request);
     if (!version) return json({ error: "Gravacao indisponivel" }, 404);
@@ -53,6 +56,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Impede que familias acionem um processamento externo ou leiam textos brutos.
+  if (!(await hasLuAdminAccess())) return json({ error: "Nao autorizado" }, 401);
   if (!enabled()) return json({ error: "Legendas automaticas nao habilitadas." }, 503);
   let version: Awaited<ReturnType<typeof context>>;
   try { version = await context(request); }
