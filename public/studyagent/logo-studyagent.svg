@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="210" viewBox="0 0 760 210" role="img" aria-labelledby="title desc">
+  <title id="title">StudyAgent</title>
+  <desc id="desc">Logo do StudyAgent, solução educacional da Automação Extrema</desc>
+  <rect width="760" height="210" rx="28" fill="#ffffff"/>
+  <g transform="translate(30 28)">
+    <rect x="0" y="0" width="154" height="154" rx="32" fill="#00334E"/>
+    <circle cx="46" cy="48" r="13" fill="#31C16B"/>
+    <circle cx="108" cy="42" r="11" fill="#00A8CC"/>
+    <circle cx="81" cy="102" r="14" fill="#ffffff"/>
+    <path d="M55 54 L74 88 M99 49 L87 90 M58 56 L99 47" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity=".95"/>
+    <path d="M41 121 C59 110, 102 110, 121 121" fill="none" stroke="#31C16B" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <text x="218" y="92" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="800" fill="#00334E">Study</text>
+  <text x="374" y="92" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="800" fill="#00A8CC">Agent</text>
+  <text x="220" y="128" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#31C16B" letter-spacing="2.8">AUTOMAÇÃO EXTREMA · EDUCAÇÃO</text>
+  <text x="220" y="160" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#5B6775">Aprender · praticar · comprovar</text>
+</svg>
