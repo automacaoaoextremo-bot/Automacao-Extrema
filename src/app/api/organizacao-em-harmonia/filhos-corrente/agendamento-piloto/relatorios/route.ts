@@ -489,7 +489,7 @@ export async function GET(request: Request) {
           text(item.person_id),
           {
             defaultEntityId: text(item.default_entity_id),
-            allowDifferentEntity: item.allow_different_entity === true,
+            allowDifferentEntity: item.allow_different_entity !== false,
           },
         ]),
       );

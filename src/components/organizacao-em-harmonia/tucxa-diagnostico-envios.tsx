@@ -12,6 +12,7 @@ type Recipient = {
   phone?: string;
   eligible?: boolean;
   source?: string;
+  previewMessage?: string;
 };
 type Diagnostic = { reason: string; phoneMasked?: string };
 type DispatchHistory = {
@@ -25,6 +26,7 @@ type Report = {
   ok: boolean;
   date: string;
   holiday: boolean;
+  calendarClosed?: boolean;
   weekdayEnabled: boolean;
   messagesSent: number;
   databaseWrites: number;
@@ -35,7 +37,7 @@ type Report = {
     generalWhatsapp?: boolean;
     generalDispatchAllowedForDate?: boolean;
   };
-  receptionSummaryPreview?: { appointmentCount: number; summary?: string };
+  receptionSummaryPreview?: { appointmentCount: number; summary?: string; summaryAfternoon?: string };
   counts?: { reminders: number; reception: number; cavalinhos: number };
   recepcao?: Recipient[];
   cavalinhos?: Recipient[];
@@ -62,6 +64,21 @@ function dateLabel(iso: string): string {
     timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
   }).format(date);
 }
+/** Um mesmo contato não deve aparecer repetidamente para o mesmo público. */
+function uniqueSortedRecipients(items: Recipient[]): Recipient[] {
+  const map = new Map<string, Recipient>();
+  for (const item of items) {
+    const key = item.personId || item.phone || `${item.person || ""}:${item.entity || ""}`;
+    if (!map.has(key)) map.set(key, item);
+  }
+  return [...map.values()].sort((a, b) => (a.person || "").localeCompare(b.person || "", "pt-BR", { sensitivity: "base" }));
+}
+function occurrenceDateLabel(iso: string): string {
+  const base = dateLabel(iso);
+  const occurrence = Math.floor((Number(iso.slice(8, 10)) - 1) / 7) + 1;
+  const weekday = new Date(`${iso}T12:00:00Z`).getUTCDay();
+  return `${base} · ${occurrence}ª ${weekday === 1 ? "segunda" : "terça"} do mês`;
+}
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : "Não foi possível consultar os dados.";
 }
@@ -85,6 +102,7 @@ export function TucxaDiagnosticoEnviosContent() {
   const [datesLoading, setDatesLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<{ title: string; message: string } | null>(null);
 
   const inspect = useCallback(async (iso: string) => {
     if (!iso) return;
@@ -119,9 +137,9 @@ export function TucxaDiagnosticoEnviosContent() {
     return () => { active = false; };
   }, [inspect]);
 
-  const excluded = Boolean(report && (report.holiday || !report.weekdayEnabled || !report.configured.generalDispatchAllowedForDate));
-  const reception = report?.recepcao || [];
-  const cavalinhos = report?.cavalinhos || [];
+  const excluded = Boolean(report && (report.holiday || report.calendarClosed || !report.weekdayEnabled || !report.configured.generalDispatchAllowedForDate));
+  const reception = uniqueSortedRecipients(report?.recepcao || []);
+  const cavalinhos = uniqueSortedRecipients(report?.cavalinhos || []);
   const history = report?.dispatchHistory || [];
   const selectTab = (next: Tab) => { setTab(next); setPage(1); };
   const visible = <T,>(items: T[]) => items.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -132,7 +150,7 @@ export function TucxaDiagnosticoEnviosContent() {
       <label className="grid min-w-0 gap-1 text-xs font-bold">Data do atendimento
         <select aria-label="Data do atendimento" value={date} disabled={datesLoading || availableDates.length === 0} onChange={(event) => { setDate(event.target.value); setPage(1); setReport(null); }} className="min-w-0 rounded-xl border border-[#C6D7CB] bg-white px-2 py-3 text-sm">
           {!date && <option value="">{datesLoading ? "Carregando..." : "Selecione a data"}</option>}
-          {availableDates.map((iso) => <option key={iso} value={iso}>{dateLabel(iso)}</option>)}
+          {availableDates.map((iso) => <option key={iso} value={iso}>{occurrenceDateLabel(iso)}</option>)}
         </select>
       </label>
       <button type="submit" disabled={!date || datesLoading || loading} className="rounded-xl bg-[#123D2C] px-3 py-3 text-xs font-bold text-white disabled:opacity-50">
@@ -143,7 +161,7 @@ export function TucxaDiagnosticoEnviosContent() {
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
     {report && <>
       <div className={`rounded-xl p-3 text-xs font-semibold ${excluded ? "bg-amber-50 text-amber-900" : "bg-green-50 text-green-900"}`}>
-        {report.holiday ? "Feriado ou centro fechado: nenhum envio elegível." : excluded ? "Envios não autorizados para esta data." : "Dia habilitado: previsão de destinatários, não confirmação de entrega."}
+        {report.holiday ? "Feriado ou centro fechado: nenhum envio elegível." : report.calendarClosed ? "Centro sem atendimento conforme calendário cadastrado: sem envios." : excluded ? "Envios não autorizados para esta data." : "Dia habilitado: previsão de destinatários, não confirmação de entrega."}
         <p className="mt-1">Consulta: {report.messagesSent} mensagens enviadas · {report.databaseWrites} gravações.</p>
       </div>
       <div role="tablist" aria-label="Detalhes do diagnóstico" className="grid grid-cols-4 gap-1">
@@ -157,11 +175,18 @@ export function TucxaDiagnosticoEnviosContent() {
             "Agendamentos", report.receptionSummaryPreview?.appointmentCount ?? 0,
           ], ["Lembretes", report.counts?.reminders ?? 0], ["Recepção", report.counts?.reception ?? 0], ["Cavalinhos", report.counts?.cavalinhos ?? 0]] as Array<[string, number]>).map(([label, value]) => <div key={label} className="rounded-xl border border-[#E0EAE1] p-3"><strong className="block text-2xl">{value}</strong><span className="text-xs">{label}</span></div>)}
         </div>
-        <details className="rounded-xl bg-[#F6F8F4] p-3"><summary className="cursor-pointer text-sm font-bold">Ver texto previsto da Recepção</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{report.receptionSummaryPreview?.summary || "Sem resumo para a data."}</pre></details>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setPreview({ title: "Prévia da Recepção — 8h", message: report.receptionSummaryPreview?.summary || "Sem resumo para a data." })} className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-bold">Prévia das 8h</button>
+          <button type="button" onClick={() => setPreview({ title: "Atualização da Recepção — 16h", message: report.receptionSummaryPreview?.summaryAfternoon || "Sem resumo para a data." })} className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-bold">Atualização das 16h</button>
+        </div>
         <p className="text-xs text-slate-500">O horário exibido nas mensagens é de referência. A entrega deve ser confirmada pelos registros da integração.</p>
       </section>}
       {tab === "recepcao" && <section role="tabpanel" className="grid gap-2">
-        <p className="text-xs text-slate-500">Prévia às 8h e atualização às 16h; destinatários são deduplicados pelo celular.</p>
+        <p className="text-xs text-slate-500">Prévia às 8h e atualização às 16h. Destinatários únicos, identificados pelo número de celular.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Prévia da Recepção — 8h", message: report.receptionSummaryPreview?.summary || "Sem resumo." })}>Ver mensagem das 8h</button>
+          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Atualização da Recepção — 16h", message: report.receptionSummaryPreview?.summaryAfternoon || "Sem resumo." })}>Ver mensagem das 16h</button>
+        </div>
         {reception.length === 0 && <p className="text-sm">Nenhum destinatário previsto.</p>}
         {visible(reception).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><strong>{person.person || "Cadastro não localizado"}</strong><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.phone || "Celular indisponível"} · {person.source === "additional_recipient" ? "Destinatário adicional" : "Escala da Recepção"}</p></div>)}
         <Pager page={page} count={reception.length} onPage={setPage} />
@@ -170,7 +195,7 @@ export function TucxaDiagnosticoEnviosContent() {
       {tab === "cavalinhos" && <section role="tabpanel" className="grid gap-2">
         <p className="text-xs text-slate-500">Entidades escaladas sem agendamentos também aparecem; entidades indisponíveis ficam excluídas.</p>
         {cavalinhos.length === 0 && <p className="text-sm">Nenhum Cavalinho previsto.</p>}
-        {visible(cavalinhos).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><strong>{person.person || "Cadastro não localizado"}</strong><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.entity || "Entidade"} · {person.phone || "Celular indisponível"}</p></div>)}
+        {visible(cavalinhos).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><button type="button" onClick={() => setPreview({ title: `Mensagem prevista para ${person.person || "Cavalinho"}`, message: person.previewMessage || "Mensagem não disponível." })} className="text-left font-bold text-[#176A3A] underline underline-offset-2" aria-label={`Ver mensagem prevista para ${person.person || "Cavalinho"}`}>{person.person || "Cadastro não localizado"}</button><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.entity || "Entidade"} · {person.phone || "Celular indisponível"}</p></div>)}
         <Pager page={page} count={cavalinhos.length} onPage={setPage} />
       </section>}
       {tab === "auditoria" && <section role="tabpanel" className="grid gap-2">
@@ -181,5 +206,12 @@ export function TucxaDiagnosticoEnviosContent() {
         <p className="text-xs text-slate-500">Registro de disparo não comprova recebimento no aparelho.</p>
       </section>}
     </>}
+    {preview && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/55 p-3" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
+      <section role="dialog" aria-modal="true" aria-label={preview.title} className="flex max-h-[86dvh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b p-3"><h3 className="text-sm font-black">{preview.title}</h3><button type="button" autoFocus onClick={() => setPreview(null)} className="rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-bold text-white">Fechar</button></header>
+        <pre className="overflow-y-auto whitespace-pre-wrap break-words p-4 text-xs leading-5">{preview.message}</pre>
+        <p className="border-t p-3 text-[11px] text-slate-500">Somente previsão de conteúdo; nenhum WhatsApp ou e-mail foi enviado.</p>
+      </section>
+    </div>}
   </div>;
 }

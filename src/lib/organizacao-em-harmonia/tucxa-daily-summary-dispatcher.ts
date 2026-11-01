@@ -1,5 +1,6 @@
 /** Envio operacional TUCXA: duas fases independentes, mesma regra de identidade por WhatsApp. */
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isTucxaCalendarDateOpen } from "@/lib/organizacao-em-harmonia/tucxa-pilot-calendar";
 import { sendTucxaOperationalSummaryWhatsapp } from "@/lib/botconversa";
 import {
   isCampinasHoliday, loadPilotDay, loadPilotSettings, PILOT_ACTIVE_STATUSES,
@@ -92,6 +93,10 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
     for (const org of organizations ?? []) {
       const orgId = txt(org.id);
       const settings = await loadPilotSettings(orgId);
+      if (!(await isTucxaCalendarDateOpen(orgId, date))) {
+        diagnostics.push({ organization: txt(org.name), reason: "calendar_closed_or_not_registered" });
+        continue;
+      }
       if (!settings.automaticDispatchWeekdays.includes(weekday(date))) {
         diagnostics.push({ organization: txt(org.name), reason: "weekday_not_enabled" });
         continue;

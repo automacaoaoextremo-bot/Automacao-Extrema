@@ -231,6 +231,20 @@ function parseDateInputPtBr(value: string) {
   return `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
 }
 
+/** Agrupa datas civis por mês, mantendo o value ISO e a seleção existente. */
+function groupedDateOptions(dates: ReadonlyArray<{ date: string; label: string }>) {
+  const groups = new Map<string, Array<{ date: string; label: string }>>();
+  for (const item of dates) {
+    const key = item.date.slice(0, 7);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups].map(([key, items]) => (
+    <optgroup key={key} label={monthYearLabel(`${key}-01`)}>
+      {items.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
+    </optgroup>
+  ));
+}
+
 function monthYearLabel(value: string) {
   if (!value) return "";
   const label = new Date(`${value.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("pt-BR", {
@@ -402,7 +416,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [alternateRelationshipOption, setAlternateRelationshipOption] = useState("");
   const [selectedRelatedKey, setSelectedRelatedKey] = useState("");
   const [relatedPreferenceKey, setRelatedPreferenceKey] = useState("");
-  const [relatedPreferenceDraft, setRelatedPreferenceDraft] = useState({ defaultEntityId: "", allowDifferentEntity: false });
+  const [relatedPreferenceDraft, setRelatedPreferenceDraft] = useState({ defaultEntityId: "", allowDifferentEntity: true });
   const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
@@ -450,7 +464,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
   const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
-  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
+  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
     name: "",
@@ -920,13 +934,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSearchResults([]);
     setPersonNotFound(false);
     setAccessInfo(null);
-    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: false });
+    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
     setShowNewPersonPassword(false);
     setRelatedPreferenceKey("");
-    setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
+    setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: true });
   }
 
   function openNewConsulenteEditor() {
@@ -1058,7 +1072,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       const defaultEntityName = detailedPerson.defaultEntityName
         || payload?.entityCatalog.find((entity) => entity.id === defaultEntityId)?.name
         || "a Entidade padrão cadastrada";
-      const allowDifferentEntity = detailedPerson.allowDifferentEntity === true;
+      const allowDifferentEntity = detailedPerson.allowDifferentEntity !== false;
 
       if (modal === "agendar" && defaultEntityId && !allowDifferentEntity) {
         const defaultEntityAvailable = usableEntities.some((entity) => entity.id === defaultEntityId);
@@ -1191,7 +1205,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
       setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
       setRelatedPreferenceKey("");
-      setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: false });
+      setRelatedPreferenceDraft({ defaultEntityId: "", allowDifferentEntity: true });
       setSuccessNotice({
         title: "Pessoa vinculada atualizada",
         message: typeof result.message === "string" ? result.message : "Preferências da pessoa vinculada atualizadas.",
@@ -1320,7 +1334,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
       const person = result.person as FoundPerson;
       setFoundPerson(person);
-      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: false });
+      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: true });
       setAccessInfo(result.access && typeof result.access === "object" ? result.access as AccessInfo : null);
       setPersonNotFound(false);
       setShowCreateConsulente(false);
@@ -2256,7 +2270,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <label className="grid gap-1 text-sm font-black text-[#123D2C]">Data
                   <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                     <select value={payload.selectedDate} onChange={(event) => { setEntityId(""); void load(event.target.value); }} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
-                      {payload.dates.map((item) => <option key={item.date} value={item.date}>{item.label}</option>)}
+                      {groupedDateOptions(payload.dates)}
                     </select>
                   </div>
                 </label>
@@ -2530,7 +2544,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <div className="sticky top-0 z-20 -mx-1 grid gap-2 bg-white px-1 pb-3">
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                   <select value={payload.selectedDate} onChange={(event) => { setConsultPage(1); setConsultEntityLetter(""); setConsultLetter(""); setOpenAppointmentActions({}); void load(event.target.value); }} className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]">
-                    {payload.dates.map((item) => <option key={item.date} value={item.date}>{acolhimentoDateLabel(item.date)}</option>)}
+                    {groupedDateOptions(payload.dates.map((item) => ({ date: item.date, label: acolhimentoDateLabel(item.date) })))}
                   </select>
                   <button type="button" disabled={saving || triageFinalized} onClick={() => void finalizeOperationalStage("triage")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{triageFinalized ? "Finalizada" : finalizingStage === "triage" ? "Finalizando..." : "FINALIZAR"}</button>
                 </div>
@@ -2868,11 +2882,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     }}
                     className="min-w-0 rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-bold text-[#123D2C]"
                   >
-                    {payload.dates.map((item) => (
-                      <option key={`enc-data-${item.date}`} value={item.date}>
-                        {acolhimentoDateLabel(item.date)}
-                      </option>
-                    ))}
+                    {groupedDateOptions(payload.dates.map((item) => ({ date: item.date, label: acolhimentoDateLabel(item.date) })))}
                   </select>
                   <button type="button" disabled={saving || forwardingFinalized || !triageFinalized} onClick={() => void finalizeOperationalStage("forwarding")} className="rounded-xl bg-amber-800 px-3 py-2.5 text-xs font-black text-white disabled:opacity-55">{forwardingFinalized ? "Finalizado" : "FINALIZAR"}</button>
                 </div>
@@ -3201,7 +3211,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "consulentes" && (
                 <section className="grid gap-2">
-                  {!showCreateConsulente && (<>
+                  {!showCreateConsulente && !foundPerson && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                     <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
@@ -3317,8 +3327,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
                         </select>
                       </label>
-                      <Toggle checked={editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: checked }))} label="Permitir que este Consulente escolha Entidade diferente da padrão" />
-                      <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão esta permissão fica desativada. A Recepção pode liberá-la individualmente.</p>
+                      <Toggle checked={!editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: !checked }))} label="Não permitir que este Consulente escolha Entidade diferente da padrão" />
+                      <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão, o Consulente pode escolher outra Entidade. Marque a opção acima somente para restringir à Entidade padrão.</p>
 
                       {(foundPerson.relatedConsulentes?.length ?? 0) > 0 && (
                         <section className="mt-1 grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
@@ -3333,7 +3343,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                 const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === key);
                                 setRelatedPreferenceDraft({
                                   defaultEntityId: related?.defaultEntityId || "",
-                                  allowDifferentEntity: related?.allowDifferentEntity === true,
+                                  allowDifferentEntity: related?.allowDifferentEntity !== false,
                                 });
                               }}
                               className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
@@ -3369,9 +3379,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
                                 </select>
                               </label>
                               <Toggle
-                                checked={relatedPreferenceDraft.allowDifferentEntity}
-                                onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: checked }))}
-                                label="Permitir que esta pessoa agende com Entidade diferente da padrão"
+                                checked={!relatedPreferenceDraft.allowDifferentEntity}
+                                onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: !checked }))}
+                                label="Não permitir que esta pessoa agende com Entidade diferente da padrão"
                               />
                               <button
                                 type="button"
@@ -3552,8 +3562,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
               {!settingsSection ? (
                 <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {[
-                    ["ordem", "Ordem dos atendimentos", "Agendamento ou chegada"],
-                    ["ordem-exibicao", "Ordem de exibição", "Entidade e Caderno"],
+                    ["ordem", "Ordem dos agendamentos e exibição", "Agendamento, chegada, Entidade e Caderno"],
                     ["confirmacao", "Prazo de confirmação", `Limite atual: ${settingsDraft.confirmationCutoff}`],
                     ["chegada", "Registro de chegada", "Regra do botão Chegou"],
                     ["visualizacao", "Visualização", "Paginação da Triagem e Encaminhamento"],
@@ -3585,7 +3594,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                   {settingsSection === "ordem" && <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordem dos atendimentos<select value={settingsDraft.serviceOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, serviceOrderMode: event.target.value as "booking" | "arrival" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3"><option value="booking">Ordem de agendamento</option><option value="arrival">Ordem de chegada</option></select></label>}
 
-                  {settingsSection === "ordem-exibicao" && (
+                  {settingsSection === "ordem" && (
                     <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                       <p className="font-black text-[#123D2C]">Ordem de exibição na Triagem</p>
                       <label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">
@@ -3609,7 +3618,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </section>
                   )}
 
-                  {settingsSection === "ordem-exibicao" && (
+                  {settingsSection === "ordem" && (
                     <section className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                       <label className="grid gap-1 text-sm font-black text-[#123D2C]">Ordenação das Entidades (preferência individual da Recepção)
                         <select value={settingsDraft.entityOrderMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, entityOrderMode: event.target.value as "alphabetical" | "custom" } : current)} className="rounded-xl border border-[#123D2C]/15 p-3">

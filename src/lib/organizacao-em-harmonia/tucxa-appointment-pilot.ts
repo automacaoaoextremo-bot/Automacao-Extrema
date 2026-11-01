@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { resolveAppointmentCapabilities } from "@/lib/organizacao-em-harmonia/appointment-permissions";
+import { isTucxaCalendarDateOpen, loadTucxaCalendarEvents, tucxaCalendarPermitsDate } from "@/lib/organizacao-em-harmonia/tucxa-pilot-calendar";
 
 const SAO_PAULO_TIME_ZONE = "America/Sao_Paulo";
 export const PILOT_ACTIVE_STATUSES = ["solicitado", "confirmado", "aprovado", "presente", "concluido"];
@@ -579,7 +580,7 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
   return {
     defaultEntityId: asText(data?.default_entity_id),
     defaultEntityChangedAt: asText(data?.default_entity_changed_at),
-    allowDifferentEntity: data?.allow_different_entity === true,
+    allowDifferentEntity: data?.allow_different_entity !== false,
     reminderWhatsappEnabled: data?.reminder_whatsapp_enabled !== false,
     reminderOffsetsHours: positiveHourList(data?.reminder_offsets_hours, []),
     receptionSummaryChannels: Array.isArray(data?.reception_summary_channels)
@@ -912,8 +913,11 @@ export async function loadPilotDates(organizationId: string, daysAhead: number):
   }
 
   if (!candidates.length) return [];
-  const weekdayValues = Array.from(new Set(candidates.map((item) => item.weekday)));
-  const occurrences = Array.from(new Set(candidates.map((item) => item.monthOccurrence)));
+  const calendarEvents = await loadTucxaCalendarEvents(organizationId, candidates[candidates.length - 1].date);
+  const calendarCandidates = candidates.filter((item) => tucxaCalendarPermitsDate(item.date, calendarEvents));
+  if (!calendarCandidates.length) return [];
+  const weekdayValues = Array.from(new Set(calendarCandidates.map((item) => item.weekday)));
+  const occurrences = Array.from(new Set(calendarCandidates.map((item) => item.monthOccurrence)));
   const [{ data, error }, { data: additions, error: additionsError }] = await Promise.all([
     supabaseAdmin.from("oh_tucxa_pilot_entity_schedule")
       .select("weekday,month_occurrence")
@@ -927,14 +931,15 @@ export async function loadPilotDates(organizationId: string, daysAhead: number):
   if (error) throw error;
   if (additionsError) throw additionsError;
   const regular = new Set((data ?? []).map((item) => `${item.weekday}:${item.month_occurrence}`));
-  return candidates.filter((item) => regular.has(`${item.weekday}:${item.monthOccurrence}`) ||
+  return calendarCandidates.filter((item) => regular.has(`${item.weekday}:${item.monthOccurrence}`) ||
     (additions ?? []).some((special) => item.date >= special.starts_on && item.date <= special.ends_on));
 }
 
 export async function loadPilotDay(organizationId: string, date: string): Promise<PilotEntityAvailability[]> {
   const weekday = pilotWeekday(date);
   const occurrence = monthOccurrence(date);
-  if (!weekday || occurrence > 5) return [];
+  if (!weekday || occurrence > 5 || isCampinasHoliday(date)) return [];
+  if (!(await isTucxaCalendarDateOpen(organizationId, date))) return [];
 
   const { data: scheduleRows, error: scheduleError } = await supabaseAdmin
     .from("oh_tucxa_pilot_entity_schedule")
