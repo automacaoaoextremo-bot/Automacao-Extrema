@@ -174,7 +174,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     asText(item.person_id),
     {
       defaultEntityId: asText(item.default_entity_id),
-      allowDifferentEntity: item.allow_different_entity === true,
+      allowDifferentEntity: item.allow_different_entity !== false,
     },
   ]));
 
@@ -266,7 +266,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.default_entity_id);
     const allowDifferentEntity = personPreference
       ? personPreference.allowDifferentEntity
-      : item.allow_different_entity === true;
+      : item.allow_different_entity !== false;
 
     addOption({
       relationshipId: asText(item.id),
@@ -301,7 +301,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
       relationship: asText(item.notification_contact_relationship),
       defaultEntityId,
       defaultEntityName: entityMap.get(defaultEntityId) || "",
-      allowDifferentEntity: personPreference?.allowDifferentEntity === true,
+      allowDifferentEntity: personPreference?.allowDifferentEntity !== false,
       source: "history",
     });
   }
@@ -1576,7 +1576,7 @@ export async function POST(request: Request) {
 
       if (contactMode === "alternate") {
         let effectiveDefaultEntityId = selectedRelatedOption?.defaultEntityId || (firstTimeBooking ? "" : entityId);
-        const effectiveAllowDifferentEntity = selectedRelatedOption?.allowDifferentEntity === true;
+        const effectiveAllowDifferentEntity = selectedRelatedOption?.allowDifferentEntity !== false;
         const effectiveRelatedPersonId = relatedPerson?.id || selectedRelatedOption?.relatedPersonId || "";
 
         if (effectiveRelatedPersonId) {
@@ -2627,7 +2627,7 @@ export async function POST(request: Request) {
       const requestedRelationshipId = asText(body.relationshipId);
       const historyAppointmentId = asText(body.historyAppointmentId);
       const defaultEntityId = asText(body.defaultEntityId);
-      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, false);
+      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, true);
 
       if (!ownerPersonId || (!requestedRelationshipId && !historyAppointmentId)) {
         return NextResponse.json({
@@ -2813,7 +2813,7 @@ export async function POST(request: Request) {
       const whatsapp = normalizeBrazilPhone(body.whatsapp);
       const email = asText(body.email).toLowerCase();
       const defaultEntityId = asText(body.defaultEntityId);
-      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, false);
+      const allowDifferentEntity = asBoolean(body.allowDifferentEntity, true);
       if (!personId || !fullName || whatsapp.length < 10) return NextResponse.json({ error: "Informe pessoa, nome e telefone válidos.", requestId: code }, { status: 400 });
       if (email && !email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
       if (!defaultEntityId) {

@@ -1,5 +1,6 @@
+import { isTucxaCalendarDateOpen } from "@/lib/organizacao-em-harmonia/tucxa-pilot-calendar";
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
-import { tucxaReceptionOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
+import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { additionalReceptionRecipientsForDate, canonicalTucxaPhone } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
     const weekday = numericDay(date);
     const holiday = isCampinasHoliday(date);
     const weekdayEnabled = settings.automaticDispatchWeekdays.includes(weekday);
+    const calendarClosed = !(await isTucxaCalendarDateOpen(organization.id, date));
     const { data: appointments, error: appointmentError } = await supabaseAdmin
       .from("oh_consulente_appointments")
       .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status,metadata")
@@ -126,7 +128,7 @@ export async function GET(request: Request) {
         appointmentId: appointment.id, consulente: appointment.consulente_name,
         entity: entityNames.get(str(appointment.entity_id)) || "Entidade não encontrada",
         phone: masked(phone), phonePresent: Boolean(digits(phone)), preferenceEnabled: permitted,
-        eligible: !holiday && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && appointmentDispatchAllowed(date, str(appointment.id), phone),
+        eligible: !holiday && !calendarClosed && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && appointmentDispatchAllowed(date, str(appointment.id), phone),
       };
     });
     const cavalinhoIds = [...new Set((linksResult.data ?? []).map(link => str(link.person_id)).filter(Boolean))];
@@ -136,12 +138,30 @@ export async function GET(request: Request) {
       const phone = canonicalTucxaPhone(person?.normalized_whatsapp || person?.whatsapp);
       if (phone) cavalinhoPhoneCounts.set(phone, (cavalinhoPhoneCounts.get(phone) ?? 0) + 1);
     }
+    // Usa as mesmas regras de texto do dispatcher, sem efetuar envios.
+    const cavalinhoPreviewByPerson = new Map<string, string>();
+    for (const personId of cavalinhoIds) {
+      const assignedEntityIds = [...new Set((linksResult.data ?? [])
+        .filter((link) => str(link.person_id) === personId && availableEntityIds.has(str(link.entity_id)))
+        .map((link) => str(link.entity_id)))];
+      if (!assignedEntityIds.length) continue;
+      cavalinhoPreviewByPerson.set(personId, tucxaCavalinhoOperationalMessage({
+        date,
+        entities: assignedEntityIds.map((entityId) => ({
+          name: entityNames.get(entityId) || "Entidade",
+          consulentes: rows.filter((row) => str(row.entity_id) === entityId)
+            .map((row) => str(row.consulente_name) || "Consulente não informado")
+            .sort((a, b) => a.localeCompare(b, "pt-BR")),
+        })),
+      }));
+    }
     const cavalinhos = (linksResult.data ?? [])
       .map((link) => ({
         entity: entityNames.get(str(link.entity_id)), personId: str(link.person_id),
         person: people.get(str(link.person_id))?.full_name || "Não encontrado/inativo",
+        previewMessage: cavalinhoPreviewByPerson.get(str(link.person_id)) || "Nenhuma Entidade ativa para esta data.",
         phone: masked(people.get(str(link.person_id))?.whatsapp),
-        eligible: !holiday && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
+        eligible: !holiday && !calendarClosed && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
           && Boolean(canonicalTucxaPhone(people.get(str(link.person_id))?.normalized_whatsapp || people.get(str(link.person_id))?.whatsapp))
           && cavalinhoPhoneCounts.get(canonicalTucxaPhone(people.get(str(link.person_id))?.normalized_whatsapp || people.get(str(link.person_id))?.whatsapp)) === 1
           && generalWhatsapp && cavalinhoFlow
@@ -170,7 +190,7 @@ export async function GET(request: Request) {
         phone: masked(phone), whatsappSelected: whatsapp,
         source: additionalIds.has(personId) ? "additional_recipient" : "reception_schedule",
         explicitlyAuthorized, uniquePhone,
-        eligible: !holiday && weekdayEnabled && settings.receptionDailyWhatsappEnabled
+        eligible: !holiday && !calendarClosed && weekdayEnabled && settings.receptionDailyWhatsappEnabled
           && uniquePhone && whatsapp && explicitlyAuthorized && generalWhatsapp && receptionFlow
           && receptionDispatchAllowed(date, personId, phone)
           && (generalDispatchAllowed(date) || rows.some((row) => str(row.id) === tucxaHomologation.appointmentId)),
@@ -179,7 +199,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true, dryRun: true, databaseWrites: 0, messagesSent: 0, date,
-      weekday, holiday, weekdayEnabled,
+      weekday, holiday, calendarClosed, weekdayEnabled,
       scheduling: {
         cronUtc: "Lembretes 15:00 UTC (12:00 Campinas); previa 11:00 UTC (08:00 Campinas); resumos 19:00 UTC (16:00 Campinas)",
         reminderTime: "12:00",
@@ -214,6 +234,13 @@ export async function GET(request: Request) {
         format: "entity_then_alphabetical_without_appointment_order",
         summary: tucxaReceptionOperationalMessage({
           phase: "morning", date,
+          entitySummary: formatTucxaReceptionSummary({
+            date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
+            scheduledEntityIds: [...availableEntityIds], includeTitle: false,
+          }),
+        }),
+        summaryAfternoon: tucxaReceptionOperationalMessage({
+          phase: "afternoon", date,
           entitySummary: formatTucxaReceptionSummary({
             date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
             scheduledEntityIds: [...availableEntityIds], includeTitle: false,
