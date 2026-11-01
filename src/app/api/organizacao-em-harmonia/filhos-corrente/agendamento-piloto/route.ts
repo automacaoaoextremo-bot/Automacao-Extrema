@@ -935,24 +935,9 @@ export async function POST(request: Request) {
     }
 
     if (action === "management-dispatch-dates") {
-      const startDate = todayInSaoPaulo();
-      const end = new Date(`${startDate}T12:00:00Z`);
-      end.setUTCDate(end.getUTCDate() + 180);
-      const endDate = end.toISOString().slice(0, 10);
-      const { data: datedAppointments, error: datesError } = await supabaseAdmin
-        .from("oh_consulente_appointments")
-        .select("appointment_date")
-        .eq("organization_id", context.organizationId)
-        .gte("appointment_date", startDate)
-        .lte("appointment_date", endDate)
-        .in("status", ["solicitado", "confirmado"])
-        .order("appointment_date", { ascending: true })
-        .limit(5000);
-      if (datesError) throw datesError;
-      const dates = Array.from(new Set((datedAppointments ?? [])
-        .map((item) => asText(item.appointment_date))
-        .filter((value) => manualDispatchDateAllowed(value))));
-      return NextResponse.json({ ok: true, dates });
+      // A agenda (inclusive zero reservas) e a fonte de verdade; excluir feriados.
+      const scheduled = await loadPilotDates(context.organizationId, 180);
+      return NextResponse.json({ ok: true, dates: scheduled.map((item) => item.date) });
     }
 
     if (action === "management-dispatch-list") {

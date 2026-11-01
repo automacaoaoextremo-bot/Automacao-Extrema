@@ -13,6 +13,10 @@ export function formatTucxaReceptionSummary(input: {
   entityLines?: ReadonlyMap<string, string>;
   entityCapacities?: ReadonlyMap<string, number>;
   cavalinhoNames?: ReadonlyMap<string, string>;
+  /** Inclui entidades escaladas sem reservas, sem inferir uma identidade por nome. */
+  scheduledEntityIds?: readonly string[];
+  /** Evita repetir o título nos textos formatados do WhatsApp. */
+  includeTitle?: boolean;
 }): string {
   const byEntity = new Map<string, ReceptionSummaryAppointment[]>();
   for (const item of input.appointments) {
@@ -20,6 +24,9 @@ export function formatTucxaReceptionSummary(input: {
     const group = byEntity.get(entityId) ?? [];
     group.push(item);
     byEntity.set(entityId, group);
+  }
+  for (const id of input.scheduledEntityIds ?? []) {
+    if (!byEntity.has(id)) byEntity.set(id, []);
   }
   const sections = [...byEntity.entries()]
     .sort(([idA], [idB]) => (input.entityNames.get(idA) || "Entidade não informada")
@@ -35,8 +42,11 @@ export function formatTucxaReceptionSummary(input: {
       const line = input.entityLines?.get(id) || "";
       const cavalinho = input.cavalinhoNames?.get(id) || "";
       const capacity = input.entityCapacities?.get(id);
-      const heading = `${name} (${line}) (${cavalinho}) (${sorted.length}/${capacity ?? "?"})`;
-      return `${heading}\n${lines.map((item) => `- ${item}`).join("\n")}`;
+      const extra = [line, cavalinho].filter(Boolean).map((value) => `(${value})`).join(" ");
+      const heading = `${name}${extra ? ` ${extra}` : ""} (${sorted.length}/${capacity ?? "?"})`;
+      return `${heading}\n${lines.length ? lines.map((item) => `- ${item}`).join("\n") : "Sem consulentes agendados até o momento."}`;
     });
-  return `TUCXA - Resumo de agendamentos\nTotal: ${input.appointments.length}\n\n${sections.join("\n\n")}`;
+  const details = sections.join("\n\n") || "Nenhuma Entidade com atendimento previsto.";
+  return input.includeTitle === false ? details
+    : `TUCXA - Resumo de agendamentos\nTotal: ${input.appointments.length}\n\n${details}`;
 }

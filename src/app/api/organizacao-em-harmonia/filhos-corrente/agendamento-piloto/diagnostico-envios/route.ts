@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { currentPilotReception, todayInSaoPaulo } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
+import { currentPilotReception, todayInSaoPaulo, loadPilotDates } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { GET as runPreflight } from "@/app/api/cron/tucxa-agendamento-preflight/route";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Acesso restrito à Recepção autorizada." },
       { status: 403, headers: { "Cache-Control": "no-store" } });
   }
-  const date = new URL(request.url).searchParams.get("date") || todayInSaoPaulo();
+  const query = new URL(request.url).searchParams;
+  if (query.get("mode") === "dates") {
+    try {
+      const dates = await loadPilotDates(reception.organizationId, 180);
+      return NextResponse.json({ ok: true, dates: dates.map((item) => item.date) },
+        { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      console.error("[TUCXA diagnostico] consulta das datas", error);
+      return NextResponse.json({ error: "Não foi possível consultar a programação." }, { status: 500 });
+    }
+  }
+  const date = query.get("date") || todayInSaoPaulo();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T12:00:00Z")) ||
       new Date(date + "T12:00:00Z").toISOString().slice(0, 10) !== date) {
     return NextResponse.json({ error: "Data inválida." }, { status: 400 });

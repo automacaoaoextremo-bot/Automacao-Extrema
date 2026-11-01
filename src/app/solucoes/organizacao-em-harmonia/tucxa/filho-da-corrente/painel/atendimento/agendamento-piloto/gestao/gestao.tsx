@@ -113,14 +113,14 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
         cache: "no-store",
       });
       const payload = (await response.json()) as { dates?: string[]; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Não foi possível consultar datas com agendamentos.");
+      if (!response.ok) throw new Error(payload.error || "Não foi possível consultar datas previstas de atendimento.");
       const dates = Array.isArray(payload.dates) ? payload.dates.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)) : [];
       setAvailableDates(dates);
       setDate((current) => dates.includes(current) ? current : (dates[0] || ""));
     } catch (loadError) {
       setAvailableDates([]);
       setDate("");
-      setError(loadError instanceof Error ? loadError.message : "Não foi possível consultar datas com agendamentos.");
+      setError(loadError instanceof Error ? loadError.message : "Não foi possível consultar datas previstas de atendimento.");
     } finally {
       setDatesLoading(false);
     }
@@ -152,7 +152,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
         cache: "no-store",
       });
       const payload = (await response.json()) as DispatchPayload;
-      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os agendamentos.");
+      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os agendamentos da data selecionada.");
       setAppointments((payload.appointments ?? []).sort((a, b) => a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })));
       setReadiness(payload.flowReadiness ?? { requestedReminder: false, confirmedReminder: false, pizza: false });
       setSelected(new Set());
@@ -160,7 +160,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
     } catch (loadError) {
       setAppointments([]);
       setSelected(new Set());
-      setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os agendamentos.");
+      setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os agendamentos da data selecionada.");
     } finally {
       setLoading(false);
     }
@@ -318,7 +318,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                     disabled={datesLoading || availableDates.length === 0}
                     className="min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold disabled:opacity-50"
                   >
-                    {availableDates.length === 0 && <option value="">{datesLoading ? "Carregando datas..." : "Nenhuma data com agendamento"}</option>}
+                    {availableDates.length === 0 && <option value="">{datesLoading ? "Carregando datas..." : "Nenhuma data prevista de atendimento"}</option>}
                     {availableDates.map((item) => <option key={item} value={item}>{ptBrDate(item)}</option>)}
                   </select>
                 </label>
@@ -328,7 +328,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
             </section>
 
             {!datesLoading && availableDates.length === 0 && !error && (
-              <p className="rounded-xl bg-[#F7FAF2] p-3 text-sm font-semibold text-slate-600">Não há datas futuras com agendamentos solicitados ou confirmados.</p>
+              <p className="rounded-xl bg-[#F7FAF2] p-3 text-sm font-semibold text-slate-600">Não há datas futuras previstas na escala das Entidades.</p>
             )}
             {!flowsReady && (
               <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">

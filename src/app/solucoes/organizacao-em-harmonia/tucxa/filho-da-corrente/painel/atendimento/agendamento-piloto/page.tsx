@@ -8,6 +8,7 @@ import {
 } from "@/components/organizacao-em-harmonia/filho-corrente-panel-header";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TucxaGestaoContent } from "./gestao/gestao";
+import { TucxaDiagnosticoEnviosContent } from "@/components/organizacao-em-harmonia/tucxa-diagnostico-envios";
 import { disambiguatedPersonDisplayNames, firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
@@ -18,7 +19,7 @@ const PERSONAL_REGISTRATION_HREF = "/solucoes/organizacao-em-harmonia/tucxa/filh
 
 type ViewMode = "entity_day" | "day_entity" | "both";
 type TriageDisplayOrder = "booking" | "alphabetical";
-type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "ajuda" | null;
+type ModalKind = "agendar" | "acolhimento" | "painel" | "consultar" | "encaminhamento" | "gestao" | "entidades" | "cadastros" | "configuracoes" | "diagnostico" | "ajuda" | null;
 type BookingMode = "date" | "entity";
 type ConsultStatus = "requested" | "confirmed" | "unconfirmed" | "arrived" | "absent" | "cancelled";
 const ALL_CONSULT_STATUSES: ConsultStatus[] = ["requested", "confirmed", "unconfirmed", "arrived", "absent", "cancelled"];
@@ -2096,7 +2097,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
           wide={(modal === "consultar" && consultDisplayMode === "caderno_amplo") || (modal === "encaminhamento" && forwardingWide)}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
-          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao"].includes(modal) ? (
+          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao", "diagnostico"].includes(modal) ? (
             <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
@@ -2110,6 +2111,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
             if (modal === "encaminhamento" && forwardingWide) {
               setForwardingWide(false);
               setForwardingPage(1);
+              return;
+            }
+            if (modal === "diagnostico") {
+              setModal("configuracoes");
+              setSettingsSection(null);
               return;
             }
             if (modal === "configuracoes" && settingsSection) {
@@ -2169,6 +2175,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
             setModal(null);
           }}
         >
+          {modal === "diagnostico" && <TucxaDiagnosticoEnviosContent />}
           {modal === "acolhimento" && (
             <div className="grid gap-3">
               <button type="button" onClick={() => setModal("painel")} className="rounded-2xl bg-[#E9F2E7] p-4 text-left ring-1 ring-[#123D2C]/10">
@@ -3560,7 +3567,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     <button
                       key={key}
                       type="button"
-                      onClick={() => key === "diagnostico" ? window.location.assign(`${pageHref}/diagnostico-envios`) : setSettingsSection(key)}
+                      onClick={() => key === "diagnostico" ? setModal("diagnostico") : setSettingsSection(key)}
                       className="flex min-h-[68px] items-center justify-between gap-1.5 rounded-xl bg-[#F7FAF2] px-2.5 py-2 text-left ring-1 ring-[#123D2C]/10 sm:min-h-[76px] sm:gap-3 sm:rounded-2xl sm:p-3"
                     >
                       <span className="min-w-0">
@@ -4148,5 +4155,6 @@ function modalTitle(modal: Exclude<ModalKind, null>) {
   if (modal === "entidades") return "Disponibilidade das Entidades";
   if (modal === "cadastros") return "Cadastros";
   if (modal === "configuracoes") return "Configurações da Recepção";
+  if (modal === "diagnostico") return "Diagnóstico dos Envios Automáticos";
   return "Como funciona";
 }

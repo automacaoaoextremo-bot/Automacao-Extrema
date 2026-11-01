@@ -8,6 +8,7 @@ import {
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { additionalReceptionRecipientsForDate } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
+import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { dispatchDateAllowed, generalDispatchAllowed, homologationAppointmentId, mediumDispatchAllowed, receptionDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
@@ -219,14 +220,12 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         if (rErr) throw rErr;
         const summary = formatTucxaReceptionSummary({
           date, appointments: allowedAppointments, entityNames, entityLines, entityCapacities,
-          cavalinhoNames: holderNames,
+          cavalinhoNames: holderNames, scheduledEntityIds: availableIds, includeTitle: false,
         });
-        const header = phase === "morning"
-          ? `🌿 TUCXA — PRÉVIA DOS ATENDIMENTOS\n📅 ${date} | Referência: ${time} (Campinas)\n\n⚠️ Esta é uma prévia; os agendamentos podem mudar.\nEnviaremos nova atualização entre 16h e 17h.\n\n`
-          : `🌿 TUCXA — ATUALIZAÇÃO DOS ATENDIMENTOS\n📅 ${date} | Referência: ${time} (Campinas)\n\nEsta atualização substitui a prévia da manhã. Novas alterações ainda poderão ocorrer.\n\n`;
+        const message = tucxaReceptionOperationalMessage({ phase, date, entitySummary: summary });
         for (const person of uniqueByPhone((receptionPeople ?? []) as Person[], diagnostics, audience)) {
           if (!receptionDispatchAllowed(date, txt(person.id), personPhone(person))) continue;
-          await sendOne(audience, person, header + summary, "Resumo da Recepção", phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
+          await sendOne(audience, person, message, "Resumo da Recepção", phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
         }
       }
 
@@ -242,14 +241,13 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
           const personId = txt(person.id);
           const entityIds = byPerson.get(personId) ?? [];
           if (!entityIds.length || !mediumDispatchAllowed(date, personId, personPhone(person))) continue;
-          const sections = entityIds.map(id => {
-            const appts = [...(grouped.get(id) ?? [])].sort((a,b) => txt(a.consulente_name).localeCompare(txt(b.consulente_name),"pt-BR"));
-            const name = entityNames.get(id) || "Entidade";
-            return appts.length
-              ? `${name} — ${appts.length} agendamento(s):\n${appts.map(a => `- ${txt(a.consulente_name)}`).join("\n")}`
-              : `${name}: até o momento não há consulentes agendados.`;
-          });
-          const summary = `🌿 TUCXA — ATENDIMENTOS DO CAVALINHO\n📅 ${date} | Referência: ${time} (Campinas)\n\n${sections.join("\n\n")}\n\nAlterações posteriores devem ser confirmadas com a Recepção.`;
+          const entitiesForPerson = entityIds.map(id => ({
+            name: entityNames.get(id) || "Entidade",
+            consulentes: [...(grouped.get(id) ?? [])]
+              .sort((a, b) => txt(a.consulente_name).localeCompare(txt(b.consulente_name), "pt-BR"))
+              .map((item) => txt(item.consulente_name) || "Consulente não informado"),
+          }));
+          const summary = tucxaCavalinhoOperationalMessage({ date, entities: entitiesForPerson });
           await sendOne("cavalinho", person, summary, entityIds.map(id => entityNames.get(id) || "Entidade").join(" + "), "Resumo da tarde do Cavalinho");
         }
       }
