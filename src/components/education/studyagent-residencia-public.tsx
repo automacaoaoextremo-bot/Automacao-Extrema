@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useMemo, useState } from "react";
-import { STUDYAGENT_COMPETENCIES, STUDYAGENT_LEVELS } from "@/lib/education/studyagent-residencia-ia";
+import { useEffect, useMemo, useState } from "react";
+import { STUDYAGENT_COMPETENCIES, STUDYAGENT_LEVELS, STUDYAGENT_PROGRAM_ID, type StudyAgentCompetency } from "@/lib/education/studyagent-residencia-ia";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type ModalKey = "porque" | "como" | "conteudos" | null;
 const ITEMS_PER_PAGE = 5;
@@ -10,11 +10,41 @@ const ITEMS_PER_PAGE = 5;
 export function StudyAgentResidenciaPublic() {
   const [modal, setModal] = useState<ModalKey>(null);
   const [page, setPage] = useState(0);
-  const competencyPages = Math.ceil(STUDYAGENT_COMPETENCIES.length / ITEMS_PER_PAGE);
+  const [competencies, setCompetencies] = useState<StudyAgentCompetency[]>(STUDYAGENT_COMPETENCIES);
+  const competencyPages = Math.ceil(competencies.length / ITEMS_PER_PAGE);
   const visibleCompetencies = useMemo(
-    () => STUDYAGENT_COMPETENCIES.slice(page * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE + ITEMS_PER_PAGE),
-    [page],
+    () => competencies.slice(page * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE + ITEMS_PER_PAGE),
+    [competencies, page],
   );
+
+  useEffect(() => {
+    let active = true;
+    void supabaseBrowser
+      .from("ae_study_competencies")
+      .select("code, title, summary, category, why_it_matters, evidence_suggestion, reflection_sources, sort_order")
+      .eq("program_id", STUDYAGENT_PROGRAM_ID)
+      .eq("active", true)
+      .order("sort_order")
+      .then(({ data }) => {
+        if (!active || !data?.length) return;
+        setCompetencies(
+          data.map((item) => ({
+            id: item.code,
+            title: item.title,
+            summary: item.summary,
+            category: item.category,
+            whyItMatters: item.why_it_matters,
+            prerequisites: [],
+            reflectionSources: item.reflection_sources ?? [],
+            evidence: item.evidence_suggestion,
+            studyHints: [],
+          })),
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function openModal(next: Exclude<ModalKey, null>) {
     setPage(0);
@@ -23,7 +53,7 @@ export function StudyAgentResidenciaPublic() {
 
   return (
     <>
-      <main id="inicio" className="min-h-screen bg-[#f4fbfd] text-slate-900">
+      <main id="inicio" className="min-h-[calc(100svh-7rem)] bg-[#f4fbfd] text-slate-900">
         <section className="mx-auto max-w-3xl px-3 py-3 sm:px-5 sm:py-6">
           <div className="overflow-hidden rounded-[1.7rem] bg-[#00334E] text-white shadow-xl sm:rounded-[2.25rem]">
             <div className="p-4 sm:p-7">
@@ -34,8 +64,7 @@ export function StudyAgentResidenciaPublic() {
                 Do conteúdo estudado para a competência demonstrada.
               </h1>
               <p className="mt-3 text-sm leading-6 text-white/80 sm:text-lg sm:leading-8">
-                Uma trilha para organizar o que estudar, enxergar relações entre conhecimentos e registrar evidências
-                sem transformar a primeira tela em um painel técnico.
+                Uma trilha para organizar o que estudar, enxergar relações entre conhecimentos e registrar evidências.
               </p>
             </div>
 
@@ -43,26 +72,8 @@ export function StudyAgentResidenciaPublic() {
               <PublicAction title="Por que usar" subtitle="TOQUE PARA VER" onClick={() => openModal("porque")} />
               <PublicAction title="Como funciona" subtitle="TOQUE PARA VER" onClick={() => openModal("como")} />
               <PublicAction title="O que você vai estudar" subtitle="TOQUE PARA VER" onClick={() => openModal("conteudos")} />
-              <Link
-                href="/solucoes/studyagent/residencia-ia/acesso?modo=cadastro"
-                className="block rounded-2xl bg-[#31C16B] px-4 py-3.5 text-center text-[#00334E] shadow-sm transition hover:bg-[#4ce184]"
-              >
-                <span className="block text-base font-black">Cadastre para estudar</span>
-                <span className="mt-0.5 block text-[0.58rem] font-black uppercase tracking-[0.16em]">Toque para continuar</span>
-              </Link>
-              <Link
-                href="/solucoes/studyagent/residencia-ia/acesso"
-                className="block rounded-2xl bg-white px-4 py-3.5 text-center text-[#00334E] shadow-sm ring-1 ring-white/40 transition hover:bg-cyan-50"
-              >
-                <span className="block text-base font-black">Já tenho acesso</span>
-                <span className="mt-0.5 block text-[0.58rem] font-black uppercase tracking-[0.16em] text-slate-500">Toque para entrar</span>
-              </Link>
             </div>
           </div>
-
-          <p className="mx-auto mt-4 max-w-2xl text-center text-xs leading-5 text-slate-500 sm:text-sm">
-            As métricas pessoais, competências concluídas, níveis, etapas e histórico aparecem somente depois do acesso.
-          </p>
         </section>
       </main>
 
@@ -94,23 +105,30 @@ function PublicAction({ title, subtitle, onClick }: { title: string; subtitle: s
 }
 
 function PublicModal({
-  modal, page, pages, competencies, onPage, onClose,
+  modal,
+  page,
+  pages,
+  competencies,
+  onPage,
+  onClose,
 }: {
   modal: Exclude<ModalKey, null>;
   page: number;
   pages: number;
-  competencies: typeof STUDYAGENT_COMPETENCIES;
+  competencies: StudyAgentCompetency[];
   onPage: (page: number) => void;
   onClose: () => void;
 }) {
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-950/60 p-2 pt-3 backdrop-blur-sm sm:p-4 sm:pt-8"
       role="dialog"
       aria-modal="true"
-      onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
     >
-      <article className="max-h-[88svh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-7">
+      <article className="max-h-[calc(100svh-1.5rem)] w-full overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:max-w-2xl sm:p-7">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#00A8CC]">Residência IA</p>
@@ -118,7 +136,14 @@ function PublicModal({
               {modal === "porque" ? "Por que usar o StudyAgent?" : modal === "como" ? "Como funciona?" : "O que você vai estudar?"}
             </h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200" aria-label="Fechar">✕</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
         </div>
 
         {modal === "porque" ? (
@@ -134,7 +159,7 @@ function PublicModal({
             {[
               ["1", "Cadastre-se", "Crie seu perfil para que progresso e histórico fiquem associados a você."],
               ["2", "Escolha o próximo tema", "O grafo mostra dependências e sugere conhecimentos liberados."],
-              ["3", "Estude e consulte", "Use o Tutor integrado ou leve o contexto para a IA que já utiliza."],
+              ["3", "Estude por nível", "Cada competência possui objetivo, prática, avaliação e evidência esperada."],
               ["4", "Construa sua base", "Registre aprendizados e confirme sugestões de atualização da sua memória pessoal."],
             ].map(([number, title, text]) => (
               <div key={number} className="rounded-2xl bg-slate-50 p-4">
@@ -171,7 +196,7 @@ function PublicModal({
 
         <div className="mt-6 rounded-2xl bg-cyan-50 p-4">
           <p className="text-sm leading-6 text-cyan-950">
-            <strong>Níveis atuais:</strong> {STUDYAGENT_LEVELS.map((level) => level.label).join(" → ")}. O progresso individual aparece somente após o login.
+            <strong>Níveis:</strong> {STUDYAGENT_LEVELS.map((level) => level.label).join(" → ")}. O próximo nível só deve ser liberado depois da aprovação e da evidência exigidas pelo plano.
           </p>
         </div>
       </article>

@@ -3,7 +3,7 @@ import {
   STUDYAGENT_COMPETENCY_BY_ID,
   STUDYAGENT_GATE,
   STUDYAGENT_LEVELS,
-  getAvailableCompetencies,
+  STUDYAGENT_PROGRAM_ID,
   getCompetencyContext,
 } from "@/lib/education/studyagent-residencia-ia";
 import { requireStudyAgentUser } from "@/lib/education/studyagent-auth";
@@ -33,6 +33,21 @@ type OpenAIResponse = {
   error?: { message?: string };
 };
 
+type OfficialCompetency = {
+  id: string;
+  code: string;
+  title: string;
+  summary: string;
+  why_it_matters: string;
+  evidence_suggestion: string;
+};
+
+type OfficialEdge = {
+  from_competency_id: string;
+  to_competency_id: string;
+  relation_type: string;
+};
+
 function responseText(payload: OpenAIResponse) {
   return (
     payload.output_text ??
@@ -43,6 +58,56 @@ function responseText(payload: OpenAIResponse) {
       .join("\n") ??
     ""
   );
+}
+
+async function loadOfficialContext(requestedCodes: string[], completedCodes: string[]) {
+  const { data: competencies } = await supabaseAdmin
+    .from("ae_study_competencies")
+    .select("id, code, title, summary, why_it_matters, evidence_suggestion")
+    .eq("program_id", STUDYAGENT_PROGRAM_ID)
+    .eq("active", true)
+    .order("sort_order");
+
+  const rows = (competencies ?? []) as OfficialCompetency[];
+  if (!rows.length) {
+    return {
+      context: getCompetencyContext(requestedCodes.length ? requestedCodes : undefined),
+      validCodes: requestedCodes.filter((code) => Boolean(STUDYAGENT_COMPETENCY_BY_ID[code])),
+      nextStudies: "Use o Knowledge Graph exibido na interface.",
+    };
+  }
+
+  const byId = Object.fromEntries(rows.map((item) => [item.id, item]));
+  const byCode = Object.fromEntries(rows.map((item) => [item.code, item]));
+  const validCodes = requestedCodes.filter((code) => Boolean(byCode[code]));
+
+  const { data: edges } = await supabaseAdmin
+    .from("ae_study_competency_edges")
+    .select("from_competency_id, to_competency_id, relation_type")
+    .eq("program_id", STUDYAGENT_PROGRAM_ID);
+
+  const prerequisites = new Map<string, string[]>();
+  ((edges ?? []) as OfficialEdge[]).forEach((edge) => {
+    if (edge.relation_type !== "prerequisite_of") return;
+    const from = byId[edge.from_competency_id]?.code;
+    const to = byId[edge.to_competency_id]?.code;
+    if (!from || !to) return;
+    prerequisites.set(to, [...(prerequisites.get(to) ?? []), from]);
+  });
+
+  const selected = validCodes.length ? rows.filter((item) => validCodes.includes(item.code)) : rows;
+  const context = selected
+    .map((item) => `${item.code} — ${item.title}\nResumo: ${item.summary}\nPor que importa: ${item.why_it_matters}\nPré-requisitos: ${(prerequisites.get(item.code) ?? []).join(", ") || "nenhum"}\nEvidência: ${item.evidence_suggestion}`)
+    .join("\n\n");
+
+  const completed = new Set(completedCodes);
+  const nextStudies = rows
+    .filter((item) => !completed.has(item.code) && (prerequisites.get(item.code) ?? []).every((code) => completed.has(code)))
+    .slice(0, 6)
+    .map((item) => `${item.code} — ${item.title}`)
+    .join("\n") || "nenhum";
+
+  return { context, validCodes, nextStudies };
 }
 
 export async function POST(request: Request) {
@@ -59,10 +124,10 @@ export async function POST(request: Request) {
   const question = body.question?.trim();
   if (!question) return NextResponse.json({ error: "Informe uma pergunta." }, { status: 400 });
 
-  const competencyIds = (body.competencyIds ?? []).filter((id) => Boolean(STUDYAGENT_COMPETENCY_BY_ID[id]));
-  const completedIds = (body.completedIds ?? []).filter((id) => Boolean(STUDYAGENT_COMPETENCY_BY_ID[id]));
-  const selectedCode = competencyIds[0] ?? null;
-  const available = getAvailableCompetencies(completedIds).slice(0, 6);
+  const requestedCodes = (body.competencyIds ?? []).filter(Boolean);
+  const completedCodes = (body.completedIds ?? []).filter(Boolean);
+  const official = await loadOfficialContext(requestedCodes, completedCodes);
+  const selectedCode = official.validCodes[0] ?? null;
 
   if (process.env.STUDYAGENT_AI_ENABLED !== "true") {
     return NextResponse.json(
@@ -111,20 +176,27 @@ export async function POST(request: Request) {
   const relevantPersonal = (personalRows ?? []).filter(
     (entry) => !selectedCode || !entry.competency_code || entry.competency_code === selectedCode,
   );
-
   const personalContext = relevantPersonal.length
-    ? relevantPersonal
-        .slice(0, 12)
-        .map((entry) => `[${entry.competency_code || "Geral"}] ${entry.title}: ${entry.content}`)
-        .join("\n\n")
+    ? relevantPersonal.slice(0, 12).map((entry) => `[${entry.competency_code || "Geral"}] ${entry.title}: ${entry.content}`).join("\n\n")
     : "Nenhum conhecimento pessoal confirmado para este contexto.";
 
-  const officialContext = getCompetencyContext(competencyIds.length ? competencyIds : undefined);
-  const levels = STUDYAGENT_LEVELS.map((level) => `${level.label}: ${level.intent}`).join("\n");
-  const nextStudies = available.map((item) => `${item.id} — ${item.title}`).join("\n") || "nenhum";
+  const { data: levelPlanRows } = selectedCode
+    ? await supabaseAdmin
+        .from("ae_study_competency_level_plans")
+        .select("level_label, objective, study_suggested, practical_exercise, assessment_suggested, evidence_expected")
+        .eq("program_id", auth.context.programId)
+        .eq("competency_code", selectedCode)
+        .eq("active", true)
+        .order("level_order")
+    : { data: [] };
 
+  const structuredPlan = (levelPlanRows ?? []).length
+    ? (levelPlanRows ?? []).map((row) => `${row.level_label}: objetivo=${row.objective}; estudo=${row.study_suggested}; prática=${row.practical_exercise}; avaliação=${row.assessment_suggested}; evidência=${row.evidence_expected}`).join("\n")
+    : "Plano detalhado ainda não disponível neste contexto.";
+
+  const levels = STUDYAGENT_LEVELS.map((level) => `${level.label}: ${level.intent}`).join("\n");
   const instructions = `Você é o StudyAgent, tutor da Residência IA da Automação Extrema.
-Use primeiro a BASE OFICIAL e considere a BASE PESSOAL apenas como memória confirmada pelo estudante.
+Use primeiro a BASE OFICIAL e o PLANO ESTRUTURADO. Considere a BASE PESSOAL apenas como memória confirmada pelo estudante.
 Não trate a base pessoal como fonte oficial e não invente fatos para preencher lacunas.
 Quando faltar evidência, diga claramente o que precisa ser verificado.
 Não afirme que o estudante foi aprovado; a aprovação depende dos gates e de evidência verificável.
@@ -135,9 +207,9 @@ Além da resposta, compare o conteúdo novo com a BASE PESSOAL e classifique a s
 - new: conhecimento novo relevante;
 - complement: complementa algo já registrado;
 - divergence: há conflito ou diferença que merece revisão.
-A sugestão nunca é incorporada automaticamente. Ela será apresentada ao estudante para aceitar ou rejeitar.
+A sugestão nunca é incorporada automaticamente.
 
-GATES PROVISÓRIOS:
+GATES:
 quiz >= ${STUDYAGENT_GATE.quizMin}%
 prática >= ${STUDYAGENT_GATE.practiceMin}/3
 explicação >= ${STUDYAGENT_GATE.explanationMin}/3
@@ -147,10 +219,13 @@ NÍVEIS:
 ${levels}
 
 PRÓXIMOS ESTUDOS LIBERADOS PELO GRAFO:
-${nextStudies}
+${official.nextStudies}
 
 BASE OFICIAL:
-${officialContext}
+${official.context}
+
+PLANO ESTRUTURADO DA COMPETÊNCIA:
+${structuredPlan}
 
 BASE PESSOAL CONFIRMADA:
 ${personalContext}`;
@@ -160,10 +235,7 @@ ${personalContext}`;
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         instructions,
@@ -214,49 +286,23 @@ ${personalContext}`;
 
     const { data: consultation, error: consultationError } = await supabaseAdmin
       .from("ae_study_tutor_consultations")
-      .insert({
-        user_id: auth.context.userId,
-        program_id: auth.context.programId,
-        competency_code: selectedCode,
-        question,
-        answer: result.answer,
-        provider: `openai:${model}`,
-      })
+      .insert({ user_id: auth.context.userId, program_id: auth.context.programId, competency_code: selectedCode, question, answer: result.answer, provider: `openai:${model}` })
       .select("id")
       .single();
-
     if (consultationError) console.error("StudyAgent consultation save error", consultationError.message);
 
     let suggestionPayload: (TutorStructuredResult["suggestion"] & { id?: string }) | null = null;
     if (result.suggestion.action !== "none" && result.suggestion.content.trim()) {
       const { data: suggestionRow, error: suggestionError } = await supabaseAdmin
         .from("ae_study_knowledge_suggestions")
-        .insert({
-          user_id: auth.context.userId,
-          program_id: auth.context.programId,
-          competency_code: selectedCode,
-          consultation_id: consultation?.id ?? null,
-          suggestion_type: result.suggestion.action,
-          proposed_title: result.suggestion.title.trim() || "Atualização sugerida pelo Tutor",
-          proposed_content: result.suggestion.content.trim(),
-          rationale: result.suggestion.rationale.trim(),
-          status: "pending",
-        })
+        .insert({ user_id: auth.context.userId, program_id: auth.context.programId, competency_code: selectedCode, consultation_id: consultation?.id ?? null, suggestion_type: result.suggestion.action, proposed_title: result.suggestion.title.trim() || "Atualização sugerida pelo Tutor", proposed_content: result.suggestion.content.trim(), rationale: result.suggestion.rationale.trim(), status: "pending" })
         .select("id")
         .single();
-
-      if (suggestionError) {
-        console.error("StudyAgent suggestion save error", suggestionError.message);
-      } else {
-        suggestionPayload = { ...result.suggestion, id: suggestionRow?.id };
-      }
+      if (suggestionError) console.error("StudyAgent suggestion save error", suggestionError.message);
+      else suggestionPayload = { ...result.suggestion, id: suggestionRow?.id };
     }
 
-    return NextResponse.json({
-      answer: result.answer,
-      consultationId: consultation?.id ?? null,
-      suggestion: suggestionPayload ?? { ...result.suggestion },
-    });
+    return NextResponse.json({ answer: result.answer, consultationId: consultation?.id ?? null, suggestion: suggestionPayload ?? { ...result.suggestion } });
   } catch (error) {
     console.error("StudyAgent tutor exception", error);
     return NextResponse.json({ error: "Falha de comunicação com o Tutor integrado." }, { status: 502 });

@@ -14,24 +14,42 @@ export function StudyAgentResidenciaHeader({
 }) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#d8e6ea] bg-white/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-2 sm:px-5 sm:py-2.5">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:gap-4 sm:px-5 sm:py-2.5">
         <Link
           href="/solucoes/studyagent/residencia-ia"
-          className="flex min-w-0 flex-1 items-center gap-3"
+          className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3"
           aria-label="Ir para Residência IA no StudyAgent"
         >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#00334E] text-sm font-black text-[#31C16B] shadow-sm ring-1 ring-[#00334E]/10 sm:h-14 sm:w-14">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#00334E] text-xs font-black text-[#31C16B] shadow-sm ring-1 ring-[#00334E]/10 sm:h-14 sm:w-14 sm:text-sm">
             IA
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[1.03rem] font-black leading-tight text-[#00334E] sm:text-[1.35rem]">
+          <span className="min-w-0 flex-1">
+            <span className="block text-[0.98rem] font-black leading-tight text-[#00334E] sm:text-[1.35rem]">
               Residência IA
             </span>
-            <span className="block truncate text-[0.54rem] font-black uppercase tracking-[0.12em] text-[#007C9B] sm:text-[0.68rem] sm:tracking-[0.18em]">
+            <span className="block max-w-[15rem] text-[0.43rem] font-black uppercase leading-[1.15] tracking-[0.08em] text-[#007C9B] sm:max-w-none sm:text-[0.66rem] sm:tracking-[0.16em]">
               StudyAgent · aprendizagem orientada por competências
             </span>
           </span>
         </Link>
+
+        {actions.length > 0 ? (
+          <nav className="flex shrink-0 items-center gap-1 sm:gap-2" aria-label="Acesso do StudyAgent Residência IA">
+            {actions.map((action) => (
+              <Link
+                key={`${action.label}-${action.href}`}
+                href={action.href}
+                className={`inline-flex min-h-8 items-center justify-center rounded-full px-2.5 py-1.5 text-[0.58rem] font-black leading-none shadow-sm ring-1 transition sm:min-h-10 sm:px-4 sm:text-sm ${
+                  action.primary
+                    ? "bg-[#00334E] text-white ring-[#00334E] hover:bg-[#064862]"
+                    : "bg-white text-[#00334E] ring-[#00334E]/15 hover:bg-cyan-50"
+                }`}
+              >
+                {action.label}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
       </div>
 
       <div className="bg-[#fffdf7] px-3 py-1">
@@ -58,26 +76,6 @@ export function StudyAgentResidenciaHeader({
           </Link>
         </div>
       </div>
-
-      {actions.length > 0 ? (
-        <nav className="border-t border-[#d8e6ea] bg-[#f4fbfd]/96 px-2 py-1.5" aria-label="Navegação do StudyAgent Residência IA">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-1.5 sm:gap-2.5">
-            {actions.map((action) => (
-              <Link
-                key={`${action.label}-${action.href}`}
-                href={action.href}
-                className={`inline-flex min-h-8 items-center justify-center rounded-full px-3 py-1.5 text-[0.65rem] font-black leading-none shadow-sm ring-1 transition sm:min-h-10 sm:px-5 sm:text-sm ${
-                  action.primary
-                    ? "bg-[#00334E] text-white ring-[#00334E] hover:bg-[#064862]"
-                    : "bg-white text-[#00334E] ring-[#00334E]/15 hover:bg-cyan-50"
-                }`}
-              >
-                {action.label}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      ) : null}
     </header>
   );
 }
