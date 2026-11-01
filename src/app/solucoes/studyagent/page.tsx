@@ -55,7 +55,7 @@ export default function StudyAgentPage() {
                   href="/solucoes/studyagent/residencia-ia"
                   className="rounded-xl bg-[#31C16B] px-6 py-4 text-center font-black text-[#00334E] hover:bg-[#4ce184]"
                 >
-                  Abrir cliente fundador · Residência IA
+                  Abrir Residência IA
                 </Link>
                 <Link
                   href="/#solucoes"

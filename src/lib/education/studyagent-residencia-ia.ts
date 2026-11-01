@@ -12,10 +12,11 @@ export type StudyAgentCompetency = {
   studyHints: string[];
 };
 
+export const STUDYAGENT_PROGRAM_ID = "7a9f6b02-6c5b-4d41-9a2f-9c2a2f6d1001";
+
 export const STUDYAGENT_PROGRAM = {
   slug: "residencia-ia",
   name: "Residência IA",
-  founderLabel: "Cliente fundador",
   description:
     "Trilha de aprendizagem orientada por competências, evidências e relações de pré-requisito. A primeira versão usa as reflections da Residência como base de conhecimento estruturada.",
   sourceLabel: "Reflections de 18/09, 25/09 e 02/10/2026",
