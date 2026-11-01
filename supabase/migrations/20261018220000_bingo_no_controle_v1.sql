@@ -100,7 +100,25 @@ do $$ declare r record; begin
   execute format('alter table public.%I enable row level security',r.tablename);
  end loop;
 end $$;
-create policy bnc_members_own_read on public.bnc_members for select to authenticated using (user_id=auth.uid());
+-- Idempotente apenas quando a politica preexistente e equivalente.
+-- Nunca substituir/afrouxar automaticamente permissoes em producao.
+do $$
+declare p record;
+begin
+ select permissive, roles, cmd, qual, with_check into p
+ from pg_policies
+ where schemaname = 'public' and tablename = 'bnc_members'
+   and policyname = 'bnc_members_own_read';
+ if not found then
+  create policy bnc_members_own_read on public.bnc_members
+   for select to authenticated using (user_id=auth.uid());
+ elsif p.permissive <> 'PERMISSIVE' or p.cmd <> 'SELECT'
+   or p.roles <> array['authenticated']::name[]
+   or regexp_replace(p.qual, '[[:space:]]+', '', 'g') <> '(user_id=auth.uid())'
+   or p.with_check is not null then
+  raise exception 'bnc_members_own_read existe com definicao diferente. Revisar manualmente.';
+ end if;
+end $$;
 create index if not exists bnc_events_org_idx on public.bnc_events(organization_id);
 create index if not exists bnc_rounds_event_idx on public.bnc_rounds(event_id);
 create index if not exists bnc_orders_event_idx on public.bnc_orders(event_id);
