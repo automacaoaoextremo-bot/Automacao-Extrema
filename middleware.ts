@@ -11,5 +11,6 @@ export const config = {
   matcher: [
     "/solucoes/organizacao-em-harmonia/:path*",
     "/solucoes/caixa-claro/:path*",
+    "/solucoes/studyagent/:path*",
   ],
 };
