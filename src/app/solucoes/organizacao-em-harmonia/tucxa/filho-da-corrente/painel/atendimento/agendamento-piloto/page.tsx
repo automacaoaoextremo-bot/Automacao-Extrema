@@ -208,16 +208,16 @@ function shortDate(value: string) {
 function acolhimentoDateLabel(value: string) {
   if (!value) return "";
   const date = new Date(`${value}T12:00:00Z`);
-  const weekday = date
-    .toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long" })
-    .replace("-feira", "");
+  const weekday = date.toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long" });
   const calendarDate = date.toLocaleDateString("pt-BR", {
     timeZone: "UTC",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
-  return `${weekday}-${calendarDate}`;
+  const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1;
+  const dayName = date.getUTCDay() === 1 ? "segunda" : "terça";
+  return `${weekday}, ${calendarDate} · ${occurrence}ª ${dayName} do mês`;
 }
 
 function formatDateInputPtBr(value: string) {

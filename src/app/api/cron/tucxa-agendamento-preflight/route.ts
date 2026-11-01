@@ -1,5 +1,5 @@
 import { isTucxaCalendarDateOpen } from "@/lib/organizacao-em-harmonia/tucxa-pilot-calendar";
-import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
+import { formatTucxaReceptionSummary, tucxaConsulenteNameWithStatus, tucxaReceptionCommunicationTotals } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     const calendarClosed = !(await isTucxaCalendarDateOpen(organization.id, date));
     const { data: appointments, error: appointmentError } = await supabaseAdmin
       .from("oh_consulente_appointments")
-      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status,metadata")
+      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status,confirmation_status,metadata")
       .eq("organization_id", organization.id).eq("appointment_date", date)
       .in("status", PILOT_ACTIVE_STATUSES).limit(500);
     if (appointmentError) throw appointmentError;
@@ -150,7 +150,7 @@ export async function GET(request: Request) {
         entities: assignedEntityIds.map((entityId) => ({
           name: entityNames.get(entityId) || "Entidade",
           consulentes: rows.filter((row) => str(row.entity_id) === entityId)
-            .map((row) => str(row.consulente_name) || "Consulente não informado")
+            .map((row) => tucxaConsulenteNameWithStatus(row))
             .sort((a, b) => a.localeCompare(b, "pt-BR")),
         })),
       }));
@@ -234,6 +234,8 @@ export async function GET(request: Request) {
         format: "entity_then_alphabetical_without_appointment_order",
         summary: tucxaReceptionOperationalMessage({
           phase: "morning", date,
+          totals: tucxaReceptionCommunicationTotals(rows,
+            dayAvailability.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0)),
           entitySummary: formatTucxaReceptionSummary({
             date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
             scheduledEntityIds: [...availableEntityIds], includeTitle: false,
@@ -241,6 +243,8 @@ export async function GET(request: Request) {
         }),
         summaryAfternoon: tucxaReceptionOperationalMessage({
           phase: "afternoon", date,
+          totals: tucxaReceptionCommunicationTotals(rows,
+            dayAvailability.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0)),
           entitySummary: formatTucxaReceptionSummary({
             date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
             scheduledEntityIds: [...availableEntityIds], includeTitle: false,

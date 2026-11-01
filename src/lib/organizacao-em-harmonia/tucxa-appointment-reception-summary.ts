@@ -3,8 +3,34 @@ export type ReceptionSummaryAppointment = {
   id: string;
   entity_id: string | null;
   consulente_name: string | null;
+  status?: string | null;
+  confirmation_status?: string | null;
   metadata: unknown;
 };
+
+/** Normaliza os estados operacionais para os dois rótulos usados nas mensagens. */
+export function tucxaAppointmentCommunicationStatus(item: Pick<ReceptionSummaryAppointment, "status" | "confirmation_status">): "solicitado" | "confirmado" {
+  const status = (item.status || "").toLowerCase().trim();
+  const confirmation = (item.confirmation_status || "").toLowerCase().trim();
+  return confirmation === "confirmed" || ["confirmado", "aprovado", "presente", "concluido"].includes(status)
+    ? "confirmado" : "solicitado";
+}
+
+export function tucxaConsulenteNameWithStatus(item: Pick<ReceptionSummaryAppointment, "consulente_name" | "status" | "confirmation_status">): string {
+  return `${item.consulente_name || "Consulente não informado"} (${tucxaAppointmentCommunicationStatus(item)})`;
+}
+
+/** Totais idênticos para prévia e disparo; vagas vêm da disponibilidade da escala. */
+export function tucxaReceptionCommunicationTotals(appointments: ReadonlyArray<ReceptionSummaryAppointment>, availableSlots: number) {
+  const confirmado = appointments.filter((item) => tucxaAppointmentCommunicationStatus(item) === "confirmado").length;
+  return {
+    totalPrevisto: appointments.length,
+    vagasDisponiveis: Math.max(0, Math.trunc(availableSlots)),
+    confirmado,
+    solicitado: appointments.length - confirmado,
+  };
+}
+
 
 export function formatTucxaReceptionSummary(input: {
   date: string;
@@ -35,9 +61,7 @@ export function formatTucxaReceptionSummary(input: {
       const sorted = [...appointments].sort((a, b) =>
         (a.consulente_name ?? "").localeCompare(b.consulente_name ?? "", "pt-BR", { sensitivity: "base" })
         || a.id.localeCompare(b.id));
-      const lines = sorted.map((item) => {
-        return item.consulente_name || "Consulente não informado";
-      });
+      const lines = sorted.map(tucxaConsulenteNameWithStatus);
       const name = input.entityNames.get(id) || "Entidade não informada";
       const line = input.entityLines?.get(id) || "";
       const cavalinho = input.cavalinhoNames?.get(id) || "";

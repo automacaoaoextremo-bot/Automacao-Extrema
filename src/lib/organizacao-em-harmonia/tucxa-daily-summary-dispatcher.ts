@@ -8,7 +8,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { additionalReceptionRecipientsForDate } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
-import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
+import { formatTucxaReceptionSummary, tucxaConsulenteNameWithStatus, tucxaReceptionCommunicationTotals } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { dispatchDateAllowed, generalDispatchAllowed, homologationAppointmentId, mediumDispatchAllowed, receptionDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
@@ -227,7 +227,11 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
           date, appointments: allowedAppointments, entityNames, entityLines, entityCapacities,
           cavalinhoNames: holderNames, scheduledEntityIds: availableIds, includeTitle: false,
         });
-        const message = tucxaReceptionOperationalMessage({ phase, date, entitySummary: summary });
+        const totals = tucxaReceptionCommunicationTotals(
+          allowedAppointments,
+          day.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0),
+        );
+        const message = tucxaReceptionOperationalMessage({ phase, date, entitySummary: summary, totals });
         for (const person of uniqueByPhone((receptionPeople ?? []) as Person[], diagnostics, audience)) {
           if (!receptionDispatchAllowed(date, txt(person.id), personPhone(person))) continue;
           await sendOne(audience, person, message, "Resumo da Recepção", phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
@@ -250,7 +254,7 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
             name: entityNames.get(id) || "Entidade",
             consulentes: [...(grouped.get(id) ?? [])]
               .sort((a, b) => txt(a.consulente_name).localeCompare(txt(b.consulente_name), "pt-BR"))
-              .map((item) => txt(item.consulente_name) || "Consulente não informado"),
+              .map((item) => tucxaConsulenteNameWithStatus(item)),
           }));
           const summary = tucxaCavalinhoOperationalMessage({ date, entities: entitiesForPerson });
           await sendOne("cavalinho", person, summary, entityIds.map(id => entityNames.get(id) || "Entidade").join(" + "), "Resumo da tarde do Cavalinho");

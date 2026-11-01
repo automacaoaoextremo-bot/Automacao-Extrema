@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
@@ -34,13 +34,6 @@ function download(name: string, body: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-function digitsToDate(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-}
-
 function ptBrToIso(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (!match) return "";
@@ -51,19 +44,37 @@ function ptBrToIso(value: string) {
   return `${year}-${month}-${day}`;
 }
 
-function DateField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+/** Não permite datas arbitrárias nos relatórios: opções vêm do calendário cadastrado. */
+function DateField({ label, value, onChange, options, loading }: {
+  label: string; value: string; onChange: (value: string) => void; options: string[]; loading: boolean;
+}) {
+  const groups = new Map<string, string[]>();
+  for (const iso of options) {
+    const month = iso.slice(0, 7);
+    groups.set(month, [...(groups.get(month) ?? []), iso]);
+  }
+  const selected = ptBrToIso(value);
   return (
     <label className="grid gap-1 text-sm font-bold">
       <span>{label}</span>
-      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
-        <input inputMode="numeric" value={value} onChange={(event) => onChange(digitsToDate(event.target.value))} placeholder="dd/mm/aaaa" maxLength={10} className="min-w-0 rounded-xl border p-3 font-normal" />
-        <input type="date" value={ptBrToIso(value)} onChange={(event) => {
+      <select className="min-w-0 w-full rounded-xl border p-3 font-normal" value={selected}
+        disabled={loading || options.length === 0} onChange={(event) => {
           const iso = event.target.value;
-          if (!iso) return onChange("");
-          const [year, month, day] = iso.split("-");
-          onChange(`${day}/${month}/${year}`);
-        }} aria-label={`${label} pelo calendário`} className="min-w-0 w-full rounded-xl border p-3 font-normal" />
-      </div>
+          onChange(iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
+        }}>
+        <option value="">{loading ? "Carregando datas..." : "Selecione uma data de atendimento"}</option>
+        {selected && !options.includes(selected) && <option value={selected} disabled>Data fora da programação</option>}
+        {[...groups].map(([month, dates]) => (
+          <optgroup key={month} label={new Date(`${month}-01T12:00:00Z`).toLocaleDateString("pt-BR", { timeZone: "UTC", month: "long", year: "numeric" })}>
+            {dates.map((iso) => {
+              const date = new Date(`${iso}T12:00:00Z`);
+              const weekday = date.getUTCDay() === 1 ? "segunda" : "terça";
+              const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1;
+              return <option key={iso} value={iso}>{iso.slice(8, 10)}/{iso.slice(5, 7)}/{iso.slice(0, 4)} · {occurrence}ª {weekday} do mês</option>;
+            })}
+          </optgroup>
+        ))}
+      </select>
     </label>
   );
 }
@@ -266,7 +277,33 @@ export function TucxaPilotReports() {
   const [ownWhatsapp, setOwnWhatsapp] = useState("");
   const [savingWhatsapp, setSavingWhatsapp] = useState(false);
   const [message, setMessage] = useState("");
+  const [serviceDates, setServiceDates] = useState<string[]>([]);
+  const [serviceDatesLoading, setServiceDatesLoading] = useState(true);
+  const [serviceDatesError, setServiceDatesError] = useState("");
   const usesDate = DATE_KINDS.has(kind);
+
+  useEffect(() => {
+    let active = true;
+    async function loadServiceDates() {
+      try {
+        const { data } = await supabaseBrowser.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token) throw new Error("Sessão não localizada para consultar datas.");
+        const response = await fetch(`${API}?kind=service-dates`, {
+          headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Falha ao consultar a programação de atendimentos.");
+        if (active) setServiceDates(Array.isArray(result.dates) ? result.dates : []);
+      } catch (e) {
+        if (active) setServiceDatesError(e instanceof Error ? e.message : "Falha ao consultar as datas.");
+      } finally {
+        if (active) setServiceDatesLoading(false);
+      }
+    }
+    void loadServiceDates();
+    return () => { active = false; };
+  }, []);
 
   async function load() {
     setError("");
@@ -280,12 +317,12 @@ export function TucxaPilotReports() {
         query.set("dateMode", dateMode);
         if (dateMode === "specific" || dateMode === "period") {
           const iso = ptBrToIso(dateFrom);
-          if (!iso) return setError("Informe a data inicial no formato dd/mm/aaaa.");
+          if (!iso || !serviceDates.includes(iso)) return setError("Escolha uma data válida da programação do TUCXA.");
           query.set("dateFrom", iso);
         }
         if (dateMode === "before" || dateMode === "period") {
           const iso = ptBrToIso(dateTo);
-          if (!iso) return setError(dateMode === "period" ? "Informe a data final no formato dd/mm/aaaa." : "Informe a data limite no formato dd/mm/aaaa.");
+          if (!iso || !serviceDates.includes(iso)) return setError("Escolha uma data válida da programação do TUCXA.");
           query.set("dateTo", iso);
         }
       }
@@ -357,8 +394,9 @@ export function TucxaPilotReports() {
         </label>
 
         {usesDate && <label className="grid gap-1 text-sm font-bold"><span>Período</span><select value={dateMode} onChange={(event) => setDateMode(event.target.value as DateMode)} className="min-w-0 w-full rounded-xl border p-3 font-normal"><option value="from_today">Todos a partir de hoje</option><option value="specific">Data específica</option><option value="period">Período específico</option><option value="before">Anteriores à data</option><option value="all">Todos</option></select></label>}
-        {usesDate && (dateMode === "specific" || dateMode === "period") && <DateField label={dateMode === "specific" ? "Data" : "Data inicial"} value={dateFrom} onChange={setDateFrom} />}
-        {usesDate && (dateMode === "period" || dateMode === "before") && <DateField label={dateMode === "period" ? "Data final" : "Antes de"} value={dateTo} onChange={setDateTo} />}
+        {usesDate && (dateMode === "specific" || dateMode === "period") && <DateField label={dateMode === "specific" ? "Data" : "Data inicial"} value={dateFrom} onChange={setDateFrom} options={serviceDates} loading={serviceDatesLoading} />}
+        {usesDate && (dateMode === "period" || dateMode === "before") && <DateField label={dateMode === "period" ? "Data final" : "Antes de"} value={dateTo} onChange={setDateTo} options={serviceDates} loading={serviceDatesLoading} />}
+        {usesDate && serviceDatesError && <p role="alert" className="text-xs font-bold text-red-700">{serviceDatesError}</p>}
         {(kind === "disponibilidade" || kind === "semanas_entidades") && <>
           <label className="grid gap-1 text-sm font-bold"><span>Linha</span><input value={lineFilter} onChange={(event) => setLineFilter(event.target.value)} placeholder="Ex.: Oxossi" className="min-w-0 w-full rounded-xl border p-3 font-normal" /></label>
           <label className="grid gap-1 text-sm font-bold"><span>Entidade</span><input value={entityFilter} onChange={(event) => setEntityFilter(event.target.value)} placeholder="Ex.: Aruando" className="min-w-0 w-full rounded-xl border p-3 font-normal" /></label>
