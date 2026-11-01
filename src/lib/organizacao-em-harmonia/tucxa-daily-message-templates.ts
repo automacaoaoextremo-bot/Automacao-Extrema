@@ -12,6 +12,12 @@ export function tucxaReceptionOperationalMessage(input: {
   phase: "morning" | "afternoon";
   date: string;
   entitySummary: string;
+  totals: {
+    totalPrevisto: number;
+    vagasDisponiveis: number;
+    confirmado: number;
+    solicitado: number;
+  };
 }): string {
   const morning = input.phase === "morning";
   return [
@@ -23,6 +29,9 @@ export function tucxaReceptionOperationalMessage(input: {
     "",
     morning ? "Segue a prévia dos agendamentos de hoje, organizada por Entidade."
       : "Segue a relação atualizada dos atendimentos de hoje.",
+    "",
+    `Total previsto: ${input.totals.totalPrevisto}  |  Vagas disponíveis: ${input.totals.vagasDisponiveis}`,
+    `Confirmado: ${input.totals.confirmado}  |  Solicitado: ${input.totals.solicitado}`,
     "",
     input.entitySummary.trim() || "Nenhum consulente agendado até o momento.",
     "",

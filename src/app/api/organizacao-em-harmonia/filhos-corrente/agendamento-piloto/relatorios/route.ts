@@ -173,6 +173,35 @@ export async function GET(request: Request) {
     const lineFilter = normalizedText(url.searchParams.get("line"));
     const entityFilter = normalizedText(url.searchParams.get("entity"));
 
+    // Fonte da lista suspensa de relatórios: agenda efetiva para datas futuras;
+    // histórico do próprio TUCXA para datas passadas. Somente leitura.
+    if (kind === "service-dates") {
+      const today = todayInSaoPaulo();
+      const [upcoming, pastResult] = await Promise.all([
+        loadPilotDates(context.organizationId, 365),
+        supabaseAdmin.from("oh_consulente_appointments")
+          .select("appointment_date")
+          .eq("organization_id", context.organizationId)
+          .gte("appointment_date", "2026-01-01")
+          .lt("appointment_date", today)
+          .order("appointment_date", { ascending: true })
+          .limit(10000),
+      ]);
+      if (pastResult.error) throw pastResult.error;
+      if ((pastResult.data ?? []).length >= 10000) {
+        return NextResponse.json({ error: "Limite de datas históricas atingido. Revisar consulta." }, { status: 503 });
+      }
+      const dates = [...new Set([
+        ...upcoming.map((item) => item.date),
+        ...(pastResult.data ?? []).map((item) => text(item.appointment_date)),
+      ])].filter((date) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+        const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+        return weekday === 1 || weekday === 2;
+      }).sort();
+      return NextResponse.json({ ok: true, dates }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     if (["atendimentos", "caderno", "sem_whatsapp_terceiros"].includes(kind)) {
       let query = supabaseAdmin
         .from("oh_consulente_appointments")

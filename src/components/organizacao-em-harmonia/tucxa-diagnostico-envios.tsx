@@ -166,7 +166,8 @@ export function TucxaDiagnosticoEnviosContent() {
       </div>
       <div role="tablist" aria-label="Detalhes do diagnóstico" className="grid grid-cols-4 gap-1">
         {(["resumo", "recepcao", "cavalinhos", "auditoria"] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={tab === item} onClick={() => selectTab(item)} className={`rounded-lg px-1 py-2 text-[10px] font-bold sm:text-xs ${tab === item ? "bg-[#123D2C] text-white" : "bg-[#EFF5EF] text-[#123D2C]"}`}>
-          {item === "resumo" ? "Resumo" : item === "recepcao" ? "Recepção" : item === "cavalinhos" ? "Cavalinhos" : "Auditoria"}
+          <span className="block">{item === "resumo" ? "Resumo" : item === "recepcao" ? "Recepção" : item === "cavalinhos" ? "Cavalinhos" : "Auditoria"}</span>
+          <span className="mt-0.5 block text-[8px] font-medium leading-tight sm:text-[9px]">TOQUE PARA ACESSAR</span>
         </button>)}
       </div>
       {tab === "resumo" && <section role="tabpanel" className="grid gap-3">
@@ -175,17 +176,13 @@ export function TucxaDiagnosticoEnviosContent() {
             "Agendamentos", report.receptionSummaryPreview?.appointmentCount ?? 0,
           ], ["Lembretes", report.counts?.reminders ?? 0], ["Recepção", report.counts?.reception ?? 0], ["Cavalinhos", report.counts?.cavalinhos ?? 0]] as Array<[string, number]>).map(([label, value]) => <div key={label} className="rounded-xl border border-[#E0EAE1] p-3"><strong className="block text-2xl">{value}</strong><span className="text-xs">{label}</span></div>)}
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setPreview({ title: "Prévia da Recepção — 8h", message: report.receptionSummaryPreview?.summary || "Sem resumo para a data." })} className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-bold">Prévia das 8h</button>
-          <button type="button" onClick={() => setPreview({ title: "Atualização da Recepção — 16h", message: report.receptionSummaryPreview?.summaryAfternoon || "Sem resumo para a data." })} className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-bold">Atualização das 16h</button>
-        </div>
         <p className="text-xs text-slate-500">O horário exibido nas mensagens é de referência. A entrega deve ser confirmada pelos registros da integração.</p>
       </section>}
       {tab === "recepcao" && <section role="tabpanel" className="grid gap-2">
         <p className="text-xs text-slate-500">Prévia às 8h e atualização às 16h. Destinatários únicos, identificados pelo número de celular.</p>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Prévia da Recepção — 8h", message: report.receptionSummaryPreview?.summary || "Sem resumo." })}>Ver mensagem das 8h</button>
-          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Atualização da Recepção — 16h", message: report.receptionSummaryPreview?.summaryAfternoon || "Sem resumo." })}>Ver mensagem das 16h</button>
+          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Mensagem da manhã — 8h a 9h", message: report.receptionSummaryPreview?.summary || "Sem resumo." })}><span className="block">Ver mensagem da manhã</span><span className="mt-1 block text-[10px] font-normal">(previsão de envio entre 8:00 e 9:00 horas)</span></button>
+          <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-bold" onClick={() => setPreview({ title: "Mensagem da tarde — 16h a 17h", message: report.receptionSummaryPreview?.summaryAfternoon || "Sem resumo." })}><span className="block">Ver mensagem da tarde</span><span className="mt-1 block text-[10px] font-normal">(previsão de envio entre 16:00 e 17:00 horas)</span></button>
         </div>
         {reception.length === 0 && <p className="text-sm">Nenhum destinatário previsto.</p>}
         {visible(reception).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><strong>{person.person || "Cadastro não localizado"}</strong><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.phone || "Celular indisponível"} · {person.source === "additional_recipient" ? "Destinatário adicional" : "Escala da Recepção"}</p></div>)}
