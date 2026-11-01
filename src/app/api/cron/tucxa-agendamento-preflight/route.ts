@@ -1,4 +1,5 @@
 import { formatTucxaReceptionSummary } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
+import { tucxaReceptionOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { additionalReceptionRecipientsForDate, canonicalTucxaPhone } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
@@ -211,7 +212,13 @@ export async function GET(request: Request) {
         appointmentCount: rows.length,
         entitiesCount: entityIds.length,
         format: "entity_then_alphabetical_without_appointment_order",
-        summary: formatTucxaReceptionSummary({ date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames }),
+        summary: tucxaReceptionOperationalMessage({
+          phase: "morning", date,
+          entitySummary: formatTucxaReceptionSummary({
+            date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
+            scheduledEntityIds: [...availableEntityIds], includeTitle: false,
+          }),
+        }),
       },
       sharedContactReminderGroups: Object.values(consulentes.reduce<Record<string, typeof consulentes>>((groups, item) => {
         const phone = item.phone;
