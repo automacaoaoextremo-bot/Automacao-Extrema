@@ -4,18 +4,19 @@ import Image from "next/image";
 import { useEffect, useState, type FormEvent } from "react";
 import { getBncClient } from "@/lib/bingo-no-controle/client";
 
-type Tab = "cardapio" | "combos" | "cartelas" | "prendas-gerais";
+type Tab = "cardapio" | "combos" | "cartelas" | "prendas-gerais" | "premios";
 type Event = { id: string; title: string; status: string; organization_id: string };
 type Round = { id: string; title: string; round_number: number; status: string };
 type Menu = { id: string; category: string; title: string; price_cents: number; is_active: boolean; image_url: string | null };
 type Combo = { id: string; title: string; kind: string; price_cents: number; card_quantity: number; food_credit_cents: number; credit_scope: string; status: string };
 type Batch = { id: string; code: string; color_name: string; quantity: number; allowed_round_id: string | null; status: string };
-type Prize = { id: string; title: string; description: string | null; image_url: string | null; is_confirmed: boolean };
+type Prize = { id: string; title: string; description: string | null; image_url: string | null; is_confirmed: boolean; availability_status: "available" | "allocated" | "unavailable" };
 
 type Props = {
   tab: Tab;
   event: Event | null;
   rounds: Round[];
+  selectedRoundId?: string | null;
   ownEvent: boolean;
   canManage: boolean;
   onReload: () => Promise<void>;
@@ -29,7 +30,7 @@ function cents(text: string) {
   return Math.round(Number(text.replace(",", ".")) * 100);
 }
 
-export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onReload }: Props) {
+export function BncCatalogosV07C({ tab, event, rounds, selectedRoundId, ownEvent, canManage, onReload }: Props) {
   const [items, setItems] = useState<Menu[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -37,6 +38,9 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedPrizeIds, setSelectedPrizeIds] = useState<string[]>([]);
+  const [prizePhoto, setPrizePhoto] = useState<File | null>(null);
   const [menuCategory, setMenuCategory] = useState("Alimentação");
   const [menuTitle, setMenuTitle] = useState("");
   const [menuPrice, setMenuPrice] = useState("");
@@ -54,8 +58,6 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
   const [prizeTitle, setPrizeTitle] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [prizeUrl, setPrizeUrl] = useState("");
-  const [attachPrizeId, setAttachPrizeId] = useState("");
-  const [attachRoundId, setAttachRoundId] = useState("");
   const [attachType, setAttachType] = useState("other");
   const eventId = event?.id ?? "";
   const editable = canManage && ownEvent && !!event && ["draft", "ready"].includes(event.status);
@@ -67,8 +69,8 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
       if (!client) { if (active) setMsg("Cliente Supabase não configurado."); return; }
       if (active) { setLoading(true); setMsg(""); setItems([]); setCombos([]); setBatches([]); setPrizes([]); }
       try {
-        if (tab === "prendas-gerais") {
-          const { data, error } = await client.from("bnc_prizes").select("id,title,description,image_url,is_confirmed")
+        if (tab === "prendas-gerais" || tab === "premios") {
+          const { data, error } = await client.from("bnc_prizes").select("id,title,description,image_url,is_confirmed,availability_status")
             .eq("organization_id", await getTucxaOrganizationId(client)).order("created_at", { ascending: false }).limit(250);
           if (error) throw error;
           if (active) setPrizes((data ?? []) as Prize[]);
@@ -96,7 +98,7 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
       finally { if (active) setLoading(false); }
     });
     return () => { active = false; };
-  }, [eventId, tab]);
+  }, [eventId, tab, refreshKey]);
 
   async function rpc(fn: string, args: Record<string, unknown>) {
     const client = getBncClient();
@@ -107,7 +109,7 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
   }
   async function submit(e: FormEvent<HTMLFormElement> | null, operation: () => Promise<void>) {
     e?.preventDefault(); setBusy(true); setMsg("");
-    try { await operation(); setMsg("Registro salvo. Reabra esta seção para atualizar a listagem."); await onReload(); }
+    try { await operation(); setMsg("Registro salvo."); setRefreshKey(current => current + 1); await onReload(); }
     catch (error) { setMsg(`Falha: ${error instanceof Error ? error.message : "erro desconhecido"}`); }
     finally { setBusy(false); }
   }
@@ -124,6 +126,20 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
     const { data } = client.storage.from("bnc-public-images").getPublicUrl(path);
     await rpc("bnc_v07c_menu_set_image", { p_item: itemId, p_image_url: data.publicUrl });
     setItems(previous => previous.map(item => item.id === itemId ? { ...item, image_url: data.publicUrl } : item));
+  }
+
+  async function uploadPrizePhoto(prizeId: string, file: File) {
+    const client = getBncClient();
+    if (!client) throw new Error("Supabase indisponível");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 3 * 1024 * 1024 || file.size === 0)
+      throw new Error("Envie uma foto JPEG, PNG ou WebP de até 3 MB.");
+    const ext = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : "webp";
+    const path = `tucxa/prizes/${prizeId}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await client.storage.from("bnc-public-images").upload(path, file, { contentType: file.type, upsert: false });
+    if (error) throw new Error(`Envio da foto: ${error.message}`);
+    const { data } = client.storage.from("bnc-public-images").getPublicUrl(path);
+    await rpc("bnc_v07d_prize_set_image", { p_prize: prizeId, p_image_url: data.publicUrl });
+    setPrizes(previous => previous.map(p => p.id === prizeId ? { ...p, image_url: data.publicUrl } : p));
   }
 
   async function createMenu() {
@@ -208,31 +224,58 @@ export function BncCatalogosV07C({ tab, event, rounds, ownEvent, canManage, onRe
     </>}
     {tab === "prendas-gerais" && <>
       <h3 className="text-xl font-black">Catálogo geral de prendas do TUCXA</h3>
-      <p className="text-sm text-slate-600">Cadastre uma prenda uma vez e associe-a a uma rodada. Ela só aparece publicamente depois da confirmação.</p>
+      <p className="text-sm text-slate-600">Cadastre as prendas independentemente do evento, envie a foto real e informe a disponibilidade. A premiação por rodada será definida no menu Prêmios.</p>
       <div className="grid gap-3 sm:grid-cols-2">{prizes.map(p => <div key={p.id} className="rounded-xl border p-3 text-sm">
-        {p.image_url && <a href={p.image_url} rel="noopener noreferrer" target="_blank" className="font-bold underline">Ver foto ↗</a>}
-        <p className="font-bold">{p.title}</p><p>{p.description}</p><p>{p.is_confirmed ? "Prenda confirmada" : "Aguardando confirmação"}</p>
-        {canManage && <button className="mt-2 rounded-lg border border-emerald-600 px-3 py-2 text-xs font-bold" disabled={busy} onClick={() => void submit(null, async () => { await rpc("bnc_v07c_confirm_prize", { p_prize: p.id, p_confirm: !p.is_confirmed }); })}>{p.is_confirmed ? "Desmarcar confirmação" : "Confirmar doação recebida"}</button>}
+        {p.image_url && <Image unoptimized src={p.image_url} width={360} height={200} alt={`Foto da prenda ${p.title}`} className="mb-2 h-36 w-full rounded-lg object-cover"/>}
+        <p className="font-bold">{p.title}</p><p>{p.description}</p>
+        <p className="mt-1">Disponibilidade: <strong>{p.availability_status === "available" ? "Disponível" : p.availability_status === "allocated" ? "Vinculada a premiação" : "Indisponível"}</strong></p>
+        <p>{p.is_confirmed ? "Doação confirmada" : "Aguardando confirmação da doação"}</p>
+        {canManage && <div className="mt-2 flex flex-wrap gap-2">
+          <button className="rounded-lg border border-emerald-600 px-3 py-2 text-xs font-bold" disabled={busy} onClick={() => void submit(null, async () => { await rpc("bnc_v07c_confirm_prize", { p_prize: p.id, p_confirm: !p.is_confirmed }); })}>{p.is_confirmed ? "Desmarcar confirmação" : "Confirmar doação"}</button>
+          {p.availability_status !== "allocated" && <button className="rounded-lg border border-emerald-600 px-3 py-2 text-xs font-bold" disabled={busy} onClick={() => void submit(null, async () => { await rpc("bnc_v07d_prize_set_availability", { p_prize: p.id, p_status: p.availability_status === "available" ? "unavailable" : "available" }); })}>{p.availability_status === "available" ? "Marcar indisponível" : "Tornar disponível"}</button>}
+        </div>}
+        {canManage && <label className="mt-3 block text-xs font-bold">{p.image_url ? "Trocar foto" : "Adicionar foto"}
+          <input type="file" accept="image/jpeg,image/png,image/webp" className="mt-1 block w-full" onChange={e => { const file=e.target.files?.[0]; if (file) void submit(null, () => uploadPrizePhoto(p.id, file)); }} />
+        </label>}
       </div>)}</div>
       {canManage && <form className={`${box} grid gap-3 sm:grid-cols-2`} onSubmit={e => void submit(e, async () => {
-        await rpc("bnc_v07c_catalog_prize", { p_title: prizeTitle, p_description: prizeDescription || null, p_image_url: prizeUrl || null });
+        const id = await rpc("bnc_v07c_catalog_prize", { p_title: prizeTitle, p_description: prizeDescription || null, p_image_url: prizeUrl || null });
         setPrizeTitle(""); setPrizeDescription(""); setPrizeUrl("");
+        if (prizePhoto) {
+          try { await uploadPrizePhoto(id, prizePhoto); setPrizePhoto(null); }
+          catch(error) { throw new Error(`Prenda cadastrada, mas a foto falhou: ${error instanceof Error ? error.message : "erro"}`); }
+        }
       })}>
-        <label>Nome da prenda<input className={field} required value={prizeTitle} onChange={e => setPrizeTitle(e.target.value)}/></label>
+        <label>Nome da prenda<input className={field} required value={prizeTitle} onChange={e => setPrizeTitle(e.target.value)} maxLength={160}/></label>
         <label>Descrição<input className={field} value={prizeDescription} onChange={e => setPrizeDescription(e.target.value)}/></label>
-        <label>URL HTTPS de foto autorizada<input className={field} type="url" value={prizeUrl} onChange={e => setPrizeUrl(e.target.value)}/></label>
+        <label>Foto (JPEG, PNG ou WebP até 3 MB)<input className={field} type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPrizePhoto(e.target.files?.[0] ?? null)}/></label>
+        <label>URL HTTPS autorizada (alternativa à foto)<input className={field} type="url" value={prizeUrl} onChange={e => setPrizeUrl(e.target.value)} placeholder="https://..."/></label>
         <button disabled={busy} className={button}>Adicionar ao catálogo</button>
       </form>}
-      {editable && <form className={`${box} grid gap-3 sm:grid-cols-2`} onSubmit={e => void submit(e, async () => {
-        await rpc("bnc_v07c_attach_prize", { p_event: eventId, p_round: attachRoundId, p_prize: attachPrizeId, p_award_type: attachType });
-      })}>
-        <p className="sm:col-span-2 font-bold">Associar prenda existente ao evento selecionado</p>
-        <label>Prenda<select className={field} required value={attachPrizeId} onChange={e => setAttachPrizeId(e.target.value)}><option value="">Selecione...</option>{prizes.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
-        <label>Rodada<select className={field} required value={attachRoundId} onChange={e => setAttachRoundId(e.target.value)}><option value="">Selecione...</option>{rounds.filter(r => r.status === "planned").map(r => <option key={r.id} value={r.id}>{r.round_number}. {r.title}</option>)}</select></label>
-        <label>Tipo<select className={field} value={attachType} onChange={e => setAttachType(e.target.value)}><option value="other">Outra</option><option value="quina">Quina</option><option value="full_card">Cartela cheia</option></select></label>
-        <button disabled={busy} className={button}>Vincular prenda à rodada</button>
-      </form>}
     </>}
+    {tab === "premios" && <>
+      <h3 className="text-xl font-black">Premiação da rodada selecionada</h3>
+      <p className="text-sm text-slate-600">Marque uma ou várias prendas disponíveis do catálogo geral. A vinculação é feita em uma única transação, com auditoria.</p>
+      <p className="text-sm font-semibold">Rodada: {rounds.find(r => r.id === selectedRoundId)?.title ?? "Selecione uma rodada no menu lateral"}</p>
+      <div className="grid gap-2 sm:grid-cols-2">{prizes.filter(p => p.availability_status === "available").map(p =>
+        <label key={p.id} className="flex items-center gap-3 rounded-xl border p-3 text-sm">
+          <input type="checkbox" checked={selectedPrizeIds.includes(p.id)} onChange={e => setSelectedPrizeIds(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))}/>
+          {p.image_url && <Image unoptimized src={p.image_url} width={52} height={52} alt="" className="h-12 w-12 rounded-lg object-cover"/>}
+          <span><strong>{p.title}</strong><span className="block text-xs text-slate-500">{p.is_confirmed ? "Doação confirmada" : "Doação ainda não confirmada"}</span></span>
+        </label>
+      )}</div>
+      {prizes.every(p => p.availability_status !== "available") && <p className="text-sm">Não há prendas disponíveis. Cadastre novas prendas no menu Geral.</p>}
+      {editable && selectedRoundId && rounds.find(r => r.id === selectedRoundId)?.status === "planned" && <form className={`${box} space-y-3`} onSubmit={e => void submit(e, async () => {
+        if (!selectedPrizeIds.length) throw new Error("Selecione pelo menos uma prenda disponível.");
+        await rpc("bnc_v07d_assign_prizes", { p_event: eventId, p_round: selectedRoundId, p_prizes: selectedPrizeIds, p_award_type: attachType });
+        setSelectedPrizeIds([]);
+      })}>
+        <label className="block text-sm font-semibold">Tipo de premiação<select className={field} value={attachType} onChange={e => setAttachType(e.target.value)}><option value="other">Outra</option><option value="quina">Quina</option><option value="full_card">Cartela cheia</option></select></label>
+        <button disabled={busy || !selectedPrizeIds.length} className={button}>Associar {selectedPrizeIds.length} prenda(s) à rodada</button>
+      </form>}
+      {!editable && <p className="text-sm text-amber-900">Alterações disponíveis apenas em evento TUCXA próprio ainda em planejamento.</p>}
+    </>}
+
   </div>;
 }
 
