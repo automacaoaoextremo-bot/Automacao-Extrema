@@ -1,154 +1,389 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBncClient } from "@/lib/bingo-no-controle/client";
 
-type EventRow = { id: string; title: string; slug: string; starts_at: string | null; status: string; venue: string | null };
-type RoundRow = { id: string; event_id: string; round_number: number; title: string; status: string };
-type DrawRow = { round_id: string; number: number; is_voided: boolean };
-type AwardRow = { round_id: string; label: string };
+const orgSlug = "tucxa";
+const publicPath = "/solucoes/bingo-no-controle/cliente/tucxa";
+const environment = process.env.NEXT_PUBLIC_BNC_ENV === "production" ? "Produção" : "Homologação";
 
-type View = "loading" | "setup" | "login" | "denied" | "ready" | "error";
+type Mode = "loading" | "setup" | "login" | "denied" | "ready" | "error";
+type Tab = "eventos" | "resumo" | "configuracoes" | "rodadas" | "premios" | "chamados" | "qrcodes" | "financeiro" | "relatorios" | "previa" | "operacao";
+type EventRow = { id: string; organization_id: string; title: string; slug: string; description: string | null; starts_at: string | null; status: string; venue: string | null; is_public: boolean; sales_enabled: boolean };
+type RoundRow = { id: string; event_id: string; round_number: number; title: string; status: string; starts_at: string | null; card_price_cents: number | null };
+type DrawRow = { round_id: string; number: number; is_voided: boolean; draw_sequence: number };
+type AwardRow = { round_id: string; label: string; award_type: string };
+type PrizeRow = { id: string; title: string; is_confirmed: boolean; donor_name: string | null };
+type EventDraft = { title: string; slug: string; description: string; venue: string; starts_at: string; status: "draft" | "ready" };
+type RoundDraft = { title: string; card_price: string };
 
-const organizationSlug = "tucxa";
-const bncEnvironment = process.env.NEXT_PUBLIC_BNC_ENV === "production" ? "Produção" : "Homologação";
+const initialEventDraft: EventDraft = { title: "", slug: "", description: "", venue: "", starts_at: "", status: "draft" };
+const initialRoundDraft: RoundDraft = { title: "", card_price: "" };
+const editRoles = ["owner", "manager"];
 
-function prettyDate(value: string | null) {
-  if (!value) return "Data não informada";
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone: "America/Sao_Paulo" }).format(new Date(value));
+function niceDate(value: string | null) {
+  if (!value) return "Data a definir";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data a definir";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(date);
 }
 
+function localInput(value: string | null) {
+  if (!value) return "";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(dt).replace(" ", "T");
+}
+
+// A aplicação registra datas do Bingo na zona de Campinas/São Paulo.
+// Se houver necessidade de eventos em outros fusos, este conversor deverá ser ampliado.
+function dateToIso(value: string) {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error("Informe uma data e horário válidos.");
+  const date = new Date(`${value}:00-03:00`);
+  if (Number.isNaN(date.getTime())) throw new Error("Data inválida.");
+  return date.toISOString();
+}
+
+function priceInCents(value: string) {
+  if (!value.trim()) return null;
+  if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error("Informe um valor válido em reais.");
+  const cents = Math.round(Number(value.replace(",", ".")) * 100);
+  if (!Number.isSafeInteger(cents) || cents < 0) throw new Error("Valor inválido.");
+  return cents;
+}
+
+async function readPages<T>(client: SupabaseClient, table: "bnc_draws" | "bnc_awards", columns: string, roundIds: string[]): Promise<T[]> {
+  const output: T[] = [];
+  for (let start = 0; start <= 49500; start += 500) {
+    const { data, error } = await client.from(table).select(columns).in("round_id", roundIds).order("id").range(start, start + 499);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as T[];
+    output.push(...rows);
+    if (rows.length < 500) return output;
+  }
+  throw new Error("Limite de paginação excedido.");
+}
+
+function NavigationItem({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" disabled={disabled} onClick={onClick}
+    className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${active ? "bg-white text-[#0d5938] shadow-sm" : "text-emerald-50 hover:bg-white/15"} disabled:cursor-not-allowed disabled:opacity-40`}>{label}</button>;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="block text-sm font-semibold text-[#174735]">{label}<span className="mt-1 block">{children}</span></label>;
+}
+
+const inputClass = "w-full rounded-lg border border-emerald-200 bg-white px-3 py-2.5 text-sm text-[#173e2c] outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+
 export default function BingoTucxaAdminPage() {
-  const [view, setView] = useState<View>("loading");
+  const [mode, setMode] = useState<Mode>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [signedEmail, setSignedEmail] = useState("");
+  const [role, setRole] = useState("");
+  const [orgId, setOrgId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [rounds, setRounds] = useState<RoundRow[]>([]);
   const [draws, setDraws] = useState<DrawRow[]>([]);
   const [awards, setAwards] = useState<AwardRow[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [currentEmail, setCurrentEmail] = useState("");
+  const [prizes, setPrizes] = useState<PrizeRow[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("eventos");
+  const [eventForm, setEventForm] = useState<"none" | "new" | "edit">("none");
+  const [eventDraft, setEventDraft] = useState<EventDraft>(initialEventDraft);
+  const [roundDraft, setRoundDraft] = useState<RoundDraft>(initialRoundDraft);
+  const [roundForm, setRoundForm] = useState<"none" | "new" | "edit">("none");
+  const [editingRound, setEditingRound] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = getBncClient();
-    if (!supabase) { setView("setup"); return; }
-    // Captura uma referência não nula para o helper assíncrono de paginação.
-    // O TypeScript não precisa reavaliar a nulidade dentro da função interna.
-    const activeClient = supabase;
-    setView("loading");
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData.user) { setView("login"); return; }
-    setCurrentEmail(userData.user.email || "Usuário autenticado");
-    const { data: org, error: orgError } = await supabase
-      .from("bnc_organizations").select("id").eq("slug", organizationSlug).maybeSingle();
-    if (orgError) { setMessage("Falha ao verificar a organização."); setView("error"); return; }
-    if (!org) { setView("denied"); return; }
-    const { data: member, error: memberError } = await supabase
-      .from("bnc_members").select("role").eq("organization_id", org.id).eq("user_id", userData.user.id).maybeSingle();
-    if (memberError) { setMessage("Não foi possível validar suas permissões."); setView("error"); return; }
-    if (!member || !["owner", "manager", "operator", "finance", "viewer"].includes(member.role)) {
-      setView("denied"); return;
-    }
-    const { data: eventData, error: eventError } = await supabase.from("bnc_events")
-      .select("id,title,slug,starts_at,status,venue").eq("organization_id", org.id)
-      .order("starts_at", { ascending: false });
-    if (eventError) { setMessage("Não foi possível carregar eventos autorizados."); setView("error"); return; }
-    const foundEvents = (eventData || []) as EventRow[];
-    setEvents(foundEvents);
-    setSelected((prev) => prev && foundEvents.some((e) => e.id === prev) ? prev : (foundEvents[0]?.id ?? null));
-    const ids = foundEvents.map((e) => e.id);
-    if (ids.length === 0) { setRounds([]); setDraws([]); setAwards([]); setView("ready"); return; }
-    const { data: roundData, error: roundError } = await supabase.from("bnc_rounds")
-      .select("id,event_id,round_number,title,status").in("event_id", ids).order("round_number");
-    if (roundError) { setMessage("Falha ao consultar rodadas."); setView("error"); return; }
-    const foundRounds = (roundData || []) as RoundRow[];
-    setRounds(foundRounds);
-    const roundIds = foundRounds.map((r) => r.id);
-    if (roundIds.length === 0) { setDraws([]); setAwards([]); setView("ready"); return; }
-    // Paginação explícita: a consulta de histórico não depende do limite padrão de 1000 linhas.
-    async function allPages<T>(table: "bnc_draws" | "bnc_awards", columns: string): Promise<T[]> {
-      const output: T[] = [];
-      for (let start = 0; ; start += 500) {
-        const { data, error } = await activeClient.from(table).select(columns).in("round_id", roundIds).order("id", { ascending: true }).range(start, start + 499);
-        if (error) throw error;
-        const page = (data ?? []) as unknown as T[];
-        output.push(...page);
-        if (page.length < 500) return output;
-        if (start >= 49500) throw new Error("Limite de consulta atingido.");
-      }
-    }
+    const client = getBncClient();
+    if (!client) { setMode("setup"); return; }
+    setMode("loading");
+    setMessage("");
     try {
-      const [foundDraws, foundAwards] = await Promise.all([
-        allPages<DrawRow>("bnc_draws", "round_id,number,is_voided"),
-        allPages<AwardRow>("bnc_awards", "round_id,label"),
-      ]);
-      setDraws(foundDraws); setAwards(foundAwards); setView("ready");
+      const { data: auth, error: authError } = await client.auth.getUser();
+      if (authError || !auth.user) { setMode("login"); return; }
+      const { data: org, error: orgError } = await client.from("bnc_organizations").select("id").eq("slug", orgSlug).maybeSingle();
+      if (orgError) throw orgError;
+      if (!org) { setMode("denied"); return; }
+      const { data: membership, error: memberError } = await client.from("bnc_members").select("role").eq("organization_id", org.id).eq("user_id", auth.user.id).maybeSingle();
+      if (memberError) throw memberError;
+      if (!membership || ![...editRoles, "finance", "operator", "viewer"].includes(membership.role)) { setMode("denied"); return; }
+      const { data: eventData, error: eventError } = await client.from("bnc_events")
+        .select("id,organization_id,title,slug,description,starts_at,status,venue,is_public,sales_enabled")
+        .eq("organization_id", org.id).order("starts_at", { ascending: false });
+      if (eventError) throw eventError;
+      const foundEvents = (eventData ?? []) as EventRow[];
+      const ids = foundEvents.map((item) => item.id);
+      let foundRounds: RoundRow[] = [];
+      let foundDraws: DrawRow[] = [];
+      let foundAwards: AwardRow[] = [];
+      if (ids.length) {
+        const { data: roundData, error: roundError } = await client.from("bnc_rounds")
+          .select("id,event_id,round_number,title,status,starts_at,card_price_cents").in("event_id", ids).order("round_number");
+        if (roundError) throw roundError;
+        foundRounds = (roundData ?? []) as RoundRow[];
+        const roundIds = foundRounds.map((item) => item.id);
+        if (roundIds.length) {
+          [foundDraws, foundAwards] = await Promise.all([
+            readPages<DrawRow>(client, "bnc_draws", "round_id,number,is_voided,draw_sequence", roundIds),
+            readPages<AwardRow>(client, "bnc_awards", "round_id,label,award_type", roundIds),
+          ]);
+        }
+      }
+      const { data: prizeData, error: prizeError } = await client.from("bnc_prizes")
+        .select("id,title,is_confirmed,donor_name").eq("organization_id", org.id).limit(500);
+      if (prizeError) throw prizeError;
+      setSignedEmail(auth.user.email ?? "Usuário autenticado");
+      setRole(membership.role);
+      setOrgId(org.id);
+      setEvents(foundEvents); setRounds(foundRounds); setDraws(foundDraws); setAwards(foundAwards); setPrizes((prizeData ?? []) as PrizeRow[]);
+      setSelectedEvent((current) => current && foundEvents.some((item) => item.id === current) ? current : foundEvents[0]?.id ?? null);
+      setMode("ready");
     } catch {
-      setMessage("Falha ao consultar o histórico de sorteios e premiações."); setView("error");
+      setMessage("Não foi possível carregar o painel. Confira sua sessão e as políticas de acesso do Bingo.");
+      setMode("error");
     }
   }, []);
 
   useEffect(() => {
-    // Executa a carga inicial em uma continuação assíncrona, evitando
-    // setState síncrono no corpo do effect (react-hooks/set-state-in-effect).
-    let mounted = true;
-    void Promise.resolve().then(() => {
-      if (mounted) void load();
-    });
-    return () => { mounted = false; };
+    // A chamada inicia em uma microtarefa para evitar setState síncrono no efeito.
+    let active = true;
+    void Promise.resolve().then(() => { if (active) void load(); });
+    return () => { active = false; };
   }, [load]);
 
-  async function signIn(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setBusy(true); setMessage("");
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const client = getBncClient();
-    if (!client) { setView("setup"); setBusy(false); return; }
-    const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
-    setPassword(""); setBusy(false);
-    if (error) { setMessage("Não foi possível entrar. Confira suas credenciais e autorização."); return; }
-    await load();
+    if (!client) { setMode("setup"); return; }
+    setBusy(true); setMessage("");
+    try {
+      const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+      setPassword("");
+      if (error) { setMessage("Não foi possível entrar. Confira e-mail e senha."); return; }
+      await load();
+    } catch {
+      setMessage("Falha de conexão ao autenticar. Tente novamente.");
+    } finally { setBusy(false); }
   }
 
   async function signOut() {
-    await getBncClient()?.auth.signOut();
-    setEvents([]); setRounds([]); setDraws([]); setAwards([]); setCurrentEmail(""); setView("login");
+    setBusy(true);
+    try { await getBncClient()?.auth.signOut(); }
+    finally {
+      setBusy(false); setMode("login"); setSignedEmail(""); setRole(""); setOrgId("");
+      setEvents([]); setRounds([]); setDraws([]); setAwards([]); setPrizes([]); setSelectedEvent(null);
+      setTab("eventos"); setEventForm("none"); setRoundForm("none");
+    }
   }
 
-  const event = events.find((e) => e.id === selected);
-  const eventRounds = rounds.filter((r) => r.event_id === selected);
-  const roundSet = new Set(eventRounds.map((r) => r.id));
-  const totalDraws = draws.filter((d) => roundSet.has(d.round_id) && !d.is_voided).length;
-  const totalAwards = awards.filter((a) => roundSet.has(a.round_id)).length;
+  const selected = useMemo(() => events.find((item) => item.id === selectedEvent) ?? null, [events, selectedEvent]);
+  const eventRounds = useMemo(() => rounds.filter((item) => item.event_id === selectedEvent), [rounds, selectedEvent]);
+  const selectedIds = useMemo(() => new Set(eventRounds.map((item) => item.id)), [eventRounds]);
+  const eventDraws = useMemo(() => draws.filter((item) => selectedIds.has(item.round_id) && !item.is_voided), [draws, selectedIds]);
+  const eventAwards = useMemo(() => awards.filter((item) => selectedIds.has(item.round_id)), [awards, selectedIds]);
+  const mayManage = editRoles.includes(role);
+  const editableEvent = mayManage && selected && ["draft", "ready"].includes(selected.status);
+
+  function selectEvent(id: string) {
+    setSelectedEvent(id); setTab("resumo"); setEventForm("none"); setRoundForm("none"); setMessage("");
+  }
+
+  function newEvent() {
+    setEventDraft(initialEventDraft); setEventForm("new"); setTab("eventos"); setMessage("");
+  }
+
+  function editEvent() {
+    if (!selected || !editableEvent) return;
+    setEventDraft({ title: selected.title, slug: selected.slug, description: selected.description ?? "", venue: selected.venue ?? "", starts_at: localInput(selected.starts_at), status: selected.status as "draft" | "ready" });
+    setEventForm("edit"); setTab("configuracoes"); setMessage("");
+  }
+
+  async function saveEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const client = getBncClient();
+    if (!client || !orgId || !mayManage) return;
+    setBusy(true); setMessage("");
+    try {
+      const slug = eventDraft.slug.trim().toLowerCase();
+      if (!/^[a-z0-9-]{3,80}$/.test(slug)) throw new Error("O identificador deve conter entre 3 e 80 caracteres: letras minúsculas, números ou hífen.");
+      if (eventDraft.title.trim().length < 3 || eventDraft.title.trim().length > 160) throw new Error("Título deve ter de 3 a 160 caracteres.");
+      const fields = { slug, title: eventDraft.title.trim(), description: eventDraft.description.trim() || null, venue: eventDraft.venue.trim() || null, starts_at: dateToIso(eventDraft.starts_at) };
+      let nextId: string | null = null;
+      if (eventForm === "new") {
+        const { data, error } = await client.from("bnc_events").insert({ ...fields, organization_id: orgId }).select("id").single();
+        if (error) throw error;
+        nextId = data.id;
+      } else {
+        if (!selected || !editableEvent) throw new Error("O evento não pode ser alterado.");
+        const { data, error } = await client.from("bnc_events").update({ ...fields, status: eventDraft.status })
+          .eq("id", selected.id).eq("organization_id", orgId).in("status", ["draft", "ready"]).select("id").single();
+        if (error) throw error;
+        nextId = data.id;
+      }
+      if (nextId) setSelectedEvent(nextId);
+      setEventForm("none"); setTab("resumo");
+      await load();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Erro desconhecido";
+      setMessage(`Não foi possível salvar o evento. Verifique as permissões, o identificador e os campos. ${reason.includes("identificador") || reason.includes("Título") ? reason : ""}`);
+    } finally { setBusy(false); }
+  }
+
+  function newRound() {
+    setEditingRound(null); setRoundDraft(initialRoundDraft); setRoundForm("new"); setTab("rodadas"); setMessage("");
+  }
+
+  function editRound(round: RoundRow) {
+    if (!editableEvent || round.status !== "planned") return;
+    setEditingRound(round.id);
+    setRoundDraft({ title: round.title, card_price: round.card_price_cents === null ? "" : (round.card_price_cents / 100).toFixed(2).replace(".", ",") });
+    setRoundForm("edit"); setTab("rodadas"); setMessage("");
+  }
+
+  async function saveRound(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const client = getBncClient();
+    if (!client || !selected || !editableEvent) return;
+    setBusy(true); setMessage("");
+    try {
+      if (roundDraft.title.trim().length < 2 || roundDraft.title.trim().length > 160) throw new Error("Informe um título válido.");
+      const payload = { title: roundDraft.title.trim(), card_price_cents: priceInCents(roundDraft.card_price) };
+      if (roundForm === "new") {
+        const nextNumber = Math.max(0, ...eventRounds.map((item) => item.round_number)) + 1;
+        const { error } = await client.from("bnc_rounds").insert({ ...payload, event_id: selected.id, round_number: nextNumber });
+        if (error) throw error;
+      } else {
+        if (!editingRound) throw new Error("Rodada não selecionada.");
+        const { error } = await client.from("bnc_rounds").update(payload).eq("id", editingRound).eq("event_id", selected.id).eq("status", "planned");
+        if (error) throw error;
+      }
+      setRoundForm("none"); await load();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "";
+      setMessage(`Não foi possível salvar a rodada. Confira se o evento está em rascunho ou preparado e se não houve alteração concorrente. ${reason.startsWith("Informe") ? reason : ""}`);
+    } finally { setBusy(false); }
+  }
+
+  function exportSummary() {
+    if (!selected) return;
+    const csv = ["Rodada;Título;Sorteios válidos;Premiações", ...eventRounds.map((round) => {
+      const n = eventDraws.filter((draw) => draw.round_id === round.id).length;
+      const a = eventAwards.filter((award) => award.round_id === round.id).length;
+      return [round.round_number, `"${round.title.replaceAll('"', '""')}"`, n, a].join(";");
+    })].join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = `bingo-tucxa-rodadas-${selected.slug}.csv`; anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const shell = "rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm";
+  const action = "rounded-xl bg-[#11623f] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#0c5033] disabled:opacity-50";
 
   return (
-    <div className="min-h-screen bg-[#f7f8f3] text-[#173e2c]">
-      <header className="border-b border-emerald-200 bg-white px-5 py-5">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-          <div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Bingo no Controle · {bncEnvironment}</p><h1 className="text-2xl font-black">Administração do Bingo do TUCXA</h1></div>
-          <div className="flex items-center gap-4 text-sm"><Link className="underline" href="/solucoes/bingo-no-controle/cliente/tucxa">Página pública</Link>{view === "ready" || view === "denied" ? <button type="button" className="rounded-lg bg-[#135038] px-4 py-2 font-semibold text-white" onClick={() => void signOut()}>Sair</button> : null}</div>
+    <div className="min-h-dvh bg-[#f5f8f4] text-[#173e2c]">
+      <header className="border-b border-emerald-100 bg-white px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-3">
+          <div><p className="text-[0.65rem] font-extrabold uppercase tracking-[.2em] text-emerald-700">Bingo no Controle · {environment}</p><h1 className="text-xl font-black sm:text-2xl">Administração do Bingo do TUCXA</h1></div>
+          <div className="flex items-center gap-3 text-sm font-semibold"><Link href={publicPath} className="underline underline-offset-4">Página pública</Link>{mode === "ready" || mode === "denied" ? <button type="button" disabled={busy} className="rounded-lg border border-emerald-200 px-3 py-2" onClick={() => void signOut()}>Sair</button> : null}</div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl p-5 sm:py-10">
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Ambiente {bncEnvironment} · Consulta somente leitura. Não há cadastro, edição, sorteio ou venda de cartelas nesta etapa.</div>
-        {view === "loading" && <p aria-live="polite">Verificando sua sessão e permissões...</p>}
-        {view === "setup" && <p role="alert" className="rounded-xl bg-white p-6">Integração ainda não configurada. Defina as variáveis públicas BNC do ambiente correspondente na Vercel ou no ambiente local.</p>}
-        {view === "login" && <form onSubmit={(e) => void signIn(e)} className="max-w-md space-y-4 rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold">Entrar na administração</h2><p className="text-sm text-slate-600">Use uma conta cadastrada no Auth do ambiente atual e vinculada à organização TUCXA.</p>
-          <label className="block text-sm font-semibold">E-mail<input className="mt-1 w-full rounded-lg border p-3" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label className="block text-sm font-semibold">Senha<input className="mt-1 w-full rounded-lg border p-3" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      {mode !== "ready" ? <main className="mx-auto max-w-lg px-4 py-12">
+        {mode === "loading" && <p role="status">Verificando sessão e permissões...</p>}
+        {mode === "setup" && <div role="alert" className={shell}>Variáveis BNC não configuradas ou ambiente Supabase incorreto. Confira a configuração do Preview ou Production.</div>}
+        {mode === "denied" && <div role="alert" className={shell}>Sua conta não está autorizada para o Bingo do TUCXA.</div>}
+        {mode === "error" && <div role="alert" className={shell}>{message}<button type="button" onClick={() => void load()} className={`mt-4 block ${action}`}>Tentar novamente</button></div>}
+        {mode === "login" && <form onSubmit={(event) => void signIn(event)} className={`${shell} space-y-4`}>
+          <h2 className="text-xl font-bold">Entrar no administrativo</h2>
+          <p className="text-sm text-slate-600">Use sua conta Supabase autorizada para o TUCXA.</p>
+          <Field label="E-mail"><input type="email" className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></Field>
+          <Field label="Senha"><input type="password" className={inputClass} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></Field>
           {message && <p role="alert" className="text-sm text-red-700">{message}</p>}
-          <button disabled={busy} className="w-full rounded-lg bg-[#135038] p-3 font-bold text-white disabled:opacity-50">{busy ? "Aguarde..." : "Entrar"}</button>
+          <button type="submit" disabled={busy} className={`w-full ${action}`}>{busy ? "Entrando..." : "Entrar"}</button>
         </form>}
-        {view === "denied" && <p role="alert" className="rounded-xl bg-white p-6">Seu usuário não tem acesso à administração da organização TUCXA. Solicite autorização ao responsável.</p>}
-        {view === "error" && <div role="alert" className="space-y-3 rounded-xl bg-white p-6"><p>{message}</p><button onClick={() => void load()} className="rounded-lg border p-2">Tentar novamente</button></div>}
-        {view === "ready" && <div className="space-y-6"><p className="text-sm text-slate-600">Conectado como {currentEmail}. Exibindo exclusivamente eventos autorizados para o TUCXA.</p>
-          <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-black">Eventos</h2><span className="rounded-lg bg-emerald-100 px-3 py-2 text-sm font-semibold">{events.length} cadastrado(s)</span></div>
-          {events.length === 0 ? <p className="rounded-xl bg-white p-6">Nenhum evento disponível para esta organização.</p> : <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{events.map((e) => <button key={e.id} type="button" onClick={() => setSelected(e.id)} className={`rounded-xl border p-5 text-left shadow-sm ${selected === e.id ? "border-emerald-600 bg-emerald-50" : "border-slate-200 bg-white"}`}><p className="text-xs font-bold uppercase text-emerald-700">{e.status}</p><h3 className="mt-2 text-lg font-extrabold">{e.title}</h3><p className="mt-2 text-sm">{prettyDate(e.starts_at)}</p><p className="mt-1 text-sm text-slate-600">{e.venue || "Local não informado"}</p></button>)}</div>}
-          {event && <section className="rounded-2xl border border-emerald-200 bg-white p-5 sm:p-8"><p className="text-xs font-bold uppercase text-emerald-700">Evento selecionado</p><h2 className="mt-2 text-2xl font-black">{event.title}</h2><div className="mt-5 grid gap-3 sm:grid-cols-3">{[["Rodadas",eventRounds.length],["Números sorteados válidos",totalDraws],["Premiações",totalAwards]].map(([label,value]) => <div key={String(label)} className="rounded-xl bg-emerald-50 p-4"><p className="text-sm">{label}</p><strong className="text-3xl">{value}</strong></div>)}</div><h3 className="mt-7 text-xl font-bold">Rodadas</h3><div className="mt-3 space-y-2">{eventRounds.map((r) => { const n = draws.filter((d) => d.round_id === r.id && !d.is_voided).length; const a = awards.filter((d) => d.round_id === r.id).length; return <div key={r.id} className="flex flex-wrap justify-between gap-2 rounded-lg border p-3"><span><strong>{r.round_number}. {r.title}</strong> <span className="text-xs text-slate-500">({r.status})</span></span><span className="text-sm">{n} sorteios · {a} premiações</span></div>; })}</div></section>}
-        </div>}
-      </main>
+      </main> : <div className="mx-auto grid max-w-[90rem] gap-5 p-3 sm:p-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="rounded-2xl bg-[#0b6041] p-3 text-white shadow-md lg:self-start">
+          <div className="rounded-xl bg-white/10 px-3 py-4"><p className="text-xl font-black">Bingo TUCXA</p><p className="break-all text-xs text-emerald-100">{signedEmail}</p><p className="mt-1 text-xs text-emerald-100">Acesso: {role}</p></div>
+          <nav aria-label="Navegação administrativa" className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
+            <p className="col-span-full px-3 pt-2 text-xs font-black uppercase tracking-wider text-emerald-200">Geral</p>
+            <NavigationItem label="Eventos" active={tab === "eventos"} onClick={() => { setTab("eventos"); setEventForm("none"); }}/>
+            <NavigationItem label="Novo evento" active={eventForm === "new"} disabled={!mayManage} onClick={newEvent}/>
+            <p className="col-span-full px-3 pt-3 text-xs font-black uppercase tracking-wider text-emerald-200">Evento selecionado</p>
+            {([ ["resumo", "Resumo"], ["configuracoes", "Configurações"], ["rodadas", "Rodadas"], ["premios", "Prêmios"], ["chamados", "Bingos chamados"], ["qrcodes", "QR Codes"], ["financeiro", "Financeiro"], ["relatorios", "Relatórios"], ["previa", "Prévia pública"], ["operacao", "Operar sorteios"] ] as [Tab, string][]).map(([id,label]) =>
+              <NavigationItem key={id} label={label} active={tab === id} disabled={!selected} onClick={() => { setTab(id); setMessage(""); setEventForm("none"); setRoundForm("none"); }}/>
+            )}
+          </nav>
+        </aside>
+        <main className="min-w-0 space-y-5">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            Nesta etapa, cadastro e edição são liberados apenas para eventos em rascunho ou preparados e rodadas planejadas. Sorteios ao vivo, validação de ganhadores e vendas permanecem indisponíveis até homologação específica.
+          </div>
+          {message && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{message}</div>}
+
+          {(tab === "eventos" || eventForm === "new") && <section className={`${shell} space-y-5`}>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-emerald-700">Eventos</p><h2 className="text-2xl font-black">Lista de dias de bingo</h2><p className="text-sm text-slate-600">Selecione um evento para administrar suas rodadas e acompanhar o histórico.</p></div>{mayManage && <button type="button" className={action} onClick={newEvent}>+ Novo evento</button>}</div>
+            {eventForm === "new" && <form className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4" onSubmit={(event) => void saveEvent(event)}>
+              <h3 className="text-lg font-black">Novo evento (rascunho)</h3>
+              <EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass}/>
+              <div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Criar evento</button><button type="button" onClick={() => setEventForm("none")} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+            </form>}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{events.map((item) => <button key={item.id} type="button" onClick={() => selectEvent(item.id)} className={`rounded-xl border p-4 text-left transition hover:border-emerald-600 ${selectedEvent === item.id ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white"}`}><span className="text-xs font-black uppercase text-emerald-700">{item.status === "completed" ? "Histórico encerrado" : item.status}</span><h3 className="mt-1 text-lg font-extrabold">{item.title}</h3><p className="mt-1 text-sm text-slate-600">{niceDate(item.starts_at)}</p><p className="mt-1 text-sm text-slate-600">{item.venue ?? "Local não informado"}</p><span className="mt-3 inline-block text-sm font-bold text-emerald-700">Abrir evento →</span></button>)}</div>
+            {events.length === 0 && <p className="text-sm">Nenhum evento disponível para este usuário.</p>}
+          </section>}
+
+          {selected && tab !== "eventos" && <section className={`${shell} space-y-5`}>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Evento selecionado · {selected.status}</p><h2 className="text-2xl font-black">{selected.title}</h2><p className="text-sm text-slate-600">{niceDate(selected.starts_at)} · {selected.venue ?? "Local a confirmar"}</p></div><button type="button" className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-bold" onClick={() => setTab("eventos")}>Trocar evento</button></div>
+            <div className="grid gap-3 sm:grid-cols-3"><Metric label="Rodadas" value={eventRounds.length}/><Metric label="Números sorteados válidos" value={eventDraws.length}/><Metric label="Premiações" value={eventAwards.length}/></div>
+
+            {tab === "resumo" && <div className="space-y-4"><h3 className="text-xl font-black">Resumo</h3><p className="text-sm text-slate-600">{selected.description ?? "Evento sem descrição cadastrada."}</p><p className="text-sm">Vendas: <strong>{selected.sales_enabled ? "Configuradas no banco (não operadas nesta interface)" : "Desativadas"}</strong> · Publicação: <strong>{selected.is_public ? "Marcado público" : "Privado"}</strong></p><h4 className="font-bold">Rodadas do evento</h4><RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards}/></div>}
+
+            {tab === "configuracoes" && <div className="space-y-4"><h3 className="text-xl font-black">Configurações</h3>{selected.status === "completed" ? <p className="rounded-lg bg-amber-50 p-4 text-sm">Evento histórico concluído: alterações bloqueadas para preservar a auditoria.</p> : editableEvent ? <button type="button" className={action} onClick={editEvent}>Editar informações do evento</button> : <p className="text-sm">Somente owner/manager podem alterar eventos em rascunho ou preparados.</p>}
+              {eventForm === "edit" && <form onSubmit={(event) => void saveEvent(event)} className="space-y-3 rounded-xl bg-emerald-50 p-4"><EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass} edit/><div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Salvar alterações</button><button type="button" className="rounded-lg border px-3 py-2" onClick={() => setEventForm("none")}>Cancelar</button></div></form>}
+            </div>}
+
+            {tab === "rodadas" && <div className="space-y-4"><div className="flex flex-wrap justify-between gap-3"><h3 className="text-xl font-black">Rodadas</h3>{editableEvent && <button type="button" onClick={newRound} className={action}>+ Nova rodada</button>}</div>
+              {roundForm !== "none" && <form onSubmit={(event) => void saveRound(event)} className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><h4 className="font-bold">{roundForm === "new" ? "Nova rodada planejada" : "Editar rodada planejada"}</h4><Field label="Título"><input className={inputClass} value={roundDraft.title} onChange={(e) => setRoundDraft((old) => ({ ...old, title: e.target.value }))} maxLength={160} required /></Field><Field label="Valor de referência da cartela (R$; opcional)"><input className={inputClass} inputMode="decimal" value={roundDraft.card_price} onChange={(e) => setRoundDraft((old) => ({ ...old, card_price: e.target.value }))} placeholder="Ex.: 7,00" /></Field><p className="text-xs text-amber-900">O valor é apenas referência; esta versão não comercializa cartelas.</p><div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Salvar rodada</button><button type="button" className="rounded-lg border px-3 py-2" onClick={() => setRoundForm("none")}>Cancelar</button></div></form>}
+              <RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards} onEdit={editableEvent ? editRound : undefined}/>
+            </div>}
+
+            {tab === "premios" && <div className="space-y-4"><h3 className="text-xl font-black">Prêmios e premiações</h3><p className="text-sm text-slate-600">Premiações da rodada (fotografia histórica). Cadastro de novos prêmios será habilitado em etapa posterior.</p><div className="grid gap-3 sm:grid-cols-2">{eventAwards.map((award, index) => <div key={`${award.round_id}-${index}`} className="rounded-xl border p-3"><p className="font-bold">{award.label}</p><p className="text-xs text-slate-500">{award.award_type === "full_card" ? "Cartela cheia" : award.award_type === "quina" ? "Quina" : "Outro"} · Rodada {eventRounds.find((r) => r.id === award.round_id)?.round_number ?? "—"}</p></div>)}</div>{!eventAwards.length && <p>Nenhuma premiação associada ao evento.</p>}<h4 className="font-bold">Catálogo TUCXA ({prizes.length})</h4><p className="text-sm text-slate-600">{prizes.length ? prizes.map((prize) => prize.title).join(" · ") : "Ainda não há prêmios cadastrados no novo catálogo."}</p></div>}
+
+            {tab === "relatorios" && <div className="space-y-3"><h3 className="text-xl font-black">Relatório de rodadas</h3><p className="text-sm text-slate-600">Exportação de estatísticas públicas do evento selecionado, sem informações de participantes.</p><button type="button" className={action} onClick={exportSummary}>Exportar CSV de rodadas</button><RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards}/></div>}
+
+            {tab === "previa" && <div className="space-y-3"><h3 className="text-xl font-black">Prévia pública</h3><p className="text-sm text-slate-600">A página pública atual é institucional. A publicação individual de cada evento será implementada depois de aprovar as regras de divulgação.</p><Link className="inline-block rounded-lg border border-emerald-200 px-4 py-2 font-bold" href={publicPath} target="_blank">Abrir página institucional ↗</Link></div>}
+
+            {(["chamados", "qrcodes", "financeiro", "operacao"] as Tab[]).includes(tab) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h3 className="text-xl font-black">{tab === "chamados" ? "Bingos chamados e ganhadores" : tab === "qrcodes" ? "QR Codes" : tab === "financeiro" ? "Financeiro" : "Operação de sorteios"}</h3><p className="mt-2 text-sm leading-6">Este módulo existia no sistema legado e está previsto para integração. Nesta versão ele não executa ações, não expõe dados pessoais e não altera informações do histórico. Será ativado após implementar endpoints e permissões específicas por organização.</p></div>}
+          </section>}
+        </main>
+      </div>}
     </div>
   );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs font-bold text-emerald-900">{label}</p><p className="mt-2 text-3xl font-black">{value.toLocaleString("pt-BR")}</p></div>;
+}
+
+function RoundList({ rounds, draws, awards, onEdit }: { rounds: RoundRow[]; draws: DrawRow[]; awards: AwardRow[]; onEdit?: (round: RoundRow) => void }) {
+  return <div className="space-y-2">{rounds.map((round) => <div key={round.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-100 p-3"><div><p className="font-bold">{round.round_number}. {round.title}</p><p className="text-xs text-slate-500">{round.status} · {draws.filter((d) => d.round_id === round.id && !d.is_voided).length} sorteios válidos · {awards.filter((a) => a.round_id === round.id).length} premiações</p></div>{onEdit && round.status === "planned" && <button type="button" onClick={() => onEdit(round)} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-bold">Editar rodada</button>}</div>)}{rounds.length === 0 && <p className="text-sm text-slate-500">Nenhuma rodada cadastrada.</p>}</div>;
+}
+
+function EventFields({ value, onChange, inputClass, edit }: { value: EventDraft; onChange: (draft: EventDraft) => void; inputClass: string; edit?: boolean }) {
+  const update = (field: keyof EventDraft, content: string) => onChange({ ...value, [field]: content });
+  return <div className="grid gap-3 sm:grid-cols-2">
+    <Field label="Nome do evento"><input className={inputClass} value={value.title} onChange={(e) => update("title", e.target.value)} maxLength={160} required /></Field>
+    <Field label="Identificador da URL"><input className={inputClass} value={value.slug} onChange={(e) => update("slug", e.target.value)} pattern="[a-z0-9-]{3,80}" placeholder="bingo-tucxa-2027" required /></Field>
+    <Field label="Data e horário (Campinas/SP)"><input type="datetime-local" className={inputClass} value={value.starts_at} onChange={(e) => update("starts_at", e.target.value)} /></Field>
+    <Field label="Local"><input className={inputClass} value={value.venue} onChange={(e) => update("venue", e.target.value)} maxLength={220} /></Field>
+    <div className="sm:col-span-2"><Field label="Descrição"><textarea className={inputClass} rows={3} value={value.description} onChange={(e) => update("description", e.target.value)} maxLength={3000}/></Field></div>
+    {edit && <Field label="Situação"><select className={inputClass} value={value.status} onChange={(e) => update("status", e.target.value)}><option value="draft">Rascunho</option><option value="ready">Preparado</option></select></Field>}
+    <p className="self-end text-xs text-amber-900">Eventos novos são privados, sem venda ou sorteio ativo.</p>
+  </div>;
 }
