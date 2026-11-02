@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BncPublicEventsV07B } from "./bnc-public-events-v07b";
 import { useRef, useState } from "react";
 
 type Panel = "participar" | "proximo" | null;
@@ -160,9 +161,9 @@ export function BingoTucxaHome({ donationHref }: { donationHref: string }) {
             <div>
               <h2 id="bingo-dialog-title" className="mt-3 text-2xl font-black">Nosso próximo bingo está em preparação</h2>
               <p className="mt-3 leading-7 text-[#435e50]">
-                A data, o local, as rodadas e as prendas serão divulgados depois de confirmados pela organização.
-                Por enquanto, as vendas de cartelas não estão disponíveis nesta página.
+                Veja abaixo os eventos publicados pela organização. As vendas de cartelas não estão disponíveis nesta página.
               </p>
+              <div className="mt-4 max-h-[38vh] overflow-y-auto"><BncPublicEventsV07B/></div>
               <div className="mt-5 rounded-2xl bg-[#f2f8f1] p-4">
                 <p className="font-bold">Enquanto isso, você já pode fazer a diferença.</p>
                 <p className="mt-1 text-sm leading-6 text-[#496154]">
