@@ -40,7 +40,8 @@ export function BncOperacoesV07B({tab,event,sourceEvents,rounds,selectedRound,on
   const [cloneTitle,setCloneTitle] = useState("Bingo do TUCXA — 12/12/2026");
   const [cloneSlug,setCloneSlug] = useState("bingo-tucxa-2026-12-12");
   const [cloneDay,setCloneDay] = useState("2026-12-12");
-  const [cloneTime,setCloneTime] = useState("");
+  const [cloneTime,setCloneTime] = useState("14:00");
+  const [cloneEndTime,setCloneEndTime] = useState("20:00");
   const [prizeTitle,setPrizeTitle] = useState("");
   const [prizeDescription,setPrizeDescription] = useState("");
   const [prizeImage,setPrizeImage] = useState("");
@@ -78,11 +79,12 @@ export function BncOperacoesV07B({tab,event,sourceEvents,rounds,selectedRound,on
 
   async function cloneEvent(e: FormEvent) {
     e.preventDefault();
-    if(!cloneSource || !cloneDay || !cloneTime) {setMessage("Selecione evento-modelo, data e horário.");return;}
+    if(!cloneSource || !cloneDay || !cloneTime || !cloneEndTime) {setMessage("Selecione evento-modelo, data, início e término.");return;}
     const dt=new Date(`${cloneDay}T${cloneTime}:00-03:00`);
-    if(Number.isNaN(dt.valueOf())) {setMessage("Data/hora inválida.");return;}
+    const end=new Date(`${cloneDay}T${cloneEndTime}:00-03:00`);
+    if(Number.isNaN(dt.valueOf()) || Number.isNaN(end.valueOf()) || end.valueOf()<=dt.valueOf()) {setMessage("O término deve ocorrer depois do início.");return;}
     if(!window.confirm("Criar rascunho TUCXA copiando rodadas e configuração de premiações, sem dados de ganhadores e sorteios?")) return;
-    await invoke("bnc_v07b_clone_event",{p_source:cloneSource,p_title:cloneTitle,p_slug:cloneSlug,p_starts_at:dt.toISOString()});
+    await invoke("bnc_v07d_clone_event",{p_source:cloneSource,p_title:cloneTitle,p_slug:cloneSlug,p_starts_at:dt.toISOString(),p_ends_at:end.toISOString()});
   }
 
   async function createPrize(e: FormEvent) {
@@ -149,7 +151,8 @@ export function BncOperacoesV07B({tab,event,sourceEvents,rounds,selectedRound,on
       <label className="text-sm font-semibold">Nome do novo bingo<input className={field} value={cloneTitle} onChange={e=>setCloneTitle(e.target.value)} required/></label>
       <label className="text-sm font-semibold">Slug<input className={field} pattern="[a-z0-9-]{3,80}" value={cloneSlug} onChange={e=>setCloneSlug(e.target.value)} required/></label>
       <label className="text-sm font-semibold">Data<input className={field} type="date" value={cloneDay} onChange={e=>setCloneDay(e.target.value)} required/></label>
-      <label className="text-sm font-semibold">Horário (não presumido)<input className={field} type="time" value={cloneTime} onChange={e=>setCloneTime(e.target.value)} required/></label>
+      <label className="text-sm font-semibold">Início<input className={field} type="time" value={cloneTime} onChange={e=>setCloneTime(e.target.value)} required/></label>
+      <label className="text-sm font-semibold">Término<input className={field} type="time" min={cloneTime || undefined} value={cloneEndTime} onChange={e=>setCloneEndTime(e.target.value)} required/></label>
       <div className="self-end"><button className={button} disabled={busy||!cloneSource}>Copiar como rascunho</button></div>
     </form>:<p className="mt-2 text-sm">Somente owner ou manager pode criar o evento-modelo.</p>}
     {message&&<p role="status" className="mt-3 text-sm">{message}</p>}
