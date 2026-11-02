@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBncClient } from "@/lib/bingo-no-controle/client";
 import { BncOperacoesV07B, type Bnc07BTab } from "./bnc-operacoes-v07b";
+import { BncCatalogosV07C } from "./bnc-catalogos-v07c";
+import { BncMateriaisV07C } from "./bnc-materiais-v07c";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 
 const orgSlug = "tucxa";
@@ -12,7 +14,7 @@ const publicPath = "/solucoes/bingo-no-controle/cliente/tucxa";
 const environment = process.env.NEXT_PUBLIC_BNC_ENV === "production" ? "Produção" : "Homologação";
 
 type Mode = "loading" | "setup" | "login" | "denied" | "ready" | "error";
-type Tab = "eventos" | "resumo" | "configuracoes" | "rodadas" | "premios" | "chamados" | "qrcodes" | "financeiro" | "relatorios" | "previa" | "operacao" | "cardapio";
+type Tab = "eventos" | "resumo" | "configuracoes" | "rodadas" | "premios" | "chamados" | "qrcodes" | "financeiro" | "relatorios" | "previa" | "operacao" | "cardapio" | "materiais" | "combos" | "cartelas" | "prendas-gerais";
 type EventRow = { id: string; organization_id: string; title: string; slug: string; description: string | null; starts_at: string | null; status: string; venue: string | null; is_public: boolean; sales_enabled: boolean };
 type RoundRow = { id: string; event_id: string; round_number: number; title: string; status: string; starts_at: string | null; card_price_cents: number | null };
 type DrawRow = { round_id: string; number: number; is_voided: boolean; draw_sequence: number };
@@ -323,8 +325,10 @@ export default function BingoTucxaAdminPage() {
             <p className="col-span-full px-3 pt-2 text-xs font-black uppercase tracking-wider text-emerald-200">Geral</p>
             <NavigationItem label="Eventos" active={tab === "eventos"} onClick={() => { setTab("eventos"); setEventForm("none"); }}/>
             <NavigationItem label="Novo evento" active={eventForm === "new"} disabled={!mayManage} onClick={newEvent}/>
+            <NavigationItem label="Materiais de apoio" active={tab === "materiais"} onClick={() => { setTab("materiais"); setEventForm("none"); }}/>
+            <NavigationItem label="Catálogo geral de prendas" active={tab === "prendas-gerais"} onClick={() => { setTab("prendas-gerais"); setEventForm("none"); }}/>
             <p className="col-span-full px-3 pt-3 text-xs font-black uppercase tracking-wider text-emerald-200">Evento selecionado</p>
-            {([ ["resumo", "Resumo"], ["configuracoes", "Configurações"], ["rodadas", "Rodadas"], ["premios", "Prêmios"], ["cardapio", "Cardápio"], ["chamados", "Bingos chamados"], ["qrcodes", "QR Codes"], ["financeiro", "Financeiro"], ["relatorios", "Relatórios"], ["previa", "Prévia pública"], ["operacao", "Operar sorteios"] ] as [Tab, string][]).map(([id,label]) =>
+            {([ ["resumo", "Resumo"], ["configuracoes", "Configurações"], ["rodadas", "Rodadas"], ["premios", "Prêmios"], ["cardapio", "Cardápio e fotos"], ["combos", "Combos (rascunhos)"], ["cartelas", "Lotes de cartelas"], ["chamados", "Bingos chamados"], ["qrcodes", "QR Codes"], ["financeiro", "Financeiro"], ["relatorios", "Relatórios"], ["previa", "Prévia pública"], ["operacao", "Operar sorteios"] ] as [Tab, string][]).map(([id,label]) =>
               <NavigationItem key={id} label={label} active={tab === id} disabled={!selected} onClick={() => { setTab(id); setMessage(""); setEventForm("none"); setRoundForm("none"); }}/>
             )}
             {selected && <div className="col-span-full mt-3 rounded-xl bg-[#073c2b] p-2">
@@ -340,10 +344,12 @@ export default function BingoTucxaAdminPage() {
         </aside>
         <main className="min-w-0 space-y-5">
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-            Integração V07B: sorteios e revisão manual de ganhadores funcionam apenas em novos eventos TUCXA autorizados e após instalação/homologação da migration. Os eventos históricos permanecem protegidos; vendas e pagamentos não estão habilitados.
+            Integração V07C: cadastros, fotos, combos e lotes dependem da nova migration e das permissões do TUCXA. Combos e lotes são apenas rascunhos; vendas, pagamentos e emissão de cartelas não estão habilitados.
           </div>
           {message && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{message}</div>}
 
+          {tab === "materiais" && <BncMateriaisV07C/>}
+          {tab === "prendas-gerais" && !selected && <section className={shell}><BncCatalogosV07C tab="prendas-gerais" event={null} rounds={[]} ownEvent={false} canManage={mayManage} onReload={load}/></section>}
           {(tab === "eventos" || eventForm === "new") && <section className={`${shell} space-y-5`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-emerald-700">Eventos</p><h2 className="text-2xl font-black">Lista de dias de bingo</h2><p className="text-sm text-slate-600">Selecione um evento para administrar suas rodadas e acompanhar o histórico.</p></div>{mayManage && <button type="button" className={action} onClick={newEvent}>+ Novo evento</button>}</div>
             {eventForm === "new" && <form className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4" onSubmit={(event) => void saveEvent(event)}>
@@ -351,12 +357,12 @@ export default function BingoTucxaAdminPage() {
               <EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass}/>
               <div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Criar evento</button><button type="button" onClick={() => setEventForm("none")} className="rounded-lg border px-3 py-2">Cancelar</button></div>
             </form>}
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{events.map((item) => <button key={item.id} type="button" onClick={() => selectEvent(item.id)} className={`rounded-xl border p-4 text-left transition hover:border-emerald-600 ${selectedEvent === item.id ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white"}`}><span className="text-xs font-black uppercase text-emerald-700">{item.organization_id === orgId ? "TUCXA · " : "Sementinha · "}{item.status === "completed" ? "Histórico encerrado" : item.status}</span><h3 className="mt-1 text-lg font-extrabold">{item.title}</h3><p className="mt-1 text-sm text-slate-600">{niceDate(item.starts_at)}</p><p className="mt-1 text-sm text-slate-600">{item.venue ?? "Local não informado"}</p><span className="mt-3 inline-block text-sm font-bold text-emerald-700">Abrir evento →</span></button>)}</div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{events.map((item) => <button key={item.id} type="button" onClick={() => selectEvent(item.id)} className={`rounded-xl border p-4 text-left transition hover:border-emerald-600 ${selectedEvent === item.id ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white"}`}><span className="text-xs font-black uppercase text-emerald-700">{item.organization_id === orgId ? "TUCXA · " : "Sementinha · "}{item.status === "completed" ? "Histórico encerrado" : item.status}</span><h3 className="mt-1 text-lg font-extrabold">{item.title}</h3><p className="mt-1 text-sm text-slate-600">{niceDate(item.starts_at)}</p><p className="mt-1 text-sm text-slate-600">{item.venue ?? "Local não informado"}</p><p className="mt-2 text-xs text-slate-600">{item.description?.slice(0, 145) || "Sem descrição cadastrada"}</p><span className="mt-3 inline-block rounded-full border border-emerald-200 px-3 py-1.5 text-sm font-bold text-emerald-700">Abrir evento e rodadas →</span></button>)}</div>
             {events.length === 0 && <p className="text-sm">Nenhum evento disponível para este usuário.</p>}
             <BncOperacoesV07B tab="eventos" event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>
           </section>}
 
-          {selected && tab !== "eventos" && <section className={`${shell} space-y-5`}>
+          {selected && tab !== "eventos" && tab !== "materiais" && <section className={`${shell} space-y-5`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Evento selecionado · {selected.status}</p><h2 className="text-2xl font-black">{selected.title}</h2><p className="text-sm text-slate-600">{niceDate(selected.starts_at)} · {selected.venue ?? "Local a confirmar"}</p></div><button type="button" className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-bold" onClick={() => setTab("eventos")}>Trocar evento</button></div>
             <div className="grid gap-3 sm:grid-cols-3"><Metric label="Rodadas" value={eventRounds.length}/><Metric label="Números sorteados válidos" value={eventDraws.length}/><Metric label="Premiações" value={eventAwards.length}/></div>
 
@@ -377,9 +383,9 @@ export default function BingoTucxaAdminPage() {
               <div className="grid gap-2 sm:grid-cols-2">{eventAwards.map((a,i)=><p key={`${a.round_id}-${i}`} className="rounded-xl border p-3 text-sm">{a.label} · {a.award_type}</p>)}</div>
               <BncOperacoesV07B tab="premios" event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>
             </div>}
-            {tab === "cardapio" && <BncOperacoesV07B tab="cardapio" event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>}
+            {(["cardapio", "combos", "cartelas", "prendas-gerais"] as Tab[]).includes(tab) && <BncCatalogosV07C key={`${selected.id}-${tab}`} tab={tab as "cardapio" | "combos" | "cartelas" | "prendas-gerais"} event={selected} rounds={eventRounds} ownEvent={ownEvent} canManage={mayManage} onReload={load}/>}
 
-            {tab === "relatorios" && <div className="space-y-3"><h3 className="text-xl font-black">Relatório de rodadas</h3><p className="text-sm text-slate-600">Exportação de estatísticas públicas do evento selecionado, sem informações de participantes.</p><button type="button" className={action} onClick={exportSummary}>Exportar CSV de rodadas</button><RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards}/></div>}
+            {tab === "relatorios" && <div className="space-y-3"><h3 className="text-xl font-black">Relatório de rodadas</h3><p className="text-sm text-slate-600">Estatísticas dos números válidos sorteados, sem informações de participantes.</p><button type="button" className={action} onClick={exportSummary}>Exportar CSV de rodadas</button><BncNumeroStatsV07C draws={eventDraws} rounds={eventRounds}/><RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards}/></div>}
 
             {(["chamados", "qrcodes", "operacao", "previa"] as Bnc07BTab[]).includes(tab as Bnc07BTab) && <BncOperacoesV07B tab={tab as Bnc07BTab} event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>}
             {tab === "financeiro" && <div className="rounded-xl bg-amber-50 p-4 text-sm">Módulo de pagamentos e vendas não liberado. Nenhum dado financeiro será alterado por esta integração.</div>}
@@ -408,5 +414,26 @@ function EventFields({ value, onChange, inputClass, edit }: { value: EventDraft;
     <div className="sm:col-span-2"><Field label="Descrição"><textarea className={inputClass} rows={3} value={value.description} onChange={(e) => update("description", e.target.value)} maxLength={3000}/></Field></div>
     {edit && <Field label="Situação"><select className={inputClass} value={value.status} onChange={(e) => update("status", e.target.value)}><option value="draft">Rascunho</option><option value="ready">Preparado</option></select></Field>}
     <p className="self-end text-xs text-amber-900">Eventos novos são privados, sem venda ou sorteio ativo.</p>
+  </div>;
+}
+
+function BncNumeroStatsV07C({ draws, rounds }: { draws: DrawRow[]; rounds: RoundRow[] }) {
+  const totals = Array.from({ length: 75 }, (_, i) => ({ number: i + 1, count: draws.filter(d => d.number === i + 1).length }));
+  const top = [...totals].sort((a, b) => b.count - a.count || a.number - b.number).slice(0, 10);
+  const max = Math.max(1, ...top.map(t => t.count));
+  const letters = ["B (1–15)", "I (16–30)", "N (31–45)", "G (46–60)", "O (61–75)"];
+  const completed = rounds.filter(r => r.status === "completed" || r.status === "closed").length;
+  return <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+    <h4 className="font-bold">Estatísticas do sorteio</h4>
+    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <Metric label="Rodadas encerradas" value={completed}/>
+      <Metric label="Pedras válidas" value={draws.length}/>
+      <Metric label="Média de pedras por rodada" value={rounds.length ? Math.round((draws.length / rounds.length) * 10) / 10 : 0}/>
+    </div>
+    <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div><p className="mb-2 text-sm font-bold">Números mais sorteados</p>{top.map(row => <div key={row.number} className="mb-1 flex items-center gap-2 text-xs"><span className="w-8">{String(row.number).padStart(2, "0")}</span><div className="h-3 flex-1 rounded-full bg-white"><div className="h-3 rounded-full bg-emerald-600" style={{width:`${(row.count / max) * 100}%`}}/></div><span className="w-7 text-right">{row.count}</span></div>)}</div>
+      <div><p className="mb-2 text-sm font-bold">Distribuição por letra</p>{letters.map((label, i) => <div key={label} className="flex justify-between border-b border-emerald-100 py-2 text-sm"><span>{label}</span><strong>{totals.slice(i * 15, i * 15 + 15).reduce((sum, item) => sum + item.count, 0)}</strong></div>)}</div>
+    </div>
+    <p className="mt-3 text-xs text-slate-600">A distribuição considera somente o evento selecionado e exclui pedras marcadas como anuladas.</p>
   </div>;
 }
