@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -23,6 +23,8 @@ type TucxaHeaderLink = {
 
 type TucxaPublicHeaderProps = {
   actions?: TucxaHeaderLink[];
+  /** Botão opcional na primeira linha, utilizado pelo Bingo do TUCXA. */
+  topAction?: ReactNode;
   sectionLinks?: TucxaHeaderLink[];
   navLabel?: string;
   showSupport?: boolean;
@@ -263,6 +265,7 @@ function authenticatedNameFromUser(user: { user_metadata?: Record<string, unknow
 
 export function TucxaPublicHeader({
   actions = [],
+  topAction,
   sectionLinks = [],
   navLabel = "Menu do site do Tucxa",
   showSupport = true,
@@ -357,6 +360,7 @@ export function TucxaPublicHeader({
             </span>
           </span>
         </Link>
+        {topAction && <div className="shrink-0">{topAction}</div>}
       </div>
 
       <div className="bg-[#fffdf7] px-4 py-1">
