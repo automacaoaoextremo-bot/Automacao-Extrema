@@ -5,17 +5,18 @@ import { STUDYAGENT_COMPETENCIES, STUDYAGENT_LEVELS, STUDYAGENT_PROGRAM_ID, type
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type ModalKey = "porque" | "como" | "conteudos" | null;
-const ITEMS_PER_PAGE = 5;
+const ITEMS_PER_PAGE = 3;
 
 export function StudyAgentResidenciaPublic() {
   const [modal, setModal] = useState<ModalKey>(null);
   const [page, setPage] = useState(0);
   const [competencies, setCompetencies] = useState<StudyAgentCompetency[]>(STUDYAGENT_COMPETENCIES);
   const competencyPages = Math.ceil(competencies.length / ITEMS_PER_PAGE);
-  const visibleCompetencies = useMemo(
-    () => competencies.slice(page * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE + ITEMS_PER_PAGE),
-    [competencies, page],
-  );
+  const visibleCompetencies = useMemo(() => {
+    if (page === 0) return [];
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    return competencies.slice(start, start + ITEMS_PER_PAGE);
+  }, [competencies, page]);
 
   useEffect(() => {
     let active = true;
@@ -140,9 +141,8 @@ function PublicModal({
             type="button"
             onClick={onClose}
             className="shrink-0 rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
-            aria-label="Fechar"
           >
-            ✕
+            Fechar
           </button>
         </div>
 
@@ -163,15 +163,46 @@ function PublicModal({
               ["4", "Construa sua base", "Registre aprendizados e confirme sugestões de atualização da sua memória pessoal."],
             ].map(([number, title, text]) => (
               <div key={number} className="rounded-2xl bg-slate-50 p-4">
-                <span className="text-xs font-black text-[#00A8CC]">{number}</span>
-                <h3 className="mt-1 font-black text-[#00334E]">{title}</h3>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-black text-[#00A8CC]">{number}</span>
+                  <h3 className="font-black text-[#00334E]">{title}</h3>
+                </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
               </div>
             ))}
           </div>
         ) : null}
 
-        {modal === "conteudos" ? (
+        {modal === "conteudos" && page === 0 ? (
+          <div className="mt-5 space-y-3">
+            <InfoCard
+              title="Estas competências nasceram das Reflections"
+              text="Elas foram consolidadas a partir das autoavaliações da Residência IA, que mostram quais conhecimentos precisamos desenvolver para enfrentar desafios reais com mais segurança e autonomia."
+            />
+            <InfoCard
+              title="Por que organizar dessa forma?"
+              text="Porque uma lista solta de assuntos não mostra dependências nem o que precisa ser comprovado. A trilha transforma cada necessidade de aprendizagem em um próximo passo claro, conectado aos conhecimentos anteriores."
+            />
+            <InfoCard
+              title="O que você ganha com isso?"
+              text="Você consegue enxergar o que estudar agora, por que aquilo importa, como praticar e qual evidência demonstra que o conhecimento foi realmente adquirido antes de avançar."
+            />
+            <div className="rounded-2xl bg-cyan-50 p-4">
+              <p className="text-sm leading-6 text-cyan-950">
+                <strong>Níveis:</strong> {STUDYAGENT_LEVELS.map((level) => level.label).join(" → ")}. O próximo nível só deve ser liberado depois da aprovação e da evidência exigidas pelo plano.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onPage(1)}
+              className="w-full rounded-xl bg-[#00334E] px-5 py-3 font-black text-white shadow-sm hover:bg-[#064862]"
+            >
+              Ver competências
+            </button>
+          </div>
+        ) : null}
+
+        {modal === "conteudos" && page > 0 ? (
           <>
             <div className="mt-5 space-y-2">
               {competencies.map((item) => (
@@ -187,18 +218,25 @@ function PublicModal({
               ))}
             </div>
             <div className="mt-4 flex items-center justify-between gap-3">
-              <button type="button" disabled={page === 0} onClick={() => onPage(Math.max(0, page - 1))} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-[#00334E] disabled:opacity-40">Anterior</button>
-              <span className="text-xs font-bold text-slate-500">Página {page + 1} de {pages}</span>
-              <button type="button" disabled={page >= pages - 1} onClick={() => onPage(Math.min(pages - 1, page + 1))} className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white disabled:opacity-40">Próxima</button>
+              <button
+                type="button"
+                onClick={() => onPage(Math.max(0, page - 1))}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-[#00334E]"
+              >
+                {page === 1 ? "Introdução" : "Anterior"}
+              </button>
+              <span className="text-xs font-bold text-slate-500">Página {page} de {pages}</span>
+              <button
+                type="button"
+                disabled={page >= pages}
+                onClick={() => onPage(Math.min(pages, page + 1))}
+                className="rounded-xl bg-[#00334E] px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+              >
+                Próxima
+              </button>
             </div>
           </>
         ) : null}
-
-        <div className="mt-6 rounded-2xl bg-cyan-50 p-4">
-          <p className="text-sm leading-6 text-cyan-950">
-            <strong>Níveis:</strong> {STUDYAGENT_LEVELS.map((level) => level.label).join(" → ")}. O próximo nível só deve ser liberado depois da aprovação e da evidência exigidas pelo plano.
-          </p>
-        </div>
       </article>
     </div>
   );

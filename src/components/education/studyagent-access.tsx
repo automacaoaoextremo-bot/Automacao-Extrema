@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
-const HOME = "/solucoes/studyagent/residencia-ia";
 const STUDY = "/solucoes/studyagent/residencia-ia/estudar";
 
 export function StudyAgentAccess() {
@@ -221,7 +219,6 @@ function AccessCard({ title, eyebrow, children }: { title: string; eyebrow: stri
   return (
     <main id="inicio" className="min-h-screen bg-[#f4fbfd] px-3 py-4 text-slate-900 sm:px-5 sm:py-8">
       <div className="mx-auto max-w-xl">
-        <Link href={HOME} className="mb-3 inline-flex text-sm font-black text-[#007C9B] hover:underline">← Voltar</Link>
         <section className="rounded-[1.75rem] bg-[#00334E] p-3 shadow-xl sm:rounded-[2rem] sm:p-5">
           <div className="rounded-[1.35rem] bg-white p-4 sm:p-6">
             <p className="text-[0.65rem] font-black uppercase tracking-[0.16em] text-[#00A8CC]">{eyebrow}</p>

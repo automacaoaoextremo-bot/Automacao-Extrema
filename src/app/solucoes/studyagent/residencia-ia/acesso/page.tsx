@@ -6,8 +6,7 @@ export default function StudyAgentResidenciaIAAccessPage() {
     <>
       <StudyAgentResidenciaHeader
         actions={[
-          { label: "Início", href: "/solucoes/studyagent/residencia-ia" },
-          { label: "Ajuda", href: "/#contato" },
+          { label: "Voltar", href: "/solucoes/studyagent/residencia-ia" },
         ]}
       />
       <StudyAgentAccess />
