@@ -159,9 +159,9 @@ export function BingoTucxaHome({ donationHref }: { donationHref: string }) {
 
           {panel === "proximo" && (
             <div>
-              <h2 id="bingo-dialog-title" className="mt-3 text-2xl font-black">Nosso próximo bingo está em preparação</h2>
+              <h2 id="bingo-dialog-title" className="mt-3 text-2xl font-black">Próximos encontros para celebrar juntos</h2>
               <p className="mt-3 leading-7 text-[#435e50]">
-                Veja abaixo os eventos publicados pela organização. As vendas de cartelas não estão disponíveis nesta página.
+                Confira a programação divulgada pelo TUCXA, encontre suas pessoas queridas e faça parte de uma tarde de alegria e solidariedade. Compras antecipadas ainda estão em preparação.
               </p>
               <div className="mt-4 max-h-[38vh] overflow-y-auto"><BncPublicEventsV07B/></div>
               <div className="mt-5 rounded-2xl bg-[#f2f8f1] p-4">
@@ -178,6 +178,7 @@ export function BingoTucxaHome({ donationHref }: { donationHref: string }) {
               >
                 Conversar sobre uma doação ↗
               </a>
+              <Link href={`${basePath}/compras-antecipadas`} className="mt-3 block rounded-xl border border-emerald-300 px-5 py-3 text-center font-extrabold text-[#14573d] hover:bg-[#eff9f2]">Conhecer compras antecipadas — em preparação</Link>
               <Link href={`${basePath}/historico`} className="mt-4 block text-center text-sm font-bold text-[#14573d] underline underline-offset-4">
                 Conhecer nosso histórico de bingos
               </Link>
