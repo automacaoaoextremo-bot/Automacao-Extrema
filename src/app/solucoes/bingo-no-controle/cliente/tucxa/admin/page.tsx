@@ -20,6 +20,7 @@ type RoundRow = { id: string; event_id: string; round_number: number; title: str
 type DrawRow = { round_id: string; number: number; is_voided: boolean; draw_sequence: number };
 type AwardRow = { round_id: string; label: string; award_type: string };
 type EventDraft = { title: string; slug: string; description: string; venue: string; starts_at: string; ends_at: string; status: "draft" | "ready" };
+const eventStatusLabel = (row: { status: string; is_public: boolean }) => ["completed", "closed"].includes(row.status) ? "Finalizado" : (row.is_public && ["ready", "active"].includes(row.status)) ? "Publicado" : "Rascunho";
 type RoundDraft = { title: string; card_price: string };
 
 const initialEventDraft: EventDraft = { title: "", slug: "", description: "", venue: "", starts_at: "", ends_at: "", status: "draft" };
@@ -99,6 +100,7 @@ export default function BingoTucxaAdminPage() {
   const [tab, setTab] = useState<Tab>("eventos");
   const [eventForm, setEventForm] = useState<"none" | "new" | "edit">("none");
   const [eventDraft, setEventDraft] = useState<EventDraft>(initialEventDraft);
+  const [copySourceId, setCopySourceId] = useState("");
   const [roundDraft, setRoundDraft] = useState<RoundDraft>(initialRoundDraft);
   const [roundForm, setRoundForm] = useState<"none" | "new" | "edit">("none");
   const [editingRound, setEditingRound] = useState<string | null>(null);
@@ -208,7 +210,7 @@ export default function BingoTucxaAdminPage() {
   }
 
   function newEvent() {
-    setEventDraft(initialEventDraft); setEventForm("new"); setTab("novo-evento"); setMessage("");
+    setEventDraft(initialEventDraft); setCopySourceId(""); setEventForm("new"); setTab("novo-evento"); setMessage("");
   }
 
   function editEvent() {
@@ -230,12 +232,23 @@ export default function BingoTucxaAdminPage() {
       if (fields.ends_at && (!fields.starts_at || fields.ends_at <= fields.starts_at)) throw new Error("O término precisa ser posterior ao início.");
       let nextId: string | null = null;
       if (eventForm === "new") {
-        const { data, error } = await client.from("bnc_events").insert({ ...fields, organization_id: orgId }).select("id").single();
-        if (error) throw error;
-        nextId = data.id;
+        if (copySourceId) {
+          if (!fields.starts_at || !fields.ends_at) throw new Error("Informe início e término ao copiar um evento.");
+          const { data, error } = await client.rpc("bnc_v07e_clone_from_form", {
+            p_source: copySourceId, p_title: fields.title, p_slug: fields.slug,
+            p_starts_at: fields.starts_at, p_ends_at: fields.ends_at,
+            p_description: fields.description, p_venue: fields.venue,
+          });
+          if (error) throw error;
+          nextId = String(data);
+        } else {
+          const { data, error } = await client.from("bnc_events").insert({ ...fields, organization_id: orgId }).select("id").single();
+          if (error) throw error;
+          nextId = data.id;
+        }
       } else {
         if (!selected || !editableEvent) throw new Error("O evento não pode ser alterado.");
-        const { data, error } = await client.from("bnc_events").update({ ...fields, status: eventDraft.status })
+        const { data, error } = await client.from("bnc_events").update(fields)
           .eq("id", selected.id).eq("organization_id", orgId).in("status", ["draft", "ready"]).select("id").single();
         if (error) throw error;
         nextId = data.id;
@@ -246,6 +259,21 @@ export default function BingoTucxaAdminPage() {
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro desconhecido";
       setMessage(`Não foi possível salvar o evento. Verifique as permissões, o identificador e os campos. ${reason.includes("identificador") || reason.includes("Título") ? reason : ""}`);
+    } finally { setBusy(false); }
+  }
+
+  async function togglePublish(nextPublic: boolean) {
+    const client = getBncClient();
+    if (!client || !selected || !mayManage || !ownEvent || selected.sales_enabled || !["draft", "ready"].includes(selected.status)) return;
+    if (!window.confirm(nextPublic ? "Publicar programação, cardápio ativo e prendas confirmadas na área pública? As vendas permanecerão desativadas." : "Retirar este evento da página pública?")) return;
+    setBusy(true); setMessage("");
+    try {
+      const { error } = await client.rpc("bnc_v07b_publish_event", { p_event: selected.id, p_publish: nextPublic });
+      if (error) throw error;
+      await load();
+      setMessage(nextPublic ? "Evento publicado. Confira a página pública." : "Evento retirado da página pública.");
+    } catch (error) {
+      setMessage(`Publicação não concluída: ${error instanceof Error ? error.message : "verifique políticas e rodadas"}`);
     } finally { setBusy(false); }
   }
 
@@ -344,9 +372,6 @@ export default function BingoTucxaAdminPage() {
           </nav>
         </aside>
         <main className="min-w-0 space-y-5">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-            Integração V07C: cadastros, fotos, combos e lotes dependem da nova migration e das permissões do TUCXA. Combos e lotes são apenas rascunhos; vendas, pagamentos e emissão de cartelas não estão habilitados.
-          </div>
           {message && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{message}</div>}
 
           {tab === "materiais" && <BncMateriaisV07C/>}
@@ -355,17 +380,30 @@ export default function BingoTucxaAdminPage() {
             <div><p className="text-xs font-bold uppercase text-emerald-700">Eventos</p><h2 className="text-2xl font-black">Novo evento</h2><p className="text-sm text-slate-600">Crie um bingo do zero ou copie a configuração de um evento concluído.</p></div>
             <form className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4" onSubmit={(event) => void saveEvent(event)}>
               <h3 className="text-lg font-black">Cadastrar evento em rascunho</h3>
+              <Field label="Copiar configuração de evento encerrado? (opcional)">
+                <select className={inputClass} value={copySourceId} onChange={(e) => {
+                  const sourceId = e.target.value;
+                  setCopySourceId(sourceId);
+                  const template = events.find((candidate) => candidate.id === sourceId);
+                  if (template) setEventDraft((current) => ({ ...current,
+                    description: template.description ?? "", venue: template.venue ?? "",
+                    title: current.title || `${template.title} — nova edição` }));
+                }}>
+                  <option value="">Não copiar — criar do zero</option>
+                  {events.filter((event) => ["completed", "closed"].includes(event.status)).map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+                </select>
+              </Field>
+              <p className="text-xs text-slate-600">A cópia cria rodadas planejadas e modelos de premiações; não inclui sorteios, reivindicações nem ganhadores.</p>
               <EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass}/>
-              <div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Criar evento</button><button type="button" onClick={() => { setEventForm("none");setTab("eventos"); }} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+              <div className="flex gap-2"><button type="submit" disabled={busy} className={action}>{copySourceId ? "Copiar e criar rascunho" : "Criar evento"}</button><button type="button" onClick={() => { setEventForm("none");setTab("eventos"); }} className="rounded-lg border px-3 py-2">Cancelar</button></div>
             </form>
-            <BncOperacoesV07B tab="eventos" event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>
           </section>}
 
           {tab === "eventos" && <section className={`${shell} space-y-5`}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-emerald-700">Eventos</p><h2 className="text-2xl font-black">Lista de dias de bingo</h2><p className="text-sm text-slate-600">Escolha uma ação para abrir as informações ou consultar as rodadas.</p></div>{mayManage && <button type="button" className={action} onClick={newEvent}>+ Novo evento</button>}</div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{events.map((item) =>
               <article key={item.id} className={`rounded-xl border p-4 transition ${selectedEvent === item.id ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-                <div className="flex items-start justify-between gap-2"><span className="text-xs font-bold uppercase text-emerald-700">{item.organization_id === orgId ? "TUCXA" : "Sementinha · TUCXA"}</span><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-900">{item.status === "completed" ? "Encerrado" : item.is_public ? "Publicado" : item.status === "draft" ? "Rascunho" : item.status === "ready" ? "Preparado" : item.status === "active" ? "Em andamento" : item.status}</span></div>
+                <div className="flex items-start justify-between gap-2"><span className="text-xs font-bold uppercase text-emerald-700">{item.organization_id === orgId ? "TUCXA" : "Sementinha · TUCXA"}</span><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-900">{eventStatusLabel(item)}</span></div>
                 <h3 className="mt-2 text-lg font-extrabold">{item.title}</h3>
                 <p className="mt-2 text-sm text-slate-600">Início: {niceDate(item.starts_at)}</p>
                 <p className="mt-1 text-sm text-slate-600">Término: {item.ends_at ? niceDate(item.ends_at) : "Não informado"}</p>
@@ -378,14 +416,18 @@ export default function BingoTucxaAdminPage() {
           </section>}
 
           {selected && !["eventos", "novo-evento", "materiais", "prendas-gerais"].includes(tab) && <section className={`${shell} space-y-5`}>
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Evento selecionado · {selected.status}</p><h2 className="text-2xl font-black">{selected.title}</h2><p className="text-sm text-slate-600">{niceDate(selected.starts_at)} · {selected.venue ?? "Local a confirmar"}</p></div><button type="button" className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-bold" onClick={() => setTab("eventos")}>Trocar evento</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Evento selecionado · {eventStatusLabel(selected)}</p><h2 className="text-2xl font-black">{selected.title}</h2><p className="text-sm text-slate-600">{niceDate(selected.starts_at)} · {selected.venue ?? "Local a confirmar"}</p></div><button type="button" className="rounded-lg border border-emerald-200 px-3 py-2 text-sm font-bold" onClick={() => setTab("eventos")}>Trocar evento</button></div>
             <div className="grid gap-3 sm:grid-cols-3"><Metric label="Rodadas" value={eventRounds.length}/><Metric label="Números sorteados válidos" value={eventDraws.length}/><Metric label="Premiações" value={eventAwards.length}/></div>
 
             {tab === "resumo" && <div className="space-y-4"><h3 className="text-xl font-black">Resumo</h3><p className="text-sm text-slate-600">{selected.description ?? "Evento sem descrição cadastrada."}</p><p className="text-sm">Vendas: <strong>{selected.sales_enabled ? "Configuradas no banco (não operadas nesta interface)" : "Desativadas"}</strong> · Publicação: <strong>{selected.is_public ? "Marcado público" : "Privado"}</strong></p><h4 className="font-bold">Rodadas do evento</h4><RoundList rounds={eventRounds} draws={eventDraws} awards={eventAwards}/></div>}
 
             {tab === "configuracoes" && <div className="space-y-4"><h3 className="text-xl font-black">Configurações</h3>{selected.status === "completed" ? <p className="rounded-lg bg-amber-50 p-4 text-sm">Evento histórico concluído: alterações bloqueadas para preservar a auditoria.</p> : editableEvent ? <button type="button" className={action} onClick={editEvent}>Editar informações do evento</button> : <p className="text-sm">Somente owner/manager podem alterar eventos em rascunho ou preparados.</p>}
-              <BncOperacoesV07B tab="configuracoes" event={selected} sourceEvents={events} rounds={eventRounds} selectedRound={activeRound} onSelectRound={setSelectedRound} canManage={mayManage} canOperate={canOperate} ownEvent={ownEvent} onReload={load}/>
-              {eventForm === "edit" && <form onSubmit={(event) => void saveEvent(event)} className="space-y-3 rounded-xl bg-emerald-50 p-4"><EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass} edit/><div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Salvar alterações</button><button type="button" className="rounded-lg border px-3 py-2" onClick={() => setEventForm("none")}>Cancelar</button></div></form>}
+              {mayManage && ownEvent && ["draft", "ready"].includes(selected.status) && !selected.sales_enabled && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-2">
+                <h4 className="font-bold">Publicação da programação</h4>
+                <p className="text-sm">O nome “Publicado” corresponde ao evento com status pronto e divulgação pública ativa. Não habilita compras ou pagamentos.</p>
+                <button type="button" className={action} disabled={busy} onClick={() => void togglePublish(!selected.is_public)}>{selected.is_public ? "Retirar da área pública" : "Publicar evento"}</button>
+              </div>}
+              {eventForm === "edit" && <form onSubmit={(event) => void saveEvent(event)} className="space-y-3 rounded-xl bg-emerald-50 p-4"><EventFields value={eventDraft} onChange={setEventDraft} inputClass={inputClass}/><div className="flex gap-2"><button type="submit" disabled={busy} className={action}>Salvar alterações</button><button type="button" className="rounded-lg border px-3 py-2" onClick={() => setEventForm("none")}>Cancelar</button></div></form>}
             </div>}
 
             {tab === "rodadas" && <div className="space-y-4"><div className="flex flex-wrap justify-between gap-3"><h3 className="text-xl font-black">Rodadas</h3>{editableEvent && <button type="button" onClick={newRound} className={action}>+ Nova rodada</button>}</div>
@@ -419,7 +461,7 @@ function RoundList({ rounds, draws, awards, onEdit }: { rounds: RoundRow[]; draw
   return <div className="space-y-2">{rounds.map((round) => <div key={round.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-100 p-3"><div><p className="font-bold">{round.round_number}. {round.title}</p><p className="text-xs text-slate-500">{round.status} · {draws.filter((d) => d.round_id === round.id && !d.is_voided).length} sorteios válidos · {awards.filter((a) => a.round_id === round.id).length} premiações</p></div>{onEdit && round.status === "planned" && <button type="button" onClick={() => onEdit(round)} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-bold">Editar rodada</button>}</div>)}{rounds.length === 0 && <p className="text-sm text-slate-500">Nenhuma rodada cadastrada.</p>}</div>;
 }
 
-function EventFields({ value, onChange, inputClass, edit }: { value: EventDraft; onChange: (draft: EventDraft) => void; inputClass: string; edit?: boolean }) {
+function EventFields({ value, onChange, inputClass }: { value: EventDraft; onChange: (draft: EventDraft) => void; inputClass: string }) {
   const update = (field: keyof EventDraft, content: string) => onChange({ ...value, [field]: content });
   return <div className="grid gap-3 sm:grid-cols-2">
     <Field label="Nome do evento"><input className={inputClass} value={value.title} onChange={(e) => update("title", e.target.value)} maxLength={160} required /></Field>
@@ -428,7 +470,6 @@ function EventFields({ value, onChange, inputClass, edit }: { value: EventDraft;
     <Field label="Término (Campinas/SP)"><input type="datetime-local" className={inputClass} min={value.starts_at || undefined} value={value.ends_at} onChange={(e) => update("ends_at", e.target.value)} /></Field>
     <Field label="Local"><input className={inputClass} value={value.venue} onChange={(e) => update("venue", e.target.value)} maxLength={220} /></Field>
     <div className="sm:col-span-2"><Field label="Descrição"><textarea className={inputClass} rows={3} value={value.description} onChange={(e) => update("description", e.target.value)} maxLength={3000}/></Field></div>
-    {edit && <Field label="Situação"><select className={inputClass} value={value.status} onChange={(e) => update("status", e.target.value)}><option value="draft">Rascunho</option><option value="ready">Preparado</option></select></Field>}
     <p className="self-end text-xs text-amber-900">Eventos novos são privados, sem venda ou sorteio ativo.</p>
   </div>;
 }
