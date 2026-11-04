@@ -93,6 +93,7 @@ export default function AdminAEPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
+        <QuickLink title="AE Atendimento Inteligente" href="/admin/ae/atendimento-inteligente" description="WhatsApp Cloud API, triagem e atendimentos multiempresa." />
         <QuickLink title="Catálogo estratégico" href="/admin/ae/catalogo" description="Públicos alvo, dores e funcionalidades reutilizáveis." />
         <QuickLink title="Sites de clientes" href="/admin/ae/sites-clientes" description="Páginas públicas, campanhas, pesquisas e cases por solução." />
         <QuickLink title="Parceiros" href="/admin/ae/parceiros" description="Cerimonialistas, ONGs, buffets e indicadores com comissão." />
