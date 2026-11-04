@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/admin-fetch";
+import { AiRequestQueue } from "@/components/atendimento-inteligente/request-queue";
 
 type Organization = { id: string; slug: string; name: string; status: string; automation_enabled: boolean; segment: string };
 type Contact = { phone: string; display_name: string | null };
@@ -141,6 +142,7 @@ export default function AeIntelligentPanel() {
       </div>
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
+      {organizationId && <AiRequestQueue key={organizationId} organizationId={organizationId} />}
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <section className="rounded-2xl bg-white p-3 shadow-sm" aria-label="Lista de conversas">
           <h2 className="mb-3 px-2 font-bold">Conversas ({conversations.length})</h2>
@@ -160,7 +162,7 @@ export default function AeIntelligentPanel() {
               <div><h2 className="font-bold">{details.contact?.display_name || details.contact?.phone}</h2><p className="text-xs text-slate-500">{details.contact?.phone} · Ultima entrada: {date(details.conversation.last_inbound_at)}</p></div>
               <div className="flex flex-wrap gap-2">
                 <button disabled={busy} onClick={() => void setMode("human")} className="rounded-lg bg-[#00334E] px-3 py-2 text-xs text-white disabled:opacity-50">Assumir atendimento</button>
-                <button disabled={busy} onClick={() => void setMode("bot")} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50">Reiniciar bot</button>
+                <button disabled={busy || !details.conversation.last_inbound_at} onClick={() => void setMode("bot")} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50">Reiniciar bot</button>
                 <button disabled={busy} onClick={() => void setMode("closed")} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50">Encerrar</button>
               </div>
             </div>
@@ -179,8 +181,8 @@ export default function AeIntelligentPanel() {
             <label htmlFor="ae-ai-msg" className="text-sm font-semibold">Responder como atendente</label>
             <textarea id="ae-ai-msg" value={message} onChange={e=>setMessage(e.target.value)} rows={3} maxLength={1000} placeholder="Escreva sua resposta..." className="mt-1 w-full rounded-xl border p-3 text-sm" />
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-slate-500">Envios reais bloqueados em Preview. Fora da janela de atendimento, use um template aprovado (fase futura).</p>
-              <button disabled={busy || !message.trim() || details.conversation.mode==="closed"} onClick={() => void send()} className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-bold text-[#00334E] disabled:opacity-50">{busy?"Processando...":"Enviar"}</button>
+              <p className="text-xs text-slate-500">{!details.conversation.last_inbound_at ? 'Pedido registrado manualmente: utilize o WhatsApp Business para responder; não há conversa Cloud API conectada.' : 'Envios reais bloqueados em Preview. Fora da janela de atendimento, use um template aprovado (fase futura).'}</p>
+              <button disabled={busy || !message.trim() || details.conversation.mode==="closed" || !details.conversation.last_inbound_at} onClick={() => void send()} className="rounded-xl bg-[#31C16B] px-4 py-2 text-sm font-bold text-[#00334E] disabled:opacity-50">{busy?"Processando...":"Enviar"}</button>
             </div>
           </>}
         </section>
