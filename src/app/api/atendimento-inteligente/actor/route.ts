@@ -10,6 +10,7 @@ export async function GET(request: Request) {
       role: actor.role, name: actor.name,
       portalEnabled: actor.role === 'customer' ? customerIsActive(actor.customer!) : true,
       mustChangePassword: actor.role === 'customer' ? actor.customer!.must_change_password : false,
+      canSubmitRequest: actor.role === 'operator' || process.env.AE_AI_CUSTOMER_REQUESTS_ENABLED === 'true',
     });
   } catch (err) { return NextResponse.json({ error: safeError(err) }, { status: 500 }); }
 }

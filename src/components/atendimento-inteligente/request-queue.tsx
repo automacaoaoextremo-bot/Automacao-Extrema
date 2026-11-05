@@ -23,10 +23,12 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
   const [events, setEvents] = useState<Event[]>([]);
   const [serviceItems,setServiceItems]=useState<ServiceItem[]>([]);
   const [media, setMedia] = useState<Media[]>([]);
-  const [nextStatus, setNextStatus] = useState<RequestStage>('in_review');
+  const [statusDraft,setStatusDraft]=useState<{requestId:string;value:RequestStage}|null>(null);
   const [note, setNote] = useState('');
   const [statusFilter,setStatusFilter]=useState('all');
   const [sortOrder,setSortOrder]=useState('newest');
+  const [page,setPage]=useState(1);
+  const [mobileView,setMobileView]=useState<'list'|'detail'>('list');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -37,8 +39,13 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
       return sortOrder==='oldest'?Date.parse(a.created_at)-Date.parse(b.created_at):Date.parse(b.created_at)-Date.parse(a.created_at);
     });
   },[rows,statusFilter,sortOrder]);
-  const active = useMemo(() => visibleRows.find(x => x.id === selectedId) ?? visibleRows[0] ?? null, [visibleRows, selectedId]);
+  const pageSize=8;
+  const pages=Math.max(1,Math.ceil(visibleRows.length/pageSize));
+  const currentPage=Math.min(page,pages);
+  const pageRows=useMemo(()=>visibleRows.slice((currentPage-1)*pageSize,currentPage*pageSize),[visibleRows,currentPage]);
+  const active = useMemo(() => pageRows.find(x => x.id === selectedId) ?? pageRows[0] ?? null, [pageRows, selectedId]);
   const activeId = active?.id ?? '';
+  const nextStatus:RequestStage = statusDraft?.requestId===activeId ? statusDraft.value : ((active?.status ?? 'in_review') as RequestStage);
   const loadList = useCallback(async () => {
     if (!organizationId) return;
     const result = await adminFetch<{ requests: Intake[] }>(`/api/atendimento-inteligente/requests?organizationId=${encodeURIComponent(organizationId)}`);
@@ -85,30 +92,41 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
     {notice && <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     <div className="mb-4 grid gap-2 sm:grid-cols-2">
       <label className="text-xs font-semibold">Filtrar por status
-        <select className="mt-1 w-full rounded-lg border p-2" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+        <select className="mt-1 w-full rounded-lg border p-2" value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(1);setMobileView('list');}}>
           <option value="all">Todos os status</option>
           {Object.entries(REQUEST_STAGES).map(([value,text])=><option key={value} value={value}>{text}</option>)}
         </select>
       </label>
       <label className="text-xs font-semibold">Ordenar pedidos
-        <select className="mt-1 w-full rounded-lg border p-2" value={sortOrder} onChange={e=>setSortOrder(e.target.value)}>
+        <select className="mt-1 w-full rounded-lg border p-2" value={sortOrder} onChange={e=>{setSortOrder(e.target.value);setPage(1);}}>
           <option value="newest">Mais recentes</option><option value="oldest">Mais antigos</option><option value="priority">Prioridade alta primeiro</option>
         </select>
       </label>
     </div>
+    <div className="mb-3 flex gap-2 lg:hidden" role="group" aria-label="Visualizacao do atendimento">
+      <button type="button" className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${mobileView==='list'?'bg-[#143e31] text-white':''}`} onClick={()=>setMobileView('list')}>Lista de pedidos</button>
+      <button type="button" className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${mobileView==='detail'?'bg-[#143e31] text-white':''}`} onClick={()=>setMobileView('detail')} disabled={!active}>Detalhes</button>
+    </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(220px,320px)_1fr]">
-      <div className="max-h-[560px] space-y-2 overflow-y-auto">
+      <div className={`${mobileView==='detail'?'hidden lg:block':''} max-h-[62svh] space-y-2 overflow-y-auto lg:max-h-[560px]`}>
+
         {visibleRows.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">Nenhum pedido registrado. Use “Registrar N1” para começar o piloto.</p>}
-        {visibleRows.map(item => <button type="button" key={item.id}
-          onClick={() => { setSelectedId(item.id);setNextStatus('in_review');setNote('');setMedia([]);setEvents([]);setServiceItems([]); }}
+        {pageRows.map(item => <button type="button" key={item.id}
+          onClick={() => { setSelectedId(item.id);setMobileView('detail');setStatusDraft(null);setNote('');setMedia([]);setEvents([]);setServiceItems([]); }}
           className={`w-full rounded-xl border p-3 text-left text-sm ${active?.id === item.id ? 'border-[#2b7386] bg-[#edf7f9]' : 'border-slate-200 hover:bg-slate-50'}`}>
           <span className="block font-bold">{item.customer_name || item.contact?.display_name || 'Cliente'}</span>
           <span className="block text-xs text-slate-700">{item.category} • {item.neighborhood}</span>
           <span className="mt-1 block text-xs text-slate-500">{REQUEST_STAGES[item.status as RequestStage] ?? item.status} • {stamp(item.created_at)}</span>
           {item.intake_source === 'assisted_n1' && <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">Cadastro assistido</span>}
         </button>)}
+        {visibleRows.length>pageSize&&<div className="flex items-center justify-between gap-2 border-t pt-3 text-xs">
+          <button type="button" disabled={currentPage<=1} onClick={()=>{setPage(p=>Math.max(1,p-1));setSelectedId('');}} className="rounded-lg border px-3 py-2 disabled:opacity-40">Anterior</button>
+          <span>Página {currentPage} de {pages} · {visibleRows.length} pedidos</span>
+          <button type="button" disabled={currentPage>=pages} onClick={()=>{setPage(p=>Math.min(pages,p+1));setSelectedId('');}} className="rounded-lg border px-3 py-2 disabled:opacity-40">Próxima</button>
+        </div>}
       </div>
-      <article className="min-h-[250px] rounded-xl bg-[#f7fafb] p-4">
+      <article className={`${mobileView==='list'?'hidden lg:block':''} min-h-[250px] max-h-[72svh] overflow-y-auto rounded-xl bg-[#f7fafb] p-4 lg:max-h-none`}>
+
         {!active ? <p className="text-sm text-slate-500">Selecione um pedido.</p> : <>
           <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-black">{active.customer_name || active.contact?.display_name}</h3><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold">{active.urgency === 'alta' ? 'Prioridade alta informada' : 'Prioridade normal'}</span></div>
           <p className="mt-1 text-sm">WhatsApp: <a className="font-bold underline" href={`https://wa.me/${active.contact?.phone ?? ''}`} rel="noopener noreferrer" target="_blank">{active.contact?.phone ?? '—'}</a></p>
@@ -122,7 +140,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           {media.length > 0 && <div className="mt-4"><h4 className="text-sm font-bold">Fotos e vídeos anexados</h4><div className="mt-2 flex flex-wrap gap-2">{media.map(file => file.url ? <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="rounded-lg border bg-white p-2 text-xs underline">{file.mimeType.startsWith('video/') ? 'Vídeo: ' : 'Foto: '}{file.name}</a> : <span key={file.id} className="text-xs">Arquivo indisponível</span>)}</div><p className="mt-1 text-[11px] text-slate-500">Links privados temporários. Não encaminhe a terceiros sem autorização.</p></div>}
           {canManageN2 ? <div className="mt-5 border-t pt-4"><h4 className="text-sm font-bold">Análise e andamento do pedido</h4>
             <label className="mt-3 block text-xs font-semibold" htmlFor="ai-stage">Etapa do pedido</label>
-            <select id="ai-stage" value={nextStatus} onChange={e=>setNextStatus(e.target.value as RequestStage)} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm">{Object.entries(REQUEST_STAGES).map(([key,text]) => <option key={key} value={key}>{text}</option>)}</select>
+            <select id="ai-stage" value={nextStatus} onChange={e=>setStatusDraft({requestId:activeId,value:e.target.value as RequestStage})} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm">{Object.entries(REQUEST_STAGES).map(([key,text]) => <option key={key} value={key}>{text}</option>)}</select>
             <label className="mt-3 block text-xs font-semibold" htmlFor="ai-note">Observação interna / informação faltante</label>
             <textarea id="ai-note" rows={3} value={note} onChange={e=>setNote(e.target.value)} maxLength={1500} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm" placeholder="Ex.: solicitar foto da ligação hidráulica antes de montar orçamento." />
             <button type="button" disabled={busy} onClick={() => void save()} className="mt-2 rounded-lg bg-[#123e50] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'Salvando...':'Salvar tratativa N2'}</button>

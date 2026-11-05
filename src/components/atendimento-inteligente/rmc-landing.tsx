@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { AiBrandHeader } from './brand-header';
 const root='/solucoes/atendimento-inteligente/rmc';
 const cards=[
- {title:'Por que usar',body:'Seu tempo importa. Conte o que está acontecendo uma única vez e reúna as informações que ajudam nossa equipe a entender o serviço. Menos mensagens repetidas, mais clareza no acompanhamento.'},
- {title:'Como funciona',body:'Você descreve o problema e, se puder, anexa fotos. A equipe avalia as informações, esclarece o que faltar e retorna com os próximos passos. Valores e datas só são confirmados após análise.'},
- {title:'Serviços atendidos',body:'A Reparos RMC atende demandas de elétrica, hidráulica, vazamentos, portas, janelas, telhados, pintura, jardinagem, instalações e outros pequenos reparos, conforme disponibilidade e avaliação técnica.'},
+ {title:'Por que usar',body:'Seu tempo merece respeito. Ao contar o problema uma única vez, com as informações certas, você reduz perguntas repetidas e ajuda a equipe a entender a situação. Mais clareza para decidir, com tranquilidade para acompanhar os próximos passos.'},
+ {title:'Como funciona',body:'Escolha o serviço e descreva o que acontece. Fotos e vídeos são opcionais, mas podem tornar a avaliação mais precisa. Depois, a equipe analisa o pedido, verifica o que faltar e apresenta os próximos passos. Valores e datas dependem de confirmação.'},
+ {title:'Serviços atendidos',body:'Da torneira que não para de pingar à porta que precisa de ajuste: informe o que incomoda na sua casa ou empresa. Atendemos elétrica, hidráulica, vazamentos, portas, janelas, telhados, pintura, jardinagem, instalações e pequenos reparos, sujeitos à avaliação e disponibilidade.'},
 ];
 export function RmcLanding(){
  const [open,setOpen]=useState<number|null>(null);
@@ -29,11 +29,11 @@ export function RmcLanding(){
      </section>
    </main>
    {open!==null&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" onMouseDown={e=>{if(e.target===e.currentTarget)setOpen(null);}}>
-     <section role="dialog" aria-modal="true" aria-labelledby="rmc-title" className="w-full max-w-md rounded-3xl bg-white p-6 text-[#254355] shadow-2xl">
+     <section role="dialog" aria-modal="true" aria-labelledby="rmc-title" className="relative w-full max-w-md rounded-3xl bg-white p-6 pt-16 text-[#254355] shadow-2xl">
+       <button ref={closeRef} type="button" onClick={()=>setOpen(null)} className="absolute right-4 top-4 rounded-xl border border-[#143e31] bg-[#143e31] px-4 py-2 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-orange-400">Fechar</button>
        <h2 id="rmc-title" className="text-xl font-black">{cards[open].title}</h2>
        <p className="mt-4 text-sm leading-relaxed">{cards[open].body}</p>
-       <div className="mt-6 flex flex-wrap gap-3"><button ref={closeRef} type="button" onClick={()=>setOpen(null)} className="rounded-full border border-slate-300 px-5 py-2 text-sm font-bold">Fechar</button>
-         <Link href={`${root}/solicitar`} className="rounded-full bg-[#f3912b] px-5 py-2 text-sm font-bold" onClick={()=>setOpen(null)}>Solicitar serviço</Link></div>
+       <div className="mt-6 flex flex-wrap gap-3"><Link href={`${root}/solicitar`} className="rounded-full bg-[#f3912b] px-5 py-2 text-sm font-bold" onClick={()=>setOpen(null)}>Solicitar serviço</Link></div>
      </section></div>}
  </div>;
 }

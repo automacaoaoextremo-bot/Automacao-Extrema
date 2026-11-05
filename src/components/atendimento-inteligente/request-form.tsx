@@ -8,7 +8,7 @@ import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MEDIA_TYPES, RMC_CATEGORIES } from '@/l
 
 type Address = {id:string;label:string;cep:string;street:string;number:string;complement:string|null;neighborhood:string;city:string;state:string};
 type Customer = {id:string;fullName:string;phone:string;addresses:Address[]};
-type Actor = {role:'operator'|'customer';name:string;portalEnabled:boolean;mustChangePassword:boolean};
+type Actor = {role:'operator'|'customer';name:string;portalEnabled:boolean;mustChangePassword:boolean;canSubmitRequest:boolean};
 type Service = {category:string;description:string;specific:string};
 type Created={requestId:string;uploadSecret:string;message:string};
 const startService=():Service=>({category:'',description:'',specific:''});
@@ -36,6 +36,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   const [loaded,setLoaded]=useState(false);
   const [customers,setCustomers]=useState<Customer[]>([]);
   const [customerId,setCustomerId]=useState('');
+  const [myAddresses,setMyAddresses]=useState<Address[]>([]);
   const [step,setStep]=useState(1);
   const [services,setServices]=useState<Service[]>([startService()]);
   const [files,setFiles]=useState<File[]>([]);
@@ -57,6 +58,10 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       const info=await adminFetch<Actor>('/api/atendimento-inteligente/actor');
       if(!active)return;
       setActor(info);
+      if(info.role==='customer' && info.portalEnabled && !info.mustChangePassword){
+        const result=await adminFetch<{addresses:Address[]}>('/api/atendimento-inteligente/my/addresses');
+        if(active)setMyAddresses(result.addresses);
+      }
       if(info.role==='operator'){
         const orgs=await adminFetch<{organizations:{id:string;slug:string}[]}>('/api/atendimento-inteligente/organizations');
         const org=orgs.organizations.find(o=>o.slug==='reparos-rmc');
@@ -70,7 +75,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     return ()=>{active=false;};
   },[]);
   const customer=customers.find(c=>c.id===customerId);
-  const knownAddresses=customer?.addresses??[];
+  const knownAddresses=actor?.role==='customer'?myAddresses:(customer?.addresses??[]);
   const imageFiles=useMemo(()=>files.filter(f=>f.type.startsWith('image/')),[files]);
   const videoFiles=useMemo(()=>files.filter(f=>f.type.startsWith('video/')),[files]);
   const mediaError= useMemo(()=>{
@@ -152,6 +157,12 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     {error&&<p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
   </section>;
   if(actor.role==='customer'&&actor.mustChangePassword)return <div className="rounded-xl bg-white p-5 text-sm">Troque sua senha antes de solicitar. <Link className="underline" href="/solucoes/atendimento-inteligente/rmc/trocar-senha">Alterar senha</Link></div>;
+
+  if(actor.role==='customer'&&!actor.canSubmitRequest)return <section className="rounded-3xl border bg-white p-6 shadow">
+    <h1 className="text-xl font-black text-[#173e51]">Seu acesso foi identificado</h1>
+    <p className="mt-3 text-sm text-slate-700">Estamos validando o registro de pedidos com a equipe. Você pode acompanhar seus pedidos existentes; o envio direto será liberado quando esta etapa estiver concluída.</p>
+    <Link className="mt-4 inline-flex rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white" href="/solucoes/atendimento-inteligente/rmc/meus-pedidos">Ver meus pedidos</Link>
+  </section>;
 
   return <form onSubmit={submit} className="rounded-3xl border bg-white p-4 shadow sm:p-6">
     <p className="text-xs font-bold uppercase tracking-wider text-[#b36b23]">Reparos RMC • Solicitar serviço</p>
