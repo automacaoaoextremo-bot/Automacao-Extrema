@@ -20,6 +20,14 @@ export async function PATCH(request: NextRequest, { params }: Context) {
       .select('organization_id,status').eq('id', id).maybeSingle();
     if (readError) throw readError;
     if (!record || !allowed(scope, record.organization_id)) return NextResponse.json({ error: 'Pedido não encontrado.' }, { status: 404 });
+    if (!scope.platformAdmin) {
+      const { data: membership, error: membershipError } = await supabaseAdmin
+        .from('ae_ai_memberships').select('role')
+        .eq('user_id', scope.userId).eq('organization_id', record.organization_id).maybeSingle();
+      if (membershipError) throw membershipError;
+      if (membership?.role !== 'owner')
+        return NextResponse.json({ error: 'A etapa N2 é exclusiva do proprietário ou administrador AE.' }, { status: 403 });
+    }
     if (status === record.status && !note) return NextResponse.json({ error: 'Sem alterações.' }, { status: 400 });
     const { data: updated, error: updateError } = await supabaseAdmin.rpc('ae_ai_set_request_stage_v2', {
       p_organization_id: record.organization_id, p_request_id: id,
