@@ -1,50 +1,35 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import type { Metadata } from 'next';
-import { AiBrandHeader } from '@/components/atendimento-inteligente/brand-header';
 
 export const metadata: Metadata = {
-  title: 'Reparos RMC | Atendimento Inteligente',
-  description: 'Solicite manutenção ou reparo com informações organizadas para avaliação da Reparos RMC em Campinas e região.',
+  title: 'Atendimento Inteligente | Automação Extrema',
+  description: 'Atendimento organizado para empresas, do primeiro contato à solução.',
 };
 
-const benefits = [
-  ['Mais clareza', 'Explique o problema uma vez e informe os detalhes que facilitam a avaliação.'],
-  ['Menos idas e vindas', 'Envie contexto, localização e imagens para reduzir perguntas repetidas.'],
-  ['Atendimento humano', 'O Anderson avalia a solicitação e confirma os próximos passos.'],
-];
-
-export default function AtendimentoInteligenteLanding() {
-  return <div className="min-h-screen bg-[#f5f8f8] text-[#16384b]">
-    <AiBrandHeader />
-    <main>
-      <section className="bg-gradient-to-br from-[#123e50] via-[#174e61] to-[#236175] px-4 py-12 text-white sm:py-20">
-        <div className="mx-auto max-w-5xl">
-          <p className="mb-4 text-xs font-bold uppercase tracking-[0.3em] text-[#f3c778]">Reparos RMC • Campinas e região</p>
-          <h1 className="max-w-3xl text-4xl font-black leading-tight sm:text-6xl">Seu problema merece atenção. Seu tempo, também.</h1>
-          <p className="mt-6 max-w-2xl text-lg text-slate-100">Conte o que precisa ser resolvido e ajude nossa equipe a entender o serviço antes da avaliação. Sem repetir sua história a cada mensagem.</p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link className="rounded-full bg-[#f3c778] px-6 py-3 font-bold text-[#123e50] hover:bg-[#ffe0a4]" href="/solucoes/atendimento-inteligente/solicitar">Quero solicitar um serviço</Link>
-            <a className="rounded-full border border-white/50 px-6 py-3 font-bold hover:bg-white/10" href="https://www.reparosrmc.com.br/servicos/" target="_blank" rel="noopener noreferrer">Ver serviços oferecidos</a>
-          </div>
-          <p className="mt-6 text-sm text-slate-200">Solicitar não confirma preço, prazo ou visita. Você receberá retorno após análise humana.</p>
-        </div>
-      </section>
-      <section className="mx-auto max-w-5xl px-4 py-12">
-        <h2 className="text-2xl font-black sm:text-3xl">Por que usar o Atendimento Inteligente?</h2>
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">{benefits.map(([title, body]) =>
-          <article key={title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="text-lg font-bold">{title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-600">{body}</p></article>)}</div>
-      </section>
-      <section className="bg-white px-4 py-12"><div className="mx-auto max-w-5xl">
-        <h2 className="text-2xl font-black sm:text-3xl">Como funciona</h2>
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">{[
-          ['1', 'Descreva', 'Escolha o serviço, informe o problema e a região do atendimento.'],
-          ['2', 'Compartilhe detalhes', 'Fotos e vídeos ajudam a entender o contexto antes do orçamento.'],
-          ['3', 'Receba a avaliação', 'A equipe verifica os dados e informa os próximos passos.'],
-        ].map(([n, t, desc]) => <div className="rounded-2xl bg-[#eef5f6] p-5" key={n}><span className="text-2xl font-black text-[#b47c26]">{n}</span><h3 className="mt-2 font-bold">{t}</h3><p className="mt-2 text-sm text-slate-600">{desc}</p></div>)}</div>
-        <div className="mt-9 flex flex-wrap gap-3"><Link className="rounded-full bg-[#123e50] px-6 py-3 font-bold text-white" href="/solucoes/atendimento-inteligente/solicitar">Registrar solicitação</Link><Link className="rounded-full border px-6 py-3 font-semibold" href="/solucoes/atendimento-inteligente/entrar">Área da equipe</Link></div>
-        <p className="mt-6 text-sm text-slate-600">Durante o piloto, o cadastro pode ser realizado pela equipe de atendimento, com autorização do cliente.</p>
-      </div></section>
-    </main>
-    <footer className="px-4 py-5 text-center text-xs text-slate-500">Reparos RMC • Atendimento humano e serviço sujeito a análise e disponibilidade.</footer>
-  </div>;
+export default function AtendimentoInteligenteHome() {
+  return <main className="min-h-screen bg-[#f1f7f7] text-[#133c4e]">
+    <header className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-4">
+      <Link href="/" className="flex items-center gap-2 font-black"><Image src="/ae-logo-horizontal.png" alt="Automação Extrema" width={122} height={44} className="h-11 w-auto object-contain" /> Atendimento Inteligente</Link>
+      <Link href="/login" className="rounded-full border border-[#133c4e] px-4 py-2 text-sm font-semibold">Gestão AE</Link>
+    </header>
+    <section className="mx-auto max-w-5xl px-4 py-10 sm:py-20">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#317b77]">Uma solução multiempresa da Automação Extrema</p>
+      <h1 className="mt-4 max-w-3xl text-4xl font-black leading-tight sm:text-6xl">Mais tempo para atender bem. Menos pedidos perdidos.</h1>
+      <p className="mt-5 max-w-2xl text-lg text-slate-600">Organizamos as necessidades de seus clientes, os orçamentos e os próximos passos, sem exigir que tudo dependa de uma única pessoa.</p>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <article className="rounded-3xl border bg-white p-6 shadow-sm">
+          <Image src="/atendimento-inteligente/logo-rmc.png" alt="Logotipo Reparos RMC" width={180} height={100} className="h-20 w-auto object-contain" />
+          <h2 className="mt-3 text-xl font-black">Reparos RMC</h2>
+          <p className="mt-2 text-sm text-slate-600">Manutenção, reparos e atendimento assistido em Campinas e região.</p>
+          <Link href="/solucoes/atendimento-inteligente/rmc" className="mt-5 inline-flex rounded-full bg-[#ee8b25] px-5 py-3 font-bold text-[#1e252b]">Conhecer o atendimento RMC</Link>
+        </article>
+        <article className="rounded-3xl border border-dashed bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-black">Outras empresas</h2>
+          <p className="mt-3 text-sm text-slate-600">Novos atendimentos serão disponibilizados após a homologação individual de cada negócio.</p>
+          <p className="mt-4 rounded-xl bg-slate-100 p-3 text-xs text-slate-600">Nenhum atendimento do Centro Automotivo Piloto é ativado automaticamente nesta fase.</p>
+        </article>
+      </div>
+    </section>
+  </main>;
 }

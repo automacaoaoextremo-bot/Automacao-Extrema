@@ -13,6 +13,13 @@ export async function GET(request: NextRequest) {
     if (!scope.platformAdmin) query = query.in("id", scope.organizationIds);
     const { data, error } = await query;
     if (error) throw error;
-    return NextResponse.json({ organizations: data ?? [], platformAdmin: scope.platformAdmin });
+    const { data: memberships, error: roleError } = await supabaseAdmin.from('ae_ai_memberships')
+      .select('organization_id,role').eq('user_id', scope.userId);
+    if (roleError) throw roleError;
+    const byOrg = new Map((memberships ?? []).map(row => [row.organization_id, row.role]));
+    const organizations = (data ?? []).map(org => ({
+      ...org, current_user_role: scope.platformAdmin ? 'admin' : (byOrg.get(org.id) ?? null),
+    }));
+    return NextResponse.json({ organizations, platformAdmin: scope.platformAdmin });
   } catch (error) { return NextResponse.json({ error: safeError(error) }, { status: 500 }); }
 }

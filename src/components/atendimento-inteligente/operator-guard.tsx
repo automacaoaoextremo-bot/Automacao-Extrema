@@ -11,11 +11,11 @@ export function AiOperatorGuard({ children }: { children: ReactNode }) {
     let active = true;
     supabaseBrowser.auth.getSession().then(({ data }) => {
       if (!active) return;
-      if (!data.session) router.replace('/solucoes/atendimento-inteligente/entrar');
+      if (!data.session) router.replace('/solucoes/atendimento-inteligente/rmc/entrar');
       else setReady(true);
-    }).catch(() => { if (active) router.replace('/solucoes/atendimento-inteligente/entrar'); });
+    }).catch(() => { if (active) router.replace('/solucoes/atendimento-inteligente/rmc/entrar'); });
     const { data: listener } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace('/solucoes/atendimento-inteligente/entrar');
+      if (!session) router.replace('/solucoes/atendimento-inteligente/rmc/entrar');
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, [router]);

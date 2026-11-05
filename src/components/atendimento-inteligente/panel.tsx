@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/admin-fetch";
 import { AiRequestQueue } from "@/components/atendimento-inteligente/request-queue";
 
-type Organization = { id: string; slug: string; name: string; status: string; automation_enabled: boolean; segment: string };
+type Organization = { id: string; slug: string; name: string; status: string; automation_enabled: boolean; segment: string; current_user_role?: "admin" | "owner" | "operator" | null };
 type Contact = { phone: string; display_name: string | null };
 type Conversation = { id: string; organization_id: string; contact_id: string; mode: "bot"|"human"|"closed"; stage: string; last_inbound_at: string|null; updated_at: string; contact: Contact|null };
 type Message = { id: string; direction: string; message_type: string; body: string|null; media_id: string|null; created_at: string };
@@ -14,7 +14,7 @@ type Details = { conversation: Conversation; contact: Contact; messages: Message
 const date = (s: string | null | undefined) => s ? new Date(s).toLocaleString("pt-BR") : "—";
 const statusClass = "rounded-lg border border-slate-200 bg-slate-100 px-2 py-1 text-xs text-slate-600";
 
-export default function AeIntelligentPanel() {
+export default function AeIntelligentPanel({ fixedOrgSlug }: { fixedOrgSlug?: string }) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [organizationId, setOrganizationId] = useState("");
   // Mantemos os dados associados à empresa/conversa que os originou.
@@ -53,16 +53,17 @@ export default function AeIntelligentPanel() {
     adminFetch<{ organizations: Organization[] }>("/api/atendimento-inteligente/organizations")
       .then((r) => {
         if (!active) return;
-        setOrganizations(r.organizations);
-        if (r.organizations[0]) {
-          setOrganizationId((current) => current || r.organizations[0].id);
+        const scoped = fixedOrgSlug ? r.organizations.filter((org) => org.slug === fixedOrgSlug) : r.organizations;
+        setOrganizations(scoped);
+        if (scoped[0]) {
+          setOrganizationId((current) => current || scoped[0].id);
         }
       })
       .catch((e: unknown) => {
         if (active) setError(e instanceof Error ? e.message : "Erro ao listar empresas");
       });
     return () => { active = false; };
-  }, []);
+  }, [fixedOrgSlug]);
   const loadList = useCallback(async () => {
     if (!organizationId) return;
     const r = await adminFetch<{ conversations: Conversation[] }>(`/api/atendimento-inteligente/conversations?organizationId=${encodeURIComponent(organizationId)}`);
@@ -129,12 +130,12 @@ export default function AeIntelligentPanel() {
   return (
     <div className="space-y-4 text-slate-800">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-[#00334E]">AE Atendimento Inteligente</h1><p className="text-sm text-slate-500">Triagem por WhatsApp Cloud API • painel multiempresa</p></div>
+        <div><h1 className="text-2xl font-bold text-[#00334E]">AE Atendimento Inteligente</h1><p className="text-sm text-slate-500">{fixedOrgSlug ? "Fila RMC — atendimento humano N2 e orçamentos" : "Triagem WhatsApp Cloud API • painel multiempresa"}</p></div>
         <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" onClick={() => void refresh()}>Atualizar</button>
       </div>
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
         <label htmlFor="ae-ai-org" className="font-semibold">Empresa</label>
-        <select id="ae-ai-org" className="rounded-lg border p-2" value={organizationId} disabled={busy} onChange={e => { setOrganizationId(e.target.value); setMessage(""); setError(""); setNotice(""); }}>
+        <select id="ae-ai-org" className="rounded-lg border p-2" value={organizationId} disabled={busy || Boolean(fixedOrgSlug)} onChange={e => { setOrganizationId(e.target.value); setMessage(""); setError(""); setNotice(""); }}>
           {organizations.length === 0 && <option value="">Nenhuma empresa autorizada</option>}
           {organizations.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}
         </select>
@@ -142,7 +143,7 @@ export default function AeIntelligentPanel() {
       </div>
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
-      {organizationId && <AiRequestQueue key={organizationId} organizationId={organizationId} />}
+      {organizationId && <AiRequestQueue key={organizationId} organizationId={organizationId} organizationSlug={organizations.find(o=>o.id===organizationId)?.slug} canManageN2={["owner","admin"].includes(organizations.find(o=>o.id===organizationId)?.current_user_role ?? "")} />}
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <section className="rounded-2xl bg-white p-3 shadow-sm" aria-label="Lista de conversas">
           <h2 className="mb-3 px-2 font-bold">Conversas ({conversations.length})</h2>
