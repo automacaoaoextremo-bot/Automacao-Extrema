@@ -52,6 +52,11 @@ export async function GET(request: NextRequest, { params }: Context) {
       .select('id,status,note,created_at').eq('request_id', id).eq('organization_id', record.organization_id)
       .order('created_at', { ascending: true });
     if (eventError) throw eventError;
-    return NextResponse.json({ request: record, events: events ?? [] });
+    const { data: items, error: itemError } = await supabaseAdmin.from('ae_ai_request_items')
+      .select('id,position,category,description,answers')
+      .eq('organization_id',record.organization_id).eq('request_id',id)
+      .order('position',{ascending:true});
+    if(itemError)throw itemError;
+    return NextResponse.json({ request: record, events: events ?? [], items: items ?? [] });
   } catch (error) { return NextResponse.json({ error: safeError(error) }, { status: 500 }); }
 }
