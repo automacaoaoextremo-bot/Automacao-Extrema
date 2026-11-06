@@ -21,11 +21,20 @@ export function RmcPublicRegistration() {
   const [step, setStep] = useState<'register' | 'verify' | 'done'>('register');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   async function begin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!enabled || busy) return;
+    if (busy) return;
     setError('');
+    setNotice('');
+    // Com a chave desligada, o preenchimento serve apenas para testar a interface.
+    // Nenhuma chamada ao Supabase, persistencia ou envio da senha e realizado.
+    if (!enabled) {
+      setPassword('');
+      setNotice('Campos preenchidos em modo de teste. Nenhum dado foi enviado e nenhuma conta foi criada. Para pedir atendimento, utilize o WhatsApp comercial da Reparos RMC.');
+      return;
+    }
     const normalized = normalizeBRPhone(phone);
     if (!normalized) { setError('Informe um WhatsApp válido com DDD.'); return; }
     if (name.trim().length < 3) { setError('Informe seu nome completo.'); return; }
@@ -63,11 +72,8 @@ export function RmcPublicRegistration() {
     <div className="rounded-2xl bg-white px-4 py-5 text-[#173b4c] sm:p-6">
       <p className="text-[11px] font-black uppercase tracking-[0.15em] text-[#b46824]">Reparos RMC • Primeiro acesso</p>
       <h1 className="mt-2 text-2xl font-black leading-tight text-[#173e50]">Cadastre-se para solicitar serviços</h1>
-      {!enabled && <p role="status" className="mt-3 rounded-xl bg-orange-50 p-3 text-xs leading-relaxed text-orange-950">
-        Nesta fase, o cadastro é realizado pela equipe da Reparos RMC. O formulário abaixo apresenta como será o cadastro individual; seu envio ficará disponível somente após a ativação e verificação do celular.
-      </p>}
       {step === 'register' ? <form onSubmit={begin} className="mt-4 space-y-3">
-        <fieldset disabled={!enabled || busy} className="space-y-3">
+        <fieldset disabled={busy} className="space-y-3">
           <label htmlFor="rmc-reg-name" className="block text-sm font-bold">Nome completo
             <input id="rmc-reg-name" className={field} required minLength={3} maxLength={120} value={name} onChange={event => setName(event.target.value)} autoComplete="name" placeholder="Seu nome completo" />
           </label>
@@ -85,7 +91,8 @@ export function RmcPublicRegistration() {
           </label>
         </fieldset>
         {enabled && <p className="text-xs leading-relaxed text-slate-600">Para proteger seus pedidos, enviaremos um código de verificação por SMS. O cadastro não confirma preço, visita ou agendamento.</p>}
-        <button type="submit" disabled={!enabled || busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Aguarde...' : 'Criar meu acesso'}</button>
+        <button type="submit" disabled={busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Aguarde...' : enabled ? 'Criar meu acesso' : 'Conferir preenchimento'}</button>
+        {!enabled && <p className="text-xs leading-relaxed text-slate-500">Modo de teste: ainda não é possível criar contas por esta página.</p>}
       </form> : step === 'verify' ? <form onSubmit={verify} className="mt-4 space-y-3">
         <p className="text-sm">Digite o código de verificação recebido por SMS.</p>
         <label htmlFor="rmc-verify-code" className="block text-sm font-bold">Código
@@ -94,6 +101,7 @@ export function RmcPublicRegistration() {
         <button type="submit" disabled={busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Verificando...' : 'Confirmar celular'}</button>
       </form> : <p role="status" className="mt-4 text-sm text-green-800">Cadastro registrado após a verificação do celular. <Link href={`${base}/entrar`} className="font-bold underline">Entrar</Link> para continuar.</p>}
       {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+      {notice && <p role="status" className="mt-3 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{notice}</p>}
       <Link href={`${base}/entrar`} className="mt-4 block rounded-xl border border-slate-200 p-2.5 text-center text-sm font-semibold">Já tenho acesso</Link>
     </div>
   </section>;
