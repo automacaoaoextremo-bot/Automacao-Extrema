@@ -5,6 +5,15 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const API = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto/diagnostico-envios";
 
+type ConsulenteReminderPreview = {
+  appointmentId: string;
+  name: string;
+  status: "solicitado" | "confirmado";
+  recipientName: string;
+  phone: string;
+  eligible: boolean;
+  previewMessage: string;
+};
 type Recipient = {
   personId?: string;
   person?: string;
@@ -13,6 +22,7 @@ type Recipient = {
   eligible?: boolean;
   source?: string;
   previewMessage?: string;
+  consulentes?: ConsulenteReminderPreview[];
 };
 type Diagnostic = { reason: string; phoneMasked?: string };
 type DispatchHistory = {
@@ -68,7 +78,7 @@ function dateLabel(iso: string): string {
 function uniqueSortedRecipients(items: Recipient[]): Recipient[] {
   const map = new Map<string, Recipient>();
   for (const item of items) {
-    const key = item.personId || item.phone || `${item.person || ""}:${item.entity || ""}`;
+    const key = `${item.personId || item.phone || item.person || ""}:${item.entity || ""}`;
     if (!map.has(key)) map.set(key, item);
   }
   return [...map.values()].sort((a, b) => (a.person || "").localeCompare(b.person || "", "pt-BR", { sensitivity: "base" }));
@@ -190,9 +200,18 @@ export function TucxaDiagnosticoEnviosContent() {
         {(report.additionalReceptionDiagnostics || []).length > 0 && <details className="rounded-xl bg-amber-50 p-3"><summary className="text-xs font-bold">Diagnósticos de contatos adicionais</summary>{report.additionalReceptionDiagnostics?.map((item, i) => <p key={i} className="text-xs">{item.phoneMasked || "***"} — {item.reason}</p>)}</details>}
       </section>}
       {tab === "cavalinhos" && <section role="tabpanel" className="grid gap-2">
-        <p className="text-xs text-slate-500">Entidades escaladas sem agendamentos também aparecem; entidades indisponíveis ficam excluídas.</p>
+        <p className="text-xs text-slate-500">Entidades escaladas sem agendamentos também aparecem. Os lembretes individuais são apenas uma prévia; não há disparos nem gravações.</p>
         {cavalinhos.length === 0 && <p className="text-sm">Nenhum Cavalinho previsto.</p>}
-        {visible(cavalinhos).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><button type="button" onClick={() => setPreview({ title: `Mensagem prevista para ${person.person || "Cavalinho"}`, message: person.previewMessage || "Mensagem não disponível." })} className="text-left font-bold text-[#176A3A] underline underline-offset-2" aria-label={`Ver mensagem prevista para ${person.person || "Cavalinho"}`}>{person.person || "Cadastro não localizado"}</button><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.entity || "Entidade"} · {person.phone || "Celular indisponível"}</p></div>)}
+        {visible(cavalinhos).map((person, index) => <div key={`${person.personId || "p"}-${(page - 1) * PER_PAGE + index}`} className="rounded-xl border border-[#E0EAE1] p-3 text-sm"><div className="flex items-center justify-between gap-2"><button type="button" onClick={() => setPreview({ title: `Mensagem prevista para ${person.person || "Cavalinho"}`, message: person.previewMessage || "Mensagem não disponível." })} className="text-left font-bold text-[#176A3A] underline underline-offset-2" aria-label={`Ver mensagem prevista para ${person.person || "Cavalinho"}`}>{person.person || "Cadastro não localizado"}</button><span className={`text-xs font-bold ${person.eligible ? "text-green-700" : "text-amber-700"}`}>{person.eligible ? "Elegível" : "Não elegível"}</span></div><p className="text-xs text-slate-600">{person.entity || "Entidade"} · {person.phone || "Celular indisponível"}</p>
+          <div className="mt-3 border-t border-[#E0EAE1] pt-2">
+            <p className="mb-2 text-[11px] font-bold text-[#123D2C]">Consulentes · prévia do lembrete das 12h às 13h</p>
+            {!(person.consulentes?.length) && <p className="text-xs text-slate-500">Nenhum consulente ativo nesta Entidade.</p>}
+            {(person.consulentes || []).map((consulente) => <button key={consulente.appointmentId} type="button"
+              onClick={() => setPreview({ title: `Lembrete previsto para ${consulente.name}`, message: `Destinatário: ${consulente.recipientName} (${consulente.phone})\nElegível para lembrete: ${consulente.eligible ? "sim" : "não"}\n\n${consulente.previewMessage}\n\nPrévia informativa do texto-base. O fluxo configurado no BotConversa pode acrescentar ou modificar trechos. Nenhum token de confirmação foi gerado.` })}
+              className="mb-1 block w-full rounded-lg bg-[#F6F8F4] px-2 py-2 text-left text-xs text-[#176A3A] underline underline-offset-2">
+                {consulente.name} ({consulente.status}) · Ver mensagem prevista
+            </button>)}
+          </div></div>)}
         <Pager page={page} count={cavalinhos.length} onPage={setPage} />
       </section>}
       {tab === "auditoria" && <section role="tabpanel" className="grid gap-2">

@@ -1,6 +1,7 @@
 import { isTucxaCalendarDateOpen } from "@/lib/organizacao-em-harmonia/tucxa-pilot-calendar";
 import { formatTucxaReceptionSummary, tucxaConsulenteNameWithStatus, tucxaReceptionCommunicationTotals } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
+import { appointmentReminderMessage } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { homologationActiveToday, appointmentDispatchAllowed, mediumDispatchAllowed, receptionDispatchAllowed, generalDispatchAllowed, tucxaHomologation } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-reception-schedule";
 import { additionalReceptionRecipientsForDate, canonicalTucxaPhone } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
     const calendarClosed = !(await isTucxaCalendarDateOpen(organization.id, date));
     const { data: appointments, error: appointmentError } = await supabaseAdmin
       .from("oh_consulente_appointments")
-      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_whatsapp,status,confirmation_status,metadata")
+      .select("id,person_id,entity_id,consulente_name,whatsapp,notification_contact_name,notification_contact_whatsapp,status,confirmation_status,metadata")
       .eq("organization_id", organization.id).eq("appointment_date", date)
       .in("status", PILOT_ACTIVE_STATUSES).limit(500);
     if (appointmentError) throw appointmentError;
@@ -75,6 +76,8 @@ export async function GET(request: Request) {
     const personIds = [...new Set(rows.map((a) => str(a.person_id)).filter(Boolean))];
     const dayAvailability = await loadPilotDay(organization.id, date);
     const availableEntityIds = new Set(dayAvailability.filter((entity) => entity.isAvailable).map((entity) => entity.id));
+    const unavailableEntityReasons = new Map(dayAvailability.filter((entity) => !entity.isAvailable)
+      .map((entity) => [entity.id, entity.suspendedReason] as const));
     const entityIds = [...new Set([...rows.map((a) => str(a.entity_id)), ...availableEntityIds].filter(Boolean))];
 
     const [entitiesResult, preferencesResult, linksResult, membershipsResult] = await Promise.all([
@@ -155,11 +158,36 @@ export async function GET(request: Request) {
         })),
       }));
     }
+    const reminderEligibility = new Map(consulentes.map((item) => [str(item.appointmentId), item.eligible]));
+    const reminderPreviewsForEntity = (entityId: string) => rows
+      .filter((item) => str(item.entity_id) === entityId)
+      .sort((a, b) => str(a.consulente_name).localeCompare(str(b.consulente_name), "pt-BR", { sensitivity: "base" }))
+      .map((item) => {
+        const confirmed = item.confirmation_status === "confirmed" || item.status === "confirmado";
+        const recipientName = str(item.notification_contact_name) || str(item.consulente_name) || "Consulente";
+        return {
+          appointmentId: str(item.id),
+          name: str(item.consulente_name) || "Consulente não informado",
+          status: confirmed ? "confirmado" : "solicitado",
+          recipientName,
+          phone: masked(item.notification_contact_whatsapp || item.whatsapp),
+          eligible: reminderEligibility.get(str(item.id)) === true,
+          // Texto-base, nao uma copia literal do fluxo externo do BotConversa.
+          // Links de confirmacao sao gerados apenas no disparo real.
+          previewMessage: appointmentReminderMessage({
+            fullName: str(item.consulente_name) || "Consulente",
+            appointmentDate: date,
+            entityName: entityNames.get(entityId) || "Entidade",
+            confirmed,
+          }) + (confirmed ? "" : "\n\n[O link individual de confirmação, quando aplicável, somente será gerado no envio real.]"),
+        };
+      });
     const cavalinhos = (linksResult.data ?? [])
       .map((link) => ({
         entity: entityNames.get(str(link.entity_id)), personId: str(link.person_id),
         person: people.get(str(link.person_id))?.full_name || "Não encontrado/inativo",
         previewMessage: cavalinhoPreviewByPerson.get(str(link.person_id)) || "Nenhuma Entidade ativa para esta data.",
+        consulentes: reminderPreviewsForEntity(str(link.entity_id)),
         phone: masked(people.get(str(link.person_id))?.whatsapp),
         eligible: !holiday && !calendarClosed && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
           && Boolean(canonicalTucxaPhone(people.get(str(link.person_id))?.normalized_whatsapp || people.get(str(link.person_id))?.whatsapp))
@@ -238,7 +266,7 @@ export async function GET(request: Request) {
             dayAvailability.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0)),
           entitySummary: formatTucxaReceptionSummary({
             date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
-            scheduledEntityIds: [...availableEntityIds], includeTitle: false,
+            scheduledEntityIds: dayAvailability.map((item) => item.id), unavailableEntityReasons, includeTitle: false,
           }),
         }),
         summaryAfternoon: tucxaReceptionOperationalMessage({
@@ -247,7 +275,7 @@ export async function GET(request: Request) {
             dayAvailability.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0)),
           entitySummary: formatTucxaReceptionSummary({
             date, appointments: rows, entityNames, entityLines, entityCapacities, cavalinhoNames,
-            scheduledEntityIds: [...availableEntityIds], includeTitle: false,
+            scheduledEntityIds: dayAvailability.map((item) => item.id), unavailableEntityReasons, includeTitle: false,
           }),
         }),
       },
