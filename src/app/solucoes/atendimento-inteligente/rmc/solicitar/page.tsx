@@ -20,7 +20,7 @@ export default function RmcRequestPage() {
   }, []);
   return <div className="min-h-screen bg-[#eff5ef]">
     <AiBrandHeader backHref="/solucoes/atendimento-inteligente/rmc" />
-    <main className="mx-auto max-w-2xl px-3 py-4">
+    <main className="mx-auto max-w-2xl px-3 py-3 sm:py-4">
       {authenticated === null ? <p role="status" className="rounded-xl bg-white p-6 text-sm">Verificando acesso...</p>
         : authenticated ? <AiRequestForm initialOrg="reparos-rmc" fixedOrg />
           : <RmcLoginForm returnTo="request" />}
