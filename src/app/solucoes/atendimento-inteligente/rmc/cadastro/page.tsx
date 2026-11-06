@@ -4,5 +4,5 @@ import { RmcRegistrationGate } from '@/components/atendimento-inteligente/rmc-re
 export const metadata: Metadata = { title: 'Cadastro | Reparos RMC' };
 export default function RmcCadastroPage(){
  return <div className="min-h-screen bg-[#eff5ef]"><AiBrandHeader backHref="/solucoes/atendimento-inteligente/rmc/entrar"/>
-  <main className="mx-auto max-w-lg px-3 py-5"><RmcRegistrationGate/></main></div>;
+  <main className="mx-auto max-w-lg px-3 py-3 sm:py-5"><RmcRegistrationGate/></main></div>;
 }
