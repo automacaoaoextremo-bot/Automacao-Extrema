@@ -108,7 +108,7 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
       }
 
       const { data: appointments, error: apError } = await supabaseAdmin.from("oh_consulente_appointments")
-        .select("id,entity_id,consulente_name,appointment_time,status,metadata")
+        .select("id,entity_id,consulente_name,appointment_time,status,confirmation_status,metadata")
         .eq("organization_id", orgId).eq("appointment_date", date)
         .in("status", PILOT_ACTIVE_STATUSES).order("created_at");
       if (apError) throw apError;
@@ -141,10 +141,10 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         grouped.set(id, [...(grouped.get(id) ?? []), a]);
       }
       // Vínculos ativos são a fonte de verdade; nomes não são chaves de identidade.
-      const { data: links, error: linkError } = availableIds.length
+      const { data: links, error: linkError } = allIds.length
         ? await supabaseAdmin.from("oh_person_entity_links").select("entity_id,person_id")
             .eq("organization_id", orgId).eq("active", true).eq("relationship_type", "recebe")
-            .in("entity_id", availableIds)
+            .in("entity_id", allIds)
         : { data: [], error: null };
       if (linkError) throw linkError;
       const linkPersonIds = [...new Set((links ?? []).map(l => txt(l.person_id)).filter(Boolean))];
@@ -155,6 +155,8 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
       if (holderErr) throw holderErr;
       const holdersById = new Map((holders ?? []).map(h => [txt(h.id), h]));
       const holderNames = new Map((links ?? []).map(l => [txt(l.entity_id), txt(holdersById.get(txt(l.person_id))?.full_name).split(" ")[0]]));
+      const unavailableEntityReasons = new Map(day.filter((item) => !item.isAvailable)
+        .map((item) => [item.id, item.suspendedReason] as const));
 
       async function previous(audience: Audience, personId: string): Promise<Dispatch | null> {
         const { data, error } = await supabaseAdmin.from("oh_tucxa_pilot_daily_dispatches")
@@ -225,7 +227,8 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         if (rErr) throw rErr;
         const summary = formatTucxaReceptionSummary({
           date, appointments: allowedAppointments, entityNames, entityLines, entityCapacities,
-          cavalinhoNames: holderNames, scheduledEntityIds: availableIds, includeTitle: false,
+          cavalinhoNames: holderNames, scheduledEntityIds: day.map((item) => item.id),
+          unavailableEntityReasons, includeTitle: false,
         });
         const totals = tucxaReceptionCommunicationTotals(
           allowedAppointments,

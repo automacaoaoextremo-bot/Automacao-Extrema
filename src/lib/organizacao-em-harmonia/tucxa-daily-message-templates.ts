@@ -21,9 +21,9 @@ export function tucxaReceptionOperationalMessage(input: {
 }): string {
   const morning = input.phase === "morning";
   return [
-    morning ? "🌿📅 TUCXA — PRÉVIA DOS ATENDIMENTOS" : "🌿📅 TUCXA — ATUALIZAÇÃO DOS ATENDIMENTOS",
+    morning ? "*🌿📅 TUCXA — PRÉVIA DOS ATENDIMENTOS*" : "*🌿📅 TUCXA — ATUALIZAÇÃO DOS ATENDIMENTOS*",
     `📅 ${datePtBrWithWeekday(input.date)}`,
-    morning ? "🕗 Referência: 08h" : "🕓 Referência: 16h",
+    morning ? "🕗 Referência: 08h - 09h" : "🕓 Referência: 16h - 17h",
     "",
     morning ? "Bom dia!" : "Boa tarde!",
     "",
@@ -37,7 +37,8 @@ export function tucxaReceptionOperationalMessage(input: {
     "",
     morning ? "⚠️ Esta é uma prévia. Os agendamentos ainda podem mudar durante o dia."
       : "ℹ️ Esta atualização substitui a prévia da manhã. Alterações posteriores ainda poderão ocorrer.",
-    ...(morning ? ["📲 Você receberá uma atualização entre 16h e 17h.", "Um excelente trabalho a todos! 💚"] : []),
+    ...(morning ? ["📲 Você receberá uma atualização entre 16h e 17h."] : []),
+    "Um excelente trabalho a todos! 💚",
   ].join("\n");
 }
 
@@ -48,12 +49,12 @@ export function tucxaCavalinhoOperationalMessage(input: {
   const withAppointments = input.entities.some((item) => item.consulentes.length > 0);
   const one = input.entities.length === 1;
   const sections = input.entities.map((item) => item.consulentes.length
-    ? `${item.name}:\n${item.consulentes.map((name) => `- ${name}`).join("\n")}`
-    : `${item.name}: até o momento não há consulentes agendados.`);
+    ? `*${item.name}:*\n${item.consulentes.map((name) => `- ${name}`).join("\n")}`
+    : `*${item.name}:* até o momento não há consulentes agendados.`);
   return [
-    "🌿📅 TUCXA — ATENDIMENTOS DE HOJE",
+    "*🌿📅 TUCXA — ATENDIMENTOS DE HOJE*",
     `📅 ${datePtBrWithWeekday(input.date)}`,
-    "🕓 Referência: 16h",
+    "🕓 Referência: 16h - 17h",
     "",
     "Olá!",
     "",

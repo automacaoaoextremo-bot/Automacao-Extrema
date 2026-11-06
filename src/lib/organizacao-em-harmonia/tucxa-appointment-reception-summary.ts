@@ -41,6 +41,8 @@ export function formatTucxaReceptionSummary(input: {
   cavalinhoNames?: ReadonlyMap<string, string>;
   /** Inclui entidades escaladas sem reservas, sem inferir uma identidade por nome. */
   scheduledEntityIds?: readonly string[];
+  /** Entidades de escala mantidas no relatório mesmo após suspensão/ausência. */
+  unavailableEntityReasons?: ReadonlyMap<string, string>;
   /** Evita repetir o título nos textos formatados do WhatsApp. */
   includeTitle?: boolean;
 }): string {
@@ -68,7 +70,14 @@ export function formatTucxaReceptionSummary(input: {
       const capacity = input.entityCapacities?.get(id);
       const extra = [line, cavalinho].filter(Boolean).map((value) => `(${value})`).join(" ");
       const heading = `${name}${extra ? ` ${extra}` : ""} (${sorted.length}/${capacity ?? "?"})`;
-      return `${heading}\n${lines.length ? lines.map((item) => `- ${item}`).join("\n") : "Sem consulentes agendados até o momento."}`;
+      const unavailableReason = input.unavailableEntityReasons?.get(id);
+      if (unavailableReason !== undefined) {
+        // Nao tratar toda suspensao como ausencia pessoal.
+        const absence = /ausen|falt|n[aã]o.*(comparec|vir|estar)|impossibilitad/i.test(unavailableReason);
+        const situation = absence ? "Ausente" : "Indisponível nesta data";
+        return `*${heading}*\n${situation}${!absence && unavailableReason ? ` — ${unavailableReason}` : ""}`;
+      }
+      return `*${heading}*\n${lines.length ? lines.map((item) => `- ${item}`).join("\n") : "Sem consulentes agendados até o momento."}`;
     });
   const details = sections.join("\n\n") || "Nenhuma Entidade com atendimento previsto.";
   return input.includeTitle === false ? details
