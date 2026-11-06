@@ -78,7 +78,13 @@ export async function GET(request: Request) {
     const availableEntityIds = new Set(dayAvailability.filter((entity) => entity.isAvailable).map((entity) => entity.id));
     const unavailableEntityReasons = new Map(dayAvailability.filter((entity) => !entity.isAvailable)
       .map((entity) => [entity.id, entity.suspendedReason] as const));
-    const entityIds = [...new Set([...rows.map((a) => str(a.entity_id)), ...availableEntityIds].filter(Boolean))];
+    // Todas as Entidades escaladas, inclusive as indisponiveis, precisam ter
+    // nome, linha, capacidade e Cavalinho resolvidos para a Recepcao.
+    // A elegibilidade dos envios continua usando apenas availableEntityIds.
+    const entityIds = [...new Set([
+      ...dayAvailability.map((entity) => entity.id),
+      ...rows.map((appointment) => str(appointment.entity_id)),
+    ].filter(Boolean))];
 
     const [entitiesResult, preferencesResult, linksResult, membershipsResult] = await Promise.all([
       entityIds.length ? supabaseAdmin.from("oh_spiritual_entities")
@@ -134,7 +140,11 @@ export async function GET(request: Request) {
         eligible: !holiday && !calendarClosed && weekdayEnabled && permitted && Boolean(digits(phone)) && generalWhatsapp && reminderFlow && appointmentDispatchAllowed(date, str(appointment.id), phone),
       };
     });
-    const cavalinhoIds = [...new Set((linksResult.data ?? []).map(link => str(link.person_id)).filter(Boolean))];
+    // Para destinatarios do Cavalinho, considerar apenas Entidades disponiveis.
+    // Os demais vinculos continuam disponiveis para identificar o Cavalinho no resumo.
+    const activeCavalinhoLinks = (linksResult.data ?? [])
+      .filter((link) => availableEntityIds.has(str(link.entity_id)));
+    const cavalinhoIds = [...new Set(activeCavalinhoLinks.map(link => str(link.person_id)).filter(Boolean))];
     const cavalinhoPhoneCounts = new Map<string, number>();
     for (const personId of cavalinhoIds) {
       const person = people.get(personId);
@@ -144,7 +154,7 @@ export async function GET(request: Request) {
     // Usa as mesmas regras de texto do dispatcher, sem efetuar envios.
     const cavalinhoPreviewByPerson = new Map<string, string>();
     for (const personId of cavalinhoIds) {
-      const assignedEntityIds = [...new Set((linksResult.data ?? [])
+      const assignedEntityIds = [...new Set(activeCavalinhoLinks
         .filter((link) => str(link.person_id) === personId && availableEntityIds.has(str(link.entity_id)))
         .map((link) => str(link.entity_id)))];
       if (!assignedEntityIds.length) continue;
@@ -182,7 +192,7 @@ export async function GET(request: Request) {
           }) + (confirmed ? "" : "\n\n[O link individual de confirmação, quando aplicável, somente será gerado no envio real.]"),
         };
       });
-    const cavalinhos = (linksResult.data ?? [])
+    const cavalinhos = activeCavalinhoLinks
       .map((link) => ({
         entity: entityNames.get(str(link.entity_id)), personId: str(link.person_id),
         person: people.get(str(link.person_id))?.full_name || "Não encontrado/inativo",
