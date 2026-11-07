@@ -5,9 +5,9 @@ import { normalizeBRPhone, stringField } from '@/lib/atendimento-inteligente/int
 
 export const dynamic = 'force-dynamic';
 type Create = { organizationId?: string; fullName?: string; phone?: string; email?: string; password?: string };
-const strongPassword = (s: string) => s.length >= 12 && s.length <= 72 &&
+const strongPassword = (s: string) => s.length >= 8 && s.length <= 72 &&
   [/[A-Z]/, /[a-z]/, /\d/, /[^\w]/].filter(re => re.test(s)).length >= 3 &&
-  !['12345678', '123456789', 'Password123!'].includes(s);
+  !['12345678', '123456789', 'Password123!', 'Senha123!', 'Qwerty123!'].includes(s);
 
 async function authorization(request: NextRequest, orgId: string) {
   const scope = await aeScope(request);
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const email = stringField(body.email, 180).toLowerCase();
     const password = typeof body.password === 'string' ? body.password : '';
     if (!phone || fullName.length < 3 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || !strongPassword(password)) {
-      return NextResponse.json({ error: 'Informe nome, celular valido e senha individual forte (minimo 12 caracteres). E-mail e opcional.' }, { status: 400 });
+      return NextResponse.json({ error: 'Informe nome, celular valido e senha individual forte (minimo 8 caracteres). E-mail e opcional.' }, { status: 400 });
     }
     const { data: existingContact, error: contactErr } = await supabaseAdmin.from('ae_ai_contacts')
       .select('id').eq('organization_id', organizationId).eq('phone', phone).maybeSingle();

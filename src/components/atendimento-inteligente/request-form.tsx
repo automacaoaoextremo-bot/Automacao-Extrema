@@ -67,7 +67,11 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
         const org=orgs.organizations.find(o=>o.slug==='reparos-rmc');
         if(!org)throw new Error('Seu usuario nao esta autorizado para a RMC.');
         const result=await adminFetch<{customers:Customer[]}>(`/api/atendimento-inteligente/customers?organizationId=${org.id}`);
-        if(active)setCustomers(result.customers);
+        if(active){
+          setCustomers(result.customers);
+          const requestedId = new URLSearchParams(window.location.search).get('cliente');
+          if(requestedId && result.customers.some(customer => customer.id === requestedId)) setCustomerId(requestedId);
+        }
       }
     }
     initialize().catch(e=>{if(active)setError(e instanceof Error?e.message:'Falha ao consultar cadastro.');})
