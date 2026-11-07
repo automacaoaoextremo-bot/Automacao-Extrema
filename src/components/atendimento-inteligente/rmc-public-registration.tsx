@@ -21,24 +21,20 @@ export function RmcPublicRegistration() {
   const [step, setStep] = useState<'register' | 'verify' | 'done'>('register');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
   async function begin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setError('');
-    setNotice('');
-    // Com a chave desligada, o preenchimento serve apenas para testar a interface.
-    // Nenhuma chamada ao Supabase, persistencia ou envio da senha e realizado.
-    if (!enabled) {
-      setPassword('');
-      setNotice('Campos preenchidos em modo de teste. Nenhum dado foi enviado e nenhuma conta foi criada. Para pedir atendimento, utilize o WhatsApp comercial da Reparos RMC.');
-      return;
-    }
+    // O cadastro público somente é exibido na fase futura em que foi habilitado.
+    if (!enabled) return;
     const normalized = normalizeBRPhone(phone);
     if (!normalized) { setError('Informe um WhatsApp válido com DDD.'); return; }
     if (name.trim().length < 3) { setError('Informe seu nome completo.'); return; }
-    if (password.length < 12) { setError('Use uma senha com pelo menos 12 caracteres.'); return; }
+    if (password.length < 8 || password.length > 72 ||
+        [/[A-Z]/, /[a-z]/, /\d/, /[^\w]/].filter(re => re.test(password)).length < 3) {
+      setError('Use de 8 a 72 caracteres, combinando maiúsculas, minúsculas, números ou símbolos.'); return;
+    }
     setBusy(true);
     try {
       const { error: failure } = await supabaseBrowser.auth.signUp({
@@ -83,16 +79,15 @@ export function RmcPublicRegistration() {
           <label htmlFor="rmc-reg-email" className="block text-sm font-bold">E-mail (opcional)
             <input id="rmc-reg-email" className={field} type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="seu@email.com" autoComplete="email" />
           </label>
-          <label htmlFor="rmc-reg-password" className="block text-sm font-bold">Senha (mínimo de 12 caracteres)
+          <label htmlFor="rmc-reg-password" className="block text-sm font-bold">Senha (mínimo de 8 caracteres)
             <span className="mt-1.5 flex overflow-hidden rounded-xl border border-slate-300">
-              <input id="rmc-reg-password" className="min-w-0 flex-1 bg-white px-3 py-2.5 text-base outline-none disabled:bg-slate-50" type={show ? 'text' : 'password'} autoComplete="new-password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Crie sua senha" />
+              <input id="rmc-reg-password" className="min-w-0 flex-1 bg-white px-3 py-2.5 text-base outline-none disabled:bg-slate-50" type={show ? 'text' : 'password'} autoComplete="new-password" minLength={8} maxLength={72} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Crie sua senha" />
               <button type="button" onClick={() => setShow(current => !current)} className="px-3 text-xs font-semibold" aria-label={show ? 'Ocultar senha' : 'Mostrar senha'}>{show ? 'Ocultar' : 'Mostrar'}</button>
             </span>
           </label>
         </fieldset>
         {enabled && <p className="text-xs leading-relaxed text-slate-600">Para proteger seus pedidos, enviaremos um código de verificação por SMS. O cadastro não confirma preço, visita ou agendamento.</p>}
-        <button type="submit" disabled={busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Aguarde...' : enabled ? 'Criar meu acesso' : 'Conferir preenchimento'}</button>
-        {!enabled && <p className="text-xs leading-relaxed text-slate-500">Modo de teste: ainda não é possível criar contas por esta página.</p>}
+        <button type="submit" disabled={busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Aguarde...' : 'Criar meu acesso'}</button>
       </form> : step === 'verify' ? <form onSubmit={verify} className="mt-4 space-y-3">
         <p className="text-sm">Digite o código de verificação recebido por SMS.</p>
         <label htmlFor="rmc-verify-code" className="block text-sm font-bold">Código
@@ -101,7 +96,6 @@ export function RmcPublicRegistration() {
         <button type="submit" disabled={busy} className="w-full rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Verificando...' : 'Confirmar celular'}</button>
       </form> : <p role="status" className="mt-4 text-sm text-green-800">Cadastro registrado após a verificação do celular. <Link href={`${base}/entrar`} className="font-bold underline">Entrar</Link> para continuar.</p>}
       {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-      {notice && <p role="status" className="mt-3 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{notice}</p>}
       <Link href={`${base}/entrar`} className="mt-4 block rounded-xl border border-slate-200 p-2.5 text-center text-sm font-semibold">Já tenho acesso</Link>
     </div>
   </section>;

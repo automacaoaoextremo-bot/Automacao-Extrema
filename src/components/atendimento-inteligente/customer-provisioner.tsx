@@ -17,6 +17,7 @@ export function AiCustomerProvisioner(){
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [notice,setNotice]=useState('');
+ const [createdCustomerId,setCreatedCustomerId]=useState('');
  useEffect(()=>{
    let mounted=true;
    async function load(){
@@ -32,12 +33,16 @@ export function AiCustomerProvisioner(){
    return ()=>{mounted=false;};
  },[]);
  async function submit(e:FormEvent<HTMLFormElement>){
-  e.preventDefault();setError('');setNotice('');
+  e.preventDefault();setError('');setNotice('');setCreatedCustomerId('');
   if(password!==confirm){setError('As senhas digitadas nao coincidem.');return;}
+  if(password.length<8||password.length>72||[/[A-Z]/,/[a-z]/,/\d/,/[^\w]/].filter(re=>re.test(password)).length<3){
+   setError('Use de 8 a 72 caracteres e combine pelo menos tres tipos: maiusculas, minusculas, numeros e simbolos.');return;
+  }
   setBusy(true);
   try {
-   await adminFetch('/api/atendimento-inteligente/customers',{method:'POST',body:JSON.stringify({organizationId,fullName,phone,email,password})});
-   setNotice('Cadastro assistido salvo. A conta do cliente permanecerá bloqueada até a verificação e liberação individual.');
+   const created=await adminFetch<{id:string}>('/api/atendimento-inteligente/customers',{method:'POST',body:JSON.stringify({organizationId,fullName,phone,email,password})});
+   setCreatedCustomerId(created.id);
+   setNotice('Cliente cadastrado. Agora você pode registrar uma solicitação assistida. O acesso individual do cliente permanece bloqueado até a verificação e liberação.');
    setFullName('');setPhone('');setEmail('');setPassword('');setConfirm('');
   }catch(e){setError(e instanceof Error?e.message:'Falha no cadastro.');}
   finally{setBusy(false);}
@@ -51,16 +56,16 @@ export function AiCustomerProvisioner(){
  return <form className="rounded-2xl bg-white p-5 shadow" onSubmit={submit}>
   <p className="text-xs font-bold uppercase text-orange-700">Cadastro assistido • Equipe autorizada</p>
   <h1 className="mt-2 text-2xl font-black text-[#153c50]">Cadastrar cliente RMC</h1>
-  <p className="mt-2 text-xs text-slate-600">Cada cliente recebe senha individual, nunca compartilhada. Não encaminhe o acesso antes de verificar a identidade e autorizar o portal.</p>
+  <p className="mt-2 text-xs text-slate-600">Cadastro feito pelo N1 com autorização do cliente. A senha deve ser individual e não compartilhada. O acesso do cliente continuará bloqueado até a verificação da identidade.</p>
   <div className="mt-5 space-y-3">
    <label className="block text-sm font-bold">Nome completo<input className={input} required value={fullName} onChange={e=>setFullName(e.target.value)} maxLength={120}/></label>
    <label className="block text-sm font-bold">WhatsApp com DDD<input className={input} required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(19) 99999-9999"/></label>
    <label className="block text-sm font-bold">E-mail (opcional)<input className={input} type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label>
-   <label className="block text-sm font-bold">Senha individual (mínimo 12 caracteres)<input className={input} type="password" autoComplete="new-password" required minLength={12} value={password} onChange={e=>setPassword(e.target.value)}/></label>
+   <label className="block text-sm font-bold">Senha individual (mínimo 8 caracteres)<input className={input} type="password" autoComplete="new-password" required minLength={8} maxLength={72} value={password} onChange={e=>setPassword(e.target.value)}/></label>
    <label className="block text-sm font-bold">Confirmar senha<input className={input} type="password" autoComplete="new-password" required value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
   </div>
   {error&&<p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800" role="alert">{error}</p>}
-  {notice&&<p className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800" role="status">{notice}</p>}
+  {notice&&<div className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800" role="status"><p>{notice}</p>{createdCustomerId&&<Link className="mt-2 inline-flex rounded-xl bg-[#143e31] px-4 py-2.5 font-bold text-white" href={`/solucoes/atendimento-inteligente/rmc/solicitar?cliente=${encodeURIComponent(createdCustomerId)}`}>Registrar pedido deste cliente</Link>}</div>}
   <button type="submit" disabled={busy} className="mt-5 rounded-full bg-[#ef8924] px-5 py-3 text-sm font-bold disabled:opacity-50">{busy?'Cadastrando...':'Cadastrar cliente'}</button>
   <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="ml-3 text-sm font-bold underline">Voltar aos pedidos</Link>
  </form>;

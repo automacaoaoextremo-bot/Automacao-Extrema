@@ -12,7 +12,7 @@ const base = '/solucoes/atendimento-inteligente/rmc';
 const field = 'mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base outline-none focus:border-[#ed8e2d] focus:ring-2 focus:ring-orange-100';
 
 /** Mesmo acesso para clientes e equipe, com permissões verificadas no servidor. */
-export function RmcLoginForm({ returnTo = 'dashboard' }: { returnTo?: 'dashboard' | 'request' }) {
+export function RmcLoginForm({ returnTo = 'dashboard' }: { returnTo?: 'dashboard' | 'request' | 'registration' }) {
   const router = useRouter();
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +37,7 @@ export function RmcLoginForm({ returnTo = 'dashboard' }: { returnTo?: 'dashboard
       if (authError) throw new Error('Não foi possível entrar. Confira os dados ou solicite ajuda à equipe.');
       const actor = await adminFetch<Actor>('/api/atendimento-inteligente/actor');
       if (actor.role === 'operator') {
-        router.replace(returnTo === 'request' ? `${base}/solicitar` : `${base}/atendimento`);
+        router.replace(returnTo === 'registration' ? `${base}/cadastro` : returnTo === 'request' ? `${base}/solicitar` : `${base}/atendimento`);
         router.refresh();
         return;
       }
