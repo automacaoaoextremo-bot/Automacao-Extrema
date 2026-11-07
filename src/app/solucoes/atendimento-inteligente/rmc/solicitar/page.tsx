@@ -5,7 +5,7 @@ import { AiRequestForm } from '@/components/atendimento-inteligente/request-form
 import { RmcLoginForm } from '@/components/atendimento-inteligente/rmc-login-form';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 
-/** Acesso único na própria rota /solicitar; a sessão nunca é inferida só do telefone. */
+/** Pedidos assistidos exigem uma sessão de operador N1; clientes permanecem bloqueados. */
 export default function RmcRequestPage() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   useEffect(() => {

@@ -54,9 +54,9 @@ export function AiCustomerProvisioner(){
   <Link className="mt-5 inline-flex rounded-full bg-[#ef8924] px-5 py-3 text-sm font-bold" href="/solucoes/atendimento-inteligente/rmc/entrar">Já tenho acesso</Link>
  </section>;
  return <form className="rounded-2xl bg-white p-5 shadow" onSubmit={submit}>
-  <p className="text-xs font-bold uppercase text-orange-700">Cadastro assistido • Equipe autorizada</p>
+  <p className="text-xs font-bold uppercase text-orange-700">Fase 0 • Cadastro N1</p>
   <h1 className="mt-2 text-2xl font-black text-[#153c50]">Cadastrar cliente RMC</h1>
-  <p className="mt-2 text-xs text-slate-600">Cadastro feito pelo N1 com autorização do cliente. A senha deve ser individual e não compartilhada. O acesso do cliente continuará bloqueado até a verificação da identidade.</p>
+  <p className="mt-2 text-xs text-slate-600">Cadastro feito pelo N1 com autorização do cliente. A senha deve ser individual e não enviada ao cliente nesta fase. A conta ficará bloqueada para uso pelo cliente até verificarmos a identidade e solicitarmos a troca da senha.</p>
   <div className="mt-5 space-y-3">
    <label className="block text-sm font-bold">Nome completo<input className={input} required value={fullName} onChange={e=>setFullName(e.target.value)} maxLength={120}/></label>
    <label className="block text-sm font-bold">WhatsApp com DDD<input className={input} required type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(19) 99999-9999"/></label>
@@ -67,6 +67,6 @@ export function AiCustomerProvisioner(){
   {error&&<p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800" role="alert">{error}</p>}
   {notice&&<div className="mt-3 rounded-lg bg-green-50 p-3 text-sm text-green-800" role="status"><p>{notice}</p>{createdCustomerId&&<Link className="mt-2 inline-flex rounded-xl bg-[#143e31] px-4 py-2.5 font-bold text-white" href={`/solucoes/atendimento-inteligente/rmc/solicitar?cliente=${encodeURIComponent(createdCustomerId)}`}>Registrar pedido deste cliente</Link>}</div>}
   <button type="submit" disabled={busy} className="mt-5 rounded-full bg-[#ef8924] px-5 py-3 text-sm font-bold disabled:opacity-50">{busy?'Cadastrando...':'Cadastrar cliente'}</button>
-  <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="ml-3 text-sm font-bold underline">Voltar aos pedidos</Link>
+  <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="ml-3 text-sm font-bold underline">Ir aos pedidos</Link>
  </form>;
 }

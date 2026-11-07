@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     if (!isUuid(organizationId)) return NextResponse.json({ error: 'Empresa inválida.' }, { status: 400 });
     if (!allowed(scope, organizationId)) return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 });
     const { data, error } = await supabaseAdmin.from('ae_ai_requests')
-      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,intake_source,intake_by,consent_confirmed,category,description,neighborhood,urgency,status,created_at,updated_at')
+      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,public_contact_email,intake_source,intake_by,consent_confirmed,category,description,neighborhood,urgency,status,created_at,updated_at')
       .eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(150);
     if (error) throw error;
     const ids = Array.from(new Set((data ?? []).map(row => row.conversation_id)));
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     if (body.organizationId && body.organizationId !== organization.id) {
       return NextResponse.json({ error: 'Identificação de empresa inválida.' }, { status: 400 });
     }
-    const scope = request.headers.get('authorization') ? await aeScope(request) : null;
+    const scope = await aeScope(request);
     const assisted = body.assisted === true;
     let effectiveCustomerId: string | null = null;
     let effectiveName = stringField(body.customerName,120);
