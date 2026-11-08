@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { projectOriginalEvents, type OriginalAgendaEvent } from "@/lib/organizacao-em-harmonia/tucxa-agenda-agv-bridge";
+import type { CalendarEvent2027 } from "@/lib/organizacao-em-harmonia/tucxa-agenda-2027";
 import {
   EVENT_CATEGORIES_2027,
   normalizeMobile2027,
@@ -114,9 +116,42 @@ export async function GET(request: Request) {
       .gte("event_date", `${year}-01-01`).lte("event_date", `${year}-12-31`)
       .order("event_date", { ascending: true }).limit(2000);
     if (!management) query = query.eq("status", "aprovado").eq("is_public", true);
-    const { data, error } = await query;
-    if (error) throw error;
-    return json({ ok: true, events: data ?? [] });
+    // Dados aprovados do cadastro original sao a fonte dos eventos existentes
+    // (incluindo recorrencias). Nao duplicar registros nem reaprovar a V1.
+    const [annualResult, originalResult] = await Promise.all([
+      query,
+      supabaseAdmin.from("agv_events")
+        .select("id,title,status,active,starts_at,ends_at,recurrence_rule,event_type,location,group_slug,metadata")
+        .eq("organization_id", org).eq("status", "aprovado").eq("active", true)
+        .lte("starts_at", `${year}-12-31T23:59:59-03:00`)
+        .order("starts_at", { ascending: true }).limit(2000),
+    ]);
+    if (annualResult.error) throw annualResult.error;
+    if (originalResult.error) throw originalResult.error;
+    // A selecao dinamica do Supabase pode ser inferida como unknown.
+    // Validamos a estrutura antes de espalhar os campos do registro.
+    const annualRows: unknown[] = Array.isArray(annualResult.data) ? annualResult.data : [];
+    const annual: CalendarEvent2027[] = annualRows.map((raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error("Registro de evento anual invalido retornado pelo Supabase.");
+      }
+      const row = raw as Record<string, unknown>;
+      if (typeof row.id !== "string" || typeof row.title !== "string" || typeof row.event_date !== "string") {
+        throw new Error("Registro de evento anual sem campos obrigatorios validos.");
+      }
+      return {
+        ...(row as unknown as CalendarEvent2027),
+        origin: "calendario" as const,
+      };
+    });
+    const fromOriginal = projectOriginalEvents((originalResult.data ?? []) as OriginalAgendaEvent[], year);
+    // Registros com titulo e dia identicos sao mostrados uma unica vez.
+    // Nao altera o banco, apenas evita dupla exibicao nas duas fontes.
+    const key = (event: CalendarEvent2027) => `${event.event_date}:${event.title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim()}`;
+    const seen = new Set(annual.filter((e) => e.status === "aprovado").map(key));
+    const merged = [...annual, ...fromOriginal.filter((event) => !seen.has(key(event)))];
+    merged.sort((a, b) => a.event_date.localeCompare(b.event_date) || a.title.localeCompare(b.title, "pt-BR"));
+    return json({ ok: true, events: merged, sources: { multianual: annual.length, agendaVivaOriginal: fromOriginal.length } });
   } catch (error) {
     console.error("[agenda-2027:GET]", error);
     return json({ error: "Não foi possível carregar o calendário. Confira a migration e a configuração." }, 500);
