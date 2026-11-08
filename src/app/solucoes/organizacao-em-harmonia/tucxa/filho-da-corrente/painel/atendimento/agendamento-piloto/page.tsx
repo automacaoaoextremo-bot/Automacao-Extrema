@@ -343,6 +343,70 @@ function entityDirectoryKey(value: string) {
     .toLocaleUpperCase("pt-BR");
 }
 
+type WideTriageGroup = {
+  key: string;
+  entityName: string;
+  entity: Entity | undefined;
+  appointments: Appointment[];
+};
+
+// O caderno ampliado identifica cada cartao pelo ID da Entidade, nao pelo
+// texto de apresentacao (que pode incluir o nome do Cavalinho).
+function groupWideTriageAppointments(
+  appointments: Appointment[],
+  entities: Entity[],
+  includeVacantEntities: boolean,
+  entitySearch: string,
+  entityLetter: string,
+): WideTriageGroup[] {
+  const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+  const groups = new Map<string, WideTriageGroup>();
+
+  for (const appointment of appointments) {
+    // O ID do agendamento prevalece sobre nomes e homonimos.
+    let entity = entitiesById.get(appointment.entityId);
+    if (!entity && !appointment.entityId) {
+      // Compatibilidade com registros antigos sem um ID presente no retorno:
+      // so usar o nome quando houver UMA Entidade correspondente.
+      const label = entityDirectoryKey(appointment.entityName);
+      const candidates = entities.filter((candidate) => {
+        const name = entityDirectoryKey(candidate.name);
+        return label === name || label.startsWith(`${name} (`);
+      });
+      if (candidates.length === 1) entity = candidates[0];
+    }
+
+    const id = entity?.id || appointment.entityId;
+    const key = id ? `id:${id}` : `name:${entityDirectoryKey(appointment.entityName)}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        entityName: entity?.name || appointment.entityName,
+        entity,
+        appointments: [],
+      };
+      groups.set(key, group);
+    }
+    group.appointments.push(appointment);
+  }
+
+  if (includeVacantEntities) {
+    const query = entitySearch.trim().toLocaleLowerCase("pt-BR");
+    for (const entity of entities) {
+      if (!entity.isAvailable || entity.available <= 0) continue;
+      if (query && !entity.name.toLocaleLowerCase("pt-BR").includes(query)) continue;
+      if (entityLetter && entityDirectoryKey(entity.name).charAt(0) !== entityLetter) continue;
+      const key = `id:${entity.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, { key, entityName: entity.name, entity, appointments: [] });
+      }
+    }
+  }
+
+  return [...groups.values()];
+}
+
 function displayWhatsapp(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -786,6 +850,27 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
     return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
   }, [payload]);
+  const wideTriageGroups = useMemo(() => {
+    const includeVacantEntities = !consultSearch.trim()
+      && !consultLetter
+      && consultStatuses.length === ALL_CONSULT_STATUSES.length;
+    return groupWideTriageAppointments(
+      visibleConsultAppointments,
+      payload?.entities ?? [],
+      includeVacantEntities,
+      consultEntitySearch,
+      consultEntityLetter,
+    ).sort((a, b) => compareEntityLabels(a.entityName, b.entityName));
+  }, [
+    compareEntityLabels,
+    consultEntityLetter,
+    consultEntitySearch,
+    consultLetter,
+    consultSearch,
+    consultStatuses.length,
+    payload?.entities,
+    visibleConsultAppointments,
+  ]);
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
     if (effectiveConsultView === "entity_day") {
@@ -2649,19 +2734,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "caderno_amplo" && (
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Triagem em formato de Caderno para tablet e notebook">
-                  {Array.from(new Set([
-                    ...visibleConsultAppointments.map((item) => item.entityName),
-                    // Entidades sem reservas tambem devem permitir agendamento.
-                    ...(!consultSearch.trim() && !consultLetter && consultStatuses.length === ALL_CONSULT_STATUSES.length
-                      ? (payload.entities ?? []).filter((entity) => entity.isAvailable && entity.available > 0)
-                          .filter((entity) => !consultEntitySearch.trim() || entity.name.toLocaleLowerCase("pt-BR").includes(consultEntitySearch.trim().toLocaleLowerCase("pt-BR")))
-                          .filter((entity) => !consultEntityLetter || entityDirectoryKey(entity.name).charAt(0) === consultEntityLetter)
-                          .map((entity) => entity.name)
-                      : []),
-                  ])).sort(compareEntityLabels).map((entityName) => {
-                    const entity = triageEntityByLabel(entityName);
+                  {wideTriageGroups.map(({ key, entityName, entity, appointments }) => {
                     return (
-                      <section key={`triagem-caderno-amplo-${entityName}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-[#123D2C]/25 bg-white">
+                      <section key={`triagem-caderno-amplo-${key}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-[#123D2C]/25 bg-white">
                         <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
                           <h3 className="min-w-0 text-xs font-black uppercase">{entityHeading(entityName)}</h3>
                           {entity?.isAvailable && entity.available > 0 && (
@@ -2675,7 +2750,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         </div>
                         {entity?.isAvailable === false && <p className="bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Entidade indisponível nesta data"}</p>}
                         <div className="divide-y divide-[#123D2C]/10">
-                          {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
+                          {[...appointments].sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
                             <div key={`triagem-ampla-${appointment.id}`} className={`grid gap-1 px-2 py-2 ${appointment.status === "cancelado" ? "bg-red-50" : ""}`}>
                               <div className="flex flex-wrap items-center justify-between gap-1">
                                 <span className={`text-sm font-black leading-snug ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</span>
