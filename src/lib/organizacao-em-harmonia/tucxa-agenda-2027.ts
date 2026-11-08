@@ -20,6 +20,10 @@ export type Status2027 = "rascunho" | "pendente" | "aprovado" | "rejeitado" | "a
 
 export type CalendarEvent2027 = {
   id: string;
+  /** Origem do registro: cadastro original ou calendario multianual. */
+  origin?: "agenda-viva" | "calendario";
+  /** ID do evento original em agv_events (quando aplicavel). */
+  source_event_id?: string;
   title: string;
   description: string | null;
   event_date: string;
