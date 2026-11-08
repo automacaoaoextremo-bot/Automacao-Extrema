@@ -10,12 +10,12 @@ import { receptionScheduledForDate } from "@/lib/organizacao-em-harmonia/tucxa-r
 import { additionalReceptionRecipientsForDate } from "@/lib/organizacao-em-harmonia/tucxa-summary-additional-recipients";
 import { formatTucxaReceptionSummary, tucxaConsulenteNameWithStatus, tucxaReceptionCommunicationTotals } from "@/lib/organizacao-em-harmonia/tucxa-appointment-reception-summary";
 import { tucxaReceptionOperationalMessage, tucxaCavalinhoOperationalMessage } from "@/lib/organizacao-em-harmonia/tucxa-daily-message-templates";
-import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
+import { sendTucxaAppointmentAuditEmail, sendTucxaOperationalSummaryEmail, tucxaOperationalSummaryEmailConfigured, TUCXA_AUDIT_EMAIL } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { dispatchDateAllowed, generalDispatchAllowed, homologationAppointmentId, mediumDispatchAllowed, receptionDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
 type Phase = "morning" | "afternoon";
 type Audience = "reception_preview" | "reception" | "cavalinho";
-type Person = { id: string; full_name: string | null; whatsapp: string | null; normalized_whatsapp: string | null; active: boolean | null };
+type Person = { id: string; full_name: string | null; whatsapp: string | null; normalized_whatsapp: string | null; active: boolean | null; email?: string | null };
 const personPhone = (person: Person) => normalizePhone(person.normalized_whatsapp) || normalizePhone(person.whatsapp);
 type Dispatch = { id: string; status: string; detail: string; audit_email_status: string };
 const txt = (v: unknown) => typeof v === "string" ? v.trim() : "";
@@ -31,7 +31,7 @@ function localTime(): string {
 function weekday(date: string): number { return new Date(`${date}T12:00:00Z`).getUTCDay(); }
 function currentTimeAllowed(phase: Phase, now: string) {
   const m = Number(now.slice(0, 2)) * 60 + Number(now.slice(3, 5));
-  return phase === "morning" ? m >= 8 * 60 && m < 10 * 60 : m >= 16 * 60 && m < 18 * 60;
+  return phase === "morning" ? m >= 8 * 60 && m < 9 * 60 : m >= 16 * 60 && m < 17 * 60;
 }
 function hasReception(profileValue: unknown): boolean {
   const p = obj(profileValue);
@@ -207,6 +207,44 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         await audit(audience, person, result.sent ? summary : `FALHA: ${result.error || "Não informado"}\n${summary}`, event, null);
       }
 
+      // Ajuste 09: um e-mail operacional por dia e fase para a Recepcao institucional.
+      // Registro idempotente com chave unica no banco. Em caso de status incerto,
+      // nao reenviar automaticamente: conferir logs antes de liberar nova tentativa.
+      async function sendInstitutionalReceptionEmail(person: Person, summary: string) {
+        const institutionalPhone = "19989045150";
+        if (personPhone(person) !== institutionalPhone) return;
+        if (txt(person.email).toLowerCase() !== TUCXA_AUDIT_EMAIL) {
+          diagnostics.push({ audience: "reception_email", personId: person.id, reason: "institutional_email_not_matching" });
+          return;
+        }
+        if (!tucxaOperationalSummaryEmailConfigured()) {
+          diagnostics.push({ audience: "reception_email", personId: person.id, reason: "smtp_unconfigured" });
+          return;
+        }
+        const { error: claimError } = await supabaseAdmin.from("oh_tucxa_pilot_reception_email_dispatches")
+          .insert({
+            organization_id: orgId, dispatch_date: date, phase,
+            recipient_person_id: person.id, recipient_email: TUCXA_AUDIT_EMAIL,
+            status: "processing",
+          });
+        if (claimError?.code === "23505") {
+          diagnostics.push({ audience: "reception_email", personId: person.id, reason: "email_already_claimed" });
+          return;
+        }
+        if (claimError) throw claimError;
+        const sent = await sendTucxaOperationalSummaryEmail({
+          to: TUCXA_AUDIT_EMAIL, recipientName: txt(person.full_name),
+          appointmentDate: date, summary, phase,
+        });
+        const { error: updateError } = await supabaseAdmin.from("oh_tucxa_pilot_reception_email_dispatches")
+          .update({ status: sent ? "sent" : "error", sent_at: sent ? new Date().toISOString() : null,
+            error: sent ? "" : "Falha SMTP; revisar antes de liberar reenvio", updated_at: new Date().toISOString() })
+          .eq("organization_id", orgId).eq("dispatch_date", date).eq("phase", phase).eq("recipient_person_id", person.id);
+        if (updateError) throw updateError;
+        results.push({ audience: "reception_email", personId: person.id, sent });
+        if (!sent) diagnostics.push({ audience: "reception_email", personId: person.id, reason: "smtp_send_failed" });
+      }
+
       if (receptionEnabled) {
         const audience: Audience = phase === "morning" ? "reception_preview" : "reception";
         const { data: memberships, error: mErr } = await supabaseAdmin.from("oh_memberships")
@@ -221,7 +259,7 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         // União pela identidade interna; a deduplicação final por telefone é feita por uniqueByPhone.
         const recipientIds = [...new Set([...receptionIds, ...additional.people.map(person => person.id)])];
         const { data: receptionPeople, error: rErr } = recipientIds.length
-          ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp,active")
+          ? await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp,active,email")
             .eq("organization_id", orgId).eq("active", true).in("id", recipientIds)
           : { data: [], error: null };
         if (rErr) throw rErr;
@@ -238,6 +276,11 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
         for (const person of uniqueByPhone((receptionPeople ?? []) as Person[], diagnostics, audience)) {
           if (!receptionDispatchAllowed(date, txt(person.id), personPhone(person))) continue;
           await sendOne(audience, person, message, "Resumo da Recepção", phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
+          // E-mail somente para o cadastro institucional explicitamente incluido
+          // em pilotReceptionAdditionalRecipients, nao para todos os membros.
+          if (additional.people.some((item) => txt(item.id) === txt(person.id))) {
+            await sendInstitutionalReceptionEmail(person, message);
+          }
         }
       }
 

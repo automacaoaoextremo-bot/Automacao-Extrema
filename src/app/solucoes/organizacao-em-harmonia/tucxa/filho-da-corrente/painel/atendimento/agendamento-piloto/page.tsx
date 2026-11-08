@@ -1057,6 +1057,37 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityId(entity.id);
   }
 
+  // Ajuste 09: o botao da Triagem reutiliza o formulario existente, com
+  // a Entidade e a data travadas. A API valida novamente capacidade e escala.
+  function openBookingFromTriage(entity: Entity) {
+    if (!payload || !entity.isAvailable || entity.available <= 0 || triageFinalized) return;
+    const selectedDate = payload.selectedDate;
+    resetBookingForm();
+    setBookingResult(null);
+    setBookingReturnToTriagem(true);
+    setBookingReturnModal(null);
+    setError("");
+    setErrorNotice(null);
+    setEntitiesReturnToBooking(false);
+    setBookingMode("entity");
+    setBookingContextLocked(true);
+    setBookingEntityLookupId(entity.id);
+    setBookingEntityDateLabel(shortDate(selectedDate));
+    setBookingEntityAvailable(entity.available);
+    setEntityId(entity.id);
+    setModal("agendar");
+    void loadConsulenteAlphabet();
+  }
+
+  // Usa o ID da Entidade, nunca o nome do Cavalinho, como identificador.
+  function triageEntityByLabel(entityName: string): Entity | undefined {
+    const id = payload?.appointments.find((appointment) => appointment.entityName === entityName)?.entityId;
+    const base = entityName.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    return payload?.entities.find((entity) => entity.id === id)
+      ?? payload?.entities.find((entity) => entity.name === entityName)
+      ?? payload?.entities.find((entity) => entity.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === base);
+  }
+
   async function selectPerson(person: FoundPerson) {
     setSaving(true);
     setError("");
@@ -2618,11 +2649,30 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {consultDisplayMode === "caderno_amplo" && (
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Triagem em formato de Caderno para tablet e notebook">
-                  {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort(compareEntityLabels).map((entityName) => {
-                    const entity = payload.entities.find((item) => item.name === entityName);
+                  {Array.from(new Set([
+                    ...visibleConsultAppointments.map((item) => item.entityName),
+                    // Entidades sem reservas tambem devem permitir agendamento.
+                    ...(!consultSearch.trim() && !consultLetter && consultStatuses.length === ALL_CONSULT_STATUSES.length
+                      ? (payload.entities ?? []).filter((entity) => entity.isAvailable && entity.available > 0)
+                          .filter((entity) => !consultEntitySearch.trim() || entity.name.toLocaleLowerCase("pt-BR").includes(consultEntitySearch.trim().toLocaleLowerCase("pt-BR")))
+                          .filter((entity) => !consultEntityLetter || entityDirectoryKey(entity.name).charAt(0) === consultEntityLetter)
+                          .map((entity) => entity.name)
+                      : []),
+                  ])).sort(compareEntityLabels).map((entityName) => {
+                    const entity = triageEntityByLabel(entityName);
                     return (
                       <section key={`triagem-caderno-amplo-${entityName}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-[#123D2C]/25 bg-white">
-                        <h3 className={`px-3 py-2 text-xs font-black uppercase ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>{entityHeading(entityName)}</h3>
+                        <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
+                          <h3 className="min-w-0 text-xs font-black uppercase">{entityHeading(entityName)}</h3>
+                          {entity?.isAvailable && entity.available > 0 && (
+                            <button type="button" disabled={saving || triageFinalized}
+                              onClick={() => openBookingFromTriage(entity)}
+                              aria-label={`Agendar para ${entityName} em ${shortDate(payload.selectedDate)}`}
+                              className="rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                              Agendar · {entity.available} vaga(s)
+                            </button>
+                          )}
+                        </div>
                         {entity?.isAvailable === false && <p className="bg-red-50 px-3 py-1 text-xs font-semibold text-red-800">{entity.suspendedReason || "Entidade indisponível nesta data"}</p>}
                         <div className="divide-y divide-[#123D2C]/10">
                           {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
@@ -2682,11 +2732,19 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   {Array.from(new Set(visibleConsultAppointments.map((item) => item.entityName))).sort(compareEntityLabels).map((entityName) => (
                     <section key={`caderno-${entityName}`} className="overflow-hidden rounded-2xl ring-1 ring-[#123D2C]/15">
                       {(() => {
-                        const entity = payload.entities.find((item) => item.name === entityName);
+                        const entity = triageEntityByLabel(entityName);
                         return (
                           <>
                             <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${entity?.isAvailable === false ? "bg-red-50 text-red-800" : "bg-[#E9F2E7] text-[#123D2C]"}`}>
                               <h3 className="text-sm font-black uppercase">{entityHeading(entityName)}</h3>
+                              {entity?.isAvailable && entity.available > 0 && (
+                                <button type="button" disabled={saving || triageFinalized}
+                                  onClick={() => openBookingFromTriage(entity)}
+                                  aria-label={`Agendar para ${entityName} em ${shortDate(payload.selectedDate)}`}
+                                  className="rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                                  Agendar · {entity.available} vaga(s)
+                                </button>
+                              )}
                             </div>
                             {entity?.isAvailable === false && <p className="bg-red-50 px-3 pb-2 text-center text-[10px] font-bold text-red-800">⚠ {entity.suspendedReason || "Atendimento suspenso para esta data."}</p>}
                           </>
