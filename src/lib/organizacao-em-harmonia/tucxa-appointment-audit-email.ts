@@ -59,11 +59,17 @@ export async function sendTucxaAppointmentAuditEmail(input: {
 }
 
 
+/** O resumo operacional e independente da copia de auditoria. */
+export function tucxaOperationalSummaryEmailConfigured(): boolean {
+  return smtpConfig() !== null;
+}
+
 export async function sendTucxaOperationalSummaryEmail(input: {
   to: string;
   recipientName: string;
   appointmentDate: string;
   summary: string;
+  phase: "morning" | "afternoon";
 }) {
   const config = smtpConfig();
   if (!config || !input.to.trim()) return false;
@@ -73,8 +79,8 @@ export async function sendTucxaOperationalSummaryEmail(input: {
       from: config.from,
       to: input.to.trim(),
       bcc: input.to.trim().toLowerCase() === TUCXA_AUDIT_EMAIL ? undefined : TUCXA_AUDIT_EMAIL,
-      subject: `[TUCXA] Resumo dos agendamentos - ${input.appointmentDate}`,
-      text: [`Olá, ${input.recipientName}.`, "", "Resumo dos atendimentos do TUCXA:", "", input.summary].join("\n"),
+      subject: `[TUCXA] ${input.phase === "morning" ? "Prévia 8h-9h" : "Atualização 16h-17h"} - ${input.appointmentDate}`,
+      text: input.summary,
     });
     return true;
   } catch (error) {

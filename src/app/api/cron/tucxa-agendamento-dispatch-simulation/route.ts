@@ -261,6 +261,7 @@ export async function GET(request: Request) {
           recipientName,
           appointmentDate: requestedDate,
           summary: `[HOMOLOGAÇÃO - RECEPÇÃO]\n${summary}`,
+          phase: "afternoon",
         })
       : false;
 
