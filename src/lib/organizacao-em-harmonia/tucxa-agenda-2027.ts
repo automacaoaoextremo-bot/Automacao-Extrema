@@ -39,8 +39,15 @@ export type CalendarEvent2027 = {
   source_date_2026?: string | null;
 };
 
-export function validateIso2027(value: string): boolean {
-  if (!/^2027-\d{2}-\d{2}$/.test(value)) return false;
+/** Novas datas de 2027 ate 2100; preserva os dados existentes de 2027. */
+export const MIN_AGENDA_YEAR = 2027;
+export const MAX_AGENDA_YEAR = 2100;
+export function validAgendaYear(value: number): boolean {
+  return Number.isInteger(value) && value >= MIN_AGENDA_YEAR && value <= MAX_AGENDA_YEAR;
+}
+export function validateAgendaDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (!validAgendaYear(Number(value.slice(0, 4)))) return false;
   const date = new Date(`${value}T12:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
@@ -63,3 +70,6 @@ export function prettyDate2027(date: string) {
 export function eventHappensOn2027(event: CalendarEvent2027, day: string) {
   return event.event_date <= day && (event.end_date ?? event.event_date) >= day;
 }
+
+/** Alias para compatibilidade com consumidores anteriores. */
+export const validateIso2027 = validateAgendaDate;

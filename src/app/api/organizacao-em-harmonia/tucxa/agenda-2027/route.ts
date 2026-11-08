@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   EVENT_CATEGORIES_2027,
   normalizeMobile2027,
-  validateIso2027,
+  validateAgendaDate, validAgendaYear,
   type Category2027,
   type Status2027,
 } from "@/lib/organizacao-em-harmonia/tucxa-agenda-2027";
@@ -78,8 +78,8 @@ function cleanEvent(body: Record<string, unknown>, proposal = false) {
   const category = text(body.category, 40);
   const audience = text(body.audience, 80) || "todos";
   const location = text(body.location, 160) || "A definir";
-  if (title.length < 3 || !validateIso2027(eventDate)) throw new Error("Informe título e data válida de 2027.");
-  if (endDate && (!validateIso2027(endDate) || endDate < eventDate)) throw new Error("Data final inválida.");
+  if (title.length < 3 || !validateAgendaDate(eventDate)) throw new Error("Informe título e data válida entre 2027 e 2100.");
+  if (endDate && (!validateAgendaDate(endDate) || endDate < eventDate || endDate.slice(0, 4) !== eventDate.slice(0, 4))) throw new Error("Data final inválida: use o mesmo ano.");
   if (!isCategory(category)) throw new Error("Categoria inválida.");
   if (!validTime(start) || !validTime(end)) throw new Error("Horário inválido.");
   if (start && end && end <= start && !endDate) throw new Error("Horário de término deve ser posterior ao início.");
@@ -104,19 +104,22 @@ export async function GET(request: Request) {
     const org = await organization();
     const url = new URL(request.url);
     const management = url.searchParams.get("gestao") === "1";
+    const year = Number(url.searchParams.get("ano") ?? "2027");
+    if (!validAgendaYear(year)) return json({ error: "Ano inválido (2027 a 2100)." }, 400);
     if (management && !(await authorizedReviewer(request))) return json({ error: "Acesso restrito à Diretoria autorizada." }, 403);
     const fields = management
       ? "*"
       : "id,title,description,event_date,end_date,starts_time,ends_time,category,audience,location,status,is_public";
     let query = supabaseAdmin.from(TABLE).select(fields).eq("organization_id", org)
-      .order("event_date", { ascending: true }).limit(800);
+      .gte("event_date", `${year}-01-01`).lte("event_date", `${year}-12-31`)
+      .order("event_date", { ascending: true }).limit(2000);
     if (!management) query = query.eq("status", "aprovado").eq("is_public", true);
     const { data, error } = await query;
     if (error) throw error;
     return json({ ok: true, events: data ?? [] });
   } catch (error) {
     console.error("[agenda-2027:GET]", error);
-    return json({ error: "Não foi possível carregar o calendário 2027. Confira a migration e a configuração." }, 500);
+    return json({ error: "Não foi possível carregar o calendário. Confira a migration e a configuração." }, 500);
   }
 }
 

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import {
   TUCXA_2027_API, TUCXA_2027_BASE, EVENT_CATEGORIES_2027,
-  calendarCategory2027, eventHappensOn2027, prettyDate2027,
+  MIN_AGENDA_YEAR, MAX_AGENDA_YEAR, calendarCategory2027,
+  eventHappensOn2027, prettyDate2027,
   type CalendarEvent2027, type Category2027, type Status2027,
 } from "@/lib/organizacao-em-harmonia/tucxa-agenda-2027";
 
@@ -19,7 +20,6 @@ const STATUSES: Array<{ id: Status2027; label: string }> = [
   { id: "ajustes_solicitados", label: "Ajustes solicitados" },
   { id: "rejeitado", label: "Rejeitado" },
 ];
-const API = TUCXA_2027_API;
 const INITIAL = {
   title: "", description: "", event_date: "", end_date: "",
   starts_time: "", ends_time: "", category: "evento" as Category2027,
@@ -27,7 +27,8 @@ const INITIAL = {
   proposer_email: "", website: "", consent: false, is_public: true, status: "rascunho" as Status2027,
 };
 type FormData2027 = typeof INITIAL & { id?: string };
-
+type Popup = null | "calendar" | "filters" | "legend" | "suggest" | "management" | "edit" | "help";
+type CalendarStep = "annual" | "month" | "day";
 function fieldClass() {
   return "min-h-10 w-full rounded-lg border border-[#b7cbb9] bg-white px-3 py-2 text-sm text-[#123d2c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#348c66]";
 }
@@ -43,64 +44,156 @@ function initialFromEvent(value: CalendarEvent2027): FormData2027 {
 }
 function EventTag({ event }: { event: CalendarEvent2027 }) {
   const category = calendarCategory2027(event.category);
-  return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold"
-      style={{ backgroundColor: category.color, color: category.text }}>
-      <span className="truncate">{event.title}</span>
-    </span>
-  );
+  return <span className="inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-bold" style={{ backgroundColor: category.color, color: category.text }}>{event.title}</span>;
+}
+function ColorLegend() {
+  return <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5" aria-label="Legenda de atividades">
+    {EVENT_CATEGORIES_2027.map((item) => <span key={item.key} className="flex min-h-8 items-center justify-center rounded-full px-2 py-1 text-center text-[10px] font-bold leading-tight sm:text-xs"
+      style={{ backgroundColor: item.color, color: item.text }}>{item.label}</span>)}
+  </div>;
+}
+function PopupShell({ title, close, children, wide = false, toolbar }: {
+  title: string; close: () => void; children: ReactNode; wide?: boolean; toolbar?: ReactNode;
+}) {
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#163a2c]/75 p-2 print:static print:block print:bg-white print:p-0">
+    <section role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[calc(100dvh-16px)] w-full flex-col overflow-hidden rounded-[1.5rem] border border-[#dce8df] bg-[#fbfcf9] shadow-2xl print:max-h-none print:overflow-visible print:border-0 print:shadow-none ${wide ? "max-w-6xl" : "max-w-2xl"}`}>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-white px-3 py-2 print:hidden sm:px-5">
+        <h2 className="min-w-0 truncate text-sm font-black uppercase tracking-wide text-[#123d2c] sm:text-lg">{title}</h2>
+        <div className="flex shrink-0 items-center gap-2">{toolbar}<button type="button" onClick={close} className="rounded-full bg-[#123d2c] px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 print:overflow-visible print:p-1 sm:p-5">{children}</div>
+    </section>
+  </div>;
+}
+// A consulta fica isolada do estado React. O useEffect aplica seus resultados
+// apenas nos callbacks assincronos de Promise, evitando atualizacoes sincronas
+// e prevenindo que respostas antigas substituam o ano em exibicao.
+async function fetchCalendarEvents(
+  year: number,
+  management: boolean,
+  signal: AbortSignal,
+): Promise<{ events: CalendarEvent2027[]; authToken: string }> {
+  let authToken = "";
+  if (management) {
+    const { data, error } = await supabaseBrowser.auth.getSession();
+    if (signal.aborted) throw new Error("Consulta cancelada.");
+    if (error) throw new Error(error.message);
+    authToken = data.session?.access_token ?? "";
+    if (!authToken) {
+      throw new Error("Entre com sua conta autorizada para acessar a gestão do calendário.");
+    }
+  }
+
+  const params = new URLSearchParams({ ano: String(year) });
+  if (management) params.set("gestao", "1");
+  const response = await fetch(`${TUCXA_2027_API}?${params}`, {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    cache: "no-store",
+    signal,
+  });
+  const result = (await response.json()) as { events?: CalendarEvent2027[]; error?: string };
+  if (!response.ok) throw new Error(result.error || "Falha ao carregar calendário.");
+  return { events: result.events ?? [], authToken };
 }
 
 export function TucxaAgenda2027Client({ management = false }: { management?: boolean }) {
+  const [year, setYear] = useState(2027);
   const [events, setEvents] = useState<CalendarEvent2027[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [token, setToken] = useState("");
+  const [popup, setPopup] = useState<Popup>(null);
+  const [calendarStep, setCalendarStep] = useState<CalendarStep>("annual");
+  const [chosenMonth, setChosenMonth] = useState(0);
+  const [chosenDate, setChosenDate] = useState("");
+  const [page, setPage] = useState(0);
   const [category, setCategory] = useState("all");
   const [month, setMonth] = useState("all");
   const [status, setStatus] = useState("all");
   const [audience, setAudience] = useState("all");
   const [location, setLocation] = useState("all");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"year" | "month" | "list">("year");
-  const [selectedDate, setSelectedDate] = useState("");
-  const [showSuggestion, setShowSuggestion] = useState(false);
   const [form, setForm] = useState<FormData2027>({ ...INITIAL });
   const [decisionNotes, setDecisionNotes] = useState("");
 
+  // Referencia da consulta em andamento: a troca de ano, a atualizacao manual
+  // e o desmontar do componente cancelam pedidos que perderam relevancia.
+  const activeRequest = useRef<AbortController | null>(null);
+
+  // Chamado por acoes explicitas (Atualizar, salvar, aprovar, rejeitar).
   const load = useCallback(async () => {
-    setError(""); setLoading(true);
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setLoading(true);
+    setError("");
     try {
-      let authToken = "";
-      if (management) {
-        const { data } = await supabaseBrowser.auth.getSession();
-        authToken = data.session?.access_token ?? "";
-        setToken(authToken);
-        if (!authToken) throw new Error("Faça login na área de gestão da Organização em Harmonia para acessar as aprovações.");
-      }
-      const response = await fetch(`${API}${management ? "?gestao=1" : ""}`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        cache: "no-store",
-      });
-      const result = (await response.json()) as { events?: CalendarEvent2027[]; error?: string };
-      if (!response.ok) throw new Error(result.error || "Falha ao carregar o calendário.");
-      setEvents(result.events ?? []);
-    } catch (err) { setError(readError(err)); }
-    finally { setLoading(false); }
-  }, [management]);
+      const result = await fetchCalendarEvents(year, management, controller.signal);
+      if (controller.signal.aborted) return;
+      setToken(result.authToken);
+      setEvents(result.events);
+      setError("");
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setToken("");
+      setEvents([]);
+      setError(readError(err));
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }, [management, year]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Na montagem e na troca de ano, a consulta e iniciada sem chamar
+  // uma funcao que atualiza estado sincronicamente dentro do effect.
+  // Todas as atualizacoes React acontecem apos a Promise resolver/rejeitar.
+  useEffect(() => {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
 
-  const audiences = useMemo(() => [...new Set(events.map((event) => event.audience).filter(Boolean))].sort(), [events]);
-  const locations = useMemo(() => [...new Set(events.map((event) => event.location).filter(Boolean))].sort(), [events]);
+    void fetchCalendarEvents(year, management, controller.signal).then(
+      (result) => {
+        if (controller.signal.aborted) return;
+        setToken(result.authToken);
+        setEvents(result.events);
+        setError("");
+        setLoading(false);
+      },
+      (err: unknown) => {
+        if (controller.signal.aborted) return;
+        setToken("");
+        setEvents([]);
+        setError(readError(err));
+        setLoading(false);
+      },
+    );
+
+    return () => {
+      controller.abort();
+      if (activeRequest.current === controller) activeRequest.current = null;
+    };
+  }, [management, year]);
+
+  useEffect(() => {
+    if (!popup) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) setPopup(null); };
+    document.addEventListener("keydown", onEscape);
+    return () => { document.body.style.overflow = previous; document.removeEventListener("keydown", onEscape); };
+  }, [popup, saving]);
+
+  const audiences = useMemo(() => [...new Set(events.map((e) => e.audience).filter(Boolean))].sort(), [events]);
+  const locations = useMemo(() => [...new Set(events.map((e) => e.location).filter(Boolean))].sort(), [events]);
   const filtered = useMemo(() => events.filter((event) => {
     if (category !== "all" && event.category !== category) return false;
     if (month !== "all") {
+      const selectedMonth = Number(month);
       const startMonth = Number(event.event_date.slice(5, 7));
       const endMonth = Number((event.end_date ?? event.event_date).slice(5, 7));
-      if (Number(month) < startMonth || Number(month) > endMonth) return false;
+      if (selectedMonth < startMonth || selectedMonth > endMonth) return false;
     }
     if (management && status !== "all" && event.status !== status) return false;
     if (audience !== "all" && event.audience !== audience) return false;
@@ -108,9 +201,11 @@ export function TucxaAgenda2027Client({ management = false }: { management?: boo
     if (search && ![event.title, event.description ?? "", event.location].join(" ").toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR"))) return false;
     return true;
   }), [events, category, month, status, audience, location, search, management]);
+  const publicCount = events.filter((e) => e.status === "aprovado" && e.is_public).length;
+  const pendingCount = events.filter((e) => e.status === "pendente").length;
 
   async function send(body: Record<string, unknown>, isManagement = management) {
-    const response = await fetch(API, {
+    const response = await fetch(TUCXA_2027_API, {
       method: "POST", headers: {
         "Content-Type": "application/json",
         ...(isManagement ? { Authorization: `Bearer ${token}` } : {}),
@@ -120,200 +215,166 @@ export function TucxaAgenda2027Client({ management = false }: { management?: boo
     if (!response.ok) throw new Error(result.error || "Não foi possível concluir a operação.");
     return result;
   }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setNotice(""); setError("");
     try {
       if (management) {
         await send({ ...form, action: "save" });
-        setNotice("Evento salvo. A visibilidade pública depende de estar aprovado e marcado como público.");
-        setForm({ ...INITIAL });
-        await load();
+        setNotice("Evento salvo. A publicação depende de estar aprovado e com visibilidade pública habilitada.");
+        setForm({ ...INITIAL }); setPopup("management"); await load();
       } else {
         const result = await send({ ...form, action: "suggest" }, false);
-        setNotice(result.message || "Sugestão recebida para aprovação.");
-        setForm({ ...INITIAL }); setShowSuggestion(false);
+        setNotice(result.message || "Sua sugestão foi recebida para avaliação.");
+        setForm({ ...INITIAL }); setPopup(null);
       }
     } catch (err) { setError(readError(err)); }
     finally { setSaving(false); }
   }
-
   async function decide(event: CalendarEvent2027, next: Status2027) {
-    if ((next === "rejeitado" || next === "ajustes_solicitados") && decisionNotes.trim().length < 5) {
-      setError("Informe o motivo da recusa ou dos ajustes solicitados (mínimo 5 caracteres)."); return;
+    if (["rejeitado", "ajustes_solicitados"].includes(next) && decisionNotes.trim().length < 5) {
+      setError("Descreva o motivo para rejeitar ou solicitar ajustes (mínimo 5 caracteres)."); return;
     }
     setSaving(true); setError(""); setNotice("");
     try {
       await send({ action: "decide", id: event.id, status: next, review_notes: decisionNotes });
-      setNotice(`Evento "${event.title}" atualizado para ${STATUSES.find((s) => s.id === next)?.label}.`);
+      setNotice(`Evento “${event.title}” atualizado: ${STATUSES.find((s) => s.id === next)?.label}.`);
       setDecisionNotes(""); await load();
     } catch (err) { setError(readError(err)); }
     finally { setSaving(false); }
   }
-
-  function selectMonth(index: number) {
-    setMonth(String(index + 1)); setView("month"); setSelectedDate("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  function openAnnual() { setCalendarStep("annual"); setPopup("calendar"); }
+  function openMonth(index: number) { setChosenMonth(index); setCalendarStep("month"); setPopup("calendar"); }
+  function openDay(day: string) { setChosenDate(day); setCalendarStep("day"); setPopup("calendar"); }
+  function switchYear(next: number) {
+    if (next < MIN_AGENDA_YEAR || next > MAX_AGENDA_YEAR) return;
+    setLoading(true); setError("");
+    setYear(next); setPage(0); setChosenDate(""); setCalendarStep("annual");
+    setMonth("all"); setForm({ ...INITIAL });
   }
-
-  function MonthGrid({ index }: { index: number }) {
-    const first = new Date(Date.UTC(2027, index, 1)).getUTCDay();
-    const total = new Date(Date.UTC(2027, index + 1, 0)).getUTCDate();
+  function editEvent(next: FormData2027) { setForm(next); setPopup("edit"); }
+  function monthGrid(index: number, compact: boolean) {
+    const first = new Date(Date.UTC(year, index, 1)).getUTCDay();
+    const total = new Date(Date.UTC(year, index + 1, 0)).getUTCDate();
     const days: (number | null)[] = [...Array.from({ length: first }, () => null), ...Array.from({ length: total }, (_, i) => i + 1)];
     while (days.length % 7) days.push(null);
-    return (
-      <section className="rounded-xl border border-[#dce8df] bg-white p-3 shadow-sm" aria-label={`Calendário de ${MONTHS[index]} de 2027`}>
-        <button type="button" className="mb-2 w-full text-center font-serif text-base font-bold uppercase tracking-wide text-[#123d2c] hover:underline print:no-underline"
-          onClick={() => selectMonth(index)}>{MONTHS[index]}</button>
-        <div className="grid grid-cols-7 gap-0.5 rounded bg-[#e6f0e7] py-1 text-center text-[10px] font-bold text-[#355e4a]">
-          {WEEKDAYS.map((label, i) => <span key={i} aria-label={["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"][i]}>{label}</span>)}
-        </div>
-        <div className="grid grid-cols-7 gap-0.5 pt-1">
-          {days.map((day, i) => {
-            if (!day) return <span key={`empty-${i}`} aria-hidden="true" />;
-            const iso = `2027-${String(index + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-            const hits = filtered.filter((event) => eventHappensOn2027(event, iso));
-            const visible = hits.slice(0, 3);
-            return (
-              <button key={iso} type="button" onClick={() => setSelectedDate(iso)}
-                aria-label={`${prettyDate2027(iso)}: ${hits.length} atividade(s)`}
-                aria-pressed={selectedDate === iso}
-                className={`min-h-10 rounded border p-0.5 text-center text-[11px] transition focus-visible:outline-2 focus-visible:outline-[#123d2c] ${selectedDate === iso ? "border-[#123d2c] bg-[#e7f2e8]" : "border-transparent hover:border-[#b8cfbd]"}`}>
-                <span className="block font-semibold text-[#234636]">{day}</span>
-                <span className="flex min-h-2 flex-wrap justify-center gap-0.5" aria-hidden="true">
-                  {visible.map((event) => <span key={event.id} className="inline-block h-2 w-2 rounded-full ring-1 ring-black/10"
-                    title={event.title} style={{ backgroundColor: calendarCategory2027(event.category).color }} />)}
-                </span>
-                {hits.length > 3 && <span className="text-[9px] text-[#546b5d]">+{hits.length - 3}</span>}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-    );
+    return <section key={index} className={`min-w-0 rounded-lg border border-[#d9e7dc] bg-white ${compact ? "p-0.5 sm:p-2" : "p-3"}`}>
+      <button type="button" onClick={() => openMonth(index)} className={`w-full rounded bg-[#eee9de] text-center font-black uppercase text-[#123d2c] ${compact ? "text-[9px] sm:text-sm" : "p-2 text-lg"}`}>{compact ? MONTHS[index].slice(0, 3) : MONTHS[index]}</button>
+      <div className="grid grid-cols-7 text-center font-bold text-[#42614f]">
+        {WEEKDAYS.map((day, dayIndex) => <span key={dayIndex} className={compact ? "text-[6px] sm:text-xs" : "text-xs"}>{day}</span>)}
+      </div>
+      <div className={`grid grid-cols-7 ${compact ? "gap-px" : "gap-1"}`}>
+        {days.map((day, dayIndex) => {
+          if (!day) return <span key={`empty-${dayIndex}`} aria-hidden="true" />;
+          const iso = `${year}-${String(index + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const hits = filtered.filter((item) => eventHappensOn2027(item, iso));
+          const firstHit = hits[0]; const tone = firstHit ? calendarCategory2027(firstHit.category) : null;
+          return <button key={iso} type="button" onClick={() => openDay(iso)}
+            aria-label={`${prettyDate2027(iso)}, ${hits.length} atividade(s)`} title={hits.map((item) => item.title).join(" / ")}
+            style={tone ? { backgroundColor: tone.color, color: tone.text } : undefined}
+            className={`min-w-0 rounded-sm text-center font-semibold focus-visible:outline-2 focus-visible:outline-[#123d2c] ${compact ? "min-h-4 text-[7px] sm:min-h-7 sm:text-[11px]" : "min-h-10 text-xs"}`}>{day}{hits.length > 1 && <span className="block text-[6px] leading-none">+{hits.length - 1}</span>}</button>;
+        })}
+      </div>
+    </section>;
   }
+  const pageSize = 12;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const activePage = Math.min(page, pageCount - 1);
+  const filteredPage = filtered.slice(activePage * pageSize, (activePage + 1) * pageSize);
 
-  return (
-    <main className="min-h-screen bg-[#f7faf6] pb-14 text-[#123d2c]">
-      <div className="print:hidden">
-        <div className="border-b border-[#d2e3d4] bg-white px-3 py-2">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-sm">
-            <Link href="/solucoes/organizacao-em-harmonia/tucxa/agenda-viva" className="font-semibold underline">← Agenda Viva atual</Link>
-            <div className="flex flex-wrap gap-2">
-              <Link href={TUCXA_2027_BASE} className="rounded-full border px-3 py-1">Calendário 2027</Link>
-              <Link href={`${TUCXA_2027_BASE}/gestao`} className="rounded-full border px-3 py-1">Gestão / Diretoria</Link>
-            </div>
-          </div>
+  return <main className="min-h-screen bg-[#f7faf2] text-[#123d2c] print:bg-white">
+    <div className="print:hidden"><TucxaPublicHeader navLabel="Calendário anual TUCXA" showSupport={false} compactMobileActions mobileActionColumns={2}
+      actions={[
+        { label: "Agenda Viva atual", href: "/solucoes/organizacao-em-harmonia/tucxa/agenda-viva", variant: "secondary" },
+        { label: management ? "Calendário público" : "Gestão / Diretoria", href: management ? TUCXA_2027_BASE : `${TUCXA_2027_BASE}/gestao`, variant: "primary" },
+      ]} /></div>
+    <section className="mx-auto max-w-6xl px-3 py-3 sm:px-6 sm:py-5 print:hidden">
+      <div className="rounded-[1.5rem] bg-[#123d2c] px-4 py-4 text-white shadow-lg sm:px-7 sm:py-7">
+        <span className="rounded-full bg-[#e9f2e7] px-3 py-1 text-[10px] font-black uppercase tracking-wider text-[#2f6b43]">Organização em Harmonia · TUCXA e Sementinha</span>
+        <h1 className="mt-3 max-w-3xl text-[1.65rem] font-black leading-tight sm:text-4xl">Saiba o que vem pela frente. Viva cada encontro com tranquilidade.</h1>
+        <p className="mt-2 max-w-3xl text-sm text-[#e9f2e7] sm:text-base">{management ? "Planeje, confira e aprove atividades em um só lugar. Cada alteração fica organizada para a Diretoria." : "Consulte a programação confirmada, prepare-se com antecedência e compartilhe as atividades do TUCXA e do Sementinha."}</p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-xl bg-white/10 p-2 text-center">
+          <button type="button" onClick={() => switchYear(year - 1)} disabled={year <= MIN_AGENDA_YEAR} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-[#123d2c] disabled:opacity-40" aria-label="Ano anterior">Anterior</button>
+          <strong className="text-2xl tracking-widest">{year}</strong>
+          <button type="button" onClick={() => switchYear(year + 1)} disabled={year >= MAX_AGENDA_YEAR} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-[#123d2c] disabled:opacity-40" aria-label="Próximo ano">Próximo</button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <button type="button" onClick={openAnnual} className="min-h-12 rounded-xl bg-[#e9f2e7] px-2 text-sm font-black text-[#123d2c]">Ver 12 meses</button>
+          <button type="button" onClick={() => setPopup("filters")} className="min-h-12 rounded-xl border border-white/50 px-2 text-sm font-bold text-white">Filtros</button>
+          <button type="button" onClick={() => setPopup("legend")} className="min-h-12 rounded-xl border border-white/50 px-2 text-sm font-bold text-white">Legenda de cores</button>
+          <button type="button" onClick={() => { if (management) { setPopup("management"); } else { setForm({ ...INITIAL }); setPopup("suggest"); } }} className="min-h-12 rounded-xl bg-white px-2 text-sm font-black text-[#123d2c]">{management ? "Gerenciar eventos" : "Sugerir atividade"}</button>
         </div>
       </div>
-      <div className="mx-auto max-w-7xl px-3 pt-6 sm:px-6">
-        <header className="mb-5 flex flex-wrap items-center gap-4 rounded-2xl border border-[#dce8df] bg-white p-4 shadow-sm">
-          <Image src="/clientes/tucxa/tucxa-logo.jpg" width={78} height={78} alt="Logotipo do TUCXA" className="h-[78px] w-[78px] rounded-xl object-contain" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#69846e]">Organização em Harmonia · TUCXA e Sementinha</p>
-            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Calendário Anual 2027</h1>
-            <p className="text-sm text-[#55725d]">{management ? "Gestão e aprovação de propostas — acesso restrito" : "Atividades e eventos oficialmente aprovados"}</p>
-          </div>
-          <div className="flex gap-2 print:hidden">
-            {!management && <button type="button" onClick={() => setShowSuggestion((value) => !value)} className="rounded-xl bg-[#123d2c] px-4 py-2 text-sm font-bold text-white">Sugerir evento</button>}
-            <button type="button" onClick={() => window.print()} className="rounded-xl border border-[#123d2c] px-4 py-2 text-sm font-bold">Imprimir / PDF</button>
-          </div>
-        </header>
-
-        {error && <div role="alert" className="my-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}{management && !token && <> <Link href="/solucoes/organizacao-em-harmonia/login" className="font-bold underline">Entrar na gestão</Link></>}</div>}
-        {notice && <div role="status" className="my-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800">{notice}</div>}
-
-        <section aria-label="Legenda de cores" className="mb-4 rounded-xl border border-[#dce8df] bg-white p-3">
-          <h2 className="mb-2 text-sm font-bold">Legenda de atividades</h2>
-          <div className="flex flex-wrap gap-2">
-            {EVENT_CATEGORIES_2027.map((item) => <span key={item.key} className="rounded-full px-3 py-1 text-xs font-bold"
-              style={{ backgroundColor: item.color, color: item.text }}>{item.label}</span>)}
-          </div>
-          {management && <p className="mt-3 text-xs text-[#765627]">Datas de referência de 2026 foram projetadas para o mesmo dia da semana de 2027, mas começam como rascunho. Revise feriados e funcionamento antes de aprovar.</p>}
-        </section>
-
-        {!management && showSuggestion && (
-          <section className="mb-5 rounded-xl border-2 border-[#9dbda3] bg-white p-4 print:hidden">
-            <h2 className="mb-2 text-lg font-bold">Sugerir novo evento ou atividade</h2>
-            <p className="mb-4 text-sm">Sua sugestão não será publicada automaticamente. A Diretoria avaliará a proposta.</p>
-            <EventForm form={form} setForm={setForm} submit={submit} saving={saving} management={false} />
-          </section>
-        )}
-
-        {management && token && (
-          <section className="mb-5 rounded-xl border-2 border-[#9dbda3] bg-white p-4 print:hidden">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="text-lg font-bold">{form.id ? "Editar evento" : "Cadastrar evento"}</h2>
-              <button type="button" onClick={() => setForm({ ...INITIAL })} className="rounded border px-2 py-1 text-sm">Novo / limpar</button>
-            </div>
-            <EventForm form={form} setForm={setForm} submit={submit} saving={saving} management />
-          </section>
-        )}
-
-        <section className="mb-5 rounded-xl border border-[#dce8df] bg-white p-3 print:hidden" aria-label="Filtros do calendário">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-bold">Filtros e visualização</h2>
-            <div className="flex flex-wrap gap-1">
-              {(["year", "month", "list"] as const).map((mode) => <button type="button" key={mode} onClick={() => {
-                setView(mode); if (mode === "month" && month === "all") setMonth("1");
-              }} className={`rounded-lg border px-3 py-1 text-xs font-bold ${view === mode ? "bg-[#123d2c] text-white" : "bg-white"}`}>
-                {mode === "year" ? "12 meses" : mode === "month" ? "Mês" : "Lista"}
-              </button>)}
-              <button type="button" className="rounded-lg border px-3 py-1 text-xs" onClick={() => {
-                setCategory("all"); setMonth("all"); setStatus("all"); setAudience("all"); setLocation("all"); setSearch(""); setView("year");
-              }}>Limpar</button>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="text-xs font-semibold">Categoria
-              <select className={fieldClass()} value={category} onChange={(e) => setCategory(e.target.value)}><option value="all">Todas</option>{EVENT_CATEGORIES_2027.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>
-            </label>
-            <label className="text-xs font-semibold">Mês
-              <select className={fieldClass()} value={month} onChange={(e) => { setMonth(e.target.value); if (e.target.value === "all" && view === "month") setView("year"); }}><option value="all">Ano inteiro</option>{MONTHS.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}</select>
-            </label>
-            <label className="text-xs font-semibold">Público
-              <select className={fieldClass()} value={audience} onChange={(e) => setAudience(e.target.value)}><option value="all">Todos</option>{audiences.map((x) => <option key={x}>{x}</option>)}</select>
-            </label>
-            <label className="text-xs font-semibold">Local
-              <select className={fieldClass()} value={location} onChange={(e) => setLocation(e.target.value)}><option value="all">Todos</option>{locations.map((x) => <option key={x}>{x}</option>)}</select>
-            </label>
-            {management && <label className="text-xs font-semibold">Situação
-              <select className={fieldClass()} value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">Todas</option>{STATUSES.map((x) => <option value={x.id} key={x.id}>{x.label}</option>)}</select>
-            </label>}
-            <label className="text-xs font-semibold">Buscar
-              <input className={fieldClass()} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Título, local ou descrição" />
-            </label>
-          </div>
-        </section>
-
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="font-semibold">{loading ? "Carregando..." : `${filtered.length} evento(s) no filtro`}</span>
-          {management && <span className="text-[#667b69]">Aprovados: {events.filter((e) => e.status === "aprovado").length} · Pendentes: {events.filter((e) => e.status === "pendente").length} · Rascunhos: {events.filter((e) => e.status === "rascunho").length}</span>}
-          <button type="button" onClick={() => void load()} className="rounded border px-3 py-1 print:hidden">Atualizar</button>
+      <div className="mt-3 rounded-xl border border-[#dce8df] bg-white p-3 text-center text-sm text-[#436452]">
+        {loading ? "Carregando atividades..." : `${management ? publicCount : events.length} atividade(s) confirmada(s) em ${year}`}
+        {management && !loading && ` · ${pendingCount} sugestão(ões) pendente(s)`}
+        <div className="mt-2 flex flex-wrap justify-center gap-3 text-xs">
+          <button onClick={() => setPopup("help")} type="button" className="font-bold underline">Por que consultar?</button>
+          <button onClick={() => void load()} type="button" className="font-bold underline">Atualizar</button>
+          <Link href="/solucoes/organizacao-em-harmonia/tucxa/agenda-viva" className="font-bold underline">Calendários anteriores</Link>
         </div>
-        {view !== "list" && (
-          <div className={`grid gap-3 ${view === "month" ? "mx-auto max-w-md grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
-            {MONTHS.map((label, index) => (view === "year" && (month === "all" || Number(month) === index + 1)) || (view === "month" && Number(month) === index + 1) ? <MonthGrid key={label} index={index} /> : null)}
-          </div>
-        )}
-        {selectedDate && view !== "list" && (
-          <section className="my-5 rounded-xl border border-[#c5dbca] bg-white p-4 print:hidden" aria-label={`Eventos de ${prettyDate2027(selectedDate)}`}>
-            <div className="flex justify-between gap-2"><h2 className="font-bold">{prettyDate2027(selectedDate)}</h2><button type="button" onClick={() => setSelectedDate("")}>Fechar</button></div>
-            <EventList events={filtered.filter((event) => eventHappensOn2027(event, selectedDate))} management={management} select={setForm} decide={decide} saving={saving} decisionNotes={decisionNotes} setDecisionNotes={setDecisionNotes} />
-          </section>
-        )}
-        {(view === "list" || management) && (
-          <section className="mt-5 rounded-xl border border-[#dce8df] bg-white p-4 print:mt-2">
-            <h2 className="mb-3 font-bold">{management ? "Eventos, rascunhos e propostas" : "Relação de eventos"}</h2>
-            <EventList events={filtered} management={management} select={setForm} decide={decide} saving={saving} decisionNotes={decisionNotes} setDecisionNotes={setDecisionNotes} />
-          </section>
-        )}
-        {!loading && events.length === 0 && !error && <p className="mt-5 rounded-xl bg-white p-4 text-center">Ainda não há eventos aprovados para exibição em 2027.</p>}
-        <footer className="mt-6 text-center text-xs text-[#667b69]">Datas exibidas no horário de Campinas/SP · Eventuais mudanças dependem de aprovação da Diretoria · Versão 2027 independente da Agenda Viva atual</footer>
       </div>
-      <style jsx global>{`@media print { @page { size: A4 landscape; margin: 7mm; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } main { background: #fff !important; } button { cursor: default; } section { break-inside: avoid; } }`}</style>
-    </main>
-  );
+      {error && <p role="alert" className="mt-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error} {management && !token && <Link href="/solucoes/organizacao-em-harmonia/login" className="font-black underline">Entrar na gestão</Link>}</p>}
+      {notice && <p role="status" className="mt-3 rounded-xl border border-green-300 bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
+    </section>
+    {popup === "calendar" && <PopupShell title={`Calendário anual — TUCXA ${year}`} wide close={() => setPopup(null)} toolbar={<button onClick={() => window.print()} type="button" className="rounded-full border px-3 py-2 text-xs font-bold">PDF</button>}>
+      <div className="mb-3 flex items-center justify-center gap-2 print:hidden">
+        <button onClick={() => switchYear(year - 1)} disabled={year <= MIN_AGENDA_YEAR} type="button" className="rounded-lg border px-3 py-2 disabled:opacity-40">Anterior</button>
+        <strong className="text-lg">{year}</strong>
+        <button onClick={() => switchYear(year + 1)} disabled={year >= MAX_AGENDA_YEAR} type="button" className="rounded-lg border px-3 py-2 disabled:opacity-40">Próximo</button>
+      </div>
+      {calendarStep !== "annual" && <button onClick={() => setCalendarStep(calendarStep === "day" ? "month" : "annual")} type="button" className="mb-3 rounded-lg border px-3 py-2 text-xs font-bold print:hidden">← {calendarStep === "day" ? "Voltar ao mês" : "Ver 12 meses"}</button>}
+      {calendarStep === "annual" && <>
+        <h3 className="mb-2 text-center text-xl font-black tracking-widest text-[#3989b9]">TUCXA — {year}</h3>
+        <div className="grid grid-cols-4 gap-1 sm:gap-3">{MONTHS.map((_, index) => monthGrid(index, true))}</div>
+        <div className="mt-4"><ColorLegend /></div>
+        <p className="mt-2 text-center text-[10px] text-[#526954]">Selecione um mês para ampliar. Apenas eventos aprovados e públicos aparecem para visitantes.</p>
+      </>}
+      {calendarStep === "month" && <div className="mx-auto max-w-xl">{monthGrid(chosenMonth, false)}<div className="mt-3 text-sm text-[#526954]">Selecione um dia colorido para ver os detalhes.</div></div>}
+      {calendarStep === "day" && <>
+        <h3 className="mb-3 text-lg font-bold">{prettyDate2027(chosenDate)}</h3>
+        <EventList events={filtered.filter((e) => eventHappensOn2027(e, chosenDate))} management={management} select={editEvent} decide={decide} saving={saving} decisionNotes={decisionNotes} setDecisionNotes={setDecisionNotes} />
+      </>}
+    </PopupShell>}
+    {popup === "legend" && <PopupShell title="Legenda das atividades" close={() => setPopup(null)}>
+      <ColorLegend /><p className="mt-4 text-sm">Cada cor identifica uma atividade. Ao selecionar uma data no calendário, você consulta os detalhes e o local.</p>
+      <button type="button" onClick={openAnnual} className="mt-4 rounded-lg bg-[#123d2c] px-4 py-2 text-sm font-bold text-white">Abrir calendário</button>
+    </PopupShell>}
+    {popup === "help" && <PopupShell title="Organização que acolhe" close={() => setPopup(null)}>
+      <div className="space-y-3 text-sm"><p><strong>Menos desencontros:</strong> saiba quando as atividades estão confirmadas, sem depender de várias mensagens.</p>
+      <p><strong>Mais tranquilidade:</strong> prepare-se com antecedência para encontros, cursos, ações sociais e confraternizações.</p>
+      <p><strong>Uma agenda feita em conjunto:</strong> envie sugestões; a Diretoria poderá avaliá-las antes de divulgar.</p>
+      <p className="text-xs text-[#667b69]">Datas projetadas de anos anteriores não são confirmadas automaticamente.</p></div>
+    </PopupShell>}
+    {popup === "filters" && <PopupShell title={`Filtros — ${year}`} close={() => setPopup(null)}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs font-bold">Categoria<select className={fieldClass()} value={category} onChange={(e) => setCategory(e.target.value)}><option value="all">Todas</option>{EVENT_CATEGORIES_2027.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+        <label className="text-xs font-bold">Mês<select className={fieldClass()} value={month} onChange={(e) => setMonth(e.target.value)}><option value="all">Ano todo</option>{MONTHS.map((label, i) => <option key={i} value={i + 1}>{label}</option>)}</select></label>
+        <label className="text-xs font-bold">Público<select className={fieldClass()} value={audience} onChange={(e) => setAudience(e.target.value)}><option value="all">Todos</option>{audiences.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label className="text-xs font-bold">Local<select className={fieldClass()} value={location} onChange={(e) => setLocation(e.target.value)}><option value="all">Todos</option>{locations.map((item) => <option key={item}>{item}</option>)}</select></label>
+        {management && <label className="text-xs font-bold">Situação<select className={fieldClass()} value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">Todas</option>{STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+        <label className="text-xs font-bold">Buscar por palavra<input className={fieldClass()} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Atividade, descrição ou local" /></label>
+      </div>
+      <div className="mt-4 flex gap-2"><button type="button" onClick={() => { setCategory("all"); setMonth("all"); setStatus("all"); setAudience("all"); setLocation("all"); setSearch(""); }} className="rounded-lg border px-4 py-2 text-sm font-bold">Limpar</button>
+        <button type="button" onClick={management ? () => { setPage(0); setPopup("management"); } : openAnnual} className="rounded-lg bg-[#123d2c] px-4 py-2 text-sm font-bold text-white">Ver {filtered.length} resultado(s)</button></div>
+    </PopupShell>}
+    {popup === "suggest" && <PopupShell title="Sugerir atividade ao TUCXA" close={() => setPopup(null)}>
+      <p className="mb-3 text-sm">Sua ideia ajuda a construir a programação. A sugestão será analisada pela Diretoria antes de qualquer publicação.</p>
+      <EventForm year={year} form={form} setForm={setForm} submit={submit} saving={saving} management={false} />
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    </PopupShell>}
+    {popup === "management" && management && <PopupShell title={`Gestão de eventos — ${year}`} wide close={() => setPopup(null)} toolbar={<button type="button" className="rounded-full border px-3 py-2 text-xs font-bold" onClick={() => { setForm({ ...INITIAL }); setPopup("edit"); }}>Novo</button>}>
+      <p className="mb-3 text-sm text-[#526954]">{filtered.length} registro(s). A aprovação não altera automaticamente eventos de outros anos. Para editar, abra um registro.</p>
+      <EventList events={filteredPage} management={true} select={editEvent} decide={decide} saving={saving} decisionNotes={decisionNotes} setDecisionNotes={setDecisionNotes} />
+      <div className="mt-4 flex justify-center gap-3 print:hidden"><button type="button" disabled={activePage === 0} onClick={() => setPage((x) => x - 1)} className="rounded border px-3 py-2 text-xs disabled:opacity-40">Anterior</button><span className="self-center text-xs">Página {activePage + 1} / {pageCount}</span><button type="button" disabled={activePage + 1 >= pageCount} onClick={() => setPage((x) => x + 1)} className="rounded border px-3 py-2 text-xs disabled:opacity-40">Próxima</button></div>
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    </PopupShell>}
+    {popup === "edit" && management && <PopupShell title={form.id ? "Editar atividade" : "Cadastrar atividade"} close={() => setPopup("management")}>
+      <EventForm year={year} form={form} setForm={setForm} submit={submit} saving={saving} management={true} />
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    </PopupShell>}
+    <footer className="mx-auto max-w-6xl px-3 pb-5 text-center text-xs text-[#667b69] print:hidden">Agenda oficial sujeita à confirmação da Diretoria · Para consultar 2026, use a Agenda Viva anterior.</footer>
+    <style jsx global>{`@media print { @page { size: A4 landscape; margin: 7mm; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } .fixed { position: static!important; } section { break-inside: avoid; } }`}</style>
+  </main>;
 }
 
 function EventList({ events, management, select, decide, saving, decisionNotes, setDecisionNotes }: {
@@ -337,7 +398,7 @@ function EventList({ events, management, select, decide, saving, decisionNotes, 
         {event.proposer_name && <p className="mb-1 text-xs">Proponente: {event.proposer_name} · Celular: {event.proposer_phone ?? "—"} · {event.proposer_email ?? ""}</p>}
         {event.source_date_2026 && <p className="mb-1 text-xs">Origem de referência: {prettyDate2027(event.source_date_2026)}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => { select(initialFromEvent(event)); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded border px-2 py-1 text-xs">Editar</button>
+          <button type="button" onClick={() => { select(initialFromEvent(event));  }} className="rounded border px-2 py-1 text-xs">Editar</button>
           {event.status !== "aprovado" && <button type="button" disabled={saving} onClick={() => void decide(event, "aprovado")} className="rounded bg-[#123d2c] px-2 py-1 text-xs text-white disabled:opacity-40">Aprovar</button>}
           {event.status === "aprovado" && <button type="button" disabled={saving} onClick={() => void decide(event, "rascunho")} className="rounded border px-2 py-1 text-xs">Retirar de publicação</button>}
           <button type="button" disabled={saving} onClick={() => void decide(event, "ajustes_solicitados")} className="rounded border px-2 py-1 text-xs">Solicitar ajustes</button>
@@ -351,7 +412,8 @@ function EventList({ events, management, select, decide, saving, decisionNotes, 
   </div>;
 }
 
-function EventForm({ form, setForm, submit, saving, management }: {
+function EventForm({ year, form, setForm, submit, saving, management }: {
+  year: number;
   form: FormData2027; setForm: (next: FormData2027) => void;
   submit: (event: FormEvent<HTMLFormElement>) => Promise<void>; saving: boolean; management: boolean;
 }) {
@@ -366,10 +428,10 @@ function EventForm({ form, setForm, submit, saving, management }: {
       </select>
     </label>
     <label className="text-xs font-bold">Início *
-      <input required type="date" min="2027-01-01" max="2027-12-31" className={fieldClass()} value={form.event_date} onChange={(e) => update("event_date", e.target.value)} />
+      <input required type="date" min={`${year}-01-01`} max={`${year}-12-31`} className={fieldClass()} value={form.event_date} onChange={(e) => update("event_date", e.target.value)} />
     </label>
     <label className="text-xs font-bold">Data final (opcional)
-      <input type="date" min={form.event_date} max="2027-12-31" className={fieldClass()} value={form.end_date} onChange={(e) => update("end_date", e.target.value)} />
+      <input type="date" min={form.event_date} max={`${year}-12-31`} className={fieldClass()} value={form.end_date} onChange={(e) => update("end_date", e.target.value)} />
     </label>
     <label className="text-xs font-bold">Público
       <select className={fieldClass()} value={form.audience} onChange={(e) => update("audience", e.target.value)}>
