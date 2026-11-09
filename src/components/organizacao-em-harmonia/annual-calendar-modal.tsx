@@ -20,6 +20,8 @@ export type AnnualCalendarEvent = {
   timeLabel: string;
   location?: string;
   description?: string;
+  /** Nome exibido no cadastro da Agenda Viva para a pessoa responsavel. */
+  responsiblePersonName?: string;
   associatedToCurrentPerson: boolean;
 };
 
@@ -79,13 +81,16 @@ function specialAgendaNotes(events: AnnualCalendarEvent[], year: number) {
   return notes.sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
 }
 
-function ActivityLegend({ events, year, showDates }: { events: AnnualCalendarEvent[]; year: number; showDates: boolean }) {
+function ActivityLegend({ events, year, showDates, mode = "tucxa" }: { events: AnnualCalendarEvent[]; year: number; showDates: boolean; mode?: "tucxa" | "others" }) {
   const notes = showDates ? specialAgendaNotes(events, year) : [];
+  // Umbanda mostra somente atendimentos e trabalhos. Férias/mutiroes
+  // permanecem nas notas datadas. Outras agendas usam uma legenda propria.
+  const visibleCategories = mode === "tucxa" ? [...activityLegend.slice(0, 5), activityLegend[8]] : activityLegend.slice(5, 9);
   return (
     <section className="mt-3 rounded-xl border border-[#DCE8DF] bg-white p-3" aria-label="Legenda de atividades">
       <h3 className="mb-2 text-sm font-black text-[#123D2C]">Legenda de atividades</h3>
       <div className="grid grid-cols-2 gap-2">
-        {activityLegend.map((item) => (
+        {visibleCategories.map((item) => (
           <span key={item.label} className="flex min-h-8 items-center justify-center rounded-full px-2 py-1 text-center text-[clamp(0.58rem,2.3vw,0.82rem)] font-bold leading-tight"
             style={{ backgroundColor: item.color, color: item.text }}>
             {item.label}
@@ -414,11 +419,44 @@ function TucxaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEv
 }
 
 function OthersCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
+  // Exibir o nome do cadastro uma unica vez, mesmo quando a atividade
+  // ocorre varias vezes no ano. Nunca inventar responsaveis ausentes.
+  const legendEntries = useMemo(() => {
+    const unique = new Map<string, AnnualCalendarEvent>();
+    for (const event of events) {
+      if (isInactive(event) || !eventDateOnly(event.startsAt).startsWith(`${year}-`)) continue;
+      const title = event.title.trim();
+      const responsible = event.responsiblePersonName?.trim() ?? "";
+      if (!title) continue;
+      const key = `${normalize(title)}::${normalize(responsible)}`;
+      if (!unique.has(key)) unique.set(key, event);
+    }
+    return [...unique.values()].sort((left, right) => left.title.localeCompare(right.title, "pt-BR"));
+  }, [events, year]);
+
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
       <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.12em] text-[#4DA1D5] sm:text-2xl">TUCXA · Outras Agendas — {year}</h2>
       <AnnualGrid events={events} year={year} toneFor={otherAgendaTone} variant="umbanda" onSelectDay={onSelectDay} />
-      <ActivityLegend events={events} year={year} showDates={false} />
+      <ActivityLegend events={events} year={year} showDates={false} mode="others" />
+      {legendEntries.length > 0 && (
+        <section className="mt-3 rounded-xl border border-[#DCE8DF] bg-white p-3" aria-label="Atividades e responsaveis">
+          <h3 className="mb-2 text-sm font-black text-[#123D2C]">Atividades e responsáveis</h3>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {legendEntries.map((event) => {
+              const tone = otherAgendaTone(event);
+              const name = event.responsiblePersonName?.trim();
+              return (
+                <div key={`${normalize(event.title)}::${normalize(event.responsiblePersonName ?? "")}`} className="min-w-0 rounded-lg border p-2 text-xs leading-snug"
+                  style={{ borderColor: tone.border, backgroundColor: tone.background, color: tone.text }}>
+                  <p className="break-words font-black">{event.title}</p>
+                  <p className="mt-1 break-words font-medium">Responsável: {name || "Não informado"}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {events.length === 0 && <p className="mt-3 text-center text-xs font-semibold text-[#526954]">Nenhuma outra atividade aprovada para {year}.</p>}
     </section>
   );
