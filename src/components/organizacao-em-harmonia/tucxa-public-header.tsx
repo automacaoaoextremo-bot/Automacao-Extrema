@@ -116,14 +116,14 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean }) {
+function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false, compactTop = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean; compactTop?: boolean }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       onClick={onSelect}
-      className={headerActionClassName(active, compactMobile)}
+      className={headerActionClassName(active, compactMobile, compactTop)}
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
       {label}
@@ -131,8 +131,10 @@ function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = 
   );
 }
 
-function headerActionClassName(active: boolean, compactMobile = false) {
-  const mobileClass = compactMobile
+function headerActionClassName(active: boolean, compactMobile = false, compactTop = false) {
+  const mobileClass = compactTop
+    ? "h-5 min-h-0 w-auto flex-none whitespace-nowrap px-1.5 py-0 text-[0.57rem]"
+    : compactMobile
     ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
     : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
 
@@ -143,7 +145,7 @@ function headerActionClassName(active: boolean, compactMobile = false) {
   }`;
 }
 
-function HeaderAction({ link, active, onSelect, compactMobile = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean }) {
+function HeaderAction({ link, active, onSelect, compactMobile = false, compactTop = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean; compactTop?: boolean }) {
   async function handleSpecialAction() {
     if (link.action === "signOutFilhoCorrente") {
       await supabaseBrowser.auth.signOut();
@@ -202,7 +204,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
           onSelect(link.href);
           void handleSpecialAction();
         }}
-        className={headerActionClassName(active, compactMobile)}
+        className={headerActionClassName(active, compactMobile, compactTop)}
       >
         {link.label}
       </a>
@@ -217,7 +219,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
           onSelect(link.href);
           void handleSpecialAction();
         }}
-        className={headerActionClassName(active, compactMobile)}
+        className={headerActionClassName(active, compactMobile, compactTop)}
       >
         {link.label}
       </button>
@@ -232,7 +234,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={headerActionClassName(active, compactMobile)}
+      className={headerActionClassName(active, compactMobile, compactTop)}
     >
       {link.label}
     </Link>
@@ -334,10 +336,10 @@ export function TucxaPublicHeader({
 
   return (
     <header data-tucxa-public-header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
+      <div className="mx-auto flex max-w-6xl items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-5 sm:py-2.5">
         <Link
           href="/solucoes/organizacao-em-harmonia/tucxa"
-          className="flex min-w-0 flex-1 items-center gap-3"
+          className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3"
           aria-label="Ir para o site do Tucxa"
         >
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
@@ -358,7 +360,7 @@ export function TucxaPublicHeader({
                 </span>
               )}
             </span>
-            <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
+            <span className={`block min-w-0 font-black uppercase text-[#2F6B43] sm:truncate sm:text-[0.7rem] sm:tracking-[0.22em] ${topActions.length ? "break-words text-[0.48rem] leading-[1.1] tracking-[0.02em]" : "truncate text-[0.56rem] tracking-[0.16em]"}`}>
               {tucxaTheme.fullName}
             </span>
           </span>
@@ -372,6 +374,7 @@ export function TucxaPublicHeader({
                 label={link.label}
                 active={false}
                 compactMobile
+                compactTop
                 onSelect={() => handleSelect(link.href)}
               />
             ) : (
@@ -380,6 +383,7 @@ export function TucxaPublicHeader({
                 link={link}
                 active={false}
                 compactMobile
+                compactTop
                 onSelect={handleSelect}
               />
             ))}

@@ -1196,11 +1196,11 @@ export default function AgendaVivaPublicaPage() {
       />
 
       <section id="inicio" className="mx-auto max-w-6xl scroll-mt-48 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+        <div className="rounded-[2rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/15 ring-1 ring-[#123D2C]/10 sm:p-6">
           <div className="grid gap-4">
             <div>
-              <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte as atividades confirmadas do TUCXA. Escolha um calendário para abrir a programação anual.</p>
+              <h1 className="text-3xl font-black text-white sm:text-4xl">Calendário</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-white/95">Saiba o que vem pela frente. Viva cada encontro com tranquilidade.</p>
             </div>
 
             {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
@@ -1209,10 +1209,10 @@ export default function AgendaVivaPublicaPage() {
 
             {!loading && !error && (
               <>
-                <section className="rounded-[1.75rem] bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
+                <section className="rounded-[1.75rem] bg-white/10 p-3 ring-1 ring-white/20 sm:p-4">
                   <div className="grid gap-3">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Escolha o calendário</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Escolha o calendário</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3" aria-label="Escolha o calendário">
