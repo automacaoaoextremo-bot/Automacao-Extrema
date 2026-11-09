@@ -2755,13 +2755,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   Caderno ampliado (notebook/tablet) quanto no Caderno do celular. */}
               {(consultDisplayMode === "caderno_amplo" || consultDisplayMode === "caderno") && unavailableTriageEntities.length > 0 && (
                 <section aria-label="Entidades sem atendimento na data selecionada" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-black">⚠ Entidades sem atendimento em {shortDate(payload.selectedDate)}</h3>
+                  <div className="flex justify-end">
                     <span className="rounded-full bg-amber-200 px-2 py-1 text-[10px] font-black">
                       {unavailableTriageEntities.length} {unavailableTriageEntities.length === 1 ? "Entidade" : "Entidades"}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs font-semibold">Indisponibilidade registrada na escala, mesmo quando não existem agendamentos. Essas Entidades não atenderão nesta data.</p>
                   <div className="mt-2 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
                     {unavailableTriageEntities.map((entity) => (
                       <div key={`triagem-indisponivel-${entity.id}`} className="rounded-lg border border-amber-300 bg-white px-3 py-2">
