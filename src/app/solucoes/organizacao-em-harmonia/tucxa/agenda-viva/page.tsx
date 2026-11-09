@@ -111,10 +111,8 @@ const calendarViews: { value: CalendarView; label: string; description: string }
 const PUBLIC_PREFERENCES_KEY = "oh:tucxa:agenda-viva:public-preferences";
 
 const calendarModeOptions: Array<{ value: CalendarMode; label: string; description: string }> = [
-  { value: "tucxa", label: "Tucxa", description: "Calendário anual dos eventos de Umbanda" },
-  { value: "events", label: "Eventos", description: "Calendário anual dos eventos sociais do TUCXA" },
-  { value: "sementinha", label: "Sementinha", description: "Calendário anual das ações do Sementinha" },
-  { value: "interactive", label: "Interativo", description: "Agenda, dia, 3 dias, semana, mês e ano" },
+  { value: "tucxa", label: "Tucxa Umbanda", description: "Atendimentos, trabalhos e atividades de Umbanda" },
+  { value: "others", label: "Tucxa Outras Agendas", description: "Eventos, Sementinha e demais atividades do TUCXA" },
 ];
 
 function isCalendarMode(value: unknown): value is CalendarMode {
@@ -907,6 +905,9 @@ export default function AgendaVivaPublicaPage() {
     if (calendarMode === "tucxa") {
       return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
     }
+    if (calendarMode === "others") {
+      return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && !hasClassification(event, "umbanda"));
+    }
     if (calendarMode === "events") {
       return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
     }
@@ -1068,12 +1069,15 @@ export default function AgendaVivaPublicaPage() {
   function annualEventsForMode(nextMode: CalendarMode) {
     const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
     const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
-    const events = ["tucxa", "events", "sementinha"].includes(nextMode)
+    const events = ["tucxa", "others", "events", "sementinha"].includes(nextMode)
       ? fixedAnnualEvents
       : interactiveEvents;
 
     if (nextMode === "tucxa") {
       return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
+    if (nextMode === "others") {
+      return events.filter((event) => !isAppointmentEvent(event) && !hasClassification(event, "umbanda"));
     }
     if (nextMode === "events") {
       return events.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
@@ -1110,8 +1114,8 @@ export default function AgendaVivaPublicaPage() {
     focusAvailableYear(nextMode);
   }
 
-  function openCalendar() {
-    focusAvailableYear(calendarMode);
+  function openCalendarMode(nextMode: CalendarMode) {
+    selectCalendarMode(nextMode);
     setCalendarOpen(true);
   }
 
@@ -1184,9 +1188,10 @@ export default function AgendaVivaPublicaPage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         navLabel="Agenda Viva"
-        actions={[
-          { label: "Início", href: "#inicio", variant: "primary" },
+        showSupport={false}
+        topActions={[
           { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1&abrir=agenda-viva#modulos", variant: "secondary" },
+          { label: "Ajuda", href: "#duvidas", action: "supportWhatsapp", variant: "secondary" },
         ]}
       />
 
@@ -1195,7 +1200,7 @@ export default function AgendaVivaPublicaPage() {
           <div className="grid gap-4">
             <div>
               <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte os calendários do Tucxa e, no modo Interativo, ajuste os filtros e salve o padrão neste dispositivo.</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte as atividades confirmadas do TUCXA. Escolha um calendário para abrir a programação anual.</p>
             </div>
 
             {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
@@ -1210,32 +1215,21 @@ export default function AgendaVivaPublicaPage() {
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Escolha o calendário</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3" aria-label="Escolha o calendário">
                       {calendarModeOptions.map((option) => (
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => selectCalendarMode(option.value)}
+                          onClick={() => openCalendarMode(option.value)}
                           title={option.description}
-                          className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm ring-1 transition ${
-                            calendarMode === option.value
-                              ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                              : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                          }`}
+                          aria-label={`Abrir ${option.label}`}
+                          className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl bg-white px-2 py-4 text-center text-sm font-black leading-tight text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/15 transition hover:bg-[#E9F2E7] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#123D2C] sm:text-lg"
                         >
-                          {option.label}
+                          <span>{option.label}</span>
+                          <span className="text-[0.6rem] font-black uppercase tracking-widest text-[#2F6B43]">TOQUE PARA ABRIR</span>
                         </button>
                       ))}
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={openCalendar} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
-                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
-                    </div>
-
-                    <p className="rounded-2xl bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
-                      {calendarModeOptions.find((item) => item.value === calendarMode)?.description}
-                    </p>
                   </div>
                 </section>
 
@@ -1265,7 +1259,7 @@ export default function AgendaVivaPublicaPage() {
 
       {calendarOpen && calendarMode !== "interactive" && (
         <ModalShell
-          title={calendarMode === "sementinha" ? "Calendário anual" : `Calendário anual - ${selectedModeLabel}`}
+          title={calendarMode === "tucxa" ? "Calendário anual - TUCXA" : `Calendário anual - ${selectedModeLabel}`}
           onClose={() => setCalendarOpen(false)}
         >
           <div className="grid gap-3">
