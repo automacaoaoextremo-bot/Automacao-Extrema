@@ -23,6 +23,8 @@ type TucxaHeaderLink = {
 
 type TucxaPublicHeaderProps = {
   actions?: TucxaHeaderLink[];
+  /** Acoes pequenas na primeira linha, ao lado da identidade do TUCXA. */
+  topActions?: TucxaHeaderLink[];
   /** Botão opcional na primeira linha, utilizado pelo Bingo do TUCXA. */
   topAction?: ReactNode;
   sectionLinks?: TucxaHeaderLink[];
@@ -265,6 +267,7 @@ function authenticatedNameFromUser(user: { user_metadata?: Record<string, unknow
 
 export function TucxaPublicHeader({
   actions = [],
+  topActions = [],
   topAction,
   sectionLinks = [],
   navLabel = "Menu do site do Tucxa",
@@ -360,6 +363,28 @@ export function TucxaPublicHeader({
             </span>
           </span>
         </Link>
+        {topActions.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2" aria-label="Ações de navegação">
+            {topActions.map((link) => link.action === "supportWhatsapp" ? (
+              <SupportLink
+                key={`${link.label}-${link.href}`}
+                href={supportHref}
+                label={link.label}
+                active={false}
+                compactMobile
+                onSelect={() => handleSelect(link.href)}
+              />
+            ) : (
+              <HeaderAction
+                key={`${link.label}-${link.href}`}
+                link={link}
+                active={false}
+                compactMobile
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        )}
         {topAction && <div className="shrink-0">{topAction}</div>}
       </div>
 
