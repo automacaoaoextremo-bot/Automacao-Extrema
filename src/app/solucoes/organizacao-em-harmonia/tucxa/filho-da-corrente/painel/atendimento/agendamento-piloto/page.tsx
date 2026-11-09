@@ -877,6 +877,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
     payload?.entities,
     visibleConsultAppointments,
   ]);
+  // Ajuste 12: a indisponibilidade e um estado da escala, independente de
+  // haver consulentes agendados. O alerta usa IDs unicos das Entidades
+  // escaladas para a data e nao altera totais, vagas ou filtros de pessoas.
+  const unavailableTriageEntities = useMemo(() => {
+    const entities = payload?.entities ?? [];
+    return [...new Map(entities.filter((entity) => !entity.isAvailable).map((entity) => [entity.id, entity])).values()]
+      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR", { sensitivity: "base" }));
+  }, [payload?.entities]);
+
   const groupedAppointments = useMemo(() => {
     if (!payload) return [] as Array<{ label: string; appointments: Appointment[] }>;
     if (effectiveConsultView === "entity_day") {
@@ -2741,6 +2750,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   </>
                 )}
               </div>
+
+              {/* Ajuste 12: aviso independente do numero de agendamentos, tanto no
+                  Caderno ampliado (notebook/tablet) quanto no Caderno do celular. */}
+              {(consultDisplayMode === "caderno_amplo" || consultDisplayMode === "caderno") && unavailableTriageEntities.length > 0 && (
+                <section aria-label="Entidades sem atendimento na data selecionada" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-black">⚠ Entidades sem atendimento em {shortDate(payload.selectedDate)}</h3>
+                    <span className="rounded-full bg-amber-200 px-2 py-1 text-[10px] font-black">
+                      {unavailableTriageEntities.length} {unavailableTriageEntities.length === 1 ? "Entidade" : "Entidades"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-semibold">Indisponibilidade registrada na escala, mesmo quando não existem agendamentos. Essas Entidades não atenderão nesta data.</p>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                    {unavailableTriageEntities.map((entity) => (
+                      <div key={`triagem-indisponivel-${entity.id}`} className="rounded-lg border border-amber-300 bg-white px-3 py-2">
+                        <p className="text-xs font-black text-amber-950">{entityHeading(entity.name)}</p>
+                        <p className="mt-1 text-xs font-bold text-amber-900">Sem atendimento em {shortDate(payload.selectedDate)}</p>
+                        <p className="mt-1 text-xs text-amber-950"><strong>Motivo:</strong> {entity.suspendedReason.trim() || "Motivo não informado no cadastro."}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {consultDisplayMode === "caderno_amplo" && (
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Triagem em formato de Caderno para tablet e notebook">
