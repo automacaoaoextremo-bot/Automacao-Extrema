@@ -5,6 +5,9 @@ import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-pu
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
   AnnualCalendarView,
+  AgendaImportantDates,
+  AgendaResponsibleList,
+  type AgendaCalendarDisplay,
   type AnnualCalendarEvent,
   type AnnualCalendarMode,
 } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
@@ -726,7 +729,7 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
     <div className="fixed inset-0 z-50 bg-[#10251C]/70 px-3 py-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F7FAF2] shadow-2xl ring-1 ring-white/30">
         <div className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
-          <h2 className="min-w-0 truncate text-sm font-black uppercase tracking-[0.12em] text-[#123D2C] sm:text-xl">{title}</h2>
+          <h2 className="min-w-0 flex-1 break-words text-[0.74rem] font-black uppercase leading-tight tracking-[0.02em] text-[#123D2C] sm:text-xl sm:tracking-[0.12em]">{title}</h2>
           <button type="button" onClick={onClose} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">{children}</div>
@@ -802,6 +805,9 @@ export default function AgendaVivaPublicaPage() {
   const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [annualDisplay, setAnnualDisplay] = useState<AgendaCalendarDisplay>("annual");
+  const [annualMonth, setAnnualMonth] = useState(0);
+  const [annualDetailPopup, setAnnualDetailPopup] = useState<null | "important" | "responsible">(null);
   const [annualGuideOpen, setAnnualGuideOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -1116,6 +1122,9 @@ export default function AgendaVivaPublicaPage() {
 
   function openCalendarMode(nextMode: CalendarMode) {
     selectCalendarMode(nextMode);
+    setAnnualDisplay("annual");
+    setAnnualMonth(periodStart.getUTCMonth());
+    setAnnualDetailPopup(null);
     setCalendarOpen(true);
   }
 
@@ -1257,9 +1266,9 @@ export default function AgendaVivaPublicaPage() {
         </ModalShell>
       )}
 
-      {calendarOpen && calendarMode !== "interactive" && (
+      {calendarOpen && calendarMode !== "interactive" && !annualDetailPopup && (
         <ModalShell
-          title={calendarMode === "tucxa" ? "Calendário anual - TUCXA" : `Calendário anual - ${selectedModeLabel}`}
+          title={calendarMode === "tucxa" ? "Calendário" : calendarMode === "others" ? "Calendário Outras Agendas" : `Calendário - ${selectedModeLabel}`}
           onClose={() => setCalendarOpen(false)}
         >
           <div className="grid gap-3">
@@ -1273,8 +1282,24 @@ export default function AgendaVivaPublicaPage() {
               events={calendarModeEvents}
               year={periodStart.getUTCFullYear()}
               onSelectDay={selectAnnualDay}
+              display={annualDisplay}
+              month={annualMonth}
+              onChangeDisplay={setAnnualDisplay}
+              onChangeMonth={setAnnualMonth}
+              onShowDetails={() => setAnnualDetailPopup(calendarMode === "tucxa" ? "important" : "responsible")}
             />
           </div>
+        </ModalShell>
+      )}
+
+      {calendarOpen && annualDetailPopup && calendarMode !== "interactive" && (
+        <ModalShell
+          title={annualDetailPopup === "important" ? "Datas Importantes" : "Atividades e Responsáveis"}
+          onClose={() => setAnnualDetailPopup(null)}
+        >
+          {annualDetailPopup === "important"
+            ? <AgendaImportantDates events={calendarModeEvents} year={periodStart.getUTCFullYear()} />
+            : <AgendaResponsibleList events={calendarModeEvents} year={periodStart.getUTCFullYear()} />}
         </ModalShell>
       )}
 
