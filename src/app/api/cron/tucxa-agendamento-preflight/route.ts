@@ -168,6 +168,36 @@ export async function GET(request: Request) {
         })),
       }));
     }
+    // Cobertura por Entidade: também mostra quando falta vínculo ou contato
+    // no cadastro. A aba Cavalinhos, sozinha, não mostra quem foi excluído
+    // antes de criar a lista de destinatários.
+    const cavalinhoEntityCoverage = [...availableEntityIds].map((entityId) => {
+      const assignedPersonIds = [...new Set(activeCavalinhoLinks
+        .filter((link) => str(link.entity_id) === entityId)
+        .map((link) => str(link.person_id)).filter(Boolean))];
+      const issues: string[] = [];
+      if (!assignedPersonIds.length) issues.push("no_active_recebe_link");
+      const recipients = assignedPersonIds.map((personId) => {
+        const person = people.get(personId);
+        const rawPhone = person?.normalized_whatsapp || person?.whatsapp;
+        const phone = canonicalTucxaPhone(rawPhone);
+        const conflict = Boolean(person?.normalized_whatsapp && person?.whatsapp
+          && canonicalTucxaPhone(person.normalized_whatsapp) !== canonicalTucxaPhone(person.whatsapp));
+        const duplicates = phone ? (cavalinhoPhoneCounts.get(phone) ?? 0) > 1 : false;
+        const reasons = [
+          ...(!person ? ["inactive_or_missing_person"] : []),
+          ...(!phone ? ["invalid_phone"] : []),
+          ...(conflict ? ["phone_fields_conflict"] : []),
+          ...(duplicates ? ["duplicate_canonical_phone"] : []),
+        ];
+        issues.push(...reasons);
+        return { personId, person: person?.full_name || "Não encontrado/inativo",
+          phoneMasked: masked(rawPhone), reasons };
+      });
+      return { entityId, entityName: entityNames.get(entityId) || "Entidade",
+        configuredForNotice: entities.find((item) => str(item.id) === entityId)?.pilot_cavalinho_whatsapp_enabled === true,
+        linkedPeople: recipients, issues: [...new Set(issues)] };
+    });
     const reminderEligibility = new Map(consulentes.map((item) => [str(item.appointmentId), item.eligible]));
     const reminderPreviewsForEntity = (entityId: string) => rows
       .filter((item) => str(item.entity_id) === entityId)
@@ -192,6 +222,17 @@ export async function GET(request: Request) {
           }) + (confirmed ? "" : "\n\n[O link individual de confirmação, quando aplicável, somente será gerado no envio real.]"),
         };
       });
+    // Consulta apenas o registro do nosso processamento, não o status de entrega
+    // efetiva do WhatsApp; necessária para conciliar a lista de elegíveis com o cron.
+    const { data: cavalinhoDispatches, error: cavalinhoDispatchError } = await supabaseAdmin
+      .from("oh_tucxa_pilot_daily_dispatches")
+      .select("recipient_person_id,status,audit_email_status")
+      .eq("organization_id", organization.id).eq("dispatch_date", date)
+      .eq("audience", "cavalinho");
+    if (cavalinhoDispatchError) throw cavalinhoDispatchError;
+    const dispatchByPerson = new Map((cavalinhoDispatches ?? []).map((item) => [
+      str(item.recipient_person_id), item,
+    ]));
     const cavalinhos = activeCavalinhoLinks
       .map((link) => ({
         entity: entityNames.get(str(link.entity_id)), personId: str(link.person_id),
@@ -199,6 +240,9 @@ export async function GET(request: Request) {
         previewMessage: cavalinhoPreviewByPerson.get(str(link.person_id)) || "Nenhuma Entidade ativa para esta data.",
         consulentes: reminderPreviewsForEntity(str(link.entity_id)),
         phone: masked(people.get(str(link.person_id))?.whatsapp),
+        // 'sent' significa aceito pelo provedor; NÃO confirma entrega no aparelho.
+        dispatchStatus: dispatchByPerson.get(str(link.person_id))?.status || "not_attempted",
+        auditEmailStatus: dispatchByPerson.get(str(link.person_id))?.audit_email_status || "not_recorded",
         eligible: !holiday && !calendarClosed && weekdayEnabled && settings.cavalinhoDailyWhatsappEnabled
           && Boolean(canonicalTucxaPhone(people.get(str(link.person_id))?.normalized_whatsapp || people.get(str(link.person_id))?.whatsapp))
           && cavalinhoPhoneCounts.get(canonicalTucxaPhone(people.get(str(link.person_id))?.normalized_whatsapp || people.get(str(link.person_id))?.whatsapp)) === 1
@@ -265,6 +309,7 @@ export async function GET(request: Request) {
         individualNoticeField,
       },
       consulentes, cavalinhos, recepcao,
+      cavalinhoEntityCoverage,
       additionalReceptionDiagnostics: additional.diagnostics,
       receptionSummaryPreview: {
         appointmentCount: rows.length,

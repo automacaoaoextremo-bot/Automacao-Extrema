@@ -73,9 +73,12 @@ export function formatTucxaReceptionSummary(input: {
       const unavailableReason = input.unavailableEntityReasons?.get(id);
       if (unavailableReason !== undefined) {
         // Nao tratar toda suspensao como ausencia pessoal.
-        const absence = /ausen|falt|n[aã]o.*(comparec|vir|estar)|impossibilitad/i.test(unavailableReason);
+        const normalizedReason = (unavailableReason || "").trim().normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const absence = /ausen|falt|nao.*(comparec|vir|estar)|impossibilitad/i.test(normalizedReason);
         const situation = absence ? "Ausente" : "Indisponível nesta data";
-        return `*${heading}*\n${situation}${!absence && unavailableReason ? ` — ${unavailableReason}` : ""}`;
+        const genericReason = ["indisponivel", "indisponivel nesta data", "sem atendimento", "ausente"].includes(normalizedReason);
+        return `*${heading}*\n${situation}${!absence && !genericReason && unavailableReason ? ` — ${unavailableReason}` : ""}`;
       }
       return `*${heading}*\n${lines.length ? lines.map((item) => `- ${item}`).join("\n") : "Sem consulentes agendados até o momento."}`;
     });
