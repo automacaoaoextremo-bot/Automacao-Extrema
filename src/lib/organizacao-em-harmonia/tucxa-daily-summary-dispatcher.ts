@@ -64,6 +64,22 @@ function uniqueByPhone(people: Person[], diagnostics: Record<string, unknown>[],
   }
   return result;
 }
+/**
+ * Envia para contatos distintos em pequenos lotes concorrentes. A deduplicação
+ * por telefone continua antes desta etapa; nenhum contato passa por dois workers.
+ * Falhas de um destinatário não bloqueiam os demais, sem reenvio automático.
+ */
+async function eachWithConcurrency<T>(items: readonly T[], max: number, task: (item: T) => Promise<void>): Promise<void> {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(max, items.length) }, async () => {
+    for (;;) {
+      const position = index++;
+      if (position >= items.length) break;
+      await task(items[position]);
+    }
+  });
+  await Promise.all(workers);
+}
 function isAuthorized(req: Request): boolean {
   const secrets = [process.env.CRON_SECRET, process.env.TUCXA_SCHEDULER_SECRET].map(x => x?.trim()).filter(Boolean);
   return secrets.some(s => req.headers.get("authorization") === `Bearer ${s}`);
@@ -213,10 +229,8 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
       async function sendInstitutionalReceptionEmail(person: Person, summary: string) {
         const institutionalPhone = "19989045150";
         if (personPhone(person) !== institutionalPhone) return;
-        if (txt(person.email).toLowerCase() !== TUCXA_AUDIT_EMAIL) {
-          diagnostics.push({ audience: "reception_email", personId: person.id, reason: "institutional_email_not_matching" });
-          return;
-        }
+        // O e-mail de login pode ser técnico. O destino institucional é fixo,
+        // e a identidade da Recepção é validada pelo WhatsApp canônico.
         if (!tucxaOperationalSummaryEmailConfigured()) {
           diagnostics.push({ audience: "reception_email", personId: person.id, reason: "smtp_unconfigured" });
           return;
@@ -273,15 +287,23 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
           day.filter((item) => item.isAvailable).reduce((sum, item) => sum + Math.max(0, item.available), 0),
         );
         const message = tucxaReceptionOperationalMessage({ phase, date, entitySummary: summary, totals });
-        for (const person of uniqueByPhone((receptionPeople ?? []) as Person[], diagnostics, audience)) {
-          if (!receptionDispatchAllowed(date, txt(person.id), personPhone(person))) continue;
-          await sendOne(audience, person, message, "Resumo da Recepção", phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
-          // E-mail somente para o cadastro institucional explicitamente incluido
-          // em pilotReceptionAdditionalRecipients, nao para todos os membros.
-          if (additional.people.some((item) => txt(item.id) === txt(person.id))) {
-            await sendInstitutionalReceptionEmail(person, message);
+        const validReceptionPeople = uniqueByPhone((receptionPeople ?? []) as Person[], diagnostics, audience)
+          .filter((person) => receptionDispatchAllowed(date, txt(person.id), personPhone(person)));
+        await eachWithConcurrency(validReceptionPeople, 2, async (person) => {
+          try {
+            await sendOne(audience, person, message, "Resumo da Recepção",
+              phase === "morning" ? "Prévia da manhã da Recepção" : "Atualização da tarde da Recepção");
+            // O e-mail é independente do WhatsApp, mas somente para o contato
+            // institucional explicitamente incluído nos destinatários adicionais.
+            if (additional.people.some((item) => txt(item.id) === txt(person.id))) {
+              await sendInstitutionalReceptionEmail(person, message);
+            }
+          } catch (error) {
+            console.error("[TUCXA resumo Recepção] falha individual", person.id, error);
+            diagnostics.push({ audience, personId: person.id,
+              reason: "processing_exception_check_dispatch_log_before_retry" });
           }
-        }
+        });
       }
 
       if (cavalinhosEnabled) {
@@ -291,11 +313,37 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
           if (!personId || !entityId || !availableIds.includes(entityId)) continue;
           byPerson.set(personId, [...new Set([...(byPerson.get(personId) ?? []), entityId])]);
         }
+        // Diagnóstico de cobertura: uma Entidade escalada sem vínculo ativo não
+        // deve desaparecer silenciosamente do processamento.
+        const linkedAvailableIds = new Set((links ?? []).map(link => txt(link.entity_id)));
+        for (const id of availableIds) {
+          if (!linkedAvailableIds.has(id)) {
+            diagnostics.push({ audience: "cavalinho", entityId: id,
+              entityName: entityNames.get(id) || "Entidade", reason: "available_entity_without_active_recebe_link" });
+          }
+        }
         const uniqueHolders = uniqueByPhone((holders ?? []) as Person[], diagnostics, "cavalinho");
-        for (const person of uniqueHolders) {
+        const validHolderIds = new Set(uniqueHolders.map(person => txt(person.id)));
+        for (const personId of byPerson.keys()) {
+          if (!validHolderIds.has(personId)) {
+            diagnostics.push({ audience: "cavalinho", personId, reason: "linked_holder_without_unique_active_phone" });
+          }
+        }
+        const eligibleHolders = uniqueHolders.filter((person) => {
+          const personId = txt(person.id);
+          if (!(byPerson.get(personId) ?? []).length) return false;
+          if (!mediumDispatchAllowed(date, personId, personPhone(person))) {
+            diagnostics.push({ audience: "cavalinho", personId, reason: "dispatch_policy_blocked" });
+            return false;
+          }
+          return true;
+        });
+        // Antes: envio + auditoria SMTP sequenciais para todos os Cavalinhos.
+        // Lotes pequenos reduzem o risco de esgotar o tempo do cron e preservam
+        // a unicidade por telefone; não se faz reenvio automático em erro incerto.
+        await eachWithConcurrency(eligibleHolders, 2, async (person) => {
           const personId = txt(person.id);
           const entityIds = byPerson.get(personId) ?? [];
-          if (!entityIds.length || !mediumDispatchAllowed(date, personId, personPhone(person))) continue;
           const entitiesForPerson = entityIds.map(id => ({
             name: entityNames.get(id) || "Entidade",
             consulentes: [...(grouped.get(id) ?? [])]
@@ -303,8 +351,21 @@ export async function processTucxaDailySummaries(request: Request, phase: Phase)
               .map((item) => tucxaConsulenteNameWithStatus(item)),
           }));
           const summary = tucxaCavalinhoOperationalMessage({ date, entities: entitiesForPerson });
-          await sendOne("cavalinho", person, summary, entityIds.map(id => entityNames.get(id) || "Entidade").join(" + "), "Resumo da tarde do Cavalinho");
-        }
+          try {
+            await sendOne("cavalinho", person, summary,
+              entityIds.map(id => entityNames.get(id) || "Entidade").join(" + "),
+              "Resumo da tarde do Cavalinho");
+          } catch (error) {
+            // Uma falha não cancela os demais. É necessário conferir o estado
+            // persistido e os logs antes de qualquer tentativa de reenvio.
+            console.error("[TUCXA resumo Cavalinho] falha individual", personId, error);
+            diagnostics.push({ audience: "cavalinho", personId,
+              reason: "processing_exception_check_dispatch_log_before_retry" });
+          }
+        });
+        diagnostics.push({ audience: "cavalinho", reason: "coverage_summary",
+          linkedUniqueHolders: byPerson.size, eligibleUniqueHolders: eligibleHolders.length,
+          resultRows: results.filter(row => row.audience === "cavalinho").length });
       }
     }
     return Response.json({ ok: true, date, phase, time, messagesSent: results.filter(r => r.sent).length, diagnostics, results });
