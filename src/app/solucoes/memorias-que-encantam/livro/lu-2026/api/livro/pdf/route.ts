@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { hasLuAdminAccess } from "@/lib/education/lu-teacher-auth";
 import { getLuProject } from "@/lib/education/lu-storage";
@@ -11,19 +11,39 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   if (!(await hasLuAdminAccess())) {
     return NextResponse.json({ error: "Acesso docente necessario." }, { status: 401 });
   }
+  const pages = request.nextUrl.searchParams.get("paginas") || "14";
+  if (pages !== "2" && pages !== "14") {
+    return NextResponse.json({ error: "Informe paginas=2 ou paginas=14." }, { status: 400 });
+  }
   try {
     const project = await getLuProject();
-    if (!project.media_authorized || !project.illustrations_released) {
-      return NextResponse.json({ error: "Autorize e libere as ilustracoes na curadoria antes de gerar o livro impresso." }, { status: 409 });
+    if (!project.media_authorized) {
+      return NextResponse.json({ error: "Autorize o material da escola antes de gerar o livro." }, { status: 409 });
     }
-    const [order, illustrations] = await Promise.all([
-      getLuTrackOrder(),
-      getLuIllustrations({ admin: false, publicView: true, authorized: project.media_authorized, released: project.illustrations_released })
-    ]);
+    const order = await getLuTrackOrder();
+
+    // Versao curta: somente apresentacao e indice, sem buscar imagens privadas.
+    if (pages === "2") {
+      const pdf = buildLuBookPdf(order, [], "print");
+      return new NextResponse(new Uint8Array(pdf), { headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="lu-2026-livro-musical-2-paginas.pdf"',
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff"
+      } });
+    }
+
+    // Versao completa: mantem a regra anterior de liberacao das ilustracoes.
+    if (!project.illustrations_released) {
+      return NextResponse.json({ error: "Libere as ilustracoes aprovadas antes de gerar o PDF completo." }, { status: 409 });
+    }
+    const illustrations = await getLuIllustrations({
+      admin: false, publicView: true, authorized: project.media_authorized, released: project.illustrations_released
+    });
     const chosen = order.map((id) => illustrations.find((item) => item.track_id === id && item.is_featured && item.url)
       || illustrations.find((item) => item.track_id === id && item.url));
     const missing = order.filter((_, i) => !chosen[i]);
@@ -54,7 +74,7 @@ export async function GET() {
       }));
       pictures.push(...group);
     }
-    const pdf = buildLuBookPdf(order, pictures);
+    const pdf = buildLuBookPdf(order, pictures, "complete");
     return new NextResponse(new Uint8Array(pdf), { headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": 'attachment; filename="lu-2026-livro-musical-14-paginas.pdf"',
