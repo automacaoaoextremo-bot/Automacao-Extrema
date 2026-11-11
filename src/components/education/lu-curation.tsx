@@ -182,11 +182,11 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     }
   }
 
-  async function generateBookPdf() {
-    setBusy("bookpdf");
+  async function generateBookPdf(pages: 2 | 14) {
+    setBusy(`bookpdf${pages}`);
     setPdfError("");
     try {
-      const response = await fetch(`${LU_BASE_PATH}/api/livro/pdf`, { cache: "no-store" });
+      const response = await fetch(`${LU_BASE_PATH}/api/livro/pdf?paginas=${pages}`, { cache: "no-store" });
       if (!response.ok) {
         const data = await response.json() as { error?: string };
         throw new Error(data.error || "Nao foi possivel gerar o livro.");
@@ -196,7 +196,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
       const fileUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = fileUrl;
-      link.download = "lu-2026-livro-musical-14-paginas.pdf";
+      link.download = `lu-2026-livro-musical-${pages}-paginas.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -315,8 +315,13 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           <button type="button" onClick={() => { setPanel("qr"); setQrTrack("geral"); setQrPreview(false); setCurrent(null); setOpen(true); }}>
             ▦ Gerar QR Codes <small>CLIQUE PARA ABRIR</small>
           </button>
-          <button type="button" disabled={busy !== ""} onClick={() => void generateBookPdf()}>
-            📖 {busy === "bookpdf" ? "Preparando PDF..." : "Gerar livro musical em PDF"} <small>A4 • 14 PAGINAS • 12 DESENHOS E QRS</small>
+          <button type="button" disabled={busy !== ""} onClick={() => void generateBookPdf(2)}>
+            🖨️ {busy === "bookpdf2" ? "Preparando PDF para impressão..." : "Gerar PDF para impressão (2 páginas)"}
+            <small>A4 • APRESENTAÇÃO E ÍNDICE • 13 QR CODES</small>
+          </button>
+          <button type="button" disabled={busy !== ""} onClick={() => void generateBookPdf(14)}>
+            📖 {busy === "bookpdf14" ? "Preparando PDF completo..." : "Gerar livro musical completo (14 páginas)"}
+            <small>A4 • 12 DESENHOS • 13 QR CODES</small>
           </button>
         </div>
         {pdfError && <p className="lu-alert" role="alert">{pdfError}</p>}

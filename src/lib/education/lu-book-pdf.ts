@@ -2,6 +2,7 @@ import "server-only";
 import QRCode from "qrcode";
 import { deflateSync } from "node:zlib";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
+import { LU_PDF_BRAND_JPEG, LU_PDF_BRAND_WIDTH, LU_PDF_BRAND_HEIGHT } from "@/lib/education/lu-pdf-branding";
 
 const W = 595.28;
 const H = 841.89;
@@ -9,6 +10,7 @@ const BASE_URL = `https://www.automacaoextrema.com${LU_BASE_PATH}`;
 
 type ImageForPdf = { trackId: string; jpeg: Buffer; width: number; height: number };
 type BookPage = { content: string; images?: { ref: number; name: string }[]; links?: number[] };
+export type LuBookEdition = "print" | "complete";
 
 const special: Record<string, number> = { "€":128,"‚":130,"ƒ":131,"„":132,"…":133,"†":134,"‡":135,"•":149,"–":150,"—":151,"‘":145,"’":146,"“":147,"”":148 };
 function hex(value: string): string {
@@ -46,14 +48,19 @@ function linkAnnotation(url: string, x: number, y: number, w: number, h: number)
   return `<< /Type /Annot /Subtype /Link /Rect [${x} ${y} ${x+w} ${y+h}] /Border [0 0 0] /A << /S /URI /URI (${safe}) >> >>`;
 }
 
-/** Livro A4: capa/apresentacao + indice (12 QRs) + uma pagina por cantiga. */
-export function buildLuBookPdf(orderedIds: string[], pictures: ImageForPdf[]): Buffer {
+/** A4: formato de impressao (2 paginas) ou livro ilustrado (14 paginas). */
+export function buildLuBookPdf(
+  orderedIds: string[],
+  pictures: ImageForPdf[] = [],
+  edition: LuBookEdition = "complete"
+): Buffer {
+  if (edition !== "print" && edition !== "complete") throw new Error("Formato de livro invalido.");
   const allowed = new Set<string>(luTracks.map((t) => t.id));
   if (orderedIds.length !== 12 || new Set(orderedIds).size !== 12 || !orderedIds.every((id) => allowed.has(id))) {
     throw new Error("Ordem do livro invalida.");
   }
   const imageMap = new Map(pictures.map((p) => [p.trackId, p]));
-  if (imageMap.size !== 12 || orderedIds.some((id) => !imageMap.has(id))) {
+  if (edition === "complete" && (imageMap.size !== 12 || orderedIds.some((id) => !imageMap.has(id)))) {
     throw new Error("Todas as 12 ilustracoes aprovadas sao obrigatorias para o PDF final.");
   }
 
@@ -66,6 +73,12 @@ export function buildLuBookPdf(orderedIds: string[], pictures: ImageForPdf[]): B
   const rootPages = add("");
   const regular = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
   const bold = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  // O logo e um unico objeto PDF reutilizado no rodape de todas as paginas.
+  const brandRef = add(Buffer.concat([
+    Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${LU_PDF_BRAND_WIDTH} /Height ${LU_PDF_BRAND_HEIGHT} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${LU_PDF_BRAND_JPEG.length} >>\nstream\n`),
+    LU_PDF_BRAND_JPEG,
+    Buffer.from("\nendstream")
+  ]));
   const pageRefs: number[] = [];
 
   function page(arg: BookPage) {
@@ -74,24 +87,29 @@ export function buildLuBookPdf(orderedIds: string[], pictures: ImageForPdf[]): B
       Buffer.from(`<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n`),
       content, Buffer.from("\nendstream")
     ]));
-    const imgResources = (arg.images || []).map((it) => `/${it.name} ${it.ref} 0 R`).join(" ");
+    const imgResources = [`/AELogo ${brandRef} 0 R`, ...(arg.images || []).map((it) => `/${it.name} ${it.ref} 0 R`)].join(" ");
     const annots = arg.links?.length ? `/Annots [${arg.links.map((n) => `${n} 0 R`).join(" ")}]` : "";
     pageRefs.push(add(`<< /Type /Page /Parent ${rootPages} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${regular} 0 R /F2 ${bold} 0 R >> /XObject << ${imgResources} >> >> /Contents ${contentsRef} 0 R ${annots} >>`));
   }
   function annotation(url: string, x: number, y: number, w: number, h: number): number {
     return add(linkAnnotation(url, x, y, w, h));
   }
+  const totalPages = edition === "print" ? 2 : 14;
   function footer(current: number): string {
+    // Margem de impressao: creditos completos, marca de autoria e paginacao correta.
     return box(48, 61, 500, 1.5, "0.78 0.88 0.82") +
-      txt("MEMORIAS QUE ENCANTAM  |  PROFESSORA LU - 2026", 48, 43, 9) +
-      txt(`${current} / 14`, 505, 43, 9);
+      txt("MEMÓRIAS QUE ENCANTAM  |  PROFESSORA LU • PROFESSORA FAFA • TIA MANU", 48, 46, 8.1) +
+      txt(`${current} / ${totalPages}`, 523, 46, 9) +
+      txt("Desenvolvido por", 324, 25, 9) +
+      "q 105 0 0 31.5 415 12 cm /AELogo Do Q\n";
   }
 
   // Pagina 1: apresentacao + QR geral.
   let cover = box(0, 0, W, H, "0.99 0.99 0.96");
   cover += box(0, 700, W, 142, "0.86 0.95 0.89");
   cover += txt("NOSSO LIVRO MUSICAL", 86, 759, 27, true);
-  cover += txt("Memorias que Encantam  |  Professora Lu - 2026", 90, 727, 12);
+  cover += txt("Memórias que Encantam  |  2026", 192, 733, 12);
+  cover += txt("Professora Lu • Professora Fafa • Tia Manu", 158, 708, 11);
   cover += txt("Cada cantiga guarda um momento especial da nossa turma.", 74, 656, 13);
   cover += txt("As vozes e os desenhos tornam estas lembrancas ainda mais vivas.", 74, 633, 13);
   cover += txt("Aponte a camera do celular para ouvir as musicas do livro:", 74, 598, 12);
@@ -122,7 +140,7 @@ export function buildLuBookPdf(orderedIds: string[], pictures: ImageForPdf[]): B
   page({ content: index, links: indexLinks });
 
   // Paginas 3 a 14: uma ilustracao validada e um QR permanente por cantiga.
-  orderedIds.forEach((id, n) => {
+  if (edition === "complete") orderedIds.forEach((id, n) => {
     const track = luTracks.find((t) => t.id === id)!;
     const picture = imageMap.get(id)!;
     if (picture.width < 1 || picture.height < 1 || picture.jpeg.length < 50) {
