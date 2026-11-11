@@ -87,6 +87,7 @@ type AgendaEvent = {
   recurrenceLabel: string;
   notes: string;
   continuesDuringVacation: boolean;
+  agendaImportantDate?: boolean;
 };
 
 type AgendaPreferences = {
@@ -284,6 +285,14 @@ function metadataBoolean(event: EventRecord, keys: string[], fallback = false) {
     if (["false", "0", "nao", "não", "n", "no"].includes(text)) return false;
   }
   return fallback;
+}
+
+/** Undefined preserva a identificacao legada dos eventos sem marcador. */
+function agendaImportantDate(event: EventRecord): boolean | undefined {
+  const metadata = asRecord(event.metadata);
+  const keys = ["agendaImportantDate", "agenda_important_date"];
+  if (!keys.some((key) => Object.prototype.hasOwnProperty.call(metadata, key))) return undefined;
+  return metadataBoolean(event, keys, false);
 }
 
 function continuesDuringVacation(event: EventRecord) {
@@ -807,6 +816,7 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     eventCollection: eventCollection(event),
     calendarColorKey: calendarColorKey(event),
     eventSubtype: eventSubtype(event),
+    agendaImportantDate: agendaImportantDate(event),
     audience: eventAudience(event),
     responsiblePersonId: asText(event.responsible_person_id),
     responsiblePersonName: asText(responsible?.name) || "Responsável a definir",

@@ -22,6 +22,8 @@ export type AnnualCalendarEvent = {
   description?: string;
   /** Nome exibido no cadastro da Agenda Viva para a pessoa responsavel. */
   responsiblePersonName?: string;
+  /** Cadastro explicito de Datas Importantes; ausente nos eventos antigos. */
+  agendaImportantDate?: boolean;
   associatedToCurrentPerson: boolean;
 };
 
@@ -54,48 +56,61 @@ const activityLegend = [
   { label: "Férias / recesso", color: "#F7E2A8", text: "#594410" },
 ] as const;
 
-/** Datas especiais derivadas exclusivamente dos eventos aprovados recebidos da API. */
-function specialAgendaNotes(events: AnnualCalendarEvent[], year: number) {
+/**
+ * Datas importantes provem do cadastro (metadata.agendaImportantDate).
+ * Cadastros anteriores sem o campo mantem a classificacao legada pelo titulo.
+ * Eventos explicitamente desmarcados nao aparecem, mesmo que o titulo coincida.
+ */
+function isImportantAgendaEvent(event: AnnualCalendarEvent) {
+  if (typeof event.agendaImportantDate === "boolean") return event.agendaImportantDate;
+  const title = normalize(event.title);
+  return ["ferias", "recesso", "mutirao", "limpeza", "cavalinho", "cambono", "encerramento"]
+    .some((keyword) => title.includes(keyword));
+}
+
+/** Compara intervalos na data civil de Campinas, sem horario nem conversao UTC adicional. */
+function intersectsCalendarPeriod(start: string, end: string, year: number, month?: number) {
+  if (!start) return false;
+  const first = month === undefined ? `${year}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const last = month === undefined
+    ? `${year}-12-31`
+    : new Date(Date.UTC(year, month + 1, 0, 12)).toISOString().slice(0, 10);
+  return start <= last && (end || start) >= first;
+}
+
+function specialAgendaNotes(events: AnnualCalendarEvent[], year: number, month?: number) {
   const seen = new Set<string>();
   const notes: { date: string; label: string; color: string }[] = [];
   for (const event of events) {
-    if (isInactive(event)) continue;
+    if (isInactive(event) || !isImportantAgendaEvent(event)) continue;
     const date = eventDateOnly(event.startsAt);
-    if (!date.startsWith(`${year}-`)) continue;
-    const title = normalize(event.title);
-    let group = "";
-    let color = "#FAEDC4";
-    if (title.includes("ferias") || title.includes("recesso")) {
-      group = "Férias / recesso";
-      color = "#D9E8D6";
-    } else if (title.includes("mutirao") || title.includes("limpeza")) {
-      group = "Mutirão / limpeza";
-    } else if (title.includes("cavalinho") || title.includes("cambono")) {
-      const detail = title.includes("retorno") || title.includes("ferias")
-        ? " · Retorno das férias"
-        : title.includes("inicio") ? " · Início do ano" : "";
-      group = `Trabalho para Cavalinhos e Cambonos${detail}`;
-    } else if (title.includes("encerramento")) {
-      group = "Encerramento anual";
-    }
-    if (!group) continue;
-    const key = `${group}:${date}`;
+    const rawEnd = eventDateOnly(event.endsAt);
+    const end = rawEnd >= date ? rawEnd : date;
+    if (!intersectsCalendarPeriod(date, end, year, month)) continue;
+    const title = event.title.trim();
+    if (!title) continue;
+    const key = `${event.id}:${date}:${end}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const start = `${date.slice(8, 10)}/${date.slice(5, 7)}`;
-    const end = eventDateOnly(event.endsAt);
-    const range = end > date ? ` a ${end.slice(8, 10)}/${end.slice(5, 7)}` : "";
-    notes.push({ date, label: `${start}${range} · ${group}`, color });
+    const isVacation = /ferias|recesso/.test(normalize(title));
+    const startLabel = `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+    const endLabel = end > date ? ` a ${end.slice(8, 10)}/${end.slice(5, 7)}` : "";
+    notes.push({
+      date,
+      label: `${startLabel}${endLabel} · ${title}`,
+      color: isVacation ? "#D9E8D6" : "#FAEDC4",
+    });
   }
   return notes.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label, "pt-BR"));
 }
 
-/** Conteúdo da janela Datas Importantes, sem duplicá-lo abaixo da legenda. */
-export function AgendaImportantDates({ events, year }: { events: AnnualCalendarEvent[]; year: number }) {
-  const notes = useMemo(() => specialAgendaNotes(events, year), [events, year]);
-  if (!notes.length) return <p className="text-sm text-[#526954]">Não há datas importantes aprovadas para {year}.</p>;
+/** Conteudo exclusivo do popup: lista do ano ou somente do mes selecionado. */
+export function AgendaImportantDates({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
+  const notes = useMemo(() => specialAgendaNotes(events, year, month), [events, year, month]);
+  const period = month === undefined ? `em ${year}` : `em ${MONTHS_PT[month]} de ${year}`;
+  if (!notes.length) return <p className="text-sm text-[#526954]">Não há datas importantes aprovadas {period}.</p>;
   return (
-    <div className="grid gap-2" aria-label={`Datas importantes em ${year}`}>
+    <div className="grid gap-2" aria-label={`Datas importantes ${period}`}>
       {notes.map((item) => (
         <div key={`${item.date}:${item.label}`} className="rounded-xl px-3 py-3 text-center text-sm font-semibold text-[#263547]"
           style={{ backgroundColor: item.color }}>{item.label}</div>
@@ -104,10 +119,12 @@ export function AgendaImportantDates({ events, year }: { events: AnnualCalendarE
   );
 }
 
-function responsibleEntries(events: AnnualCalendarEvent[], year: number) {
+function responsibleEntries(events: AnnualCalendarEvent[], year: number, month?: number) {
   const unique = new Map<string, AnnualCalendarEvent>();
   for (const event of events) {
-    if (isInactive(event) || !eventDateOnly(event.startsAt).startsWith(`${year}-`)) continue;
+    const start = eventDateOnly(event.startsAt);
+    const end = eventDateOnly(event.endsAt);
+    if (isInactive(event) || !intersectsCalendarPeriod(start, end >= start ? end : start, year, month)) continue;
     const title = event.title.trim();
     const responsible = event.responsiblePersonName?.trim() ?? "";
     if (!title) continue;
@@ -118,9 +135,9 @@ function responsibleEntries(events: AnnualCalendarEvent[], year: number) {
 }
 
 /** Lista sem duplicar atividades recorrentes; mantém o responsável do cadastro. */
-export function AgendaResponsibleList({ events, year }: { events: AnnualCalendarEvent[]; year: number }) {
-  const entries = useMemo(() => responsibleEntries(events, year), [events, year]);
-  if (!entries.length) return <p className="text-sm text-[#526954]">Não há outras atividades aprovadas para {year}.</p>;
+export function AgendaResponsibleList({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
+  const entries = useMemo(() => responsibleEntries(events, year, month), [events, year, month]);
+  if (!entries.length) return <p className="text-sm text-[#526954]">Não há outras atividades aprovadas para o período selecionado.</p>;
   return (
     <div className="grid gap-2 sm:grid-cols-2" aria-label={`Atividades e responsáveis em ${year}`}>
       {entries.map((event) => {
@@ -147,10 +164,10 @@ function ActivityLegend({ mode, events, year, onOpenDetails }: { mode: "tucxa" |
         <h3 className="min-w-0 text-sm font-black text-[#123D2C]">Legenda de atividades</h3>
         {onOpenDetails && (
           <button type="button" onClick={onOpenDetails}
-            className="shrink-0 rounded-xl border border-[#B7D0BF] bg-[#E9F2E7] px-3 py-1.5 text-center font-black leading-tight text-[#123D2C] focus-visible:outline-2 focus-visible:outline-[#123D2C]"
+            className="shrink-0 rounded-xl border-2 border-[#387F52] bg-[#D7EED8] px-3 py-2 text-center font-black leading-tight text-[#123D2C] shadow-sm ring-2 ring-[#DDEBDD] transition hover:bg-[#BFDFC5] focus-visible:outline-2 focus-visible:outline-[#123D2C]"
             aria-label={`Abrir ${label}`}>
-            <span className="block text-[0.65rem] sm:text-xs">{label}</span>
-            <span className="block text-[0.5rem] tracking-wide">TOQUE PARA ABRIR</span>
+            <span className="block text-xs sm:text-sm">{label}</span>
+            <span className="mt-0.5 block text-[0.5rem] font-bold tracking-wider">TOQUE PARA ABRIR</span>
           </button>
         )}
       </div>
@@ -192,20 +209,6 @@ function CalendarDisplayToolbar({ year, display, onChangeDisplay }: {
 }
 
 const MONTHS_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-
-function MonthSelector({ month, onChange }: { month: number; onChange?: (next: number) => void }) {
-  return (
-    <div className="mb-3 flex items-center justify-center gap-2" aria-label="Selecionar mês">
-      <button type="button" onClick={() => onChange?.((month + 11) % 12)} className="rounded-xl border border-[#B7D0BF] bg-white px-3 py-2 text-[#123D2C]" aria-label="Mês anterior">‹</button>
-      <label className="sr-only" htmlFor="agenda-anual-mes">Mês</label>
-      <select id="agenda-anual-mes" value={month} onChange={(event) => onChange?.(Number(event.target.value))}
-        className="rounded-xl border border-[#B7D0BF] bg-white px-3 py-2 text-sm font-bold text-[#123D2C]">
-        {MONTHS_PT.map((name, index) => <option value={index} key={name}>{name}</option>)}
-      </select>
-      <button type="button" onClick={() => onChange?.((month + 1) % 12)} className="rounded-xl border border-[#B7D0BF] bg-white px-3 py-2 text-[#123D2C]" aria-label="Próximo mês">›</button>
-    </div>
-  );
-}
 
 const sementinhaLegend = [
   { key: "bazar", label: "Bazar", color: "#C97ADC" },
@@ -519,11 +522,11 @@ type FocusedCalendarProps = {
   onShowDetails?: () => void;
 };
 
-function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onChangeMonth, onShowDetails }: FocusedCalendarProps) {
+function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
       <CalendarDisplayToolbar year={year} display={display} onChangeDisplay={onChangeDisplay} />
-      {display === "monthly" && <MonthSelector month={month} onChange={onChangeMonth} />}
+      {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay}
         visibleMonths={display === "monthly" ? [month] : undefined} />
       <ActivityLegend mode="tucxa" events={events} year={year} onOpenDetails={onShowDetails} />
@@ -531,11 +534,11 @@ function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 
   );
 }
 
-function OthersCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onChangeMonth, onShowDetails }: FocusedCalendarProps) {
+function OthersCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
       <CalendarDisplayToolbar year={year} display={display} onChangeDisplay={onChangeDisplay} />
-      {display === "monthly" && <MonthSelector month={month} onChange={onChangeMonth} />}
+      {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={otherAgendaTone} variant="umbanda" onSelectDay={onSelectDay}
         visibleMonths={display === "monthly" ? [month] : undefined} />
       <ActivityLegend mode="others" events={events} year={year} onOpenDetails={onShowDetails} />
