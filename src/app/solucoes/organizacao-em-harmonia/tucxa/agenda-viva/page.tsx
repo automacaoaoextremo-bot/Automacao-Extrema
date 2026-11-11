@@ -34,6 +34,7 @@ type AgendaEvent = {
   recurrenceLabel: string;
   notes: string;
   continuesDuringVacation?: boolean;
+  agendaImportantDate?: boolean;
 };
 
 type FilterOption = {
@@ -1129,6 +1130,17 @@ export default function AgendaVivaPublicaPage() {
   }
 
 
+  /** Navegacao unificada: meses na visao MENSAL, anos na visao ANUAL. */
+  function advanceAnnualCalendar(direction: -1 | 1) {
+    if (annualDisplay === "monthly") {
+      const next = addMonths(new Date(Date.UTC(periodStart.getUTCFullYear(), annualMonth, 1, 12)), direction);
+      setPeriodStart(next);
+      setAnnualMonth(next.getUTCMonth());
+      return;
+    }
+    setPeriodStart((current) => addYears(current, direction));
+  }
+
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
     if (events.length === 0) return;
 
@@ -1273,9 +1285,9 @@ export default function AgendaVivaPublicaPage() {
         >
           <div className="grid gap-3">
             <div className="agenda-no-print grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
+              <button type="button" onClick={() => advanceAnnualCalendar(-1)} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
               <button type="button" onClick={() => window.print()} className="whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, 1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
+              <button type="button" onClick={() => advanceAnnualCalendar(1)} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
             </div>
             <AnnualCalendarView
               mode={calendarMode as AnnualCalendarMode}
@@ -1295,11 +1307,11 @@ export default function AgendaVivaPublicaPage() {
       {calendarOpen && annualDetailPopup && calendarMode !== "interactive" && (
         <ModalShell
           title={annualDetailPopup === "important" ? "Datas Importantes" : "Atividades e Responsáveis"}
-          onClose={() => setAnnualDetailPopup(null)}
+          onClose={() => { setAnnualDetailPopup(null); setCalendarOpen(true); }}
         >
           {annualDetailPopup === "important"
-            ? <AgendaImportantDates events={calendarModeEvents} year={periodStart.getUTCFullYear()} />
-            : <AgendaResponsibleList events={calendarModeEvents} year={periodStart.getUTCFullYear()} />}
+            ? <AgendaImportantDates events={calendarModeEvents} year={periodStart.getUTCFullYear()} month={annualDisplay === "monthly" ? annualMonth : undefined} />
+            : <AgendaResponsibleList events={calendarModeEvents} year={periodStart.getUTCFullYear()} month={annualDisplay === "monthly" ? annualMonth : undefined} />}
         </ModalShell>
       )}
 

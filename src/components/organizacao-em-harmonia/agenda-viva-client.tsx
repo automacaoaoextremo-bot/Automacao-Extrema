@@ -173,6 +173,7 @@ type FormState = {
   eventCollection: string;
   sementinhaEventType: string;
   specialEventType: string;
+  agendaImportantDate: boolean;
   groupSlug: string;
   responsiblePersonId: string;
   notes: string;
@@ -310,6 +311,7 @@ const emptyForm: FormState = {
   eventCollection: "",
   sementinhaEventType: "",
   specialEventType: "",
+  agendaImportantDate: false,
   groupSlug: "",
   responsiblePersonId: "",
   notes: "",
@@ -1096,6 +1098,13 @@ function AgendaEventForm({
             <option value="retorno-ferias">Retorno das férias — todos os grupos</option>
           </select>
         </label>
+        <label className="flex items-start gap-3 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100 md:col-span-2">
+          <input type="checkbox" checked={form.agendaImportantDate} onChange={(event) => update("agendaImportantDate", event.target.checked)} className="mt-1 h-5 w-5" />
+          <span className="text-sm font-black text-[#00334E]">
+            Exibir em Datas Importantes (calendário Umbanda)
+            <span className="mt-1 block text-xs font-semibold leading-5 text-slate-600">Utiliza o nome da atividade e as datas de início e término cadastradas, sem mostrar os horários. Somente eventos publicados aparecerão.</span>
+          </span>
+        </label>
         <label className="grid gap-1">
           <span className="text-sm font-black text-[#00334E]">Responsável</span>
           <select value={form.responsiblePersonId} onChange={(event) => update("responsiblePersonId", event.target.value)} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1275,6 +1284,7 @@ function EventDetails({ event, payload }: { event: AgendaEvent; payload: Payload
         <AdminDetailItem label="Tipo de atividade">{type?.name || event.event_type || "Atividade"}</AdminDetailItem>
         <AdminDetailItem label="Classificação">{eventClassificationLabel(eventClassification(event))}</AdminDetailItem>
         <AdminDetailItem label="Coleção/calendário">{eventCollectionLabel(eventCollection(event))}</AdminDetailItem>
+        <AdminDetailItem label="Datas Importantes">{metadataBooleanAny(event, ["agendaImportantDate", "agenda_important_date"], /ferias|recesso|mutirao|limpeza|cavalinho|cambono|encerramento/.test(normalizeText(event.title))) ? "Sim" : "Não"}</AdminDetailItem>
         {eventClassification(event) === "sementinha" && <AdminDetailItem label="Tipo do Sementinha">{sementinhaEventTypeLabel(sementinhaEventType(event))}</AdminDetailItem>}
         {specialEventType(event) && <AdminDetailItem label="Tratamento especial">{specialEventType(event) === "retorno-ferias" ? "Retorno das férias — todos os grupos" : specialEventType(event)}</AdminDetailItem>}
         <AdminDetailItem label="Público">{audienceLabel(eventAudience(event))}</AdminDetailItem>
@@ -1913,6 +1923,7 @@ export function AgendaVivaClientPage({ mode }: { mode: Mode }) {
       eventCollection: eventCollection(event),
       sementinhaEventType: sementinhaEventType(event),
       specialEventType: specialEventType(event),
+      agendaImportantDate: metadataBooleanAny(event, ["agendaImportantDate", "agenda_important_date"], /ferias|recesso|mutirao|limpeza|cavalinho|cambono|encerramento/.test(normalizeText(event.title))),
       groupSlug: event.group_slug ?? "",
       responsiblePersonId: event.responsible_person_id ?? "",
       notes: event.notes ?? "",
