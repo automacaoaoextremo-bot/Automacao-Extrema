@@ -121,39 +121,64 @@ export function AgendaImportantDates({ events, year, month }: { events: AnnualCa
   );
 }
 
-function responsibleEntries(events: AnnualCalendarEvent[], year: number, month?: number) {
-  const unique = new Map<string, AnnualCalendarEvent>();
+type ResponsibleEntry = {
+  event: AnnualCalendarEvent;
+  date: string;
+  endDate: string;
+};
+
+/**
+ * Cada ocorrencia aprovada tem sua propria data. Nao agrupar apenas pelo titulo:
+ * varios bazares, pizzas ou encontros no mesmo ano precisam aparecer na lista.
+ */
+function responsibleEntries(events: AnnualCalendarEvent[], year: number, month?: number): ResponsibleEntry[] {
+  const unique = new Map<string, ResponsibleEntry>();
   for (const event of events) {
     const start = eventDateOnly(event.startsAt);
-    const end = eventDateOnly(event.endsAt);
-    if (isInactive(event) || !intersectsCalendarPeriod(start, end >= start ? end : start, year, month)) continue;
-    const title = event.title.trim();
-    const responsible = event.responsiblePersonName?.trim() ?? "";
-    if (!title) continue;
-    const key = `${normalize(title)}::${normalize(responsible)}`;
-    if (!unique.has(key)) unique.set(key, event);
+    const rawEnd = eventDateOnly(event.endsAt);
+    const end = rawEnd >= start ? rawEnd : start;
+    if (isInactive(event) || !intersectsCalendarPeriod(start, end, year, month)) continue;
+    if (!event.title.trim()) continue;
+
+    const key = `${event.id}::${start}::${end}`;
+    if (!unique.has(key)) unique.set(key, { event, date: start, endDate: end });
   }
-  return [...unique.values()].sort((left, right) => left.title.localeCompare(right.title, "pt-BR"));
+  return [...unique.values()].sort((left, right) =>
+    right.date.localeCompare(left.date) ||
+    left.event.title.localeCompare(right.event.title, "pt-BR") ||
+    (left.event.responsiblePersonName ?? "").localeCompare(right.event.responsiblePersonName ?? "", "pt-BR"),
+  );
 }
 
-/** Lista sem duplicar atividades recorrentes; mantém o responsável do cadastro. */
+function formatCalendarDate(date: string) {
+  return `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
+}
+
+/** Exibe todas as ocorrencias com data decrescente e responsavel do cadastro. */
 export function AgendaResponsibleList({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
   const entries = useMemo(() => responsibleEntries(events, year, month), [events, year, month]);
+  const period = month === undefined ? `${year}` : `${MONTHS_PT[month]} de ${year}`;
   if (!entries.length) return <p className="text-sm text-[#526954]">Não há outras atividades aprovadas para o período selecionado.</p>;
   return (
-    <div className="grid gap-2 sm:grid-cols-2" aria-label={`Atividades e responsáveis em ${year}`}>
-      {entries.map((event) => {
+    <section className="grid gap-1.5 sm:grid-cols-2" aria-label={`Atividades e responsáveis em ${period}`}>
+      {entries.map(({ event, date, endDate }) => {
         const tone = otherAgendaTone(event);
+        const dateLabel = endDate > date
+          ? `${formatCalendarDate(date)} a ${formatCalendarDate(endDate)}`
+          : formatCalendarDate(date);
         return (
-          <article key={`${normalize(event.title)}::${normalize(event.responsiblePersonName ?? "")}`}
-            className="min-w-0 rounded-xl border p-3 text-sm leading-snug"
+          <article key={`${event.id}::${date}::${endDate}`}
+            className="min-w-0 rounded-lg border px-2.5 py-2 text-xs leading-snug sm:text-sm"
             style={{ borderColor: tone.border, backgroundColor: tone.background, color: tone.text }}>
-            <h3 className="break-words font-black">{event.title}</h3>
-            <p className="mt-2 break-words font-medium">Responsável: {event.responsiblePersonName?.trim() || "Não informado"}</p>
+            <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-0.5">
+              <h3 className="min-w-0 flex-1 break-words font-black">{event.title}</h3>
+              <time dateTime={date} className="shrink-0 font-black tabular-nums">{dateLabel}</time>
+            </div>
+            <p className="mt-0.5 break-words font-medium">Responsável: {event.responsiblePersonName?.trim() || "Não informado"}</p>
           </article>
         );
       })}
-    </div>
+    </section>
   );
 }
 
@@ -345,7 +370,9 @@ function sementinhaTone(event: AnnualCalendarEvent): CalendarTone {
 function otherAgendaTone(event: AnnualCalendarEvent): CalendarTone {
   const classification = normalize(event.classification);
   const title = normalize(`${event.title} ${event.eventTypeLabel}`);
-  if (classification.includes("sementinha") || normalize(event.eventCollection ?? "").includes("sementinha")) {
+  if (classification.includes("social") || classification.includes("comunidade") ||
+      classification.includes("sementinha") || normalize(event.eventCollection ?? "").includes("sementinha")) {
+    // Social / Comunidade usa a mesma cor roxa da legenda, inclusive Bazar.
     return { background: "#BD8BD2", border: "#9565AE", text: "#381C47" };
   }
   if (title.includes("curso") || title.includes("estudo") || title.includes("palestra") || title.includes("clube do livro")) {
