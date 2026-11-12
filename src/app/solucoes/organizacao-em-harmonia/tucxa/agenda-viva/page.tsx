@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
+import { createPortal } from "react-dom";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
@@ -1405,6 +1406,25 @@ export default function AgendaVivaPublicaPage() {
       )}
 
       {selectedDay && <DayEventsModal day={selectedDay} onClose={() => setSelectedDay(null)} />}
+
+      {/* Impressao isolada do restante da pagina. O calendario do modal continua
+          sendo a unica fonte dos eventos; evita a segunda pagina fantasma. */}
+      {typeof document !== "undefined" && (annualGuideOpen || (calendarOpen && calendarMode !== "interactive")) && createPortal(
+        <section data-agenda-print-root aria-label="Agenda Viva para impressao">
+          {annualGuideOpen ? (
+            <DynamicAnnualTucxaPoster events={filteredEvents} year={periodStart.getUTCFullYear()} />
+          ) : (
+            <AnnualCalendarView
+              mode={calendarMode as AnnualCalendarMode}
+              events={calendarModeEvents}
+              year={periodStart.getUTCFullYear()}
+              display={annualDisplay}
+              month={annualMonth}
+            />
+          )}
+        </section>,
+        document.body,
+      )}
     </main>
   );
 }
