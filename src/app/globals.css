@@ -34,28 +34,100 @@ button {
   font: inherit;
 }
 
-@media print {
-  body * {
-    visibility: hidden !important;
-  }
-
-  [data-agenda-pdf],
-  [data-agenda-pdf] * {
-    visibility: visible !important;
-  }
-
-  [data-agenda-pdf] {
-    position: absolute !important;
-    inset: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 100% !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-  }
-
-  .agenda-no-print {
+/* O calendario para PDF e renderizado em um portal unico no body.
+   Na tela ele nao interfere no modal nem ocupa espaco. */
+@media screen {
+  [data-agenda-print-root] {
     display: none !important;
+  }
+}
+
+/* Named page: orientacao de impressão exclusiva da Agenda Viva. */
+@page agenda-viva {
+  size: A4 landscape;
+  margin: 6mm;
+}
+
+@media print {
+  html:has(body > [data-agenda-print-root]),
+  body:has(> [data-agenda-print-root]) {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* Remove de verdade, sem guardar espaco, todos os componentes da interface.
+     Visibility:hidden deixava outras instancias do calendario na segunda pagina. */
+  body:has(> [data-agenda-print-root]) > :not([data-agenda-print-root]) {
+    display: none !important;
+  }
+
+  [data-agenda-print-root] {
+    page: agenda-viva;
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    break-inside: avoid-page !important;
+  }
+
+  [data-agenda-print-root],
+  [data-agenda-print-root] * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  [data-agenda-print-root] section {
+    break-inside: avoid;
+  }
+
+  /* A grade tem 4 colunas na folha A4 horizontal. Os quadrados de tela
+     sao compactados na impressao para caberem 12 meses e a legenda. */
+  [data-agenda-print-root] .grid-cols-7 button,
+  [data-agenda-print-root] .grid-cols-7 > span {
+    height: 15px !important;
+    min-height: 15px !important;
+    aspect-ratio: auto !important;
+    font-size: 6.5pt !important;
+    line-height: 1 !important;
+  }
+  [data-agenda-print-root] .grid-cols-4 {
+    gap: 4px !important;
+  }
+  [data-agenda-print-root] .grid-cols-4 > section {
+    padding: 3px !important;
+  }
+  [data-agenda-print-root] [aria-label="Visualização do calendário"] {
+    margin-bottom: 5px !important;
+  }
+
+  [data-agenda-print-root] .agenda-no-print,
+  [data-agenda-print-root] button[aria-label^="Abrir "] {
+    display: none !important;
+  }
+
+  /* Datas Importantes filtradas aparecem compactas no mesmo PDF, sem 2a folha. */
+  [data-agenda-print-root] [aria-label^="Datas importantes"] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 3px !important;
+  }
+  [data-agenda-print-root] [aria-label^="Datas importantes"] > div {
+    padding: 2px 4px !important;
+    font-size: 7pt !important;
+    line-height: 1.12 !important;
+    break-inside: avoid !important;
+  }
+  [data-agenda-print-root] [aria-label="Legenda de atividades"] {
+    margin-top: 5px !important;
+    padding: 6px !important;
+  }
+  [data-agenda-print-root] [aria-label="Legenda de atividades"] .min-h-8 {
+    min-height: 19px !important;
+    padding: 2px 4px !important;
+    font-size: 8pt !important;
   }
 }
