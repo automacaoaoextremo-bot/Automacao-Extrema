@@ -80,7 +80,7 @@ function intersectsCalendarPeriod(start: string, end: string, year: number, mont
 
 function specialAgendaNotes(events: AnnualCalendarEvent[], year: number, month?: number) {
   const seen = new Set<string>();
-  const notes: { date: string; label: string; color: string }[] = [];
+  const notes: { date: string; label: string; color: string; textColor: string }[] = [];
   for (const event of events) {
     if (isInactive(event) || !isImportantAgendaEvent(event)) continue;
     const date = eventDateOnly(event.startsAt);
@@ -92,13 +92,15 @@ function specialAgendaNotes(events: AnnualCalendarEvent[], year: number, month?:
     const key = `${event.id}:${date}:${end}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const isVacation = /ferias|recesso/.test(normalize(title));
+    // Usa a mesma regra de cores do calendario para nao divergir da legenda.
+    const tone = umbandaTone(event);
     const startLabel = `${date.slice(8, 10)}/${date.slice(5, 7)}`;
     const endLabel = end > date ? ` a ${end.slice(8, 10)}/${end.slice(5, 7)}` : "";
     notes.push({
       date,
       label: `${startLabel}${endLabel} · ${title}`,
-      color: isVacation ? "#D9E8D6" : "#FAEDC4",
+      color: tone.background,
+      textColor: tone.text,
     });
   }
   return notes.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label, "pt-BR"));
@@ -112,8 +114,8 @@ export function AgendaImportantDates({ events, year, month }: { events: AnnualCa
   return (
     <div className="grid gap-2" aria-label={`Datas importantes ${period}`}>
       {notes.map((item) => (
-        <div key={`${item.date}:${item.label}`} className="rounded-xl px-3 py-3 text-center text-sm font-semibold text-[#263547]"
-          style={{ backgroundColor: item.color }}>{item.label}</div>
+        <div key={`${item.date}:${item.label}`} className="rounded-xl px-3 py-3 text-center text-sm font-semibold"
+          style={{ backgroundColor: item.color, color: item.textColor }}>{item.label}</div>
       ))}
     </div>
   );
@@ -297,13 +299,15 @@ function isInactive(event: AnnualCalendarEvent) {
 
 function umbandaTone(event: AnnualCalendarEvent): CalendarTone {
   const text = normalize(`${event.title} ${event.eventType} ${event.eventTypeLabel} ${event.calendarColorKey ?? ""}`);
+  // Ferias e mutiroes tem suas cores proprias mesmo quando o tipo de
+  // atividade menciona "segunda", "terca" ou outros grupos.
+  if (text.includes("ferias") || text.includes("recesso")) return { background: "#F7E2A8", border: "#D9B85F", text: "#594410" };
+  if (text.includes("mutirao") || text.includes("limpeza")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
   if (text.includes("grupo 1") || text.includes("grupo-1")) return { background: "#649C70", border: "#377146", text: "#FFFFFF" };
   if (text.includes("grupo 2") || text.includes("grupo-2")) return { background: "#348EC0", border: "#226D98", text: "#FFFFFF" };
   if (text.includes("segunda")) return { background: "#E3A2A6", border: "#D27670", text: "#54222E" };
   if (text.includes("terca")) return { background: "#ABD0EC", border: "#5D9FC6", text: "#12384B" };
   if (text.includes("tratamento") || text.includes("quarta")) return { background: "#C6E3BE", border: "#78AF78", text: "#274B2C" };
-  if (text.includes("ferias") || text.includes("recesso")) return { background: "#F7E2A8", border: "#D9B85F", text: "#594410" };
-  if (text.includes("mutirao") || text.includes("limpeza")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
   return { background: "#E7B16F", border: "#D8B956", text: "#573718" };
 }
 

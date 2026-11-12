@@ -61,6 +61,7 @@ type SpiritualEntityRecord = {
 type LookupRecord = {
   id: string;
   name?: string | null;
+  full_name?: string | null;
   title?: string | null;
   slug?: string | null;
 };
@@ -356,6 +357,12 @@ function removeUmbandaDuringVacations(events: EventRecord[]) {
   if (vacationKeys.size === 0) return events;
   return events.filter((event) => {
     if (isVacationEvent(event) || !isUmbandaEvent(event) || continuesDuringVacation(event)) return true;
+    // Datas Importantes sao eventos aprovados, inclusive quando caem no
+    // recesso (ex.: mutirao de limpeza e retorno de Cavalinhos/Cambonos).
+    // Um marcador explicitamente falso nunca ganha essa excecao.
+    const important = agendaImportantDate(event);
+    if (important === true) return true;
+    if (important === undefined && /mutirao|limpeza|cavalinh|cambon|encerramento/.test(normalize(asText(event.title)))) return true;
     const key = localDateIso(event.starts_at);
     return !key || !vacationKeys.has(key);
   });
@@ -819,7 +826,7 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     agendaImportantDate: agendaImportantDate(event),
     audience: eventAudience(event),
     responsiblePersonId: asText(event.responsible_person_id),
-    responsiblePersonName: asText(responsible?.name) || "Responsável a definir",
+    responsiblePersonName: asText(responsible?.full_name) || asText(responsible?.name) || "Responsável a definir",
     associatedToCurrentPerson:
       associatedPersonIds.includes(context.currentPersonId) ||
       associatedAgendaSlugs.some((slug) => context.selectedAgendaSlugs.includes(slug)) ||
@@ -878,7 +885,8 @@ export async function GET(request: Request) {
           ...event,
           associatedToCurrentPerson: false,
           responsiblePersonId: "",
-          responsiblePersonName: "Tucxa",
+          // Mantem o nome do responsavel cadastrado para eventos publicos;
+          // omite ID pessoal e anotacoes administrativas.
           notes: "",
         }
       : event;
