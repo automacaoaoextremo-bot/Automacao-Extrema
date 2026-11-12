@@ -842,6 +842,38 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
   };
 }
 
+/**
+ * Supabase limita o volume retornado por consulta. A leitura anterior de 500
+ * registros podia omitir eventos futuros (por exemplo, Social / Comunidade 2027)
+ * quando havia muitos eventos mais antigos na mesma organizacao.
+ * A paginacao preserva a ordenacao estavel e os filtros ja existentes.
+ */
+async function loadAllAgendaEvents(organizationId: string): Promise<EventRecord[]> {
+  const pageSize = 500;
+  const maxRows = 10000;
+  const records: EventRecord[] = [];
+
+  for (let offset = 0; offset <= maxRows; offset += pageSize) {
+    const { data, error } = await supabaseAdmin
+      .from("agv_events")
+      .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
+      .eq("organization_id", organizationId)
+      .order("starts_at", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    const batch = (data ?? []) as EventRecord[];
+    if (offset === maxRows && batch.length > 0) {
+      throw new Error("O limite de seguranca de eventos da Agenda Viva foi atingido. Ajuste a paginacao antes de divulgar um calendario incompleto.");
+    }
+    records.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  return records;
+}
+
 export async function GET(request: Request) {
   try {
     const organization = await findTucxaOrganizationId();
@@ -854,18 +886,12 @@ export async function GET(request: Request) {
     const selectedFunctionSlugs = Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [];
 
     const [eventsResult, typesResult, locationsResult, peopleResult] = await Promise.all([
-      supabaseAdmin
-        .from("agv_events")
-        .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
-        .eq("organization_id", organization.id)
-        .order("starts_at", { ascending: true, nullsFirst: false })
-        .limit(500),
+      loadAllAgendaEvents(organization.id),
       supabaseAdmin.from("agv_event_types").select("id, name, slug").eq("organization_id", organization.id),
       supabaseAdmin.from("oh_locations").select("id, name").eq("organization_id", organization.id),
       supabaseAdmin.from("oh_people").select("id, full_name").eq("organization_id", organization.id),
     ]);
 
-    if (eventsResult.error) throw eventsResult.error;
     if (typesResult.error) throw typesResult.error;
     if (locationsResult.error) throw locationsResult.error;
     if (peopleResult.error) throw peopleResult.error;
@@ -874,7 +900,7 @@ export async function GET(request: Request) {
     const locations = mapById((locationsResult.data ?? []) as LookupRecord[]);
     const people = mapById((peopleResult.data ?? []) as LookupRecord[]);
 
-    const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
+    const expandedEvents = eventsResult
       .filter(shouldShowEvent)
       .filter((event) => isVisibleToConsulente(event) || isUmbandaEvent(event) || isEventosDoTucxa(event))
       .flatMap(expandRecurringEvent);
