@@ -101,6 +101,8 @@ type EventTone = {
 };
 
 const todayIso = saoPauloDateIso();
+// A Agenda Viva publica apresenta somente calendarios a partir de 2027.
+const MIN_PUBLIC_CALENDAR_YEAR = 2027;
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const compactWeekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -804,7 +806,12 @@ export default function AgendaVivaPublicaPage() {
   const [endDate, setEndDate] = useState("");
   const [view, setView] = useState<CalendarView>("month");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("tucxa");
-  const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
+  const [periodStart, setPeriodStart] = useState(() => {
+    const today = dateFromIso(todayIso);
+    return today.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR
+      ? new Date(Date.UTC(MIN_PUBLIC_CALENDAR_YEAR, 0, 1, 12))
+      : today;
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [annualDisplay, setAnnualDisplay] = useState<AgendaCalendarDisplay>("annual");
@@ -1107,12 +1114,13 @@ export default function AgendaVivaPublicaPage() {
       annualEventsForMode(nextMode)
         .map((event) => eventDateOnly(event.startsAt).slice(0, 4))
         .filter((value) => /^\d{4}$/.test(value))
-        .map(Number),
+        .map(Number)
+        .filter((year) => year >= MIN_PUBLIC_CALENDAR_YEAR),
     )).sort((left, right) => left - right);
 
     if (years.length === 0 || years.includes(periodStart.getUTCFullYear())) return;
 
-    const currentYear = dateFromIso(todayIso).getUTCFullYear();
+    const currentYear = Math.max(MIN_PUBLIC_CALENDAR_YEAR, dateFromIso(todayIso).getUTCFullYear());
     const preferredYear = years.find((year) => year >= currentYear) ?? years[years.length - 1];
     setPeriodStart(new Date(Date.UTC(preferredYear, 0, 1, 12)));
   }
@@ -1135,11 +1143,15 @@ export default function AgendaVivaPublicaPage() {
   function advanceAnnualCalendar(direction: -1 | 1) {
     if (annualDisplay === "monthly") {
       const next = addMonths(new Date(Date.UTC(periodStart.getUTCFullYear(), annualMonth, 1, 12)), direction);
+      if (next.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR) return;
       setPeriodStart(next);
       setAnnualMonth(next.getUTCMonth());
       return;
     }
-    setPeriodStart((current) => addYears(current, direction));
+    setPeriodStart((current) => {
+      const next = addYears(current, direction);
+      return next.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR ? current : next;
+    });
   }
 
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
@@ -1175,6 +1187,10 @@ export default function AgendaVivaPublicaPage() {
       events: completeEvents,
     });
   }
+
+  const canNavigateToPreviousCalendarPeriod = annualDisplay === "annual"
+    ? periodStart.getUTCFullYear() > MIN_PUBLIC_CALENDAR_YEAR
+    : periodStart.getUTCFullYear() > MIN_PUBLIC_CALENDAR_YEAR || annualMonth > 0;
 
   const selectedModeLabel = calendarModeOptions.find((item) => item.value === calendarMode)?.label ?? "Tucxa";
 
@@ -1285,10 +1301,22 @@ export default function AgendaVivaPublicaPage() {
           onClose={() => setCalendarOpen(false)}
         >
           <div className="grid gap-3">
-            <div className="agenda-no-print grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => advanceAnnualCalendar(-1)} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
-              <button type="button" onClick={() => window.print()} className="whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
-              <button type="button" onClick={() => advanceAnnualCalendar(1)} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
+            <div className="agenda-no-print grid grid-cols-3 gap-2" aria-label="Visualizacao e navegacao do calendario">
+              <button type="button" onClick={() => setAnnualDisplay("monthly")} aria-pressed={annualDisplay === "monthly"}
+                className={`min-w-0 rounded-2xl px-2 py-2 text-xs font-black shadow ring-1 sm:px-3 sm:text-sm ${annualDisplay === "monthly" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#B7D0BF]"}`}>MENSAL</button>
+              <button type="button" onClick={() => window.print()}
+                className="min-w-0 whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
+              <button type="button" onClick={() => setAnnualDisplay("annual")} aria-pressed={annualDisplay === "annual"}
+                className={`min-w-0 rounded-2xl px-2 py-2 text-xs font-black shadow ring-1 sm:px-3 sm:text-sm ${annualDisplay === "annual" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#B7D0BF]"}`}>ANUAL</button>
+            </div>
+            <div className="agenda-no-print grid grid-cols-3 items-center gap-2" aria-label="Periodo exibido">
+              <button type="button" onClick={() => advanceAnnualCalendar(-1)} disabled={!canNavigateToPreviousCalendarPeriod}
+                aria-label={annualDisplay === "monthly" ? "Mes anterior" : "Ano anterior"}
+                className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-sm">Anterior</button>
+              <span className="min-w-0 text-center text-xs font-black tracking-wide text-[#4DA1D5] sm:text-lg">TUCXA - {periodStart.getUTCFullYear()}</span>
+              <button type="button" onClick={() => advanceAnnualCalendar(1)}
+                aria-label={annualDisplay === "monthly" ? "Proximo mes" : "Proximo ano"}
+                className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
             </div>
             <AnnualCalendarView
               mode={calendarMode as AnnualCalendarMode}

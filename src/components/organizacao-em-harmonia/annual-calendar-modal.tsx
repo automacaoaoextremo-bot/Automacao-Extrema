@@ -245,24 +245,14 @@ function ActivityLegend({ mode, events, year, month, onOpenDetails }: { mode: "t
 /** Visões suportadas exclusivamente pelos calendários Umbanda e Outras Agendas. */
 export type AgendaCalendarDisplay = "annual" | "monthly";
 
-function CalendarDisplayToolbar({ year, display, onChangeDisplay }: {
+function CalendarDisplayToolbar({ year, onChangeDisplay }: {
   year: number;
-  display: AgendaCalendarDisplay;
   onChangeDisplay?: (next: AgendaCalendarDisplay) => void;
 }) {
-  // Rotas históricas sem callback preservam o título e não mostram botões inertes.
-  if (!onChangeDisplay) return <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>;
-  return (
-    <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2" aria-label="Visualização do calendário">
-      <button type="button" onClick={() => onChangeDisplay?.("monthly")}
-        aria-pressed={display === "monthly"}
-        className={`rounded-full px-2 py-2 text-[0.65rem] font-black tracking-wide sm:text-sm ${display === "monthly" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C] ring-1 ring-[#B7D0BF]"}`}>MENSAL</button>
-      <h2 className="min-w-0 text-center text-[0.78rem] font-black tracking-wider text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>
-      <button type="button" onClick={() => onChangeDisplay?.("annual")}
-        aria-pressed={display === "annual"}
-        className={`rounded-full px-2 py-2 text-[0.65rem] font-black tracking-wide sm:text-sm ${display === "annual" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C] ring-1 ring-[#B7D0BF]"}`}>ANUAL</button>
-    </div>
-  );
+  // Na pagina publica, a navegacao ja aparece em duas linhas acima do calendario.
+  // Sem callback (impressao e rotas antigas), o titulo permanece no PDF.
+  if (onChangeDisplay) return null;
+  return <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>;
 }
 
 const MONTHS_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -630,7 +620,7 @@ type FocusedCalendarProps = {
 function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
-      <CalendarDisplayToolbar year={year} display={display} onChangeDisplay={onChangeDisplay} />
+      <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
       {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay}
         visibleMonths={display === "monthly" ? [month] : undefined} />
@@ -642,7 +632,7 @@ function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 
 function OthersCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
     <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
-      <CalendarDisplayToolbar year={year} display={display} onChangeDisplay={onChangeDisplay} />
+      <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
       {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={otherAgendaTone} variant="umbanda" onSelectDay={onSelectDay}
         visibleMonths={display === "monthly" ? [month] : undefined} />
