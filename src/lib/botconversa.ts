@@ -1294,7 +1294,7 @@ export type TucxaAppointmentBotConversaInput = {
   reminderOffsetHours?: number | null;
   appointmentOrder?: number | null;
   individualNotice?: string;
-  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza";
+  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza" | "christmas_basket";
 };
 
 export type TucxaEntityChangeBotConversaInput = {
@@ -1476,7 +1476,9 @@ export async function sendTucxaAppointmentWhatsapp(
       ? firstEnv("BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW")
       : input.kind === "pizza"
         ? firstEnv("BOTCONVERSA_TUCXA_PIZZA_FLOW_ID", "BOTCONVERSA_TUCXA_PIZZA_FLOW")
-        : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
+        : input.kind === "christmas_basket"
+          ? firstEnv("BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW_ID", "BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW")
+          : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
 
   if (!isConfigured(flowId)) {
     const error = input.kind === "reminder"
@@ -1485,7 +1487,9 @@ export async function sendTucxaAppointmentWhatsapp(
         ? "Fluxo BotConversa de lembrete para presença confirmada não configurado."
         : input.kind === "pizza"
           ? "Fluxo BotConversa da mensagem beneficente das pizzas não configurado."
-          : "Fluxo BotConversa de confirmação não configurado.";
+          : input.kind === "christmas_basket"
+            ? "Fluxo BotConversa da Cesta de Natal não configurado."
+            : "Fluxo BotConversa de confirmação não configurado.";
     return {
       sent: false,
       provider: "disabled",
@@ -1543,7 +1547,9 @@ export async function sendTucxaAppointmentWhatsapp(
           ? "send_tucxa_confirmed_reminder_flow"
           : input.kind === "pizza"
             ? "send_tucxa_pizza_flow"
-            : "send_tucxa_confirmation_flow",
+            : input.kind === "christmas_basket"
+              ? "send_tucxa_christmas_basket_flow"
+              : "send_tucxa_confirmation_flow",
       ok: flow.ok,
       status: flow.status,
       path: flow.path,

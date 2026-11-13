@@ -8,11 +8,12 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 const API = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 
 type View = "inicio" | "envios" | "relatorios";
-type DispatchType = "reminder" | "confirmation" | "pizza";
+type DispatchType = "reminder" | "confirmation" | "pizza" | "christmas_basket";
 const DISPATCH_LABELS: Record<DispatchType, string> = {
   reminder: "Lembretes",
   confirmation: "Confirmações",
   pizza: "Pizzas",
+  christmas_basket: "Cesta de Natal",
 };
 type DispatchAppointment = {
   id: string;
@@ -30,6 +31,7 @@ type DispatchAppointment = {
   reminderSentAt: string;
   confirmationLinkSentAt: string;
   pizzaSentAt: string;
+  christmasBasketSentAt: string;
   dispatchBlockedReason: string;
   dispatchComplete: boolean;
 };
@@ -38,6 +40,7 @@ type FlowReadiness = {
   requestedReminder: boolean;
   confirmedReminder: boolean;
   pizza: boolean;
+  christmasBasket: boolean;
 };
 
 type DispatchPayload = {
@@ -93,7 +96,8 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [confirmSend, setConfirmSend] = useState(false);
-  const [readiness, setReadiness] = useState<FlowReadiness>({ requestedReminder: false, confirmedReminder: false, pizza: false });
+  const [readiness, setReadiness] = useState<FlowReadiness>({ requestedReminder: false, confirmedReminder: false, pizza: false, christmasBasket: false });
+  const [promotionConfirmed, setPromotionConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -132,6 +136,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
     if (next === "envios") {
       setDispatchStep("types");
       setSelected(new Set());
+      setPromotionConfirmed(false);
       void loadAvailableDates();
     }
   }
@@ -154,8 +159,9 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
       const payload = (await response.json()) as DispatchPayload;
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os agendamentos da data selecionada.");
       setAppointments((payload.appointments ?? []).sort((a, b) => a.consulenteName.localeCompare(b.consulenteName, "pt-BR", { sensitivity: "base" })));
-      setReadiness(payload.flowReadiness ?? { requestedReminder: false, confirmedReminder: false, pizza: false });
+      setReadiness(payload.flowReadiness ?? { requestedReminder: false, confirmedReminder: false, pizza: false, christmasBasket: false });
       setSelected(new Set());
+      setPromotionConfirmed(false);
       setPage(1);
     } catch (loadError) {
       setAppointments([]);
@@ -181,6 +187,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
     return dispatchTypes.some((kind) =>
       kind === "reminder" ? !item.reminderSentAt :
       kind === "confirmation" ? item.category === "requested" && !item.confirmationLinkSentAt :
+      kind === "christmas_basket" ? !item.christmasBasketSentAt :
       !item.pizzaSentAt
     );
   }), [appointments, dispatchTypes]);
@@ -190,10 +197,11 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   const selectedAppointments = useMemo(() => selectable.filter((item) => selected.has(item.id)), [selectable, selected]);
   const totalPages = Math.max(1, Math.ceil(relevantAppointments.length / pageSize));
   const displayedAppointments = paginate ? relevantAppointments.slice((Math.min(page, totalPages) - 1) * pageSize, Math.min(page, totalPages) * pageSize) : relevantAppointments;
-  const flowsReady = dispatchTypes.every((kind) => kind === "pizza" ? readiness.pizza : kind === "confirmation" ? readiness.requestedReminder : readiness.confirmedReminder && readiness.requestedReminder);
+  const flowsReady = dispatchTypes.every((kind) => kind === "pizza" ? readiness.pizza : kind === "christmas_basket" ? readiness.christmasBasket : kind === "confirmation" ? readiness.requestedReminder : readiness.confirmedReminder && readiness.requestedReminder);
 
   function toggle(id: string) {
     if (!selectableIds.has(id) || sending) return;
+    setPromotionConfirmed(false);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -203,11 +211,16 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
   }
 
   function toggleAll() {
+    setPromotionConfirmed(false);
     setSelected(allSelected ? new Set() : new Set(selectable.map((item) => item.id)));
   }
 
   async function sendSelected() {
     if (!selectedAppointments.length || sending || !dispatchTypes.length) return;
+    if (dispatchTypes.includes("christmas_basket") && !promotionConfirmed) {
+      setError("Confirme a autorização para a divulgação da Cesta de Natal antes do envio.");
+      return;
+    }
     setConfirmSend(false);
     setSending(true);
     setError("");
@@ -223,6 +236,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
           date,
           appointmentIds: selectedAppointments.map((item) => item.id),
           dispatchTypes,
+          promotionConfirmed: dispatchTypes.includes("christmas_basket") && promotionConfirmed,
         }),
       });
       const payload = (await response.json()) as DispatchPayload;
@@ -270,15 +284,21 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
           <section className="grid gap-3 rounded-2xl bg-white p-4 ring-1 ring-[#123D2C]/10" role="group" aria-label="Escolher tipos de envio">
             <h2 className="text-base font-black text-[#123D2C]">Quais mensagens deseja enviar?</h2>
             <p className="text-sm text-slate-600">Escolha uma ou mais opções para envio manual. Os lembretes automáticos continuam independentes.</p>
-            {(["reminder", "confirmation", "pizza"] as DispatchType[]).map((kind) => (
+            {(["reminder", "confirmation", "pizza", "christmas_basket"] as DispatchType[]).map((kind) => (
               <label key={kind} className="flex items-center gap-3 rounded-xl border p-3 text-sm font-bold">
                 <input type="checkbox" className="h-5 w-5 accent-[#123D2C]" checked={dispatchTypes.includes(kind)} onChange={(event) => {
                   setDispatchTypes((current) => event.target.checked ? [...current, kind] : current.filter((item) => item !== kind));
                   setSelected(new Set());
+                  setPromotionConfirmed(false);
                 }} />
                 {DISPATCH_LABELS[kind]}
               </label>
             ))}
+            {dispatchTypes.includes("christmas_basket") && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                Divulgação opcional. Configure e homologue o fluxo da Cesta de Natal, com imagem e regras do sorteio, antes de realizar envios reais.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm font-semibold">
               <input type="checkbox" checked={paginate} onChange={(event) => { setPaginate(event.target.checked); setPage(1); }} />
               Paginar resultados (20 por página)
@@ -314,7 +334,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                   Data do atendimento
                   <select
                     value={date}
-                    onChange={(event) => setDate(event.target.value)}
+                    onChange={(event) => { setDate(event.target.value); setPromotionConfirmed(false); }}
                     disabled={datesLoading || availableDates.length === 0}
                     className="min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold disabled:opacity-50"
                   >
@@ -332,8 +352,14 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
             )}
             {!flowsReady && (
               <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-                BotConversa ainda não está completo para esta função. Configure os fluxos de lembrete confirmado e pizzas na Vercel antes de enviar.
+                BotConversa ainda não está completo para os tipos selecionados. Configure o fluxo correspondente no Vercel antes de enviar (a Cesta de Natal usa BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW_ID).
               </div>
+            )}
+            {dispatchTypes.includes("christmas_basket") && (
+              <label className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                <input type="checkbox" className="mt-1 h-5 w-5 accent-[#123D2C]" checked={promotionConfirmed} onChange={(event) => setPromotionConfirmed(event.target.checked)} />
+                Confirmo que a divulgação foi autorizada para os contatos selecionados e que o regulamento e os critérios do sorteio foram verificados.
+              </label>
             )}
             {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
             {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{message}</div>}
@@ -350,7 +376,7 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                   <button
                     type="button"
                     onClick={() => setConfirmSend(true)}
-                    disabled={sending || !selected.size || !flowsReady}
+                    disabled={sending || !selected.size || !flowsReady || (dispatchTypes.includes("christmas_basket") && !promotionConfirmed)}
                     className="min-w-0 rounded-xl bg-[#123D2C] px-2 py-2 text-xs font-black text-white disabled:opacity-40 sm:px-4 sm:text-sm"
                   >
                     {sending ? "Enviando..." : "Enviar selecionados"}
@@ -383,12 +409,13 @@ export function TucxaGestaoContent({ embedded = false, onViewChange }: { embedde
                           </span>
                         </div>
                         {appointment.dispatchBlockedReason && <p className="mt-2 text-xs font-bold text-slate-600">{appointment.dispatchBlockedReason}</p>}
-                        <div className="mt-3 grid gap-2 text-xs font-bold sm:grid-cols-3">
+                        <div className="mt-3 grid gap-2 text-xs font-bold sm:grid-cols-2 lg:grid-cols-4">
                           <div className={appointment.reminderSentAt ? "text-emerald-700" : "text-slate-500"}>Lembrete: {sentLabel(appointment.reminderSentAt)}</div>
                           <div className={appointment.category === "confirmed" ? "text-slate-400" : appointment.confirmationLinkSentAt ? "text-emerald-700" : "text-slate-500"}>
                             Confirmação: {appointment.category === "confirmed" ? "não se aplica" : sentLabel(appointment.confirmationLinkSentAt)}
                           </div>
                           <div className={appointment.pizzaSentAt ? "text-emerald-700" : "text-slate-500"}>Pizzas: {sentLabel(appointment.pizzaSentAt)}</div>
+                          <div className={appointment.christmasBasketSentAt ? "text-emerald-700" : "text-slate-500"}>Cesta de Natal: {sentLabel(appointment.christmasBasketSentAt)}</div>
                         </div>
                       </div>
                     </label>

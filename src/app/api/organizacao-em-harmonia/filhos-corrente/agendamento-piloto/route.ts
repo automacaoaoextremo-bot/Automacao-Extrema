@@ -29,7 +29,7 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
-import { appointmentBeneficentPizzaMessage, appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { appointmentBeneficentPizzaMessage, appointmentChristmasBasketMessage, appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
 export const dynamic = "force-dynamic";
@@ -385,6 +385,7 @@ const MANUAL_DISPATCH_OFFSET = -1;
 const MANUAL_REMINDER_TYPE = "manual_reminder";
 const MANUAL_CONFIRMATION_LINK_TYPE = "manual_confirmation_link";
 const MANUAL_PIZZA_TYPE = "manual_pizza";
+const MANUAL_CHRISTMAS_BASKET_TYPE = "manual_christmas_basket";
 const AUTOMATIC_DAY_REMINDER_TYPE = "day_reminder";
 
 function manualDispatchDateAllowed(value: string) {
@@ -420,7 +421,7 @@ async function loadManualDispatchAppointments(organizationId: string, appointmen
           .eq("organization_id", organizationId)
           .eq("channel", "whatsapp")
           .in("appointment_id", appointmentIds)
-          .in("notification_type", [MANUAL_REMINDER_TYPE, MANUAL_CONFIRMATION_LINK_TYPE, MANUAL_PIZZA_TYPE, AUTOMATIC_DAY_REMINDER_TYPE])
+          .in("notification_type", [MANUAL_REMINDER_TYPE, MANUAL_CONFIRMATION_LINK_TYPE, MANUAL_PIZZA_TYPE, MANUAL_CHRISTMAS_BASKET_TYPE, AUTOMATIC_DAY_REMINDER_TYPE])
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (entityError) throw entityError;
@@ -489,6 +490,7 @@ async function loadManualDispatchAppointments(organizationId: string, appointmen
       reminderSentAt: asText(sent[MANUAL_REMINDER_TYPE] || sent[AUTOMATIC_DAY_REMINDER_TYPE]),
       confirmationLinkSentAt: asText(sent[MANUAL_CONFIRMATION_LINK_TYPE] || (!confirmed ? sent[AUTOMATIC_DAY_REMINDER_TYPE] : "")),
       pizzaSentAt: asText(sent[MANUAL_PIZZA_TYPE]),
+      christmasBasketSentAt: asText(sent[MANUAL_CHRISTMAS_BASKET_TYPE]),
     };
   });
 }
@@ -954,6 +956,7 @@ export async function POST(request: Request) {
           requestedReminder: Boolean(process.env.BOTCONVERSA_TUCXA_REMINDER_FLOW_ID || process.env.BOTCONVERSA_TUCXA_REMINDER_FLOW),
           confirmedReminder: Boolean(process.env.BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID || process.env.BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW),
           pizza: Boolean(process.env.BOTCONVERSA_TUCXA_PIZZA_FLOW_ID || process.env.BOTCONVERSA_TUCXA_PIZZA_FLOW),
+          christmasBasket: Boolean(process.env.BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW_ID || process.env.BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW),
         },
       });
     }
@@ -964,13 +967,19 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Informe uma data de hoje ou futura válida.", requestId: code }, { status: 400 });
       }
 
-      const allowedDispatchTypes = ["reminder", "confirmation", "pizza"] as const;
+      const allowedDispatchTypes = ["reminder", "confirmation", "pizza", "christmas_basket"] as const;
       const dispatchTypes = Array.isArray(body.dispatchTypes)
         ? Array.from(new Set(body.dispatchTypes.filter((value: unknown): value is (typeof allowedDispatchTypes)[number] =>
             typeof value === "string" && allowedDispatchTypes.some((allowed) => allowed === value))))
         : [];
       if (!dispatchTypes.length) {
-        return NextResponse.json({ error: "Selecione Lembretes, Confirmações ou Pizzas antes de enviar.", requestId: code }, { status: 400 });
+        return NextResponse.json({ error: "Selecione pelo menos um tipo de mensagem antes de enviar.", requestId: code }, { status: 400 });
+      }
+      if (dispatchTypes.includes("christmas_basket") && body.promotionConfirmed !== true) {
+        return NextResponse.json({ error: "Confirme que a divulgação da Cesta de Natal foi autorizada antes de enviar.", requestId: code }, { status: 400 });
+      }
+      if (dispatchTypes.includes("christmas_basket") && !(process.env.BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW_ID || process.env.BOTCONVERSA_TUCXA_CESTA_NATAL_FLOW)) {
+        return NextResponse.json({ error: "O fluxo BotConversa da Cesta de Natal ainda não está configurado.", requestId: code }, { status: 409 });
       }
 
       const appointmentIds = Array.isArray(body.appointmentIds)
@@ -984,7 +993,8 @@ export async function POST(request: Request) {
       const selectedRows = availableRows.filter((item) => appointmentIds.includes(item.id) && !item.dispatchBlockedReason && (
         (dispatchTypes.includes("reminder") && !item.reminderSentAt) ||
         (dispatchTypes.includes("confirmation") && item.category === "requested" && !item.confirmationLinkSentAt) ||
-        (dispatchTypes.includes("pizza") && !item.pizzaSentAt)
+        (dispatchTypes.includes("pizza") && !item.pizzaSentAt) ||
+        (dispatchTypes.includes("christmas_basket") && !item.christmasBasketSentAt)
       ));
       if (!selectedRows.length) {
         return NextResponse.json({ error: "Nenhum agendamento elegível foi encontrado para a data selecionada.", requestId: code }, { status: 404 });
@@ -996,6 +1006,7 @@ export async function POST(request: Request) {
         reminder: "sent" | "skipped" | "failed";
         confirmationLink: "sent" | "skipped" | "failed" | "not_applicable";
         pizza: "sent" | "skipped" | "failed";
+        christmasBasket: "sent" | "skipped" | "failed";
         errors: string[];
       }> = [];
 
@@ -1006,10 +1017,11 @@ export async function POST(request: Request) {
           ? "not_applicable"
           : appointment.confirmationLinkSentAt ? "skipped" : "failed";
         let pizza: "sent" | "skipped" | "failed" = appointment.pizzaSentAt ? "skipped" : "failed";
+        let christmasBasket: "sent" | "skipped" | "failed" = appointment.christmasBasketSentAt ? "skipped" : "failed";
 
         if (!appointment.whatsapp) {
           errors.push("WhatsApp do contato não informado.");
-          results.push({ appointmentId: appointment.id, consulenteName: appointment.consulenteName, reminder, confirmationLink, pizza, errors });
+          results.push({ appointmentId: appointment.id, consulenteName: appointment.consulenteName, reminder, confirmationLink, pizza, christmasBasket, errors });
           continue;
         }
 
@@ -1149,12 +1161,47 @@ export async function POST(request: Request) {
           }
         }
 
+        if (dispatchTypes.includes("christmas_basket") && !appointment.christmasBasketSentAt) {
+          const basketDispatch = await sendTucxaAppointmentWhatsapp({
+            kind: "christmas_basket",
+            fullName: firstTwoPersonNames(appointment.consulenteName),
+            recipientName: appointment.recipientName,
+            whatsapp: appointment.whatsapp,
+            appointmentDate: appointment.appointmentDate,
+            entityName: appointment.entityName,
+            appointmentOrder: appointment.order,
+          });
+          await upsertManualDispatchLog({
+            organizationId: context.organizationId,
+            appointmentId: appointment.id,
+            personId: appointment.personId,
+            notificationType: MANUAL_CHRISTMAS_BASKET_TYPE,
+            sent: basketDispatch.sent,
+            provider: basketDispatch.provider,
+            subscriberId: basketDispatch.subscriberId,
+            error: basketDispatch.error,
+          });
+          christmasBasket = basketDispatch.sent ? "sent" : "failed";
+          if (!basketDispatch.sent) {
+            errors.push(basketDispatch.error || "Falha ao enviar a mensagem da Cesta de Natal.");
+          } else {
+            void sendTucxaAppointmentAuditEmail({
+              event: "Divulgação da Cesta de Natal enviada",
+              consulenteName: appointment.consulenteName,
+              appointmentDate: appointment.appointmentDate,
+              entityName: appointment.entityName,
+              message: appointmentChristmasBasketMessage({ appointmentDate: appointment.appointmentDate }),
+            });
+          }
+        }
+
         results.push({
           appointmentId: appointment.id,
           consulenteName: appointment.consulenteName,
           reminder,
           confirmationLink,
           pizza,
+          christmasBasket,
           errors,
         });
       }
