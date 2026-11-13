@@ -49,11 +49,21 @@ const activityLegend = [
   { label: "Tratamento espiritual", color: "#C6E3BE", text: "#274B2C" },
   { label: "Filhos da Corrente · Grupo 1", color: "#649C70", text: "#FFFFFF" },
   { label: "Filhos da Corrente · Grupo 2", color: "#348EC0", text: "#FFFFFF" },
-  { label: "Social / Comunidade", color: "#BD8BD2", text: "#381C47" },
-  { label: "Eventos e confraternizações", color: "#E7B16F", text: "#573718" },
+  { label: "Social / Comunidade", color: "#E7D9F1", text: "#43245C" },
+  { label: "Eventos e confraternizações", color: "#EDC68F", text: "#58351C" },
   { label: "Cursos e estudos", color: "#71C7BA", text: "#103D36" },
   { label: "Reuniões e mutirões", color: "#BCCBD9", text: "#263547" },
   { label: "Férias / recesso", color: "#F7E2A8", text: "#594410" },
+] as const;
+
+/** Paleta semântica única para Outras Agendas: calendário, legenda, popup e PDF. */
+const featuredOtherActivities = [
+  { key: "pizza", label: "Pizza", background: "#F6A96D", border: "#D38347", text: "#49250F" },
+  { key: "bingo", label: "Bingo", background: "#91C8F2", border: "#5A9BC8", text: "#153D5A" },
+  { key: "bazar", label: "Bazar", background: "#BF91D8", border: "#9666B1", text: "#321A47" },
+  { key: "feijoada", label: "Feijoada de Ogum", background: "#9DD5A3", border: "#66A972", text: "#173F24" },
+  { key: "arraia", label: "Arraiá Tucxa", background: "#F5DA78", border: "#CEAC3F", text: "#51410B" },
+  { key: "confraternizacao", label: "Confraternização", background: "#F6A9BD", border: "#D97F99", text: "#59243A" },
 ] as const;
 
 /**
@@ -144,17 +154,26 @@ function responsibleEntries(events: AnnualCalendarEvent[], year: number, month?:
     if (!unique.has(key)) unique.set(key, { event, date: start, endDate: end });
   }
   return [...unique.values()].sort((left, right) =>
-    right.date.localeCompare(left.date) ||
+    left.date.localeCompare(right.date) ||
     left.event.title.localeCompare(right.event.title, "pt-BR") ||
     (left.event.responsiblePersonName ?? "").localeCompare(right.event.responsiblePersonName ?? "", "pt-BR"),
   );
+}
+
+/** O cadastro e a identidade da pessoa permanecem intactos. */
+function shortResponsibleName(name?: string) {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "Não informado";
+  // Evita exibir somente uma preposição como segundo nome (ex.: Maria de Lourdes).
+  const meaningful = words.filter((word, index) => index === 0 || !/^(de|da|do|das|dos|e)$/i.test(word));
+  return meaningful.slice(0, 2).join(" ");
 }
 
 function formatCalendarDate(date: string) {
   return `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 }
 
-/** Exibe todas as ocorrencias com data decrescente e responsavel do cadastro. */
+/** Exibe cada ocorrencia por data crescente e responsavel abreviado apenas na interface. */
 export function AgendaResponsibleList({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
   const entries = useMemo(() => responsibleEntries(events, year, month), [events, year, month]);
   const period = month === undefined ? `${year}` : `${MONTHS_PT[month]} de ${year}`;
@@ -170,11 +189,13 @@ export function AgendaResponsibleList({ events, year, month }: { events: AnnualC
           <article key={`${event.id}::${date}::${endDate}`}
             className="min-w-0 rounded-lg border px-2.5 py-2 text-xs leading-snug sm:text-sm"
             style={{ borderColor: tone.border, backgroundColor: tone.background, color: tone.text }}>
-            <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-0.5">
-              <h3 className="min-w-0 flex-1 break-words font-black">{event.title}</h3>
-              <time dateTime={date} className="shrink-0 font-black tabular-nums">{dateLabel}</time>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5">
+              <p className="min-w-0 break-words leading-snug">
+                <strong className="font-black">{event.title}</strong>
+                <span className="font-semibold"> · {shortResponsibleName(event.responsiblePersonName)}</span>
+              </p>
+              <time dateTime={date} className="shrink-0 whitespace-nowrap text-[0.65rem] font-black tabular-nums sm:text-xs">{dateLabel}</time>
             </div>
-            <p className="mt-0.5 break-words font-medium">Responsável: {event.responsiblePersonName?.trim() || "Não informado"}</p>
           </article>
         );
       })}
@@ -183,7 +204,16 @@ export function AgendaResponsibleList({ events, year, month }: { events: AnnualC
 }
 
 function ActivityLegend({ mode, events, year, month, onOpenDetails }: { mode: "tucxa" | "others"; events: AnnualCalendarEvent[]; year: number; month?: number; onOpenDetails?: () => void }) {
-  const visibleCategories = mode === "tucxa" ? [...activityLegend.slice(0, 5), activityLegend[8]] : activityLegend.slice(5, 9);
+  // As seis atividades têm legenda fixa; categorias adicionais só entram se houver
+  // evento correspondente, para não estourar a paginação do PDF no celular/A4.
+  const visibleCategories = mode === "tucxa"
+    ? [...activityLegend.slice(0, 5), activityLegend[8]]
+    : [
+        ...featuredOtherActivities.map((item) => ({ label: item.label, color: item.background, text: item.text })),
+        ...activityLegend.slice(5, 9).filter((item) =>
+          events.some((event) => !featuredOtherActivity(event) && otherAgendaTone(event).background === item.color),
+        ),
+      ];
   const label = mode === "tucxa" ? "Datas Importantes" : "Responsáveis";
   return (
     <section className="mt-3 rounded-xl border border-[#DCE8DF] bg-white p-3" aria-label="Legenda de atividades">
@@ -367,20 +397,40 @@ function sementinhaTone(event: AnnualCalendarEvent): CalendarTone {
   return { background: color, border: color, text: "#243129" };
 }
 
+/** Detecta as seis atividades antes da classificação genérica Social / Comunidade. */
+function featuredOtherActivity(event: AnnualCalendarEvent) {
+  // O nome cadastrado tem prioridade sobre o rótulo do tipo, que pode ser genérico.
+  const name = normalize(event.title.trim());
+  const category = normalize(`${event.eventType} ${event.eventTypeLabel}`);
+  const matches = (text: string) => {
+    if (/\bfeijoada\b/.test(text) && /\bogum\b/.test(text)) return "feijoada";
+    if (/\barraia(?:l)?\b/.test(text)) return "arraia";
+    if (/\bconfraternizac[a-z]*\b/.test(text)) return "confraternizacao";
+    if (/\bpizza\b/.test(text)) return "pizza";
+    if (/\bbingo\b/.test(text)) return "bingo";
+    if (/\bbazar\b/.test(text)) return "bazar";
+    return null;
+  };
+  const key = matches(name) ?? matches(category);
+  return featuredOtherActivities.find((item) => item.key === key);
+}
+
 function otherAgendaTone(event: AnnualCalendarEvent): CalendarTone {
+  const featured = featuredOtherActivity(event);
+  if (featured) return { background: featured.background, border: featured.border, text: featured.text };
+
   const classification = normalize(event.classification);
   const title = normalize(`${event.title} ${event.eventTypeLabel}`);
   if (classification.includes("social") || classification.includes("comunidade") ||
       classification.includes("sementinha") || normalize(event.eventCollection ?? "").includes("sementinha")) {
-    // Social / Comunidade usa a mesma cor roxa da legenda, inclusive Bazar.
-    return { background: "#BD8BD2", border: "#9565AE", text: "#381C47" };
+    return { background: "#E7D9F1", border: "#B79ACA", text: "#43245C" };
   }
-  if (title.includes("curso") || title.includes("estudo") || title.includes("palestra") || title.includes("clube do livro")) {
+  if (classification.includes("curso") || title.includes("curso") || title.includes("estudo") || title.includes("palestra") || title.includes("clube do livro")) {
     return { background: "#71C7BA", border: "#3D9E8F", text: "#103D36" };
   }
-  if (title.includes("reuniao") || title.includes("mutirao")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
+  if (classification.includes("reuniao") || title.includes("reuniao") || title.includes("mutirao")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
   if (title.includes("ferias") || title.includes("recesso")) return { background: "#F7E2A8", border: "#D9B85F", text: "#594410" };
-  return { background: "#E7B16F", border: "#C89555", text: "#573718" };
+  return { background: "#EDC68F", border: "#C89555", text: "#58351C" };
 }
 
 function mineTone(event: AnnualCalendarEvent): CalendarTone {
