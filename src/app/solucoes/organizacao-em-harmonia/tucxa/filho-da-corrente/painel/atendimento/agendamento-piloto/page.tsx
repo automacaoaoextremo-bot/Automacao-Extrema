@@ -2471,6 +2471,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Crie o acesso inicial.</p>
                   <input value={newPerson.fullName} onChange={(event) => setNewPerson((current) => ({ ...current, fullName: event.target.value }))} placeholder="Nome completo" className="rounded-xl border border-amber-200 p-3" required />
+                  <p className="rounded-xl bg-white p-3 text-sm font-semibold text-amber-950 ring-1 ring-amber-200">Celular informado na busca: <strong>{displayWhatsapp(phone)}</strong></p>
                   <input value={newPerson.email} onChange={(event) => setNewPerson((current) => ({ ...current, email: event.target.value }))} placeholder="E-mail opcional" type="email" className="rounded-xl border border-amber-200 p-3" />
                   <div className="grid gap-1">
                     <div className="flex items-center justify-between gap-2">
@@ -3958,17 +3959,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <p className="text-lg font-black text-[#123D2C]">{firstTwoPersonNames(bookingResult.appointment.personName)}</p>
               <p className="mt-1 text-sm font-semibold text-slate-700">{shortDate(bookingResult.appointment.appointmentDate)} · {bookingResult.appointment.entityName}</p>
               {bookingResult.appointment.order && <p className="mt-1 text-sm font-semibold text-slate-700">Ordem de agendamento {bookingResult.appointment.order}</p>}
-              {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : ". Use o botão abaixo para enviar manualmente."}</p>}
+              {bookingResult.confirmation.whatsapp.sent ? <p className="mt-2 text-sm font-black text-emerald-800">Confirmação enviada automaticamente pelo WhatsApp.</p> : <p className="mt-2 text-sm font-black text-amber-800">Envio automático não concluído{bookingResult.confirmation.whatsapp.error ? `: ${bookingResult.confirmation.whatsapp.error}` : "."} Verifique o celular cadastrado e acompanhe a confirmação na Gestão.</p>}
             </section>
-            <a
-              href={whatsappHref(bookingResult.whatsapp, bookingResult.alternateContact ? `Olá, ${firstTwoPersonNames(bookingResult.contactName || "")}. Você está recebendo esta mensagem como contato de ${firstTwoPersonNames(bookingResult.appointment.personName)}. O atendimento de ${firstTwoPersonNames(bookingResult.appointment.personName)} no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme a presença: ${bookingResult.confirmation.url}` : `Olá, ${firstTwoPersonNames(bookingResult.appointment.personName)}. Seu atendimento no Tucxa foi agendado para ${shortDate(bookingResult.appointment.appointmentDate)}, com ${bookingResult.appointment.entityName}${bookingResult.appointment.order ? `, ordem de agendamento ${bookingResult.appointment.order}` : ""}. Confirme sua presença: ${bookingResult.confirmation.url}`)}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl bg-[#176A3A] px-4 py-3 text-center font-black text-white"
-            >
-              Enviar confirmação pelo WhatsApp
-            </a>
-            <button type="button" onClick={() => void navigator.clipboard.writeText(bookingResult.confirmation!.url)} className="rounded-xl bg-white px-4 py-3 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Copiar link de confirmação</button>
           </div>
         </Modal>
       )}

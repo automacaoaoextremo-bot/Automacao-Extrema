@@ -77,3 +77,15 @@ export function appointmentBeneficentPizzaMessage(input: {
     "Sem compromisso. Estamos apenas compartilhando esta possibilidade com carinho.",
   ].join("\n\n");
 }
+
+// Prévia para auditoria: o conteúdo efetivamente enviado é configurado no fluxo do BotConversa.
+// Não fixar preços, data do sorteio nem regras ainda não homologadas pela Diretoria.
+export function appointmentChristmasBasketMessage(input: { appointmentDate: string }) {
+  return [
+    `🎄 Olá! Como você já estará conosco no TUCXA em ${datePtBr(input.appointmentDate)}, queremos compartilhar uma iniciativa especial de Natal. 💚`,
+    "Estamos organizando o sorteio de uma linda Cesta de Natal, preparada com muito carinho. 🎁",
+    "Além da oportunidade de participar, você pode contribuir com a continuidade das atividades de acolhimento da nossa Casa.",
+    "✨ Gostaria de conhecer a cesta, o regulamento e como participar? Responda *QUERO SABER* para receber as informações.",
+    "A participação é opcional. Agradecemos por estar perto do TUCXA! 🌿",
+  ].join("\n\n");
+}
