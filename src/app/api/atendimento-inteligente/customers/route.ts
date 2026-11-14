@@ -4,10 +4,7 @@ import { aeScope, allowed, isUuid, safeError } from '@/lib/atendimento-inteligen
 import { normalizeBRPhone, stringField } from '@/lib/atendimento-inteligente/intake';
 
 export const dynamic = 'force-dynamic';
-type Create = { organizationId?: string; fullName?: string; phone?: string; email?: string; password?: string };
-const strongPassword = (s: string) => s.length >= 8 && s.length <= 72 &&
-  [/[A-Z]/, /[a-z]/, /\d/, /[^\w]/].filter(re => re.test(s)).length >= 3 &&
-  !['12345678', '123456789', 'Password123!', 'Senha123!', 'Qwerty123!'].includes(s);
+type Create = { organizationId?: string; fullName?: string; phone?: string; email?: string };
 
 async function authorization(request: NextRequest, orgId: string) {
   const scope = await aeScope(request);
@@ -30,6 +27,14 @@ export async function GET(request: NextRequest) {
       : {data:[],error:null};
     if(contactError)throw contactError;
     const phoneById=new Map((contacts??[]).map(c=>[c.id,c.phone]));
+    // A mensagem de primeira solicitacao deve depender dos pedidos, nao apenas dos enderecos.
+    const customerIds = (customers ?? []).map(row => row.id);
+    const { data: existingRequests, error: requestsError } = customerIds.length
+      ? await supabaseAdmin.from('ae_ai_requests').select('customer_id')
+          .eq('organization_id', organizationId).in('customer_id', customerIds).limit(5000)
+      : { data: [], error: null };
+    if (requestsError) throw requestsError;
+    const customersWithRequests = new Set((existingRequests ?? []).map(row => row.customer_id));
     const { data: addresses, error: addressError } = await supabaseAdmin.from('ae_ai_customer_addresses')
       .select('id,contact_id,label,cep,street,number,complement,neighborhood,city,state')
       .eq('organization_id', organizationId).limit(600);
@@ -38,13 +43,13 @@ export async function GET(request: NextRequest) {
       return { id: row.id, contactId: row.contact_id, fullName: row.full_name,
         phone: phoneById.get(row.contact_id),
         email: row.email, portalEnabled: row.portal_enabled,
+        hasRequests: customersWithRequests.has(row.id),
         addresses: (addresses ?? []).filter(item => item.contact_id === row.contact_id) };
     }) });
   } catch (err) { return NextResponse.json({ error: safeError(err) }, { status: 500 }); }
 }
 
 export async function POST(request: NextRequest) {
-  let createdUserId: string | null = null;
   try {
     const scope = await aeScope(request);
     if (!scope) return NextResponse.json({ error: 'Entre para cadastrar clientes.' }, { status: 401 });
@@ -59,9 +64,8 @@ export async function POST(request: NextRequest) {
     const phone = normalizeBRPhone(body.phone);
     const fullName = stringField(body.fullName, 120);
     const email = stringField(body.email, 180).toLowerCase();
-    const password = typeof body.password === 'string' ? body.password : '';
-    if (!phone || fullName.length < 3 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || !strongPassword(password)) {
-      return NextResponse.json({ error: 'Informe nome, celular valido e senha individual forte (minimo 8 caracteres). E-mail e opcional.' }, { status: 400 });
+    if (!phone || fullName.length < 3 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+      return NextResponse.json({ error: 'Informe nome e WhatsApp valido. E-mail e opcional.' }, { status: 400 });
     }
     const { data: existingContact, error: contactErr } = await supabaseAdmin.from('ae_ai_contacts')
       .select('id').eq('organization_id', organizationId).eq('phone', phone).maybeSingle();
@@ -70,33 +74,27 @@ export async function POST(request: NextRequest) {
       const { data: existingCustomer, error: custErr } = await supabaseAdmin.from('ae_ai_customers')
         .select('id').eq('organization_id', organizationId).eq('contact_id', existingContact.id).maybeSingle();
       if (custErr) throw custErr;
-      if (existingCustomer) return NextResponse.json({ error: 'Cliente ja cadastrado. Nao alteramos a senha existente.' }, { status: 409 });
+      if (existingCustomer) return NextResponse.json({ error: 'Cliente ja cadastrado. Selecione-o na lista de solicitacoes.' }, { status: 409 });
     }
-    // O telefone permanece NAO confirmado. Portal bloqueado ate verificar posse do numero.
-    // Nao registrar ou retornar a senha em logs, banco ou resposta da API.
-    const { data: created, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      phone: `+${phone}`, password, phone_confirm: false,
-      ...(email ? { email, email_confirm: false } : {}),
-      user_metadata: { full_name: fullName, ae_ai_provisioned: true },
-    });
-    if (authError || !created.user) {
-      return NextResponse.json({ error: 'Nao foi possivel criar credencial. Confira se o numero ja possui conta.' }, { status: 409 });
-    }
-    createdUserId = created.user.id;
+    // Cadastro sem credencial na Fase 0. A migracao 14 torna auth_user_id opcional.
+    // Um telefone existente continua sendo identificado pela chave (empresa, telefone).
     const { data: contact, error: upErr } = await supabaseAdmin.from('ae_ai_contacts').upsert({
       organization_id: organizationId, phone, display_name: fullName, updated_at: new Date().toISOString(),
     }, { onConflict: 'organization_id,phone' }).select('id').single();
     if (upErr || !contact) throw upErr ?? new Error('Contato nao criado');
     const { data: customer, error: insertError } = await supabaseAdmin.from('ae_ai_customers').insert({
-      organization_id: organizationId, contact_id: contact.id, auth_user_id: createdUserId,
+      organization_id: organizationId, contact_id: contact.id,
       full_name: fullName, email: email || null, provisioned_by: scope.userId,
       portal_enabled: false, must_change_password: true,
+      // auth_user_id permanece NULL ate verificacao de identidade/ativacao futura.
     }).select('id').single();
-    if (insertError || !customer) throw insertError ?? new Error('Cadastro nao salvo');
-    createdUserId = null;
-    return NextResponse.json({ id: customer.id, message: 'Cliente cadastrado para triagem assistida. Portal nao liberado.' }, { status: 201 });
+    if (insertError || !customer) {
+      // Concorrencia: outra solicitacao pode ter criado este contato/cliente.
+      if (insertError?.code === '23505') return NextResponse.json({ error: 'Cliente ja cadastrado. Selecione-o na lista de solicitacoes.' }, { status: 409 });
+      throw insertError ?? new Error('Cadastro nao salvo');
+    }
+    return NextResponse.json({ id: customer.id, message: 'Cliente cadastrado sem senha. Portal nao liberado.' }, { status: 201 });
   } catch (err) {
-    if (createdUserId) await supabaseAdmin.auth.admin.deleteUser(createdUserId).catch(() => null);
     return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
 }

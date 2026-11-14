@@ -133,14 +133,14 @@ export default function AeIntelligentPanel({ fixedOrgSlug }: { fixedOrgSlug?: st
         <div><h1 className="text-2xl font-bold text-[#00334E]">AE Atendimento Inteligente</h1><p className="text-sm text-slate-500">{fixedOrgSlug ? "Fila RMC — atendimento humano N2 e orçamentos" : "Triagem WhatsApp Cloud API • painel multiempresa"}</p></div>
         <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" onClick={() => void refresh()}>Atualizar</button>
       </div>
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+      {!fixedOrgSlug && <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
         <label htmlFor="ae-ai-org" className="font-semibold">Empresa</label>
         <select id="ae-ai-org" className="rounded-lg border p-2" value={organizationId} disabled={busy || Boolean(fixedOrgSlug)} onChange={e => { setOrganizationId(e.target.value); setMessage(""); setError(""); setNotice(""); }}>
           {organizations.length === 0 && <option value="">Nenhuma empresa autorizada</option>}
           {organizations.map(o => <option value={o.id} key={o.id}>{o.name}</option>)}
         </select>
         {organizations.find(o => o.id === organizationId) && <span className={statusClass}>Status: {organizations.find(o => o.id === organizationId)?.status} · Bot {organizations.find(o => o.id === organizationId)?.automation_enabled?"ligado":"desligado"}</span>}
-      </div>
+      </div>}
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
       {organizationId && <AiRequestQueue key={organizationId} organizationId={organizationId} organizationSlug={organizations.find(o=>o.id===organizationId)?.slug} canManageN2={["owner","admin"].includes(organizations.find(o=>o.id===organizationId)?.current_user_role ?? "")} />}

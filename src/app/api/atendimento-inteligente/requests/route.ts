@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
         if(!isUuid(body.customerId)) return NextResponse.json({error:'Cadastre e selecione um cliente antes do pedido.'},{status:400});
         effectiveCustomerId=body.customerId;
       }
-      if (!isUuid(effectiveCustomerId) || !effectivePhone || effectiveName.length < 2 || body.consentConfirmed!==true)
+      if (!isUuid(effectiveCustomerId) || !effectivePhone || effectiveName.length < 2 || (!assisted && body.consentConfirmed!==true))
         return NextResponse.json({error:'Identificacao do cliente ou autorizacao invalida.'},{status:400});
       const services=Array.isArray(body.services)?body.services:[];
       if(services.length<1 || services.length>5) return NextResponse.json({error:'Informe de 1 a 5 servicos.'},{status:400});
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
         p_address_id:addressId,p_address:normalizedAddress,
         p_preferred_contact:stringField(body.preferredContact,200),
         p_intake_source:assisted?'assisted_n1':'customer_portal',
-        p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:true,
+        p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:!assisted,
         p_secret_hash:hash,p_secret_expires_at:expires,
       });
       if(error||!isUuid(requestId)) throw error ?? new Error('Registro nao concluido');
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
       p_urgency:body.urgency==='alta'?'alta':'normal',
       p_address:stringField(body.address,300),p_preferred_contact:stringField(body.preferredContact,200),
       p_intake_source:assisted?'assisted_n1':'web_self_service',
-      p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:true,
+      p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:!assisted,
       p_secret_hash:hash,p_secret_expires_at:expires,
     });
     if(error||!isUuid(requestId))throw error ?? new Error('Falha ao registrar');

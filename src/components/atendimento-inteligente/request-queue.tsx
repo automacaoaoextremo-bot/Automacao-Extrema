@@ -9,7 +9,7 @@ type Intake = {
   id: string; organization_id: string; conversation_id: string;
   category: string; description: string; neighborhood: string; urgency: string;
   status: string; created_at: string; customer_name: string | null;
-  property_address: string | null; preferred_contact: string | null;
+  property_address: string | null; preferred_contact: string | null; public_contact_email?: string | null;
   intake_source: string; contact: { phone: string; display_name: string | null } | null;
 };
 type Media = { id: string; mimeType: string; name: string; url: string | null };
@@ -85,7 +85,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
   }
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Fila de pedidos recebidos">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="text-lg font-black text-[#123e50]">Pedidos e atendimentos</h2><p className="text-xs text-slate-500">Solicitações do site e do atendimento assistido N1, separadas por empresa.</p></div>
+      <div><h2 className="text-lg font-black text-[#123e50]">Pedidos e atendimentos</h2>{organizationSlug !== 'reparos-rmc' && <p className="text-xs text-slate-500">Solicitações do site e do atendimento assistido N1, separadas por empresa.</p>}</div>
       <div className="flex gap-2">{organizationSlug === "reparos-rmc" && <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-semibold text-[#1c2933]">+ Registrar N1</Link>}<button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={busy} onClick={() => void loadList().catch(err => setError(err instanceof Error ? err.message : 'Erro'))}>Atualizar</button></div>
     </div>
     {error && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
@@ -131,6 +131,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-black">{active.customer_name || active.contact?.display_name}</h3><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold">{active.urgency === 'alta' ? 'Prioridade alta informada' : 'Prioridade normal'}</span></div>
           <p className="mt-1 text-sm">WhatsApp: <a className="font-bold underline" href={`https://wa.me/${active.contact?.phone ?? ''}`} rel="noopener noreferrer" target="_blank">{active.contact?.phone ?? '—'}</a></p>
           <p className="mt-1 text-sm">{active.neighborhood}{active.property_address ? ` • ${active.property_address}` : ''}</p>
+          {active.public_contact_email && <p className="mt-1 text-sm">E-mail informado: {active.public_contact_email}</p>}
           {serviceItems.length>0?<div className="mt-3 space-y-2">{serviceItems.map(s=><div key={s.id} className="rounded-xl bg-white p-3 text-sm">
             <b>{s.position}. {s.category}</b><p className="mt-1 whitespace-pre-wrap">{s.description}</p>
             {s.answers?.specific&&<p className="mt-1 text-xs text-slate-600">Detalhes: {s.answers.specific}</p>}
