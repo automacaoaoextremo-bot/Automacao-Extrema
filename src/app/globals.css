@@ -84,8 +84,8 @@ button {
     break-inside: avoid;
   }
 
-  /* A grade tem 4 colunas na folha A4 horizontal. Os quadrados de tela
-     sao compactados na impressao para caberem 12 meses e a legenda. */
+  /* A4 paisagem: a grade impressa varia conforme o calendario.
+     A tela continua com as colunas originais. */
   [data-agenda-print-root] .grid-cols-7 button,
   [data-agenda-print-root] .grid-cols-7 > span {
     height: 15px !important;
@@ -94,11 +94,83 @@ button {
     font-size: 6.5pt !important;
     line-height: 1 !important;
   }
-  [data-agenda-print-root] .grid-cols-4 {
-    gap: 4px !important;
+  /* Umbanda: 3 colunas x 4 linhas, com dias maiores e maior leitura. */
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [data-agenda-months-grid] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 5px !important;
   }
-  [data-agenda-print-root] .grid-cols-4 > section {
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [data-agenda-months-grid] > section {
     padding: 3px !important;
+  }
+
+  /* Legenda e datas de Umbanda ficam na mesma folha da grade 3x4. */
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [data-agenda-months-grid] .grid-cols-7 button,
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [data-agenda-months-grid] .grid-cols-7 > span {
+    height: 13px !important;
+    min-height: 13px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [aria-label="Legenda de atividades"] {
+    margin-top: 4px !important;
+    padding: 4px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [aria-label="Legenda de atividades"] > div {
+    margin-bottom: 3px !important;
+    gap: 3px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [aria-label="Legenda de atividades"] .min-h-8 {
+    min-height: 14px !important;
+    padding: 1px 3px !important;
+    font-size: 7pt !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="tucxa"] [aria-label^="Datas importantes"] > div {
+    padding: 1px 3px !important;
+    font-size: 6.5pt !important;
+    line-height: 1 !important;
+  }
+
+  /* Outras Agendas: meses compactos deixam a lista de atividades e
+     responsaveis na mesma pagina sem cortar nenhum registro. */
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-months-grid] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 3px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-months-grid] > section {
+    padding: 2px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-months-grid] .grid-cols-7 button,
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-months-grid] .grid-cols-7 > span {
+    height: 12px !important;
+    min-height: 12px !important;
+    font-size: 6pt !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [aria-label="Legenda de atividades"] {
+    margin-top: 4px !important;
+    padding: 4px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [aria-label="Legenda de atividades"] > div {
+    margin-bottom: 3px !important;
+    gap: 3px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [aria-label="Legenda de atividades"] .min-h-8 {
+    min-height: 15px !important;
+    padding: 1px 3px !important;
+    font-size: 7pt !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-responsibles] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 3px !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-responsibles] > article {
+    padding: 2px 5px !important;
+    font-size: 7pt !important;
+    line-height: 1.1 !important;
+    break-inside: avoid !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] [data-agenda-responsibles] > article time {
+    font-size: 6.5pt !important;
+  }
+  [data-agenda-print-root] [data-agenda-calendar="others"] > .mt-3 {
+    margin-top: 4px !important;
   }
   [data-agenda-print-root] [aria-label="Visualização do calendário"] {
     margin-bottom: 5px !important;

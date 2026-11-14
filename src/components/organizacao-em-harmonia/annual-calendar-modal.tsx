@@ -179,7 +179,7 @@ export function AgendaResponsibleList({ events, year, month }: { events: AnnualC
   const period = month === undefined ? `${year}` : `${MONTHS_PT[month]} de ${year}`;
   if (!entries.length) return <p className="text-sm text-[#526954]">Não há outras atividades aprovadas para o período selecionado.</p>;
   return (
-    <section className="grid gap-1.5 sm:grid-cols-2" aria-label={`Atividades e responsáveis em ${period}`}>
+    <section className="grid gap-1.5 sm:grid-cols-2" data-agenda-responsibles aria-label={`Atividades e responsáveis em ${period}`}>
       {entries.map(({ event, date, endDate }) => {
         const tone = otherAgendaTone(event);
         const dateLabel = endDate > date
@@ -586,7 +586,7 @@ function AnnualGrid({
 }) {
   const months = visibleMonths ?? Array.from({ length: 12 }, (_, month) => month);
   return (
-    <div className={`grid min-w-0 ${months.length === 1 ? "mx-auto max-w-xl grid-cols-1" : variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1 sm:gap-3`}>
+    <div data-agenda-months-grid className={`grid min-w-0 ${months.length === 1 ? "mx-auto max-w-xl grid-cols-1" : variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1 sm:gap-3`}>
       {months.map((month) => (
         <MiniMonth
           key={month}
@@ -619,7 +619,7 @@ type FocusedCalendarProps = {
 
 function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
-    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
+    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf data-agenda-calendar="tucxa">
       <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
       {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay}
@@ -631,7 +631,7 @@ function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 
 
 function OthersCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
   return (
-    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
+    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf data-agenda-calendar="others">
       <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
       {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
       <AnnualGrid events={events} year={year} toneFor={otherAgendaTone} variant="umbanda" onSelectDay={onSelectDay}
