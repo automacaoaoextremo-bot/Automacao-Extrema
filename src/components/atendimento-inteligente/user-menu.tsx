@@ -41,6 +41,9 @@ export function AiUserMenu() {
   }, []);
 
   if (!actor) return null;
+  // Somente apresentacao: nunca modificar nome completo salvo no Auth.
+  const names = actor.name.trim().split(/\s+/).filter(Boolean);
+  const compactName = names.length > 1 ? `${names[0]} ${names[names.length - 1]}` : names[0] || 'Usuário';
   async function signOut() {
     const { error } = await supabaseBrowser.auth.signOut();
     if (!error) {
@@ -50,7 +53,7 @@ export function AiUserMenu() {
     }
   }
   return <div className="flex min-w-0 items-center gap-1.5 text-[11px] sm:gap-2 sm:text-sm">
-    <span className="max-w-[105px] truncate font-semibold text-[#1b3e53] sm:max-w-[230px]" title={actor.name}>{actor.name}</span>
+    <span className="max-w-[105px] truncate font-semibold text-[#1b3e53] sm:max-w-[230px]" title={actor.name}>{compactName}</span>
     <button type="button" onClick={() => void signOut()}
       className="rounded-full border border-slate-300 px-2.5 py-1.5 font-semibold sm:px-3">Sair</button>
   </div>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/admin-fetch';
 import { supabaseBrowser } from '@/lib/supabase-browser';
@@ -37,7 +37,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   const [customers,setCustomers]=useState<Customer[]>([]);
   const [customerId,setCustomerId]=useState('');
   const [myAddresses,setMyAddresses]=useState<Address[]>([]);
-  const [step,setStep]=useState(1);
+  const [activeStep,setActiveStep]=useState<1|2|3|null>(null);
+  const dialogRef=useRef<HTMLDialogElement>(null);
   const [services,setServices]=useState<Service[]>([startService()]);
   const [files,setFiles]=useState<File[]>([]);
   const [urgency,setUrgency]=useState('normal');
@@ -90,19 +91,35 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   function editService(index:number,key:keyof Service,value:string){
     setServices(list=>list.map((item,i)=>i===index?{...item,[key]:value}:item));
   }
-  function next(){
-    setError('');
-    if(step===1 && (services.some(s=>!s.category || s.description.trim().length<12))){
-      setError('Escolha cada serviço e descreva o que ocorreu com pelo menos 12 caracteres.');return;
+  const servicesReady=services.every(s=>Boolean(s.category)&&s.description.trim().length>=12);
+  const addressReady=Boolean(addressId)||(
+    /^\d{8}$/.test(address.cep.replace(/\D/g,'')) &&
+    Boolean(address.street.trim()) && Boolean(address.number.trim()) &&
+    Boolean(address.neighborhood.trim()) && Boolean(address.city.trim()) &&
+    /^[A-Z]{2}$/.test(address.state)
+  );
+  // O dialog nativo faz a gestao de foco, Escape e bloqueio da tela de fundo.
+  useEffect(()=>{
+    const dialog=dialogRef.current;
+    if(!dialog)return;
+    if(activeStep!==null&&!dialog.open)dialog.showModal();
+    if(activeStep===null&&dialog.open)dialog.close();
+  },[activeStep]);
+  function openStep(n:1|2|3){setError('');setActiveStep(n);}
+  function closeStep(){setError('');setActiveStep(null);}
+  function validateStage(stage:1|2|3):boolean{
+    if(stage===1&&!servicesReady){setError('Escolha cada serviço e descreva o problema com pelo menos 12 caracteres.');return false;}
+    if(stage===2&&mediaError){setError(mediaError);return false;}
+    if(stage===3){
+      if(actor?.role==='operator'&&!customer){setError('Selecione um cliente cadastrado antes de enviar.');return false;}
+      if(!addressReady){setError('Preencha CEP, rua, numero, bairro, cidade e UF.');return false;}
+      if(!consent){setError('Confirme a autorizacao para registrar este pedido.');return false;}
     }
-    if(step===3){
-      if(actor?.role==='operator'&&!customer){setError('Selecione um cliente cadastrado.');return;}
-      if(!addressId && (!/^\d{8}$/.test(address.cep.replace(/\D/g,'')) || !address.street ||
-        !address.number || !address.neighborhood || !address.city || !/^[A-Z]{2}$/.test(address.state))){
-        setError('Preencha CEP, rua, numero, bairro, cidade e UF.');return;
-      }
-    }
-    setStep(x=>Math.min(3,x+1));
+    setError('');return true;
+  }
+  function nextStage(){
+    if(activeStep===null||activeStep===3)return;
+    if(validateStage(activeStep))setActiveStep((activeStep+1) as 2|3);
   }
   async function searchCep(){
     const cep=address.cep.replace(/\D/g,'');
@@ -117,7 +134,13 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     finally{setBusy(false);}
   }
   async function submit(event:FormEvent<HTMLFormElement>){
-    event.preventDefault();setBusy(true);setError('');setMessage('');setUploadFailures([]);
+    event.preventDefault();
+    if(!servicesReady){openStep(1);setError('Confira os tipos de serviços e suas descricoes.');return;}
+    if(mediaError){openStep(2);setError(mediaError);return;}
+    if(!addressReady||!consent||(actor?.role==='operator'&&!customer)){
+      openStep(3);setError('Confira cliente, endereco e autorizacao antes de enviar.');return;
+    }
+    setBusy(true);setError('');setMessage('');setUploadFailures([]);
     try{
       if(!actor||!consent||mediaError)throw new Error('Confira sua sessao, autorizacao e anexos.');
       if(actor.role==='operator'&&!customer)throw new Error('Cadastre e escolha o cliente antes de registrar o pedido.');
@@ -147,7 +170,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       }
       setUploadFailures(failures);
       setMessage(`Solicitação registrada! Protocolo: ${created.requestId.slice(0,8).toUpperCase()}. Preço e data dependem de avaliação.`);
-      setStep(1);setServices([startService()]);setFiles([]);setConsent(false);
+      setActiveStep(null);setServices([startService()]);setFiles([]);setConsent(false);
       // Mantem cliente e endereco para simplificar um segundo pedido do mesmo cliente.
     }catch(e){setError(e instanceof Error?e.message:'Nao foi possivel salvar o pedido.');}
     finally{setBusy(false);}
@@ -168,10 +191,10 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     <Link className="mt-4 inline-flex rounded-xl bg-[#143e31] px-4 py-3 text-sm font-bold text-white" href="/solucoes/atendimento-inteligente/rmc/meus-pedidos">Ver meus pedidos</Link>
   </section>;
 
-  return <form onSubmit={submit} className="rounded-3xl border bg-white p-4 shadow sm:p-6">
+  return <form noValidate onSubmit={submit} className="rounded-3xl border bg-white p-4 shadow sm:p-6">
     <p className="text-xs font-bold uppercase tracking-wider text-[#b36b23]">Reparos RMC • Solicitar serviço</p>
     <h1 className="mt-1 text-2xl font-black text-[#183d51]">Conte o que precisa ser resolvido</h1>
-    <p className="mt-2 text-sm text-slate-600">Um pedido mais completo evita perguntas repetidas e ajuda a preparar uma avaliação mais precisa. A análise e os prazos serão confirmados pela equipe.</p>
+    <p className="mt-2 text-sm text-slate-600">Preencha cada etapa pelo botão correspondente. Os dados são mantidos ao fechar ou reabrir uma etapa.</p>
     {actor.role==='operator'&&<div className="mt-4 rounded-xl bg-orange-50 p-3">
       <label htmlFor="rmc-client" className={label}>Cliente do atendimento assistido</label>
       <select id="rmc-client" className={field} value={customerId} onChange={e=>{setCustomerId(e.target.value);setAddressId('');}}>
@@ -180,9 +203,32 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       </select>
       <Link href="/solucoes/atendimento-inteligente/rmc/cadastro" className="mt-2 inline-block text-xs font-bold underline">Cadastrar novo cliente</Link>
     </div>}
-    <p className="mt-4 text-xs font-semibold text-slate-500">Etapa {step} de 3</p>
-    <div aria-hidden="true" className="mt-2 flex gap-1">{[1,2,3].map(n=><span key={n} className={`h-1.5 flex-1 rounded-full ${n<=step?'bg-[#ef8924]':'bg-slate-200'}`}/>)}</div>
-    {step===1&&<div className="mt-5 space-y-4">
+    <div className="mt-5 grid gap-3" aria-label="Etapas da solicitação">
+      <button type="button" onClick={()=>openStep(1)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left shadow-sm transition-colors hover:border-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+        <span className="flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-100 font-bold text-[#8d4e10]">1</span><span><strong className="block text-sm text-[#173e53]">Serviços e problema</strong><span className="text-xs text-slate-600">Tipo de serviço, descrição e detalhes</span></span></span>
+        <span className="shrink-0 text-xs font-bold text-[#173e53]">{servicesReady?'✓ Preenchido':'Preencher'}</span>
+      </button>
+      <button type="button" onClick={()=>openStep(2)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left shadow-sm transition-colors hover:border-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+        <span className="flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-100 font-bold text-[#8d4e10]">2</span><span><strong className="block text-sm text-[#173e53]">Fotos e preferências</strong><span className="text-xs text-slate-600">Anexos opcionais e urgência</span></span></span>
+        <span className="shrink-0 text-xs font-bold text-[#173e53]">Opcional</span>
+      </button>
+      <button type="button" onClick={()=>openStep(3)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left shadow-sm transition-colors hover:border-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+        <span className="flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-100 font-bold text-[#8d4e10]">3</span><span><strong className="block text-sm text-[#173e53]">Endereço e autorização</strong><span className="text-xs text-slate-600">Local de atendimento e confirmação</span></span></span>
+        <span className="shrink-0 text-xs font-bold text-[#173e53]">{addressReady&&consent?'✓ Preenchido':'Preencher'}</span>
+      </button>
+    </div>
+    {message&&<div role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"><p>{message}</p>{uploadFailures.length>0&&<p>Alguns anexos falharam: {uploadFailures.join(', ')}. Avise a equipe.</p>}</div>}
+    <p className="mt-4 text-xs text-slate-500">O envio só acontece na última etapa. O pedido não confirma preço, visita ou disponibilidade.</p>
+    <dialog ref={dialogRef} onCancel={e=>{if(busy)e.preventDefault();}} onClose={()=>setActiveStep(null)} aria-labelledby="rmc-step-title" aria-describedby="rmc-step-help"
+      className="fixed inset-0 m-auto h-[calc(100dvh-1rem)] max-h-[820px] w-[calc(100vw-1rem)] max-w-2xl rounded-2xl border-0 bg-white p-0 text-[#183d51] shadow-2xl backdrop:bg-black/65 sm:h-auto sm:max-h-[calc(100dvh-3rem)]">
+      <div className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-h-[calc(100dvh-3rem)]">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b bg-white px-4 py-3 sm:px-6">
+          <div><p className="text-xs font-semibold text-[#9e5b1a]">Etapa {activeStep} de 3</p><h2 id="rmc-step-title" className="text-lg font-black">{activeStep===1?'Serviços e problema':activeStep===2?'Fotos e preferências':'Endereço e autorização'}</h2></div>
+          <button type="button" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={closeStep} aria-label="Fechar etapa">Fechar</button>
+        </div>
+        <p id="rmc-step-help" className="sr-only">Preencha os campos e avance. Use Escape ou Fechar para voltar sem perder as informações.</p>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 pb-8 sm:px-6">
+    {activeStep===1&&<div className="mt-5 space-y-4">
       {services.map((item,i)=><fieldset key={i} className="rounded-2xl border border-slate-200 p-4">
         <legend className="px-1 text-sm font-bold">Serviço {i+1}</legend>
         <label className={label} htmlFor={`cat-${i}`}>Tipo de serviço</label>
@@ -198,18 +244,19 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       </fieldset>)}
       {services.length<5&&<button type="button" className="rounded-full border border-orange-400 px-4 py-2 text-sm font-bold text-[#9c5a19]" onClick={()=>setServices(list=>[...list,startService()])}>+ Adicionar outro serviço</button>}
     </div>}
-    {step===2&&<div className="mt-5 space-y-4">
+    {activeStep===2&&<div className="mt-5 space-y-4">
       <label className={label} htmlFor="file">Fotos e vídeos (opcionais)</label>
       <p className="text-sm text-slate-600">Uma foto do local e outra do problema ajudam a equipe a avaliar melhor, evitando perguntas e deslocamentos desnecessários. Não anexe documentos pessoais.</p>
       <input id="file" type="file" className={field} multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={e=>setFiles(Array.from(e.target.files??[]))}/>
       <p className="text-xs text-slate-500">Até 3 fotos (5 MB cada) e um vídeo (15 MB).</p>
+      {files.length>0&&<p role="status" className="rounded-lg bg-slate-50 p-2 text-xs text-slate-700">{files.length} anexo(s) mantido(s) neste pedido: {files.map(f=>f.name).join(', ')}</p>}
       {mediaError&&<p role="alert" className="text-xs text-rose-700">{mediaError}</p>}
       <label className={label} htmlFor="urgency">Urgência percebida</label>
       <select id="urgency" className={field} value={urgency} onChange={e=>setUrgency(e.target.value)}><option value="normal">Normal</option><option value="alta">Alta</option></select>
       <label className={label} htmlFor="contact">Melhor período para contato (opcional)</label>
       <input id="contact" className={field} value={preferredContact} onChange={e=>setPreferredContact(e.target.value)} maxLength={200}/>
     </div>}
-    {step===3&&<div className="mt-5 space-y-3">
+    {activeStep===3&&<div className="mt-5 space-y-3">
       <h2 className="text-lg font-black text-[#16384b]">Onde será realizado o serviço?</h2>
       {knownAddresses.length>0&&<><label className={label} htmlFor="existing-addr">Usar endereço já cadastrado</label>
         <select id="existing-addr" className={field} value={addressId} onChange={e=>setAddressId(e.target.value)}>
@@ -229,12 +276,15 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
         {actor.role==='operator'?'Confirmo que recebi autorização do cliente para registrar seus dados e materiais para avaliação e retorno.':'Autorizo o uso dos dados para avaliação e contato sobre este pedido.'}</label>
       <p className="text-xs text-slate-500">O pedido não confirma orçamento, visita, valor ou disponibilidade.</p>
     </div>}
-    {error&&<p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-    {message&&<div role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"><p>{message}</p>{uploadFailures.length>0&&<p>Alguns anexos falharam: {uploadFailures.join(', ')}. Avise a equipe.</p>}</div>}
-    <div className="mt-5 flex justify-between gap-3">
-      {step>1?<button className="rounded-full border px-5 py-2 text-sm font-bold" type="button" onClick={()=>{setError('');setStep(s=>s-1);}}>Voltar</button>:<Link href="/solucoes/atendimento-inteligente/rmc" className="rounded-full border px-5 py-2 text-sm font-bold">Voltar</Link>}
-      {step<3?<button type="button" onClick={next} className="rounded-full bg-[#ef8924] px-6 py-2 text-sm font-black">Próximo</button>
-        :<button type="submit" disabled={busy||!consent||!!mediaError} className="rounded-full bg-[#ef8924] px-5 py-2 text-sm font-black disabled:opacity-50">{busy?'Registrando...':'Enviar solicitação'}</button>}
-    </div>
+          {error&&<p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-white px-4 py-3 sm:px-6">
+          {activeStep!==null&&activeStep>1?<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={()=>{setError('');setActiveStep((activeStep-1) as 1|2);}}>Anterior</button>
+            :<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={closeStep}>Salvar e fechar</button>}
+          {activeStep!==3?<button type="button" className="rounded-full bg-[#ef8924] px-5 py-2.5 text-sm font-black" disabled={busy} onClick={nextStage}>Salvar e continuar</button>
+            :<button type="submit" disabled={busy||!consent||!!mediaError} className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-black disabled:opacity-50">{busy?'Registrando...':'Enviar solicitação'}</button>}
+        </div>
+      </div>
+    </dialog>
   </form>;
 }
