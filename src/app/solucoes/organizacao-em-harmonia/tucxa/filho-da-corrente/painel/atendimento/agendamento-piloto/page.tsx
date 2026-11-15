@@ -1002,6 +1002,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const forwardingFinalized = (payload?.dayClosures ?? []).some((item) => item.stage === "forwarding");
 
   const searchHasPhone = phone.replace(/\D/g, "").length >= 10;
+  const showDddPrompt = needsDdd || (personNotFound && phoneWithoutDdd(phone));
 
   async function postPilot(body: Record<string, unknown>) {
     const token = await authToken();
@@ -1451,7 +1452,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
         setPersonNotFound(true);
       }
     } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : "Não foi possível pesquisar.");
+      // Uma pesquisa recebida sem DDD deve voltar para o complemento dentro do modal.
+      // Nunca criar um cadastro sem WhatsApp ou deixar o erro no painel principal.
+      if (phoneWithoutDdd(query)) {
+        setPersonNotFound(false);
+        setNeedsDdd(true);
+        setError("");
+      } else {
+        setError(searchError instanceof Error ? searchError.message : "Não foi possível pesquisar.");
+      }
     } finally {
       setSaving(false);
     }
@@ -1497,6 +1506,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
   async function createPerson(event: FormEvent) {
     event.preventDefault();
+    // Proteção adicional caso o formulário esteja aberto após uma resposta antiga da API.
+    if (phoneWithoutDdd(phone)) {
+      setPersonNotFound(false);
+      setShowCreateConsulente(false);
+      setNeedsDdd(true);
+      setError("");
+      return;
+    }
+    if (phoneWithoutDdd(newPersonWhatsapp)) {
+      setError("Informe o WhatsApp com DDD antes de criar o cadastro.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -2270,7 +2291,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </section>
 
         {loading && <p className="mt-3 rounded-2xl bg-white p-4 font-bold text-slate-600 ring-1 ring-[#123D2C]/10">Carregando...</p>}
-        {error && <p className="mt-3 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
+        {error && !modal && <p role="alert" className="mt-3 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
         {message && <p className="mt-3 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
 
         {payload && (
@@ -2278,7 +2299,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <section className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
               <ActionButton title="Como funciona" subtitle="Resumo do fluxo de atendimentos" onClick={() => setModal("ajuda")} />
               <ActionButton title="Configurações" subtitle="Ordem, lembretes e resumos" onClick={openSettings} />
-              <ActionButton title="Cadastros" subtitle="Consulentes, Entidades e dados pessoais" onClick={() => { setCadastroMode("menu"); setModal("cadastros"); }} />
+              <ActionButton title="Cadastros" subtitle="Consulentes, Entidades e dados pessoais" onClick={() => { setError(""); setCadastroMode("menu"); setModal("cadastros"); }} />
               <ActionButton title="Entidades" subtitle="Próximas datas, cadastro e agendamento" onClick={openEntitiesModal} />
               <ActionButton title="Agendar" subtitle="Localizar ou cadastrar Consulente" onClick={openBookingModal} />
               <ActionButton title="Acolhimento" subtitle="Painel, Triagem e Gestão" onClick={() => setModal("acolhimento")} />
@@ -2297,6 +2318,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
+            setError("");
             // Na Triagem ampliada, FECHAR retorna ao Caderno Compacto e nao sai da Triagem.
             if (modal === "consultar" && consultDisplayMode === "caderno_amplo") {
               setConsultDisplayMode("caderno");
@@ -2371,6 +2393,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
             setModal(null);
           }}
         >
+          {error && (
+            <p role="alert" aria-live="assertive" className="mb-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-800 ring-1 ring-red-200">
+              {error}
+            </p>
+          )}
           {modal === "diagnostico" && <TucxaDiagnosticoEnviosContent />}
           {modal === "acolhimento" && (
             <div className="grid gap-3">
@@ -2468,18 +2495,18 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </div>
               )}
 
-              {!foundPerson && !personNotFound && (<>
+              {!foundPerson && (!personNotFound || phoneWithoutDdd(phone)) && (<>
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
-                <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); }} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
+                <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); setError(""); }} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
               </form>
 
-              {needsDdd && (
+              {showDddPrompt && (
                 <form onSubmit={completePhoneDdd} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
                   <p className="text-sm font-black text-amber-950">Informe o DDD do celular</p>
                   <p className="text-xs font-semibold text-amber-900">O número {phone} está sem DDD. Informe os dois dígitos para continuar a busca e, se necessário, abrir o cadastro normal com WhatsApp. O DDD não será presumido.</p>
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
+                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => { setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2)); setError(""); }} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
                     <button disabled={saving} type="submit" className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-50">Continuar busca</button>
                   </div>
                 </form>
@@ -2544,7 +2571,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 </form>
               )}
 
-              {personNotFound && !searchHasPhone && (
+              {personNotFound && !searchHasPhone && !phoneWithoutDdd(phone) && (
                 <form onSubmit={createPerson} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                   <p className="text-sm font-black text-amber-950">Cadastro não encontrado. Cadastre o Consulente sem WhatsApp.</p>
                   <p className="text-xs font-semibold text-amber-900">A data do cadastro será registrada automaticamente. A confirmação e os lembretes poderão ser enviados ao familiar/responsável no agendamento.</p>
@@ -3445,16 +3472,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <section className="grid gap-2">
                   {!showCreateConsulente && !foundPerson && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
-                    <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); }} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
+                    <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); setError(""); }} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
                   </form>
 
-              {needsDdd && (
+              {showDddPrompt && (
                 <form onSubmit={completePhoneDdd} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
                   <p className="text-sm font-black text-amber-950">Informe o DDD do celular</p>
                   <p className="text-xs font-semibold text-amber-900">O número {phone} está sem DDD. Informe os dois dígitos para continuar a busca e, se necessário, abrir o cadastro normal com WhatsApp. O DDD não será presumido.</p>
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
+                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => { setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2)); setError(""); }} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
                     <button disabled={saving} type="submit" className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-50">Continuar busca</button>
                   </div>
                 </form>
@@ -3510,7 +3537,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                     </div>
                   )}
 
-                  {personNotFound && !showCreateConsulente && (
+                  {personNotFound && !showCreateConsulente && !phoneWithoutDdd(phone) && (
                     <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                       <p className="text-sm font-semibold text-amber-950">Nenhum cadastro encontrado. Deseja cadastrar um novo Consulente?</p>
                       <button
