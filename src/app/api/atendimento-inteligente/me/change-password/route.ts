@@ -9,9 +9,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Portal nao habilitado.' }, { status: 403 });
     const body = await request.json() as { password?: string };
     const password = body.password || '';
-    if (password.length < 12 || password.length > 72 ||
+    if (password.length < 8 || password.length > 72 ||
       [/[A-Z]/,/[a-z]/,/\d/,/[^\w]/].filter(re=>re.test(password)).length < 3) {
-      return NextResponse.json({ error: 'Senha deve ter 12 a 72 caracteres e misturar letras, numeros ou simbolos.' }, { status: 400 });
+      return NextResponse.json({ error: 'Senha deve ter 8 a 72 caracteres e misturar letras, numeros ou simbolos.' }, { status: 400 });
     }
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(actor.userId, {password});
     if (authError) throw authError;

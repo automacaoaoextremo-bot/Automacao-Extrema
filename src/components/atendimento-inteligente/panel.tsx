@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "@/lib/admin-fetch";
 import { AiRequestQueue } from "@/components/atendimento-inteligente/request-queue";
+import { RmcOperations } from "@/components/atendimento-inteligente/rmc-operations";
+import { RmcReviewDrafts } from "@/components/atendimento-inteligente/rmc-review-drafts";
+import Link from "next/link";
 
 type Organization = { id: string; slug: string; name: string; status: string; automation_enabled: boolean; segment: string; current_user_role?: "admin" | "owner" | "operator" | null };
 type Contact = { phone: string; display_name: string | null };
@@ -129,10 +132,12 @@ export default function AeIntelligentPanel({ fixedOrgSlug }: { fixedOrgSlug?: st
   }
   return (
     <div className="space-y-4 text-slate-800">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-[#00334E]">AE Atendimento Inteligente</h1><p className="text-sm text-slate-500">{fixedOrgSlug ? "Fila RMC — atendimento humano N2 e orçamentos" : "Triagem WhatsApp Cloud API • painel multiempresa"}</p></div>
+      {fixedOrgSlug ? <div className="flex justify-end">
+        <Link href="/solucoes/atendimento-inteligente/rmc" className="rounded-lg border px-4 py-2 text-sm font-semibold">Fechar painel</Link>
+      </div> : <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><h1 className="text-2xl font-bold text-[#00334E]">AE Atendimento Inteligente</h1><p className="text-sm text-slate-500">Triagem WhatsApp Cloud API • painel multiempresa</p></div>
         <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50" onClick={() => void refresh()}>Atualizar</button>
-      </div>
+      </div>}
       {!fixedOrgSlug && <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
         <label htmlFor="ae-ai-org" className="font-semibold">Empresa</label>
         <select id="ae-ai-org" className="rounded-lg border p-2" value={organizationId} disabled={busy || Boolean(fixedOrgSlug)} onChange={e => { setOrganizationId(e.target.value); setMessage(""); setError(""); setNotice(""); }}>
@@ -144,6 +149,8 @@ export default function AeIntelligentPanel({ fixedOrgSlug }: { fixedOrgSlug?: st
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
       {organizationId && <AiRequestQueue key={organizationId} organizationId={organizationId} organizationSlug={organizations.find(o=>o.id===organizationId)?.slug} canManageN2={["owner","admin"].includes(organizations.find(o=>o.id===organizationId)?.current_user_role ?? "")} />}
+      {fixedOrgSlug && ["owner","admin"].includes(organizations.find(o=>o.id===organizationId)?.current_user_role ?? "") &&
+        <><RmcOperations /><RmcReviewDrafts /></>}
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <section className="rounded-2xl bg-white p-3 shadow-sm" aria-label="Lista de conversas">
           <h2 className="mb-3 px-2 font-bold">Conversas ({conversations.length})</h2>

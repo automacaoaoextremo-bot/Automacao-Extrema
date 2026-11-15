@@ -43,7 +43,7 @@ export function AiUserMenu() {
   if (!actor) return null;
   // Somente apresentacao: nunca modificar nome completo salvo no Auth.
   const names = actor.name.trim().split(/\s+/).filter(Boolean);
-  const compactName = names.length > 1 ? `${names[0]} ${names[names.length - 1]}` : names[0] || 'Usuário';
+  const compactName = actor.name.trim().toLocaleLowerCase('pt-BR') === 'automação extrema' ? 'Automação Extrema' : names.length > 1 ? `${names[0]} ${names[names.length - 1]}` : names[0] || 'Usuário';
   async function signOut() {
     const { error } = await supabaseBrowser.auth.signOut();
     if (!error) {
