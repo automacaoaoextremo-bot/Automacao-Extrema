@@ -17,7 +17,7 @@ type Event = { id: string; status: string; note: string | null; created_at: stri
 type ServiceItem = {id:string;position:number;category:string;description:string;answers:Record<string,string>};
 const stamp = (s: string) => new Date(s).toLocaleString('pt-BR');
 
-export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 = false }: { organizationId: string; organizationSlug?: string; canManageN2?: boolean }) {
+export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 = false, initialStatusFilter = "all" }: { organizationId: string; organizationSlug?: string; canManageN2?: boolean; initialStatusFilter?: string }) {
   const [rows, setRows] = useState<Intake[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [events, setEvents] = useState<Event[]>([]);
@@ -25,7 +25,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
   const [media, setMedia] = useState<Media[]>([]);
   const [statusDraft,setStatusDraft]=useState<{requestId:string;value:RequestStage}|null>(null);
   const [note, setNote] = useState('');
-  const [statusFilter,setStatusFilter]=useState('all');
+  const [statusFilter,setStatusFilter]=useState(initialStatusFilter);
   const [sortOrder,setSortOrder]=useState('newest');
   const [page,setPage]=useState(1);
   const [mobileView,setMobileView]=useState<'list'|'detail'>('list');
@@ -39,7 +39,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
       return sortOrder==='oldest'?Date.parse(a.created_at)-Date.parse(b.created_at):Date.parse(b.created_at)-Date.parse(a.created_at);
     });
   },[rows,statusFilter,sortOrder]);
-  const pageSize=8;
+  const pageSize=5;
   const pages=Math.max(1,Math.ceil(visibleRows.length/pageSize));
   const currentPage=Math.min(page,pages);
   const pageRows=useMemo(()=>visibleRows.slice((currentPage-1)*pageSize,currentPage*pageSize),[visibleRows,currentPage]);
@@ -86,7 +86,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Fila de pedidos recebidos">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="text-lg font-black text-[#123e50]">Pedidos e atendimentos</h2>{organizationSlug !== 'reparos-rmc' && <p className="text-xs text-slate-500">Solicitações do site e do atendimento assistido N1, separadas por empresa.</p>}</div>
-      <div className="flex gap-2">{organizationSlug === "reparos-rmc" && <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-semibold text-[#1c2933]">+ Registrar N1</Link>}<button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={busy} onClick={() => void loadList().catch(err => setError(err instanceof Error ? err.message : 'Erro'))}>Atualizar</button></div>
+      <div className="flex gap-2">{organizationSlug === "reparos-rmc" && !canManageN2 && <Link href="/solucoes/atendimento-inteligente/rmc/solicitar" className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-semibold text-[#1c2933]">+ Registrar N1</Link>}<button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={busy} onClick={() => void loadList().catch(err => setError(err instanceof Error ? err.message : 'Erro'))}>Atualizar</button></div>
     </div>
     {error && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
     {notice && <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
@@ -107,6 +107,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
       <button type="button" className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${mobileView==='list'?'bg-[#143e31] text-white':''}`} onClick={()=>setMobileView('list')}>Lista de pedidos</button>
       <button type="button" className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold ${mobileView==='detail'?'bg-[#143e31] text-white':''}`} onClick={()=>setMobileView('detail')} disabled={!active}>Detalhes</button>
     </div>
+    {mobileView === "detail" && <button type="button" onClick={() => setMobileView("list")} className="mb-3 rounded-lg border px-4 py-2 text-sm font-semibold lg:hidden">Fechar detalhes</button>}
     <div className="grid gap-4 lg:grid-cols-[minmax(220px,320px)_1fr]">
       <div className={`${mobileView==='detail'?'hidden lg:block':''} max-h-[62svh] space-y-2 overflow-y-auto lg:max-h-[560px]`}>
 
