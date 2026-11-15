@@ -19,7 +19,8 @@ export default function RmcRequestPage() {
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
   return <div className="min-h-screen bg-[#eff5ef]">
-    <AiBrandHeader backHref="/solucoes/atendimento-inteligente/rmc" />
+    {/* Na tela de solicitacao N1 autenticada, nao mostrar Voltar. Sair permanece no AiUserMenu. */}
+    <AiBrandHeader showActions={authenticated === false} backHref="/solucoes/atendimento-inteligente/rmc" />
     <main className="mx-auto max-w-2xl px-3 py-3 sm:py-4">
       {authenticated === null ? <p role="status" className="rounded-xl bg-white p-6 text-sm">Verificando acesso...</p>
         : authenticated ? <AiRequestForm initialOrg="reparos-rmc" fixedOrg />

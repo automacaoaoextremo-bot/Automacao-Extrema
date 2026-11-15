@@ -210,7 +210,6 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   return <form noValidate onSubmit={submit} className="rounded-3xl border bg-white p-4 shadow sm:p-6">
     <p className="text-xs font-bold uppercase tracking-wider text-[#b36b23]">Reparos RMC • Solicitar serviço</p>
     <h1 className="mt-1 text-2xl font-black text-[#183d51]">Conte o que precisa ser resolvido</h1>
-    <p className="mt-2 text-sm text-slate-600">Preencha cada etapa pelo botão correspondente. Os dados são mantidos ao fechar ou reabrir uma etapa.</p>
     {actor.role==='operator'&&<div className="mt-4 rounded-xl bg-orange-50 p-3">
       <label htmlFor="rmc-client" className={label}>Cliente do atendimento assistido</label>
       <select id="rmc-client" className={field} value={customerId} onChange={e=>{setCustomerId(e.target.value);setAddressId('');setAddress(blankAddress());setAddressPart(1);}}>
