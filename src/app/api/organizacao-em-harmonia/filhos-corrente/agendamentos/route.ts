@@ -851,7 +851,8 @@ function filhoAppointmentWhatsappMessage(input: {
 
 async function findPersonByPhone(organizationId: string, phone: string) {
   const normalized = normalizePhone(phone);
-  if (normalized.length < 8) return { person: null, ambiguous: false, matches: [] as Array<Record<string, unknown>> };
+  // Somente números completos com DDD podem ser usados como identidade canônica.
+  if (normalized.length < 10) return { person: null, ambiguous: false, matches: [] as Array<Record<string, unknown>> };
 
   const selectFields = "id, full_name, whatsapp, email, notification_email, active, auth_user_id, normalized_whatsapp";
 
@@ -879,7 +880,7 @@ async function findPersonByPhone(organizationId: string, phone: string) {
 
   const matches = (data ?? []).filter((person) => {
     const candidate = normalizePhone(person.normalized_whatsapp || person.whatsapp);
-    return normalized.length >= 10 ? candidate === normalized : candidate.endsWith(normalized);
+    return candidate === normalized;
   });
 
   if (matches.length === 1) return { person: matches[0], ambiguous: false, matches };
@@ -1365,8 +1366,14 @@ export async function POST(request: Request) {
       if (!currentBundle.profile.canScheduleConsulente) return jsonError("Seu perfil não possui função autorizada para agendar Consulentes.", 403, code);
       const query = asText(body.query) || asText(body.whatsapp);
       const normalizedPhone = normalizePhone(query);
+      // A busca por um telefone local sem DDD não pode selecionar outra identidade
+      // por coincidência de sufixo. Solicitar o DDD antes de pesquisar/cadastrar.
+      const onlyPhoneCharacters = /^[+()\d\s.\-]+$/.test(query.trim());
+      if (onlyPhoneCharacters && normalizedPhone.length > 0 && normalizedPhone.length < 10) {
+        return jsonError("Informe o DDD e o número completo do celular para continuar.", 400, code);
+      }
 
-      if (normalizedPhone.length >= 8) {
+      if (normalizedPhone.length >= 10) {
         const lookup = await findPersonByPhone(context.organizationId, query);
         if (lookup.matches.length > 1) {
           return NextResponse.json({

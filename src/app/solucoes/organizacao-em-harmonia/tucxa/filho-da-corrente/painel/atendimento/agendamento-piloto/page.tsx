@@ -407,6 +407,19 @@ function groupWideTriageAppointments(
   return [...groups.values()];
 }
 
+// Telefone local sem DDD não pode identificar uma pessoa nem abrir cadastro sem WhatsApp.
+function phoneWithoutDdd(value: string) {
+  const typed = value.trim();
+  const digits = typed.replace(/\D/g, "");
+  return /^[+()\d\s.\-]+$/.test(typed) && (digits.length === 8 || digits.length === 9);
+}
+
+function incompleteNumericPhone(value: string) {
+  const typed = value.trim();
+  const digits = typed.replace(/\D/g, "");
+  return /^[+()\d\s.\-]+$/.test(typed) && digits.length > 0 && digits.length < 8;
+}
+
 function displayWhatsapp(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -449,6 +462,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
+  const [needsDdd, setNeedsDdd] = useState(false);
+  const [phoneDdd, setPhoneDdd] = useState("");
   const [searchResults, setSearchResults] = useState<FoundPerson[]>([]);
   const [bookingMode, setBookingMode] = useState<BookingMode>("date");
   const [bookingEntityLookupId, setBookingEntityLookupId] = useState("");
@@ -1030,6 +1045,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   function clearPersonSearch() {
+    setNeedsDdd(false);
+    setPhoneDdd("");
     setFoundPerson(null);
     setSearchResults([]);
     setPersonNotFound(false);
@@ -1053,6 +1070,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
   function resetBookingForm() {
     setPhone("");
+    setNeedsDdd(false);
+    setPhoneDdd("");
     setSearchResults([]);
     setFoundPerson(null);
     setPersonNotFound(false);
@@ -1413,14 +1432,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
     await selectPerson(person);
   }
 
-  async function searchPerson(event: FormEvent) {
-    event.preventDefault();
+  async function searchConsulenteByPhoneOrName(query: string) {
     setSaving(true);
     setError("");
     setAlphabetReturnLetter("");
     clearPersonSearch();
     try {
-      const result = await postLegacy({ action: "search-consulente", query: phone, whatsapp: phone });
+      const result = await postLegacy({ action: "search-consulente", query, whatsapp: query });
       const people = Array.isArray(result.people) ? result.people.filter((item): item is FoundPerson => Boolean(item && typeof item === "object")) : [];
       if (people.length > 1) {
         setSearchResults(people);
@@ -1437,6 +1455,35 @@ export default function AgendamentoPilotoRecepcaoPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function searchPerson(event: FormEvent) {
+    event.preventDefault();
+    if (phoneWithoutDdd(phone)) {
+      clearPersonSearch();
+      setError("");
+      setNeedsDdd(true);
+      return;
+    }
+    if (incompleteNumericPhone(phone)) {
+      clearPersonSearch();
+      setError("Informe o número completo do celular, incluindo o DDD.");
+      return;
+    }
+    await searchConsulenteByPhoneOrName(phone);
+  }
+
+  async function completePhoneDdd(event: FormEvent) {
+    event.preventDefault();
+    const ddd = phoneDdd.replace(/\D/g, "");
+    if (!/^[1-9]\d$/.test(ddd) || !phoneWithoutDdd(phone)) {
+      setError("Informe um DDD válido com dois dígitos para continuar a busca.");
+      return;
+    }
+    const fullNumber = `${ddd}${phone.replace(/\D/g, "")}`;
+    setPhone(displayWhatsapp(fullNumber));
+    // Busca novamente com o número COMPLETO antes de oferecer novo cadastro.
+    await searchConsulenteByPhoneOrName(fullNumber);
   }
 
   function registrationDateInSaoPaulo() {
@@ -2423,9 +2470,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {!foundPerson && !personNotFound && (<>
               <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
-                <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
+                <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); }} placeholder="WhatsApp ou nome do Consulente" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-3 font-semibold" required />
                 <button disabled={saving} className="rounded-xl bg-[#123D2C] px-3 py-2 font-black text-white">Buscar</button>
               </form>
+
+              {needsDdd && (
+                <form onSubmit={completePhoneDdd} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
+                  <p className="text-sm font-black text-amber-950">Informe o DDD do celular</p>
+                  <p className="text-xs font-semibold text-amber-900">O número {phone} está sem DDD. Informe os dois dígitos para continuar a busca e, se necessário, abrir o cadastro normal com WhatsApp. O DDD não será presumido.</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
+                    <button disabled={saving} type="submit" className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-50">Continuar busca</button>
+                  </div>
+                </form>
+              )}
 
               <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                 <div className="flex items-center justify-between gap-2">
@@ -3387,9 +3445,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <section className="grid gap-2">
                   {!showCreateConsulente && !foundPerson && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
-                    <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
+                    <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); }} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
                     <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 font-black text-white">Buscar</button>
                   </form>
+
+              {needsDdd && (
+                <form onSubmit={completePhoneDdd} className="grid gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
+                  <p className="text-sm font-black text-amber-950">Informe o DDD do celular</p>
+                  <p className="text-xs font-semibold text-amber-900">O número {phone} está sem DDD. Informe os dois dígitos para continuar a busca e, se necessário, abrir o cadastro normal com WhatsApp. O DDD não será presumido.</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <input aria-label="DDD do celular" value={phoneDdd} onChange={(event) => setPhoneDdd(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" type="text" pattern="[1-9][0-9]" minLength={2} maxLength={2} placeholder="DDD (ex.: 19)" autoComplete="off" className="min-w-0 rounded-xl border border-amber-300 bg-white p-3 font-semibold" required />
+                    <button disabled={saving} type="submit" className="rounded-xl bg-[#123D2C] px-3 py-2 text-sm font-black text-white disabled:opacity-50">Continuar busca</button>
+                  </div>
+                </form>
+              )}
 
                   <section className="rounded-xl bg-[#F7FAF2] p-2 ring-1 ring-[#123D2C]/10">
                     <div className="flex items-center justify-between gap-2">
