@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/admin-fetch';
 
-type Kind='service'|'material'|'tool'|'address'|'vehicle'|'supplier'|'contract';
+export type RmcCatalogKind = 'service'|'material'|'tool'|'address'|'vehicle'|'supplier'|'contract';
+type Kind=RmcCatalogKind;
 type Field={key:string;label:string;type?:'text'|'number'|'textarea';hint?:string};
 type RecordItem={id:string;kind:Kind;name:string;details:Record<string,string|number>;is_default:boolean;updated_at:string};
 const endpoint='/api/atendimento-inteligente/rmc/operations';
@@ -46,8 +47,10 @@ const choices:{kind:Kind;label:string;fields:Field[]}[]=[
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#173b4c]';
 const formatMoney=(n:number)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
 
-export function RmcOperations(){
- const [kind,setKind]=useState<Kind>('service');
+export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } = {}){
+ const [kind,setKind]=useState<Kind>(focusedKind ?? 'service');
+ const [page,setPage]=useState(1);
+ const [editorPage,setEditorPage]=useState(0);
  const [items,setItems]=useState<RecordItem[]>([]);
  const [editing,setEditing]=useState<string|null>(null);
  const [name,setName]=useState('');
@@ -59,6 +62,12 @@ export function RmcOperations(){
  const [showEditor,setShowEditor]=useState(false);
  const definition=choices.find(x=>x.kind===kind)!;
  const visible=useMemo(()=>items.filter(i=>i.kind===kind),[items,kind]);
+ const pageSize=6;
+ const pages=Math.max(1,Math.ceil(visible.length/pageSize));
+ const currentPage=Math.min(page,pages);
+ const rows=visible.slice((currentPage-1)*pageSize,currentPage*pageSize);
+ const fieldsPerPage=2;
+ const editorPages=Math.max(1,Math.ceil(definition.fields.length/fieldsPerPage));
  const load=useCallback(async()=>{
   const r=await adminFetch<{items:RecordItem[]}>(endpoint);setItems(r.items);
  },[]);
@@ -67,11 +76,11 @@ export function RmcOperations(){
    .catch(e=>{if(active)setError(e instanceof Error?e.message:'Falha ao carregar cadastros.');});
   return()=>{active=false;};
  },[]);
- function changeKind(value:Kind){setKind(value);setEditing(null);setName('');setDetails({});setIsDefault(false);setShowEditor(false);setError('');setNotice('');}
+ function changeKind(value:Kind){setKind(value);setEditing(null);setName('');setDetails({});setIsDefault(false);setShowEditor(false);setPage(1);setEditorPage(0);setError('');setNotice('');}
  function edit(row:RecordItem){setKind(row.kind);setEditing(row.id);setName(row.name);
   setDetails(Object.fromEntries(Object.entries(row.details||{}).map(([k,v])=>[k,String(v??'')])));
-  setIsDefault(row.is_default);setShowEditor(true);setError('');setNotice('');}
- function newItem(){setEditing(null);setName('');setDetails({});setIsDefault(false);setShowEditor(true);setError('');}
+  setIsDefault(row.is_default);setShowEditor(true);setEditorPage(0);setError('');setNotice('');}
+ function newItem(){setEditing(null);setName('');setDetails({});setIsDefault(false);setShowEditor(true);setEditorPage(0);setError('');}
  async function save(){
   if(busy)return;setBusy(true);setError('');setNotice('');
   try{
@@ -91,20 +100,20 @@ export function RmcOperations(){
  const cost=km>0&&fuel>0?fuel/km+(other>=0?other:0):null;
  return <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5" aria-label="Cadastros operacionais N2">
   <div className="flex flex-wrap items-center justify-between gap-2">
-   <div><h2 className="text-lg font-black text-[#143e31]">Configurações e custos — RMC</h2>
+   <div><h2 className="text-lg font-black text-[#143e31]">{focusedKind ? definition.label : 'Configurações e custos — RMC'}</h2>
    <p className="text-xs text-slate-600">Cadastros editáveis pelo Anderson (N2). Preços são referências, sujeitos à avaliação.</p></div>
    <button type="button" className="rounded-lg border px-3 py-2 text-xs" onClick={()=>void load().catch(e=>setError(e instanceof Error?e.message:'Falha'))}>Atualizar</button>
   </div>
-  <div className="mt-3 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Cadastros da RMC">
+  {!focusedKind && <div className="mt-3 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Cadastros da RMC">
    {choices.map(c=><button key={c.kind} type="button" role="tab" aria-selected={kind===c.kind} onClick={()=>changeKind(c.kind)}
     className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold ${kind===c.kind?'bg-[#143e31] text-white':'bg-white text-slate-700'}`}>{c.label}</button>)}
-  </div>
+  </div>}
   {error&&<p role="alert" className="my-2 rounded bg-red-50 p-2 text-sm text-red-700">{error}</p>}
   {notice&&<p role="status" className="my-2 rounded bg-green-50 p-2 text-sm text-green-800">{notice}</p>}
   <div className="my-2 flex items-center justify-between"><h3 className="font-semibold">{definition.label} ({visible.length})</h3>
-   <button type="button" onClick={newItem} className="rounded-lg bg-[#eb8a2b] px-3 py-2 text-sm font-bold text-[#1c2933]">+ Novo</button></div>
-  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-   {visible.map(row=><article key={row.id} className="min-w-0 rounded-xl border bg-[#f7faf8] p-3">
+   {!showEditor && <button type="button" onClick={newItem} className="rounded-lg bg-[#eb8a2b] px-3 py-2 text-sm font-bold text-[#1c2933]">+ Novo</button>}</div>
+  {!showEditor && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+   {rows.map(row=><article key={row.id} className="min-w-0 rounded-xl border bg-[#f7faf8] p-3">
     <p className="break-words font-bold">{row.name}{row.is_default&&<span className="ml-2 rounded-full bg-green-100 px-2 py-1 text-[10px]">Origem padrão</span>}</p>
     {row.kind==='vehicle'&&Number(row.details.kmPerLiter)>0&&Number(row.details.fuelPrice)>0&&
       <p className="mt-1 text-xs">Combustível: {formatMoney(Number(row.details.fuelPrice)/Number(row.details.kmPerLiter))}/km</p>}
@@ -113,22 +122,34 @@ export function RmcOperations(){
       <button type="button" onClick={()=>void remove(row)} className="rounded-lg border px-3 py-2 text-xs text-red-700">Excluir</button></div>
    </article>)}
    {visible.length===0&&<p className="col-span-full rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Nenhum registro ainda. Use “+ Novo” ou confira a planilha preparada para Anderson.</p>}
-  </div>
+  </div>}
+  {!showEditor && visible.length>pageSize && <nav className="mt-3 flex items-center justify-between gap-2 text-xs" aria-label="Páginas dos cadastros">
+    <button type="button" disabled={currentPage<=1} onClick={()=>setPage(p=>Math.max(1,p-1))} className="rounded-lg border px-3 py-2 disabled:opacity-40">Anterior</button>
+    <span>Página {currentPage} de {pages}</span>
+    <button type="button" disabled={currentPage>=pages} onClick={()=>setPage(p=>Math.min(pages,p+1))} className="rounded-lg border px-3 py-2 disabled:opacity-40">Próxima</button>
+  </nav>}
   {showEditor&&<div className="mt-4 rounded-xl border border-[#d4e3dc] bg-[#f7faf8] p-3 sm:p-4">
    <div className="flex items-center justify-between gap-2"><h3 className="font-bold">{editing?'Editar':'Adicionar'} — {definition.label}</h3>
     <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={()=>setShowEditor(false)}>Fechar</button></div>
+   <p className="mt-2 text-xs text-slate-500">Etapa {editorPage+1} de {editorPages}. Os dados são mantidos ao avançar.</p>
    <div className="mt-2 grid gap-3 sm:grid-cols-2">
-    <label className="block text-xs font-semibold sm:col-span-2">Identificação / nome *
-      <input className={inputClass} maxLength={120} value={name} onChange={e=>setName(e.target.value)} required /></label>
-    {definition.fields.map(f=><label key={f.key} className={`block text-xs font-semibold ${f.type==='textarea'?'sm:col-span-2':''}`}>{f.label}
+    {editorPage===0 && <label className="block text-xs font-semibold sm:col-span-2">Identificação / nome *
+      <input className={inputClass} maxLength={120} value={name} onChange={e=>setName(e.target.value)} required /></label>}
+    {definition.fields.slice(editorPage*fieldsPerPage,(editorPage+1)*fieldsPerPage).map(f=><label key={f.key} className={`block text-xs font-semibold ${f.type==='textarea'?'sm:col-span-2':''}`}>{f.label}
       {f.type==='textarea'?<textarea className={inputClass} maxLength={1000} rows={2} value={details[f.key]??''} onChange={e=>setDetails(d=>({...d,[f.key]:e.target.value}))}/>
       :<input className={inputClass} type={f.type==='number'?'number':'text'} min={f.type==='number'?0:undefined}
        step={f.type==='number'?'any':undefined} value={details[f.key]??''} onChange={e=>setDetails(d=>({...d,[f.key]:e.target.value}))}/>}</label>)}
    </div>
-   {kind==='address'&&<label className="mt-3 flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={isDefault} onChange={e=>setIsDefault(e.target.checked)}/>Origem padrão para os orçamentos</label>}
-   {kind==='vehicle'&&<p className="mt-3 rounded-lg bg-white p-3 text-sm">Custo operacional configurado: <b>{cost===null?'Informe consumo e combustível':`${formatMoney(cost)}/km`}</b>. Para estimar um deslocamento, será necessário informar distância e considerar ida/volta, pedágio e tempo de serviço.</p>}
-   <div className="mt-4 flex justify-end gap-2"><button className="rounded-lg border px-4 py-2" type="button" onClick={()=>setShowEditor(false)}>Cancelar</button>
-    <button className="rounded-lg bg-[#143e31] px-4 py-2 font-bold text-white disabled:opacity-50" type="button" disabled={busy||name.trim().length<2} onClick={()=>void save()}>{busy?'Salvando...':'Salvar'}</button></div>
+   {editorPage===editorPages-1 && kind==='address'&&<label className="mt-3 flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={isDefault} onChange={e=>setIsDefault(e.target.checked)}/>Origem padrão para os orçamentos</label>}
+   {editorPage===editorPages-1 && kind==='vehicle'&&<p className="mt-3 rounded-lg bg-white p-3 text-sm">Custo operacional configurado: <b>{cost===null?'Informe consumo e combustível':`${formatMoney(cost)}/km`}</b>. Para estimar um deslocamento, será necessário informar distância e considerar ida/volta, pedágio e tempo de serviço.</p>}
+   <div className="mt-4 flex flex-wrap justify-between gap-2">
+     <button className="rounded-lg border px-4 py-2" type="button" onClick={()=>{setShowEditor(false);setEditorPage(0);}}>Fechar</button>
+     <div className="flex gap-2">
+       {editorPage>0&&<button type="button" className="rounded-lg border px-3 py-2" onClick={()=>setEditorPage(p=>p-1)}>Anterior</button>}
+       {editorPage<editorPages-1?<button type="button" className="rounded-lg bg-[#143e31] px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={name.trim().length<2} onClick={()=>setEditorPage(p=>p+1)}>Próxima</button>
+       :<button className="rounded-lg bg-[#143e31] px-4 py-2 font-bold text-white disabled:opacity-50" type="button" disabled={busy||name.trim().length<2} onClick={()=>void save()}>{busy?'Salvando...':'Salvar'}</button>}
+     </div>
+   </div>
   </div>}
  </section>;
 }
