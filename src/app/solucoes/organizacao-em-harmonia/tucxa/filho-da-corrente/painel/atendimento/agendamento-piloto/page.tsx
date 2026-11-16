@@ -469,6 +469,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingEntityLookupId, setBookingEntityLookupId] = useState("");
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
   const [bookingEntityAvailable, setBookingEntityAvailable] = useState<number | null>(null);
+  const [bookingEntityDates, setBookingEntityDates] = useState<EntityAvailableDate[]>([]);
+  // Primeira utilizacao do sistema nao comprova primeira visita ao TUCXA.
+  // Orientacao da Recepcao nesta fase: sem alterar a regra de elegibilidade no banco.
+  const [visitHistory, setVisitHistory] = useState<"unverified" | "returning" | "first_visit" | "needs_help">("unverified");
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
   const [alphabetLetters, setAlphabetLetters] = useState<string[]>(() => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
@@ -583,8 +587,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
         item.id,
         item.arrivalOrder != null && item.arrivalOrder > 0 ? String(item.arrivalOrder) : "",
       ])));
+      return data;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar o piloto.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -1051,6 +1057,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setFoundPerson(null);
     setSearchResults([]);
     setPersonNotFound(false);
+    setVisitHistory("unverified");
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
@@ -1088,6 +1095,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingMode("date");
     setBookingEntityLookupId("");
     setBookingEntityDateLabel("");
+    setBookingEntityAvailable(null);
+    setBookingEntityDates([]);
+    setVisitHistory("unverified");
     setBookingContextLocked(false);
     setAlphabetPicker(null);
   }
@@ -1249,6 +1259,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
 
       setFoundPerson(detailedPerson);
+      setVisitHistory("unverified");
       const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
       setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
@@ -1376,21 +1387,65 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setEntityId("");
     setBookingEntityDateLabel("");
     setBookingEntityAvailable(null);
+    setBookingEntityDates([]);
     if (!value) return;
     setSaving(true);
     setError("");
     try {
-      const result = await postPilot({ action: "next-available-date", entityId: value });
-      const date = typeof result.date === "string" ? result.date : "";
-      const label = typeof result.label === "string" ? result.label : "";
-      if (!date) throw new Error("Não encontramos uma próxima data com vaga para esta Entidade.");
-      setBookingEntityDateLabel(label || shortDate(date));
-      const resultEntity = result.entity && typeof result.entity === "object" ? result.entity as { available?: number } : null;
-      setBookingEntityAvailable(typeof resultEntity?.available === "number" ? resultEntity.available : null);
-      await load(date);
+      // A mesma API alimenta o calendario de disponibilidade da Entidade.
+      // Nao confundir o primeiro dia com a unica data permitida.
+      const result = await postPilot({ action: "entity-available-dates", entityId: value });
+      const dates = (Array.isArray(result.dates) ? result.dates : [])
+        .filter((item): item is EntityAvailableDate => Boolean(
+          item && typeof item === "object" &&
+          typeof (item as EntityAvailableDate).date === "string" &&
+          typeof (item as EntityAvailableDate).available === "number" &&
+          (item as EntityAvailableDate).available > 0 &&
+          (item as EntityAvailableDate).date >= todaySaoPaulo(),
+        ))
+        .sort((left, right) => left.date.localeCompare(right.date));
+      if (!dates.length) throw new Error("Não há datas futuras com vaga nesta Entidade.");
+      setBookingEntityDates(dates);
+      const chosen = dates[0];
+      const loaded = await load(chosen.date);
+      const actualEntity = loaded?.entities.find((entity) => entity.id === value);
+      if (loaded?.selectedDate !== chosen.date || !actualEntity?.isAvailable || actualEntity.available < 1) {
+        throw new Error("A disponibilidade mudou. Escolha novamente a Entidade e a data.");
+      }
+      setBookingEntityDateLabel(chosen.label || shortDate(chosen.date));
+      setBookingEntityAvailable(actualEntity.available);
       setEntityId(value);
     } catch (lookupError) {
-      setError(lookupError instanceof Error ? lookupError.message : "Não foi possível localizar a próxima data com vaga.");
+      setBookingEntityDates([]);
+      setBookingEntityDateLabel("");
+      setBookingEntityAvailable(null);
+      setEntityId("");
+      setError(lookupError instanceof Error ? lookupError.message : "Não foi possível consultar as datas da Entidade.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function selectBookingEntityDate(date: string) {
+    const selectedEntityId = bookingEntityLookupId;
+    const chosen = bookingEntityDates.find((item) => item.date === date);
+    if (!selectedEntityId || !chosen) return;
+    setSaving(true);
+    setEntityId("");
+    setError("");
+    try {
+      const loaded = await load(date);
+      const actualEntity = loaded?.entities.find((entity) => entity.id === selectedEntityId);
+      if (loaded?.selectedDate !== date || !actualEntity?.isAvailable || actualEntity.available < 1) {
+        throw new Error("A Entidade não está mais disponível nesta data. Escolha uma data com vaga.");
+      }
+      setBookingEntityDateLabel(chosen.label || shortDate(date));
+      setBookingEntityAvailable(actualEntity.available);
+      setEntityId(selectedEntityId);
+    } catch (dateError) {
+      setBookingEntityDateLabel("");
+      setBookingEntityAvailable(null);
+      setError(dateError instanceof Error ? dateError.message : "Não foi possível atualizar a data.");
     } finally {
       setSaving(false);
     }
@@ -1578,6 +1633,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setErrorNotice({
         title: "Não foi possível criar o agendamento",
         message: "Escolha a Entidade e confirme a pessoa antes de agendar.",
+      });
+      return;
+    }
+    // Somente Recepcao: nao deduzir "Primeira Vez" a partir do cadastro digital.
+    // A politica permanente por Entidade dependera de aprovacao e regra no servidor.
+    const chosenEntityName = payload.entityCatalog.find((item) => item.id === entityId)?.name ?? "";
+    const isFirstTimeEntity = /primeira\s*vez/i.test(chosenEntityName);
+    if (contactMode === "consulente" && !foundPerson.defaultEntityId &&
+        visitHistory !== "returning" && !(visitHistory === "first_visit" && isFirstTimeEntity)) {
+      setErrorNotice({
+        title: "Confirme o histórico do Consulente",
+        message: visitHistory === "first_visit"
+          ? "A pessoa informou que é sua primeira visita ao TUCXA. Solicite orientação da Recepção para indicar a Entidade adequada (por exemplo, Primeira Vez) antes de concluir o agendamento."
+          : "Não há Entidade habitual confirmada. Pergunte se a pessoa já foi atendida no TUCXA; se houver dúvida ou for primeira visita, encaminhe para orientação da Recepção.",
       });
       return;
     }
@@ -2314,8 +2383,17 @@ export default function AgendamentoPilotoRecepcaoPage() {
           wide={(modal === "consultar" && consultDisplayMode === "caderno_amplo") || (modal === "encaminhamento" && forwardingWide)}
           headerAction={modal === "agendar" ? (
             <button type="button" onClick={() => openEntitiesModal(true)} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15"><span className="block text-[10px] font-black uppercase leading-tight">Disponibilidades</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
-          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "consultar", "acolhimento", "painel", "gestao", "diagnostico"].includes(modal) ? (
-            <button type="button" onClick={modal === "consultar" ? () => openBookingModal(true) : openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
+          ) : modal === "consultar" ? (
+            <button type="button" onClick={() => {
+              setForwardingView("entity");
+              setForwardingWide(false);
+              setForwardingPage(1);
+              setForwardingSearch("");
+              setForwardingLetter("");
+              setModal("encaminhamento");
+            }} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Encaminhamento"><span className="block text-[10px] font-black leading-tight">Encaminhamento</span><span className="block text-[7px] font-black uppercase leading-tight">Toque para abrir</span></button>
+          ) : ["ajuda", "configuracoes", "cadastros", "entidades", "acolhimento", "painel", "gestao", "diagnostico"].includes(modal) ? (
+            <button type="button" onClick={openBookingFromCurrentModal} className="shrink-0 rounded-xl bg-[#E9F2E7] px-2 py-1 text-center text-[#123D2C] ring-1 ring-[#123D2C]/15" aria-label="Abrir Agendamento"><span className="block text-[10px] font-black leading-tight">Agendar</span><span className="block text-[8px] font-black uppercase leading-tight">Toque para abrir</span></button>
           ) : undefined}
           onClose={() => {
             setError("");
@@ -2465,8 +2543,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
             <div className="grid gap-3">
               {!bookingContextLocked && (
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F7FAF2] p-1.5 ring-1 ring-[#123D2C]/10">
-                  <button type="button" onClick={() => { setBookingMode("date"); setBookingEntityLookupId(""); setBookingEntityDateLabel(""); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "date" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por data</button>
-                  <button type="button" onClick={() => { setBookingMode("entity"); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "entity" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por Entidade</button>
+                  <button type="button" onClick={() => { setBookingMode("date"); setBookingEntityLookupId(""); setBookingEntityDateLabel(""); setBookingEntityDates([]); setBookingEntityAvailable(null); setEntityId(""); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "date" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por data</button>
+                  <button type="button" onClick={() => { setBookingMode("entity"); setEntityId(""); setBookingEntityLookupId(""); setBookingEntityDateLabel(""); setBookingEntityAvailable(null); setBookingEntityDates([]); }} className={`rounded-xl px-3 py-2 text-sm font-black ${bookingMode === "entity" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Por Entidade</button>
                 </div>
               )}
 
@@ -2486,12 +2564,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
               ) : (
                 <div className="grid gap-2">
                   <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
-                    <select value={bookingEntityLookupId} onChange={(event) => void selectBookingEntity(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold">
+                    <select value={bookingEntityLookupId} disabled={saving} onChange={(event) => void selectBookingEntity(event.target.value)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:opacity-50">
                       <option value="">Escolha uma Entidade</option>
                       {payload.entityCatalog.filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}{entity.mediums.length ? ` (${entity.mediums.map((medium) => firstTwoPersonNames(medium.name)).join(", ")})` : ""}</option>)}
                     </select>
                   </label>
-                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Próxima data com vaga: {bookingEntityDateLabel}{bookingEntityAvailable !== null ? ` · ${bookingEntityAvailable} vaga(s) disponível(is)` : ""}</p>}
+                  {bookingEntityDates.length > 0 && (
+                    <label className="grid gap-1 text-sm font-black text-[#123D2C]">Data do agendamento · escolha entre as datas com vaga
+                      <select
+                        value={entityId ? payload.selectedDate : ""}
+                        disabled={saving}
+                        onChange={(event) => void selectBookingEntityDate(event.target.value)}
+                        className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:opacity-50"
+                        aria-label="Escolher data do agendamento para a Entidade"
+                      >
+                        <option value="" disabled>Escolha uma data disponível</option>
+                        {groupedDateOptions(bookingEntityDates.map((item) => ({ date: item.date, label: `${item.label || formatDateInputPtBr(item.date)} · ${item.available} vaga(s)` })))}
+                      </select>
+                    </label>
+                  )}
+                  {bookingEntityDateLabel && <p className="rounded-xl bg-[#E9F2E7] px-3 py-2 text-sm font-black text-[#123D2C]">Data escolhida: {bookingEntityDateLabel}{bookingEntityAvailable !== null ? ` · ${bookingEntityAvailable} vaga(s) disponível(is)` : ""}</p>}
                 </div>
               )}
 
@@ -2587,6 +2679,22 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="font-black text-[#123D2C]">{firstTwoPersonNames(foundPerson.fullName)}</p>
                   <p className="text-sm font-semibold text-slate-600">{displayWhatsapp(foundPerson.whatsapp)}{foundPerson.email ? ` · ${foundPerson.email}` : ""}</p>
                   <a href={whatsappHref(foundPerson.whatsapp, "Olá! Estou falando pela Recepção do Tucxa sobre seu agendamento.")} target="_blank" rel="noreferrer" className="text-sm font-black text-[#176A3A] underline">Falar no WhatsApp</a>
+                  {contactMode === "consulente" && !foundPerson.defaultEntityId && (
+                    <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                      <p className="font-black">Histórico de atendimento no TUCXA</p>
+                      <p className="text-xs font-semibold">Sem Entidade habitual no sistema não significa Primeira Vez. Confirme com a pessoa ou com a Recepção antes de agendar.</p>
+                      <label className="grid gap-1 font-bold">A pessoa já foi atendida anteriormente na Casa?
+                        <select value={visitHistory} onChange={(event) => setVisitHistory(event.target.value as typeof visitHistory)} className="rounded-lg border border-amber-300 bg-white p-2.5">
+                          <option value="unverified">Selecione após confirmar</option>
+                          <option value="returning">Sim, já frequenta o TUCXA (confirmado pela Recepção)</option>
+                          <option value="first_visit">Não, é a primeira visita à Casa</option>
+                          <option value="needs_help">Não sei — solicitar orientação à Recepção</option>
+                        </select>
+                      </label>
+                      {visitHistory === "first_visit" && <p className="text-xs font-semibold">Para primeira visita, utilize a Entidade Primeira Vez, quando disponível, ou solicite orientação. Não escolha uma Entidade habitual sem validação da Casa.</p>}
+                      {visitHistory === "needs_help" && <p className="text-xs font-semibold">O agendamento ficará aguardando a orientação da Recepção.</p>}
+                    </section>
+                  )}
                   {bookingMode === "date" ? (
                     <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                       <select
