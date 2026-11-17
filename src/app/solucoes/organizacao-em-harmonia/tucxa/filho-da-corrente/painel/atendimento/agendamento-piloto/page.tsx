@@ -152,6 +152,15 @@ type RescheduleOption = { entityId: string; name: string; line: string; dates: A
 type RescheduleRequest = { appointmentId: string; consulenteName: string; currentEntityId: string; selectedEntityId: string; selectedDate: string; options: RescheduleOption[]; otherEntityAllowed: boolean };
 type ErrorNotice = { title: string; message: string };
 type CancelRequest = { appointmentId: string; consulenteName: string; reason: string; attachment: File | null };
+type EntityChangeOptions = {
+  appointmentDate: string;
+  firstTimeCount: number;
+  authorizedCount: number;
+  scheduledCount: number;
+  availableCount: number;
+  requiredCapacity: number;
+  entities: Entity[];
+};
 type EntityChangeRequest = {
   mode: "individual" | "bulk";
   appointmentIds: string[];
@@ -471,9 +480,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [bookingEntityDateLabel, setBookingEntityDateLabel] = useState("");
   const [bookingEntityAvailable, setBookingEntityAvailable] = useState<number | null>(null);
   const [bookingEntityDates, setBookingEntityDates] = useState<EntityAvailableDate[]>([]);
-  // Primeira utilizacao do sistema nao comprova primeira visita ao TUCXA.
-  // Orientacao da Recepcao nesta fase: sem alterar a regra de elegibilidade no banco.
-  const [visitHistory, setVisitHistory] = useState<"unverified" | "returning" | "first_visit" | "needs_help">("unverified");
   const [bookingContextLocked, setBookingContextLocked] = useState(false);
   const [alphabetLetters, setAlphabetLetters] = useState<string[]>(() => "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
   const [alphabetPicker, setAlphabetPicker] = useState<AlphabetPickerState | null>(null);
@@ -511,6 +517,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [errorNotice, setErrorNotice] = useState<ErrorNotice | null>(null);
   const [cancelRequest, setCancelRequest] = useState<CancelRequest | null>(null);
   const [entityChangeRequest, setEntityChangeRequest] = useState<EntityChangeRequest | null>(null);
+  const [entityChangeOptions, setEntityChangeOptions] = useState<EntityChangeOptions | null>(null);
+  const [entityChangeOptionsLoading, setEntityChangeOptionsLoading] = useState(false);
+  const [entityChangeOptionsError, setEntityChangeOptionsError] = useState("");
+  const entityChangeOptionsSequence = useRef(0);
   const [rescheduleRequest, setRescheduleRequest] = useState<RescheduleRequest | null>(null);
   const [rescheduleConfirmationUrl, setRescheduleConfirmationUrl] = useState("");
   const [rescheduleLoading, setRescheduleLoading] = useState(false);
@@ -1059,7 +1069,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setFoundPerson(null);
     setSearchResults([]);
     setPersonNotFound(false);
-    setVisitHistory("unverified");
     setAccessInfo(null);
     setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
@@ -1099,7 +1108,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setBookingEntityDateLabel("");
     setBookingEntityAvailable(null);
     setBookingEntityDates([]);
-    setVisitHistory("unverified");
     setBookingContextLocked(false);
     setAlphabetPicker(null);
   }
@@ -1261,8 +1269,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       }
 
       setFoundPerson(detailedPerson);
-      setVisitHistory("unverified");
-      const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
+        const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
       setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
     setAlternateRelationshipOption("");
@@ -1638,20 +1645,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
       });
       return;
     }
-    // Somente Recepcao: nao deduzir "Primeira Vez" a partir do cadastro digital.
-    // A politica permanente por Entidade dependera de aprovacao e regra no servidor.
-    const chosenEntityName = payload.entityCatalog.find((item) => item.id === entityId)?.name ?? "";
-    const isFirstTimeEntity = /primeira\s*vez/i.test(chosenEntityName);
-    if (contactMode === "consulente" && !foundPerson.defaultEntityId &&
-        visitHistory !== "returning" && !(visitHistory === "first_visit" && isFirstTimeEntity)) {
-      setErrorNotice({
-        title: "Confirme o histórico do Consulente",
-        message: visitHistory === "first_visit"
-          ? "A pessoa informou que é sua primeira visita ao TUCXA. Solicite orientação da Recepção para indicar a Entidade adequada (por exemplo, Primeira Vez) antes de concluir o agendamento."
-          : "Não há Entidade habitual confirmada. Pergunte se a pessoa já foi atendida no TUCXA; se houver dúvida ou for primeira visita, encaminhe para orientação da Recepção.",
-      });
-      return;
-    }
     setSaving(true);
     setError("");
     setErrorNotice(null);
@@ -1931,8 +1924,39 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
+  async function loadEntityChangeOptions(request: EntityChangeRequest) {
+    const sequence = ++entityChangeOptionsSequence.current;
+    setEntityChangeOptions(null);
+    setEntityChangeOptionsError("");
+    setEntityChangeOptionsLoading(true);
+    try {
+      // Use the real date and the current permissions/slots from the server,
+      // never a cached catalog or a date previously selected in the screen.
+      const result = await postPilot({
+        action: "entity-change-options",
+        mode: request.mode,
+        appointmentId: request.appointmentIds[0],
+        sourceEntityId: request.currentEntityId,
+        appointmentDate: payload?.selectedDate ?? "",
+      });
+      if (sequence !== entityChangeOptionsSequence.current) return;
+      const options = result.options as EntityChangeOptions | undefined;
+      if (!options || !Array.isArray(options.entities)) throw new Error("A consulta não retornou destinos válidos.");
+      setEntityChangeOptions(options);
+      // The API reads the historical first-time marker directly from Supabase.
+      setEntityChangeRequest((current) => current && current.appointmentIds[0] === request.appointmentIds[0]
+        ? { ...current, firstTimeCount: options.firstTimeCount }
+        : current);
+    } catch (error) {
+      if (sequence !== entityChangeOptionsSequence.current) return;
+      setEntityChangeOptionsError(error instanceof Error ? error.message : "Não foi possível consultar os destinos da troca.");
+    } finally {
+      if (sequence === entityChangeOptionsSequence.current) setEntityChangeOptionsLoading(false);
+    }
+  }
+
   function openIndividualEntityChange(appointment: Appointment) {
-    setEntityChangeRequest({
+    const request: EntityChangeRequest = {
       mode: "individual",
       appointmentIds: [appointment.id],
       consulenteName: appointment.consulenteName,
@@ -1943,7 +1967,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       reason: "",
       notify: true,
       attachment: null,
-    });
+    };
+    setEntityChangeRequest(request);
+    void loadEntityChangeOptions(request);
   }
 
   function openBulkEntityChange(entity: Entity) {
@@ -1951,7 +1977,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       (item) => item.entityId === entity.id && item.status !== "cancelado",
     );
     if (!active.length) return;
-    setEntityChangeRequest({
+    const request: EntityChangeRequest = {
       mode: "bulk",
       appointmentIds: active.map((item) => item.id),
       consulenteName: `${active.length} agendamento(s)`,
@@ -1962,7 +1988,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       reason: "",
       notify: true,
       attachment: null,
-    });
+    };
+    setEntityChangeRequest(request);
+    void loadEntityChangeOptions(request);
   }
 
 
@@ -1972,6 +2000,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const reason = entityChangeRequest.reason.trim() || "Troca realizada pela Recepção.";
     if (!entityChangeRequest.newEntityId) {
       setErrorNotice({ title: "Escolha a nova Entidade", message: "Selecione a Entidade de destino antes de confirmar a troca." });
+      return;
+    }
+    if (entityChangeOptionsLoading || !entityChangeOptions?.entities.some((entity) => entity.id === entityChangeRequest.newEntityId)) {
+      setErrorNotice({ title: "Destino não disponível", message: "Reabra a troca e escolha uma Entidade autorizada com vagas na data do atendimento." });
       return;
     }
 
@@ -2684,22 +2716,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   <p className="font-black text-[#123D2C]">{firstTwoPersonNames(foundPerson.fullName)}</p>
                   <p className="text-sm font-semibold text-slate-600">{displayWhatsapp(foundPerson.whatsapp)}{foundPerson.email ? ` · ${foundPerson.email}` : ""}</p>
                   <a href={whatsappHref(foundPerson.whatsapp, "Olá! Estou falando pela Recepção do Tucxa sobre seu agendamento.")} target="_blank" rel="noreferrer" className="text-sm font-black text-[#176A3A] underline">Falar no WhatsApp</a>
-                  {contactMode === "consulente" && !foundPerson.defaultEntityId && (
-                    <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                      <p className="font-black">Histórico de atendimento no TUCXA</p>
-                      <p className="text-xs font-semibold">Sem Entidade habitual no sistema não significa Primeira Vez. Confirme com a pessoa ou com a Recepção antes de agendar.</p>
-                      <label className="grid gap-1 font-bold">A pessoa já foi atendida anteriormente na Casa?
-                        <select value={visitHistory} onChange={(event) => setVisitHistory(event.target.value as typeof visitHistory)} className="rounded-lg border border-amber-300 bg-white p-2.5">
-                          <option value="unverified">Selecione após confirmar</option>
-                          <option value="returning">Sim, já frequenta o TUCXA (confirmado pela Recepção)</option>
-                          <option value="first_visit">Não, é a primeira visita à Casa</option>
-                          <option value="needs_help">Não sei — solicitar orientação à Recepção</option>
-                        </select>
-                      </label>
-                      {visitHistory === "first_visit" && <p className="text-xs font-semibold">Para primeira visita, utilize a Entidade Primeira Vez, quando disponível, ou solicite orientação. Não escolha uma Entidade habitual sem validação da Casa.</p>}
-                      {visitHistory === "needs_help" && <p className="text-xs font-semibold">O agendamento ficará aguardando a orientação da Recepção.</p>}
-                    </section>
-                  )}
                   {bookingMode === "date" ? (
                     <label className="grid gap-1 text-sm font-black text-[#123D2C]">Entidade
                       <select
@@ -4139,12 +4155,16 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {entityChangeRequest && (
         <EntityChangePopup
           request={entityChangeRequest}
-          entities={entityChangeRequest.firstTimeCount > 0
-            ? usableEntities.filter((entity) => payload?.entityCatalog.some((catalog) => catalog.id === entity.id && catalog.acceptsFirstTimeTransfers))
-            : usableEntities}
+          options={entityChangeOptions}
+          loading={entityChangeOptionsLoading}
+          loadError={entityChangeOptionsError}
           saving={saving}
           onChange={(patch) => setEntityChangeRequest((current) => current ? { ...current, ...patch } : current)}
-          onClose={() => !saving && setEntityChangeRequest(null)}
+          onClose={() => {
+            if (saving) return;
+            ++entityChangeOptionsSequence.current;
+            setEntityChangeRequest(null);
+          }}
           onSubmit={submitEntityChange}
         />
       )}
@@ -4305,20 +4325,32 @@ function AlphabetEntityPopup({
 
 function EntityChangePopup({
   request,
-  entities,
+  options,
+  loading,
+  loadError,
   saving,
   onChange,
   onClose,
   onSubmit,
 }: {
   request: EntityChangeRequest;
-  entities: Entity[];
+  options: EntityChangeOptions | null;
+  loading: boolean;
+  loadError: string;
   saving: boolean;
   onChange: (patch: Partial<EntityChangeRequest>) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const entities = options?.entities ?? [];
   const target = entities.find((entity) => entity.id === request.newEntityId);
+  const noDestinationsMessage = options && !options.entities.length
+    ? options.authorizedCount === 0
+      ? "Nenhuma Entidade de destino está ativa e autorizada para esta troca. Confira a opção no cadastro das Entidades."
+      : options.scheduledCount === 0
+        ? `Existem ${options.authorizedCount} Entidade(s) autorizada(s), mas nenhuma atende em ${formatDateInputPtBr(options.appointmentDate)}. Confira a escala e eventuais indisponibilidades.`
+        : `Existem ${options.scheduledCount} Entidade(s) autorizada(s) na escala de ${formatDateInputPtBr(options.appointmentDate)}, mas sem vagas suficientes para ${options.requiredCapacity} atendimento(s).`
+    : "";
   return (
     <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/55 p-4">
       <form onSubmit={onSubmit} className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[28px] bg-white shadow-2xl">
@@ -4340,16 +4372,20 @@ function EntityChangePopup({
             <select
               value={request.newEntityId}
               onChange={(event) => onChange({ newEntityId: event.target.value })}
-              className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold"
+              disabled={loading || Boolean(loadError) || !entities.length || saving}
+              className="rounded-xl border border-[#123D2C]/15 bg-white p-3 font-semibold disabled:bg-slate-100"
               required
             >
-              <option value="">Selecione...</option>
+              <option value="">{loading ? "Consultando vagas e permissões..." : "Selecione..."}</option>
               {entities.filter((entity) => entity.id !== request.currentEntityId).map((entity) => (
                 <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>
               ))}
             </select>
           </label>
 
+          {loadError && <p className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-900" role="alert">Falha ao consultar destinos: {loadError}</p>}
+          {noDestinationsMessage && <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-950" role="status">{noDestinationsMessage}</p>}
+          {options && <p className="text-xs font-semibold text-slate-600">Disponibilidade conferida no servidor para {formatDateInputPtBr(options.appointmentDate)}. {options.entities.length} destino(s) com vagas.</p>}
           {request.firstTimeCount > 0 && (
             <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold text-[#123D2C]">
               {request.firstTimeCount} atendimento(s) com histórico de Primeira Vez. Somente Entidades autorizadas no cadastro estão disponíveis como destino.
@@ -4397,7 +4433,7 @@ function EntityChangePopup({
 
           <button
             type="submit"
-            disabled={saving || !request.newEntityId}
+            disabled={saving || loading || Boolean(loadError) || !request.newEntityId || !target}
             className="rounded-xl bg-[#176A3A] px-4 py-3 font-black text-white disabled:opacity-50"
           >
             {saving ? "Alterando..." : request.mode === "bulk" ? "Confirmar troca de todos" : "Confirmar troca"}
