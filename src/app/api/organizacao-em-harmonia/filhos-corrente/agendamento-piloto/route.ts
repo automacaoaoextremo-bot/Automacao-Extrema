@@ -766,7 +766,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled")
+      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled,pilot_accepts_first_time_transfers")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -812,6 +812,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       active: entity.active !== false,
       appointmentEnabled: entity.appointment_enabled !== false,
       cavalinhoWhatsappEnabled: entity.pilot_cavalinho_whatsapp_enabled === true,
+      acceptsFirstTimeTransfers: entity.pilot_accepts_first_time_transfers === true,
       mondayOccurrences: Array.from(new Set(schedule.mondayOccurrences)).sort((a, b) => a - b),
       tuesdayOccurrences: Array.from(new Set(schedule.tuesdayOccurrences)).sort((a, b) => a - b),
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -2331,6 +2332,65 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: forwarded ? "Consulente marcado como encaminhado." : "Encaminhamento desfeito." });
     }
 
+    if (action === "entity-change-options") {
+      const mode = asText(body.mode) === "bulk" ? "bulk" : "individual";
+      const appointmentId = asText(body.appointmentId);
+      const sourceEntityId = asText(body.sourceEntityId);
+      const requestedDate = asText(body.appointmentDate);
+      if (mode === "individual" && !/^[0-9a-f-]{36}$/i.test(appointmentId)) {
+        return NextResponse.json({ error: "Agendamento inválido.", requestId: code }, { status: 400 });
+      }
+      if (mode === "bulk" && (!/^[0-9a-f-]{36}$/i.test(sourceEntityId) || !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate))) {
+        return NextResponse.json({ error: "Informe Entidade e data válidas para a troca em massa.", requestId: code }, { status: 400 });
+      }
+      const query = supabaseAdmin.from("oh_consulente_appointments")
+        .select("id,entity_id,appointment_date,status,metadata")
+        .eq("organization_id", context.organizationId);
+      const { data: currentAppointments, error: currentError } = mode === "bulk"
+        ? await query.eq("entity_id", sourceEntityId).eq("appointment_date", requestedDate).neq("status", "cancelado")
+        : await query.eq("id", appointmentId);
+      if (currentError) throw currentError;
+      const rows = (currentAppointments ?? []).filter((row) => asText(row.status) !== "cancelado");
+      if (!rows.length) {
+        return NextResponse.json({ error: "Não há agendamentos ativos para esta troca.", requestId: code }, { status: 409 });
+      }
+      const dates = Array.from(new Set(rows.map((row) => asText(row.appointment_date))));
+      const sources = Array.from(new Set(rows.map((row) => asText(row.entity_id))));
+      if (dates.length !== 1 || sources.length !== 1) {
+        return NextResponse.json({ error: "A troca deve ocorrer em uma única data e Entidade de origem.", requestId: code }, { status: 409 });
+      }
+      const date = dates[0];
+      const sourceId = sources[0];
+      const { data: sourceEntity, error: sourceError } = await supabaseAdmin.from("oh_spiritual_entities")
+        .select("id,name,slug").eq("organization_id", context.organizationId).eq("id", sourceId).maybeSingle();
+      if (sourceError) throw sourceError;
+      const firstTimeCount = rows.filter((row) => {
+        const metadata = asRecord(row.metadata);
+        return metadata.firstTimeClassificationCorrected !== true &&
+          (metadata.firstTimeAppointment === true || metadata.firstTimeIndicatorActive === true || isPilotFirstTimeEntity(sourceEntity));
+      }).length;
+      const { data: catalog, error: catalogError } = await supabaseAdmin.from("oh_spiritual_entities")
+        .select("id,pilot_accepts_first_time_transfers")
+        .eq("organization_id", context.organizationId).eq("active", true).eq("appointment_enabled", true);
+      if (catalogError) throw catalogError;
+      const permittedIds = new Set((catalog ?? [])
+        .filter((entity) => asText(entity.id) !== sourceId &&
+          (firstTimeCount === 0 || entity.pilot_accepts_first_time_transfers === true))
+        .map((entity) => asText(entity.id)));
+      const dayEntities = await loadPilotDay(context.organizationId, date);
+      const scheduled = dayEntities.filter((entity) => permittedIds.has(entity.id) && entity.isAvailable);
+      const withCapacity = scheduled.filter((entity) => entity.available >= rows.length);
+      return NextResponse.json({ ok: true, options: {
+        appointmentDate: date,
+        firstTimeCount,
+        authorizedCount: permittedIds.size,
+        scheduledCount: scheduled.length,
+        availableCount: withCapacity.length,
+        requiredCapacity: rows.length,
+        entities: withCapacity.map((entity) => ({ ...entity, mediums: [] })),
+      } });
+    }
+
     if (action === "change-entity" || action === "change-entity-bulk") {
       const entityId = asText(body.entityId);
       const reason = asText(body.reason) || "Troca realizada pela Recepção.";
@@ -2387,7 +2447,7 @@ export async function POST(request: Request) {
       const entityIds = Array.from(new Set([...sourceEntityIds, entityId]));
       const { data: entityRows, error: entityError } = await supabaseAdmin
         .from("oh_spiritual_entities")
-        .select("id,name,slug")
+        .select("id,name,slug,pilot_accepts_first_time_transfers")
         .eq("organization_id", context.organizationId)
         .in("id", entityIds);
       if (entityError) throw entityError;
@@ -2398,6 +2458,22 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Nova Entidade não localizada.", requestId: code }, { status: 404 });
       }
 
+      // Segurança: validar o destino no servidor, também para trocas em massa e requisições diretas.
+      // A marca de Primeira Vez persiste no metadata mesmo após realocações anteriores.
+      const transferringFirstTime = appointments.some((appointment) => {
+        const metadata = asRecord(appointment.metadata);
+        const origin = entityRowsById.get(asText(appointment.entity_id));
+        return metadata.firstTimeClassificationCorrected !== true &&
+          (metadata.firstTimeAppointment === true || metadata.firstTimeIndicatorActive === true || isPilotFirstTimeEntity(origin));
+      });
+      const targetEntity = entityRowsById.get(entityId);
+      if (transferringFirstTime && targetEntity?.pilot_accepts_first_time_transfers !== true) {
+        return NextResponse.json({
+          error: "A Entidade de destino não está habilitada para receber troca de Primeira Vez. Ative a opção no cadastro da Entidade.",
+          requestId: code,
+        }, { status: 409 });
+      }
+
       // Ajuste 69: a obrigação de CRIAR o primeiro agendamento em "Primeira Vez"
       // não impede a Recepção de realocar esse MESMO atendimento depois. Antes da
       // RPC, garantimos a marca histórica de Primeira Vez para que ela sobreviva
@@ -2406,7 +2482,8 @@ export async function POST(request: Request) {
       for (const appointment of appointments) {
         const sourceEntity = entityRowsById.get(asText(appointment.entity_id));
         const metadata = asRecord(appointment.metadata);
-        const wasFirstTime = metadata.firstTimeAppointment === true || isPilotFirstTimeEntity(sourceEntity);
+        const wasFirstTime = metadata.firstTimeClassificationCorrected !== true &&
+          (metadata.firstTimeAppointment === true || metadata.firstTimeIndicatorActive === true || isPilotFirstTimeEntity(sourceEntity));
         if (!wasFirstTime) continue;
 
         const appointmentId = asText(appointment.id);
@@ -2911,6 +2988,7 @@ export async function POST(request: Request) {
       const capacity = Math.max(1, Math.round(Number(body.capacity ?? 4) || 4));
       const entityActive = body.active !== false;
       const cavalinhoWhatsappEnabled = body.cavalinhoWhatsappEnabled === true;
+      const acceptsFirstTimeTransfers = body.acceptsFirstTimeTransfers === true;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
@@ -2932,6 +3010,7 @@ export async function POST(request: Request) {
             usual_days: [mondayOccurrences.length ? "segunda" : "", tuesdayOccurrences.length ? "terca" : ""].filter(Boolean),
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
+            pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
             active: entityActive,
             updated_at: new Date().toISOString(),
           })
@@ -2973,6 +3052,7 @@ export async function POST(request: Request) {
             pilot_display_order_tuesday: displayOrderTuesday,
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
+            pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: entityActive,
