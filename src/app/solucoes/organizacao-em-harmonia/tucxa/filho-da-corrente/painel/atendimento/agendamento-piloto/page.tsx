@@ -39,6 +39,7 @@ type EntityCatalogItem = {
   active: boolean;
   appointmentEnabled: boolean;
   cavalinhoWhatsappEnabled: boolean;
+  acceptsFirstTimeTransfers: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -561,6 +562,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     tuesdayOccurrences: [] as number[],
     active: true,
     cavalinhoWhatsappEnabled: false,
+    acceptsFirstTimeTransfers: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -2166,6 +2168,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       tuesdayOccurrences: [],
       active: true,
       cavalinhoWhatsappEnabled: false,
+      acceptsFirstTimeTransfers: false,
     });
   }
 
@@ -2276,6 +2279,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       tuesdayOccurrences: entity?.tuesdayOccurrences ?? [],
       active: entity?.active !== false,
       cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
+      acceptsFirstTimeTransfers: entity?.acceptsFirstTimeTransfers === true,
     });
   }
 
@@ -2310,6 +2314,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         tuesdayOccurrences: editEntity.tuesdayOccurrences,
         active: editEntity.active,
         cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
+        acceptsFirstTimeTransfers: editEntity.acceptsFirstTimeTransfers,
       });
       if (editEntity.entityId && entityExceptionDate && entityExceptionReason.trim()) {
         await postPilot({
@@ -3873,6 +3878,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       </label>
                       {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
                       <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
+                      <Toggle checked={editEntity.acceptsFirstTimeTransfers} onChange={(acceptsFirstTimeTransfers) => setEditEntity((current) => ({ ...current, acceptsFirstTimeTransfers }))} label="Pode receber troca de Entidade de consulentes Primeira Vez" />
+                      <p className="px-2 text-[11px] font-semibold text-slate-600">Habilita apenas a realocação feita pela Recepção. Não altera as regras de agendamento inicial de Primeira Vez.</p>
                       <details className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
                         <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Dias de atendimento · toque para configurar</summary>
                         <div className="mt-3 grid gap-2">
@@ -4132,7 +4139,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
       {entityChangeRequest && (
         <EntityChangePopup
           request={entityChangeRequest}
-          entities={usableEntities}
+          entities={entityChangeRequest.firstTimeCount > 0
+            ? usableEntities.filter((entity) => payload?.entityCatalog.some((catalog) => catalog.id === entity.id && catalog.acceptsFirstTimeTransfers))
+            : usableEntities}
           saving={saving}
           onChange={(patch) => setEntityChangeRequest((current) => current ? { ...current, ...patch } : current)}
           onClose={() => !saving && setEntityChangeRequest(null)}
@@ -4340,6 +4349,12 @@ function EntityChangePopup({
               ))}
             </select>
           </label>
+
+          {request.firstTimeCount > 0 && (
+            <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs font-semibold text-[#123D2C]">
+              {request.firstTimeCount} atendimento(s) com histórico de Primeira Vez. Somente Entidades autorizadas no cadastro estão disponíveis como destino.
+            </p>
+          )}
 
           {target && request.mode === "bulk" && target.available < request.appointmentIds.length && (
             <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">
