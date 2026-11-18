@@ -6,7 +6,7 @@ import { adminFetch } from '@/lib/admin-fetch';
 export type RmcCatalogKind = 'service'|'material'|'tool'|'address'|'vehicle'|'supplier'|'contract';
 type Kind=RmcCatalogKind;
 type Field={key:string;label:string;type?:'text'|'number'|'textarea';hint?:string};
-type RecordItem={id:string;kind:Kind;name:string;details:Record<string,string|number>;is_default:boolean;updated_at:string};
+type RecordItem={id:string;kind:Kind;name:string;details:Record<string,string|number>;is_default:boolean;is_active:boolean;updated_at:string};
 const endpoint='/api/atendimento-inteligente/rmc/operations';
 const choices:{kind:Kind;label:string;fields:Field[]}[]=[
  {kind:'service',label:'Tipos de serviço',fields:[
@@ -47,7 +47,7 @@ const choices:{kind:Kind;label:string;fields:Field[]}[]=[
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#173b4c]';
 const formatMoney=(n:number)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
 
-export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } = {}){
+export function RmcOperations({ focusedKind, onClose }: { focusedKind?: RmcCatalogKind; onClose?: () => void } = {}){
  const [kind,setKind]=useState<Kind>(focusedKind ?? 'service');
  const [page,setPage]=useState(1);
  const [editorPage,setEditorPage]=useState(0);
@@ -88,6 +88,17 @@ export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } 
    await load();setShowEditor(false);setEditing(null);setNotice('Cadastro salvo. Os preços são referências para orçamento, não valores finais.');
   }catch(e){setError(e instanceof Error?e.message:'Não foi possível salvar.');}finally{setBusy(false);}
  }
+ async function toggleActive(row:RecordItem){
+  if(busy || row.kind!=='service')return;
+  const nextActive=!row.is_active;
+  if(!nextActive && !window.confirm(`Inativar “${row.name}”? O cadastro será preservado para uma futura reativação.`))return;
+  setBusy(true);setError('');setNotice('');
+  try{
+   await adminFetch(endpoint,{method:'PATCH',body:JSON.stringify({id:row.id,isActive:nextActive})});
+   await load();setNotice(nextActive?'Serviço ativado.':'Serviço inativado.');
+  }catch(e){setError(e instanceof Error?e.message:'Não foi possível alterar a situação do serviço.');}
+  finally{setBusy(false);}
+ }
  async function remove(row:RecordItem){
   if(busy||!window.confirm(`Excluir “${row.name}”? Esta ação não altera orçamentos já realizados.`))return;
   setBusy(true);setError('');setNotice('');
@@ -100,26 +111,29 @@ export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } 
  const cost=km>0&&fuel>0?fuel/km+(other>=0?other:0):null;
  return <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5" aria-label="Cadastros operacionais N2">
   <div className="flex flex-wrap items-center justify-between gap-2">
-   <div><h2 className="text-lg font-black text-[#143e31]">{focusedKind ? definition.label : 'Configurações e custos — RMC'}</h2>
-   <p className="text-xs text-slate-600">Cadastros editáveis pelo Anderson (N2). Preços são referências, sujeitos à avaliação.</p></div>
-   <button type="button" className="rounded-lg border px-3 py-2 text-xs" onClick={()=>void load().catch(e=>setError(e instanceof Error?e.message:'Falha'))}>Atualizar</button>
+   <h2 className="text-lg font-black text-[#292424]">{focusedKind ? (kind==='service'?'Serviços e Custos':definition.label) : 'Configurações e custos — RMC'}</h2>
+   {(onClose || showEditor) && <button type="button" className="rounded-lg bg-[#242122] px-4 py-2 text-sm font-bold text-white" onClick={()=>{if(showEditor){setShowEditor(false);setEditorPage(0);}else{onClose?.();}}}>Fechar</button>}
   </div>
   {!focusedKind && <div className="mt-3 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Cadastros da RMC">
    {choices.map(c=><button key={c.kind} type="button" role="tab" aria-selected={kind===c.kind} onClick={()=>changeKind(c.kind)}
-    className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold ${kind===c.kind?'bg-[#143e31] text-white':'bg-white text-slate-700'}`}>{c.label}</button>)}
+    className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold ${kind===c.kind?'bg-[#d87416] text-white':'bg-white text-slate-700'}`}>{c.label}</button>)}
   </div>}
   {error&&<p role="alert" className="my-2 rounded bg-red-50 p-2 text-sm text-red-700">{error}</p>}
   {notice&&<p role="status" className="my-2 rounded bg-green-50 p-2 text-sm text-green-800">{notice}</p>}
   <div className="my-2 flex items-center justify-between"><h3 className="font-semibold">{definition.label} ({visible.length})</h3>
-   {!showEditor && <button type="button" onClick={newItem} className="rounded-lg bg-[#eb8a2b] px-3 py-2 text-sm font-bold text-[#1c2933]">+ Novo</button>}</div>
+   {!showEditor && <button type="button" onClick={newItem} className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-bold text-[#242122]">+ Novo</button>}</div>
   {!showEditor && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-   {rows.map(row=><article key={row.id} className="min-w-0 rounded-xl border bg-[#f7faf8] p-3">
+   {rows.map(row=><article key={row.id} className="min-w-0 rounded-xl border bg-[#fff8f0] p-3">
     <p className="break-words font-bold">{row.name}{row.is_default&&<span className="ml-2 rounded-full bg-green-100 px-2 py-1 text-[10px]">Origem padrão</span>}</p>
     {row.kind==='vehicle'&&Number(row.details.kmPerLiter)>0&&Number(row.details.fuelPrice)>0&&
       <p className="mt-1 text-xs">Combustível: {formatMoney(Number(row.details.fuelPrice)/Number(row.details.kmPerLiter))}/km</p>}
     <p className="mt-1 text-xs text-slate-500">Atualizado {new Date(row.updated_at).toLocaleDateString('pt-BR')}</p>
-    <div className="mt-3 flex gap-2"><button type="button" onClick={()=>edit(row)} className="rounded-lg border px-3 py-2 text-xs">Editar</button>
-      <button type="button" onClick={()=>void remove(row)} className="rounded-lg border px-3 py-2 text-xs text-red-700">Excluir</button></div>
+    {!row.is_active && <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-950">Inativo</span>}
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <button type="button" disabled={busy} onClick={()=>edit(row)} className="rounded-md border border-[#c8b6a5] px-2 py-1 text-[11px] font-semibold disabled:opacity-50">Editar</button>
+      <button type="button" disabled={busy} onClick={()=>void remove(row)} className="rounded-md border border-rose-200 px-2 py-1 text-[11px] font-semibold text-red-700 disabled:opacity-50">Excluir</button>
+      {row.kind==='service' && <button type="button" disabled={busy} aria-label={`${row.is_active?'Inativar':'Ativar'} serviço ${row.name}`} onClick={()=>void toggleActive(row)} className="rounded-md border border-[#e6a15e] px-2 py-1 text-[11px] font-semibold text-[#8b440f] disabled:opacity-50">{row.is_active?'Inativar':'Ativar'}</button>}
+    </div>
    </article>)}
    {visible.length===0&&<p className="col-span-full rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Nenhum registro ainda. Use “+ Novo” ou confira a planilha preparada para Anderson.</p>}
   </div>}
@@ -128,9 +142,8 @@ export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } 
     <span>Página {currentPage} de {pages}</span>
     <button type="button" disabled={currentPage>=pages} onClick={()=>setPage(p=>Math.min(pages,p+1))} className="rounded-lg border px-3 py-2 disabled:opacity-40">Próxima</button>
   </nav>}
-  {showEditor&&<div className="mt-4 rounded-xl border border-[#d4e3dc] bg-[#f7faf8] p-3 sm:p-4">
-   <div className="flex items-center justify-between gap-2"><h3 className="font-bold">{editing?'Editar':'Adicionar'} — {definition.label}</h3>
-    <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={()=>setShowEditor(false)}>Fechar</button></div>
+  {showEditor&&<div className="mt-4 rounded-xl border border-[#ebcdad] bg-[#fff8f0] p-3 sm:p-4">
+   <h3 className="font-bold">{editing?'Editar':'Adicionar'} — {definition.label}</h3>
    <p className="mt-2 text-xs text-slate-500">Etapa {editorPage+1} de {editorPages}. Os dados são mantidos ao avançar.</p>
    <div className="mt-2 grid gap-3 sm:grid-cols-2">
     {editorPage===0 && <label className="block text-xs font-semibold sm:col-span-2">Identificação / nome *
@@ -142,13 +155,10 @@ export function RmcOperations({ focusedKind }: { focusedKind?: RmcCatalogKind } 
    </div>
    {editorPage===editorPages-1 && kind==='address'&&<label className="mt-3 flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={isDefault} onChange={e=>setIsDefault(e.target.checked)}/>Origem padrão para os orçamentos</label>}
    {editorPage===editorPages-1 && kind==='vehicle'&&<p className="mt-3 rounded-lg bg-white p-3 text-sm">Custo operacional configurado: <b>{cost===null?'Informe consumo e combustível':`${formatMoney(cost)}/km`}</b>. Para estimar um deslocamento, será necessário informar distância e considerar ida/volta, pedágio e tempo de serviço.</p>}
-   <div className="mt-4 flex flex-wrap justify-between gap-2">
-     <button className="rounded-lg border px-4 py-2" type="button" onClick={()=>{setShowEditor(false);setEditorPage(0);}}>Fechar</button>
-     <div className="flex gap-2">
-       {editorPage>0&&<button type="button" className="rounded-lg border px-3 py-2" onClick={()=>setEditorPage(p=>p-1)}>Anterior</button>}
-       {editorPage<editorPages-1?<button type="button" className="rounded-lg bg-[#143e31] px-4 py-2 font-semibold text-white disabled:opacity-50" disabled={name.trim().length<2} onClick={()=>setEditorPage(p=>p+1)}>Próxima</button>
-       :<button className="rounded-lg bg-[#143e31] px-4 py-2 font-bold text-white disabled:opacity-50" type="button" disabled={busy||name.trim().length<2} onClick={()=>void save()}>{busy?'Salvando...':'Salvar'}</button>}
-     </div>
+   <div className="mt-4 flex justify-end gap-2">
+     {editorPage>0&&<button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={()=>setEditorPage(p=>p-1)}>Anterior</button>}
+     {editorPage<editorPages-1?<button type="button" className="rounded-lg bg-[#242122] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={name.trim().length<2} onClick={()=>setEditorPage(p=>p+1)}>Próxima</button>
+     :<button className="rounded-lg bg-[#f28a20] px-4 py-2 text-sm font-bold text-[#242122] disabled:opacity-50" type="button" disabled={busy||name.trim().length<2} onClick={()=>void save()}>{busy?'Salvando...':'Salvar'}</button>}
    </div>
   </div>}
  </section>;

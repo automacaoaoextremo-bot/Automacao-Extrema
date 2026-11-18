@@ -21,5 +21,5 @@ export function AiOperatorGuard({children}:{children:ReactNode}){
   const {data:listener}=supabaseBrowser.auth.onAuthStateChange((_event,session)=>{if(!session)router.replace(`${base}/entrar`);});
   return()=>{active=false;listener.subscription.unsubscribe();};
  },[router]);
- return <><AiBrandHeader/>{ready?children:<main className="min-h-[55vh] p-8 text-center text-sm">{denied?'Acesso restrito a equipe.':'Validando permissões...'}</main>}</>;
+ return <><AiBrandHeader showActions={false}/>{ready?children:<main className="min-h-[55vh] p-8 text-center text-sm">{denied?'Acesso restrito a equipe.':'Validando permissões...'}</main>}</>;
 }
