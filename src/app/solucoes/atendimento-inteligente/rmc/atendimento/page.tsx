@@ -5,5 +5,5 @@ import { RmcDashboard } from '@/components/atendimento-inteligente/rmc-dashboard
 export const metadata: Metadata = { title: 'Atendimento | Reparos RMC', robots: { index: false, follow: false } };
 
 export default function RmcAtendimentoPage() {
-  return <AiOperatorGuard><main className="min-h-screen bg-[#eff5ef] p-3 sm:p-6"><RmcDashboard /></main></AiOperatorGuard>;
+  return <AiOperatorGuard><main className="min-h-screen bg-[#fbf4ed] p-3 sm:p-6"><RmcDashboard /></main></AiOperatorGuard>;
 }

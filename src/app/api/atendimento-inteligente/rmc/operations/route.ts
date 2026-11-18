@@ -46,7 +46,7 @@ export async function GET(request:NextRequest){
   try{
     const access=await owner(request);if(access.error)return access.error;
     const {data,error}=await supabaseAdmin.from('ae_ai_rmc_catalog')
-      .select('id,kind,name,details,is_default,updated_at')
+      .select('id,kind,name,details,is_default,is_active,updated_at')
       .eq('organization_id',access.orgId!).order('kind').order('name');
     if(error)throw error;
     return NextResponse.json({items:data??[]});
@@ -65,6 +65,22 @@ export async function POST(request:NextRequest){
     });
     if(error)throw error;
     return NextResponse.json({ok:true,id:data});
+  }catch(error){return NextResponse.json({error:safeError(error)},{status:500});}
+}
+// Ajustes 18: inativacao reversivel somente de servicos. N1 nao pode alterar o catalogo.
+export async function PATCH(request:NextRequest){
+  try{
+    const access=await owner(request);if(access.error)return access.error;
+    const raw=await request.json() as {id?:unknown;isActive?:unknown};
+    if(!isUuid(raw.id) || typeof raw.isActive!=='boolean')
+      return NextResponse.json({error:'Informe um serviço e a situação desejada.'},{status:400});
+    const {data,error}=await supabaseAdmin.from('ae_ai_rmc_catalog')
+      .update({is_active:raw.isActive,updated_at:new Date().toISOString()})
+      .eq('organization_id',access.orgId!).eq('kind','service').eq('id',raw.id)
+      .select('id,is_active').maybeSingle();
+    if(error)throw error;
+    if(!data)return NextResponse.json({error:'Serviço não encontrado nesta empresa.'},{status:404});
+    return NextResponse.json({ok:true,item:data});
   }catch(error){return NextResponse.json({error:safeError(error)},{status:500});}
 }
 export async function DELETE(request:NextRequest){
