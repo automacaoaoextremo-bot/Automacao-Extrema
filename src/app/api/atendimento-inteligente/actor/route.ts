@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { rmcActor, customerIsActive } from '@/lib/atendimento-inteligente/customer-auth';
+import { rmcActor, customerIsActive, customerCanSubmitRequest } from '@/lib/atendimento-inteligente/customer-auth';
 import { safeError } from '@/lib/atendimento-inteligente/security';
 export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
       role: actor.role, name: actor.name,
       portalEnabled: actor.role === 'customer' ? customerIsActive(actor.customer!) : true,
       mustChangePassword: actor.role === 'customer' ? actor.customer!.must_change_password : false,
-      canSubmitRequest: actor.role === 'operator' || process.env.AE_AI_CUSTOMER_REQUESTS_ENABLED === 'true',
+      canSubmitRequest: actor.role === 'operator' || customerCanSubmitRequest(actor),
     });
   } catch (err) { return NextResponse.json({ error: safeError(err) }, { status: 500 }); }
 }
