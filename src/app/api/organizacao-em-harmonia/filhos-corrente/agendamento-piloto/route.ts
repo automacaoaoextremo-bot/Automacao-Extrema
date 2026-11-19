@@ -31,6 +31,7 @@ import { sendTucxaAppointmentWhatsapp, sendTucxaEntityChangeWhatsapp } from "@/l
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentBeneficentPizzaMessage, appointmentChristmasBasketMessage, appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
+import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
 
 export const dynamic = "force-dynamic";
 
@@ -369,17 +370,6 @@ function currentSaoPauloMinutes() {
   return Number(map.hour || 0) * 60 + Number(map.minute || 0);
 }
 
-function siteUrl() {
-  const vercelUrl = (process.env.VERCEL_URL || "").trim();
-  if (process.env.VERCEL_ENV === "preview" && vercelUrl) {
-    return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
-  }
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
-}
-
-function confirmationUrl(token: string) {
-  return `${siteUrl()}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
-}
 
 const MANUAL_DISPATCH_OFFSET = -1;
 const MANUAL_REMINDER_TYPE = "manual_reminder";
@@ -1049,7 +1039,7 @@ export async function POST(request: Request) {
               .eq("organization_id", context.organizationId)
               .eq("id", appointment.id);
             if (tokenError) throw tokenError;
-            link = confirmationUrl(token);
+            link = buildTucxaConfirmationUrl(token);
           }
 
           const reminderDispatch = await sendTucxaAppointmentWhatsapp({
@@ -1695,7 +1685,7 @@ export async function POST(request: Request) {
         if (relationshipResult.error) console.error("[TUCXA vínculo de terceiro]", relationshipResult.error);
       }
 
-      const link = confirmationUrl(token);
+      const link = buildTucxaConfirmationUrl(token);
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
@@ -1793,7 +1783,7 @@ export async function POST(request: Request) {
 
       const phone = normalizeBrazilPhone(appointment.notification_contact_whatsapp || appointment.whatsapp);
       if (!phone) return NextResponse.json({ error: "O contato deste agendamento não possui WhatsApp válido.", requestId: code }, { status: 409 });
-      const link = confirmationUrl(token);
+      const link = buildTucxaConfirmationUrl(token);
       const order = Number(asRecord(appointment.metadata).order ?? 0) || null;
       const fullName = asText(appointment.consulente_name) || "Consulente";
       const entityName = asText(entity?.name) || "Entidade";
@@ -2159,7 +2149,7 @@ export async function POST(request: Request) {
       const confirmed = Array.isArray(changed) ? changed[0] : changed;
       return NextResponse.json({ ok: true, appointmentId, appointmentDate: targetDate,
         entityId: targetEntityId, order: confirmed?.confirmed_order ?? null,
-        confirmationUrl: confirmationUrl(token),
+        confirmationUrl: buildTucxaConfirmationUrl(token),
         message: "Reagendamento realizado. Envie o novo link de confirmação ao Consulente; o anterior foi substituído." });
     }
 

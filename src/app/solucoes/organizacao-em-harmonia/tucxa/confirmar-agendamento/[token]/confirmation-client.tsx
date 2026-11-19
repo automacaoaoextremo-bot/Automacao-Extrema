@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import type { TucxaConfirmationAppointment } from "@/lib/organizacao-em-harmonia/tucxa-confirmation";
+import { TUCXA_ADDRESS, TUCXA_ADDRESS_SHORT, TUCXA_MAPS_URL } from "@/lib/organizacao-em-harmonia/tucxa-location";
 
 const API_PATH = "/api/organizacao-em-harmonia/site-tucxa/agendamento-piloto/confirmar";
 
@@ -19,6 +20,7 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
   const [message, setMessage] = useState("");
 
   async function respond(action: "confirm" | "decline") {
+    if (saving) return;
     setSaving(true);
     setError("");
     setMessage("");
@@ -39,9 +41,7 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
           confirmationStatus: "confirmed",
           confirmedAt: new Date().toISOString(),
         } : current);
-        // O próprio estado confirmado e os dados abaixo já dão o retorno visual necessário.
-        // Evita repetir ordem de agendamento e orientação sobre ordem de chegada no topo.
-        setMessage("");
+        setMessage(data.message || "Presença confirmada. Obrigado!");
       } else {
         setAppointment((current) => current ? {
           ...current,
@@ -63,64 +63,68 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
   const expired = appointment?.confirmationStatus === "expired";
 
   return (
-    <main className="min-h-screen bg-[#F7FAF2] px-3 py-5 text-[#10251C] sm:py-10">
-      <section className="mx-auto max-w-xl overflow-hidden rounded-[2rem] bg-white shadow-xl ring-1 ring-[#123D2C]/10">
-        <header className="bg-[#123D2C] p-5 text-white sm:p-7">
+    <main className="min-h-[100dvh] bg-[#F7FAF2] px-2 py-2 text-[#10251C] sm:px-3 sm:py-8">
+      <section className="mx-auto max-w-xl overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#123D2C]/10 sm:rounded-[2rem]">
+        <header className="bg-[#123D2C] px-4 py-3 text-white sm:px-6 sm:py-5">
           <div className="flex items-center gap-3">
-            <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="Tucxa" width={48} height={48} className="h-12 w-12 rounded-full bg-white object-cover" />
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Tucxa · Atendimento em Harmonia</p>
-              <h1 className="mt-1 text-2xl font-black">Confirmação de atendimento</h1>
+            <Image src="/clientes/tucxa/tucxa-logo.jpg" alt="TUCXA" width={40} height={40} className="h-10 w-10 shrink-0 rounded-full bg-white object-cover" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#CFE2C7]">TUCXA · Atendimento em Harmonia</p>
+              <h1 className="text-lg font-extrabold leading-6 sm:text-2xl">Confirmar presença</h1>
             </div>
           </div>
         </header>
 
-        <div className="p-5 sm:p-7">
-          {error && <p className="rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
-          {message && <p className="rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
+        <div className={`px-4 pt-3 sm:px-6 sm:pt-5 ${pending ? "pb-36 sm:pb-5" : "pb-5"}`}>
+          {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 ring-1 ring-red-100">{error}</p>}
+          {message && <p role="status" className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
 
           {appointment && (
             <>
-              <p className={`${message ? "mt-4 " : ""}text-lg font-black text-[#123D2C]`}>Olá, {appointment.firstName}.</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                {confirmed
-                  ? "Sua presença está confirmada conforme os dados abaixo."
-                  : "Confira os dados abaixo. Sua resposta ajuda a Recepção a organizar as vagas e acolher cada pessoa com mais clareza."}
+              <p className="text-base font-extrabold text-[#123D2C] sm:text-lg">Olá, {appointment.firstName}!</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600 sm:text-sm">
+                {confirmed ? "Sua presença está confirmada." : pending ? "Confira os dados e escolha uma opção abaixo." : "Confira os dados do agendamento."}
               </p>
 
-              <div className="mt-4 grid gap-2 rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10">
+              <div className="mt-3 grid gap-1.5 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:gap-2 sm:p-4">
                 <Detail label="Data" value={appointment.appointmentDateLabel} />
+                <Detail label="Entidade" value={appointment.entityName} />
                 <Detail label="Chegada" value={appointment.arrivalWindow} />
                 <Detail label="Porta fecha" value={appointment.doorClosesAt} />
-                <Detail label="Início dos atendimentos" value={appointment.appointmentTime} />
-                <Detail label="Término previsto" value={appointment.endTime} />
-                <Detail label="Entidade" value={appointment.entityName} />
-                {typeof appointment.order === "number" && appointment.order > 0 && (
-                  <Detail label="Ordem de agendamento" value={String(appointment.order)} />
-                )}
               </div>
 
-              {!declined && !expired && (
-                <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-amber-950 ring-1 ring-amber-200">
-                  <p className="text-sm font-black leading-6">
-                    IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.
-                  </p>
+              <div className="mt-3 rounded-xl border border-[#DDE7D8] p-3">
+                <p className="text-xs font-extrabold uppercase tracking-wide text-[#2F6B43]">📍 Local do atendimento</p>
+                <p className="mt-1 text-xs leading-4 text-[#123D2C] sm:text-sm">{TUCXA_ADDRESS_SHORT}</p>
+                <a className="mt-1 inline-block text-xs font-bold text-[#176748] underline underline-offset-2" href={TUCXA_MAPS_URL} target="_blank" rel="noopener noreferrer" aria-label="Abrir endereço do TUCXA no Google Maps">Abrir no Google Maps</a>
+              </div>
+
+              <details className="mt-3 rounded-xl border border-[#DDE7D8] bg-white p-3 text-sm">
+                <summary className="cursor-pointer font-bold text-[#123D2C]">Orientações e horários completos</summary>
+                <div className="mt-2 space-y-1.5 text-xs leading-5 text-slate-700 sm:text-sm">
+                  <p><strong>Início dos atendimentos:</strong> {appointment.appointmentTime}. <strong>Término previsto:</strong> {appointment.endTime}.</p>
+                  <p>Mesmo com agendamento, o atendimento é por ordem de chegada.</p>
+                  <p>O agendamento é individual. Cada acompanhante que precise de atendimento deve ter seu próprio agendamento.</p>
+                  <p><strong>Endereço completo:</strong> {TUCXA_ADDRESS}</p>
+                  <p>Em caso de dúvida, fale com a Recepção do TUCXA.</p>
                 </div>
-              )}
+              </details>
 
               {pending && (
-                <div className="mt-4 grid gap-2">
-                  <button type="button" disabled={saving} onClick={() => void respond("confirm")} className="rounded-2xl bg-[#123D2C] px-4 py-4 font-black text-white disabled:opacity-50">
-                    {saving ? "Registrando..." : "Confirmar minha presença"}
-                  </button>
-                  <button type="button" disabled={saving} onClick={() => void respond("decline")} className="rounded-2xl bg-red-50 px-4 py-4 font-black text-red-700 ring-1 ring-red-100 disabled:opacity-50">
-                    Não poderei comparecer
-                  </button>
+                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#DDE7D8] bg-white/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-6px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm sm:static sm:mt-4 sm:grid sm:gap-2 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none">
+                  <div className="mx-auto grid max-w-xl gap-2">
+                    <button type="button" disabled={saving} onClick={() => void respond("confirm")} className="min-h-12 rounded-xl bg-[#123D2C] px-4 py-2.5 text-sm font-extrabold text-white disabled:opacity-50 sm:text-base">
+                      {saving ? "Registrando..." : "Confirmar minha presença"}
+                    </button>
+                    <button type="button" disabled={saving} onClick={() => void respond("decline")} className="min-h-11 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 ring-1 ring-red-100 disabled:opacity-50 sm:text-base">
+                      Não poderei comparecer
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {declined && !expired && <StateBox tone="amber" title="Vaga liberada">Recebemos seu aviso de que não poderá comparecer.</StateBox>}
-              {expired && <StateBox tone="amber" title="Prazo encerrado">O prazo de confirmação terminou. Entre em contato com a Recepção do Tucxa para verificar a situação do atendimento.</StateBox>}
+              {declined && !expired && <StateBox title="Vaga liberada">Recebemos seu aviso de que não poderá comparecer.</StateBox>}
+              {expired && <StateBox title="Prazo encerrado">O prazo de confirmação terminou. Fale com a Recepção do TUCXA para verificar a situação.</StateBox>}
             </>
           )}
         </div>
@@ -132,18 +136,17 @@ export default function ConfirmationClient({ token, initialAppointment, initialE
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <span className="text-xs font-black uppercase tracking-[0.1em] text-[#2F6B43]">{label}</span>
-      <span className="text-right text-sm font-black text-[#123D2C]">{value}</span>
+      <span className="shrink-0 text-[11px] font-extrabold uppercase tracking-wide text-[#2F6B43]">{label}</span>
+      <span className="text-right text-xs font-extrabold text-[#123D2C] sm:text-sm">{value}</span>
     </div>
   );
 }
 
-function StateBox({ tone, title, children }: { tone: "green" | "amber"; title: string; children: React.ReactNode }) {
-  const classes = tone === "green" ? "bg-emerald-50 text-emerald-900 ring-emerald-100" : "bg-amber-50 text-amber-900 ring-amber-100";
+function StateBox({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className={`mt-4 rounded-2xl p-4 ring-1 ${classes}`}>
-      <p className="font-black">{title}</p>
-      <p className="mt-1 text-sm font-semibold leading-6">{children}</p>
+    <div role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200">
+      <p className="font-extrabold">{title}</p>
+      <p className="mt-1">{children}</p>
     </div>
   );
 }

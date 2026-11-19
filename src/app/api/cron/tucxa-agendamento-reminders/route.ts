@@ -11,6 +11,7 @@ import {
 import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
 
 import { dispatchDateAllowed, appointmentDispatchAllowed } from "@/lib/organizacao-em-harmonia/tucxa-appointment-homologation";
 
@@ -209,10 +210,7 @@ async function processDayOfReminders(
           .update({ confirmation_token_hash: confirmationTokenHash(token), confirmation_expires_at: expiry, confirmation_status: "pending", updated_at: new Date().toISOString() })
           .eq("organization_id", organizationId).eq("id", appointment.id);
         if (tokenError) throw tokenError;
-        const publicBase = (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_URL)
-          ? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
-          : (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com");
-        confirmationUrl = `${publicBase.replace(/\/$/, "")}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
+        confirmationUrl = buildTucxaConfirmationUrl(token);
       }
     }
     const result = await sendTucxaAppointmentWhatsapp({
