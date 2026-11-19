@@ -62,7 +62,8 @@ export function RmcOperations({ focusedKind, onClose }: { focusedKind?: RmcCatal
  const [showEditor,setShowEditor]=useState(false);
  const definition=choices.find(x=>x.kind===kind)!;
  const visible=useMemo(()=>items.filter(i=>i.kind===kind),[items,kind]);
- const pageSize=6;
+ // Ajustes 19: quatro tipos de servico por pagina; outros catalogos preservam a paginacao anterior.
+ const pageSize=kind==='service'?4:6;
  const pages=Math.max(1,Math.ceil(visible.length/pageSize));
  const currentPage=Math.min(page,pages);
  const rows=visible.slice((currentPage-1)*pageSize,currentPage*pageSize);
@@ -110,9 +111,12 @@ export function RmcOperations({ focusedKind, onClose }: { focusedKind?: RmcCatal
  const km=Number(details.kmPerLiter||0),fuel=Number(details.fuelPrice||0),other=Number(details.otherCostKm||0);
  const cost=km>0&&fuel>0?fuel/km+(other>=0?other:0):null;
  return <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5" aria-label="Cadastros operacionais N2">
-  <div className="flex flex-wrap items-center justify-between gap-2">
-   <h2 className="text-lg font-black text-[#292424]">{focusedKind ? (kind==='service'?'Serviços e Custos':definition.label) : 'Configurações e custos — RMC'}</h2>
-   {(onClose || showEditor) && <button type="button" className="rounded-lg bg-[#242122] px-4 py-2 text-sm font-bold text-white" onClick={()=>{if(showEditor){setShowEditor(false);setEditorPage(0);}else{onClose?.();}}}>Fechar</button>}
+  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+   <h2 className="text-lg font-black leading-tight text-[#292424]">{focusedKind ? (kind==='service'?'Serviços e Custos':definition.label) : 'Configurações e custos — RMC'}</h2>
+   <div className="ml-auto flex shrink-0 items-center gap-2">
+    {!showEditor && <button type="button" onClick={newItem} className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-bold text-[#242122]">+ Novo</button>}
+    {(onClose || showEditor) && <button type="button" className="rounded-lg bg-[#242122] px-4 py-2 text-sm font-bold text-white" onClick={()=>{if(showEditor){setShowEditor(false);setEditorPage(0);}else{onClose?.();}}}>Fechar</button>}
+   </div>
   </div>
   {!focusedKind && <div className="mt-3 flex gap-2 overflow-x-auto pb-2" role="tablist" aria-label="Cadastros da RMC">
    {choices.map(c=><button key={c.kind} type="button" role="tab" aria-selected={kind===c.kind} onClick={()=>changeKind(c.kind)}
@@ -120,8 +124,7 @@ export function RmcOperations({ focusedKind, onClose }: { focusedKind?: RmcCatal
   </div>}
   {error&&<p role="alert" className="my-2 rounded bg-red-50 p-2 text-sm text-red-700">{error}</p>}
   {notice&&<p role="status" className="my-2 rounded bg-green-50 p-2 text-sm text-green-800">{notice}</p>}
-  <div className="my-2 flex items-center justify-between"><h3 className="font-semibold">{definition.label} ({visible.length})</h3>
-   {!showEditor && <button type="button" onClick={newItem} className="rounded-lg bg-[#ef8924] px-3 py-2 text-sm font-bold text-[#242122]">+ Novo</button>}</div>
+  <div className="mb-2 mt-1"><h3 className="font-semibold leading-tight">{definition.label} ({visible.length})</h3></div>
   {!showEditor && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
    {rows.map(row=><article key={row.id} className="min-w-0 rounded-xl border bg-[#fff8f0] p-3">
     <p className="break-words font-bold">{row.name}{row.is_default&&<span className="ml-2 rounded-full bg-green-100 px-2 py-1 text-[10px]">Origem padrão</span>}</p>
