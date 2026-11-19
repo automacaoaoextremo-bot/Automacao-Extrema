@@ -43,7 +43,7 @@ export function RmcLoginForm({ returnTo = 'dashboard' }: { returnTo?: 'dashboard
       }
       if (!actor.portalEnabled) {
         await supabaseBrowser.auth.signOut();
-        throw new Error('Seu acesso individual ainda não foi liberado. Fale com a equipe da Reparos RMC.');
+        throw new Error('Seu cadastro foi localizado, mas o acesso ao portal ainda depende da liberação da Reparos RMC e da validação do WhatsApp. Entre em contato com a equipe.');
       }
       router.replace(actor.mustChangePassword ? `${base}/trocar-senha` : returnTo === 'request' ? `${base}/solicitar` : `${base}/meus-pedidos`);
       router.refresh();

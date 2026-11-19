@@ -33,3 +33,17 @@ export async function rmcActor(request: Request) {
 export function customerIsActive(customer: CustomerRow) {
   return customer.portal_enabled && Boolean(customer.phone_verified_at);
 }
+
+/**
+ * Piloto de solicitacoes individuais RMC, sem liberar todos os clientes.
+ * O JWT da conta e validado em rmcActor; a autorizacao e conferida no servidor.
+ * Manter a flag global desligada se somente usuarios especificos devem testar.
+ */
+export function customerCanSubmitRequest(actor: Awaited<ReturnType<typeof rmcActor>>): boolean {
+  if (!actor || actor.role !== 'customer' || !actor.customer ||
+      !customerIsActive(actor.customer) || actor.customer.must_change_password) return false;
+  if (process.env.AE_AI_CUSTOMER_REQUESTS_ENABLED === 'true') return true;
+  const pilotUserIds = (process.env.AE_AI_RMC_CUSTOMER_PILOT_USER_IDS ?? '')
+    .split(/[,;\s]+/).filter(Boolean);
+  return pilotUserIds.some(id => id.toLowerCase() === actor.userId.toLowerCase());
+}

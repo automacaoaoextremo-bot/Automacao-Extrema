@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { aeScope, allowed, isUuid, safeError } from '@/lib/atendimento-inteligente/security';
 import { normalizeBRPhone, PILOTO_CATEGORIES, RMC_CATEGORIES, stringField } from '@/lib/atendimento-inteligente/intake';
-import { rmcActor, customerIsActive } from '@/lib/atendimento-inteligente/customer-auth';
+import { rmcActor, customerCanSubmitRequest } from '@/lib/atendimento-inteligente/customer-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,8 +89,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({error:'Apenas a equipe autorizada registra solicitacoes assistidas.'},{status:403});
     } else if (orgSlug === 'reparos-rmc' && scope) {
       const actor = await rmcActor(request);
-      if (actor?.role !== 'customer' || !customerIsActive(actor.customer!) ||
-          actor.customer!.must_change_password || process.env.AE_AI_CUSTOMER_REQUESTS_ENABLED !== 'true') {
+      if (actor?.role !== 'customer' || !customerCanSubmitRequest(actor)) {
         return NextResponse.json({error:'Autoatendimento nao habilitado.'},{status:403});
       }
       effectiveCustomerId=actor.customer!.id;
