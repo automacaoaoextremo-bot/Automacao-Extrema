@@ -68,18 +68,18 @@ export function RmcDashboard() {
   }
 
   const firstName = name.trim().toLocaleLowerCase('pt-BR') === 'automação extrema' ? 'Automação Extrema' : (name.trim().split(/\s+/)[0] || (canManageN2 ? 'Anderson' : 'equipe'));
-  return <div className="mx-auto w-full max-w-5xl space-y-3 text-[#272423]">
+  return <div className="mx-auto w-full max-w-5xl space-y-2 text-[#272423] sm:space-y-3">
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {loading && <p role="status" className="rounded-xl bg-white p-4 text-sm">Carregando painel RMC...</p>}
     {organization && screen.section === 'home' && <>
-      <section className="rounded-3xl border-l-[6px] border-[#f28a20] bg-[#242122] p-5 text-white shadow-sm sm:p-7">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ffba70]">Reparos RMC · {canManageN2 ? 'N2' : 'N1'}</p>
-        <h1 className="mt-2 text-2xl font-black leading-snug sm:text-3xl">Olá, {firstName}!</h1>
-        <p className="mt-2 text-sm text-[#f6eee7]">{canManageN2
+      <section className="rounded-3xl border-l-[6px] border-[#f28a20] bg-[#242122] p-4 text-white shadow-sm sm:p-6">
+        {!canManageN2 && <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ffba70]">Reparos RMC · N1</p>}
+        <h1 className={`${canManageN2 ? 'mt-0' : 'mt-2'} text-2xl font-black leading-snug sm:text-3xl`}>Olá, {firstName}!</h1>
+        <p className="mt-1 text-sm text-[#f6eee7]">{canManageN2
           ? 'Acompanhe as solicitações, prepare orçamentos e organize a operação da Reparos RMC.'
           : 'Cadastre clientes, registre novos pedidos e acompanhe os atendimentos.'}</p>
       </section>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-label="Acessos RMC">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3" aria-label="Acessos RMC">
         {!canManageN2 && <>
           <Link href={`${base}/cadastro`} className="rounded-2xl border bg-white p-4 shadow-sm hover:border-[#f28a20]"><span className="block font-bold">Cadastrar cliente</span><span className="mt-1 block text-xs text-slate-600">Novo cadastro assistido</span><span className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-[#a14c04]">Toque para abrir</span></Link>
           <Link href={`${base}/solicitar`} className="rounded-2xl border bg-white p-4 shadow-sm hover:border-[#f28a20]"><span className="block font-bold">Registrar pedido</span><span className="mt-1 block text-xs text-slate-600">Solicitação em nome do cliente</span><span className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-[#a14c04]">Toque para abrir</span></Link>
@@ -87,11 +87,10 @@ export function RmcDashboard() {
         </>}
         {canManageN2 && n2Items.map((item) => <button type="button" key={item.section}
           onClick={() => open({ section: item.section })}
-          className="rounded-2xl border bg-white p-4 text-left shadow-sm hover:border-[#f28a20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e87912]">
+          className="rounded-2xl border bg-white p-3 text-left shadow-sm hover:border-[#f28a20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e87912] sm:p-4">
           <span className="block font-bold">{item.title}</span>
           <span className="mt-1 block text-xs text-slate-600">{item.subtitle}</span>
-          <span className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-[#a14c04]">Toque para abrir</span>
-        </button>)}
+          </button>)}
       </div>
     </>}
     {organization && screen.section !== 'home' && <>
