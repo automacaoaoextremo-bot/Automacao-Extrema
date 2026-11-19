@@ -11,6 +11,7 @@ function datePtBr(value: string) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
 
+/** Texto de prévia/auditoria. O WhatsApp real é definido no fluxo do BotConversa. */
 export function appointmentConfirmationMessage(input: {
   fullName: string;
   appointmentDate: string;
@@ -19,13 +20,12 @@ export function appointmentConfirmationMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Olá! O agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA foi realizado para ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
-    "Sua confirmação é importante porque ajuda a Recepção a organizar as vagas com antecedência e a preparar um acolhimento mais cuidadoso para cada pessoa.",
-    "IMPORTANTE: Mesmo com o agendamento, o atendimento é por ordem de chegada.",
-    input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
-    TUCXA_LOCATION_NOTICE,
-    TUCXA_RECEPTION_HELP,
-    TUCXA_INDIVIDUAL_NOTICE,
+    `🌿 TUCXA — Confirmação de agendamento`,
+    `Olá, ${firstTwoPersonNames(input.fullName)}!`,
+    `📅 ${datePtBr(input.appointmentDate)} · 🙏 ${input.entityName}`,
+    `🕒 Chegada: 18h30 às 19h20`,
+    input.confirmationUrl ? `✅ Confirme sua presença: ${input.confirmationUrl}` : "",
+    `📍 Endereço e orientações no link de confirmação.`,
   ].filter(Boolean).join("\n\n");
 }
 
@@ -38,14 +38,20 @@ export function appointmentReminderMessage(input: {
   confirmationUrl?: string;
 }) {
   return [
-    `Lembrete do agendamento de ${firstTwoPersonNames(input.fullName)} no TUCXA: ${datePtBr(input.appointmentDate)}, com ${input.entityName}.`,
+    `🌿 TUCXA — Lembrete de atendimento`,
+    `Olá, ${firstTwoPersonNames(input.fullName)}!`,
+    `📅 ${datePtBr(input.appointmentDate)} · 🙏 ${input.entityName}`,
+    `🕒 Chegada: 18h30 às 19h20`,
     input.confirmed
-      ? "Sua presença já está confirmada. Agradecemos por avisar com antecedência; isso ajuda a Recepção a organizar o atendimento de todos."
-      : "Sua presença ainda não foi confirmada. Confirmar agora ajuda a Recepção a organizar as vagas e evita que uma vaga fique reservada sem necessidade.",
-    !input.confirmed && input.confirmationUrl ? `Confirme sua presença aqui: ${input.confirmationUrl}` : "",
-    TUCXA_LOCATION_NOTICE,
-    TUCXA_RECEPTION_HELP,
-    TUCXA_INDIVIDUAL_NOTICE,
+      ? `✅ Sua presença já está confirmada.`
+      : input.confirmationUrl
+        ? `✅ Confirme sua presença: ${input.confirmationUrl}`
+        : `Sua confirmação está pendente. Fale com a Recepção.`,
+    input.confirmed
+      ? `📍 Endereço e orientações: consulte sua confirmação anterior.`
+      : input.confirmationUrl
+        ? `📍 Endereço e orientações no link acima.`
+        : `📍 Para endereço e orientações, fale com a Recepção.`,
   ].filter(Boolean).join("\n\n");
 }
 

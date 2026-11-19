@@ -24,14 +24,12 @@ import { sendTucxaAppointmentWhatsapp } from "@/lib/botconversa";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tucxa-appointment-audit-email";
 import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
+import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
 
 export const dynamic = "force-dynamic";
 
 function asText(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
-function confirmationUrl(token: string) {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/$/, "");
-  return `${base}/solucoes/organizacao-em-harmonia/tucxa/confirmar-agendamento/${encodeURIComponent(token)}`;
-}
+
 
 async function payload(request: Request) {
   const context = await currentPilotConsulente(request);
@@ -193,7 +191,7 @@ export async function POST(request: Request) {
         await closePreviousPilotFirstTimeIndicators(context.organizationId, context.personId, reservation.appointment_id);
       }
 
-      const link = confirmationUrl(token);
+      const link = buildTucxaConfirmationUrl(token);
       const dispatch = context.whatsapp ? await sendTucxaAppointmentWhatsapp({
         kind: "confirmation",
         fullName: firstTwoPersonNames(context.fullName),
