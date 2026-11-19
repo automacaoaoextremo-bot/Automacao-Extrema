@@ -5,6 +5,8 @@ type CustomerRow = {
   id: string; organization_id: string; auth_user_id: string; contact_id: string;
   full_name: string; portal_enabled: boolean; must_change_password: boolean;
   phone_verified_at: string | null;
+  /** Verificacao da identidade na conta Auth, sem simular verificacao do telefone. */
+  authIdentityVerified: boolean;
 };
 
 export async function rmcActor(request: Request) {
@@ -26,24 +28,20 @@ export async function rmcActor(request: Request) {
     .eq('organization_id', org.id).eq('auth_user_id', auth.user.id).maybeSingle();
   if (error) throw error;
   if (!customer) return null;
+  const authIdentityVerified = Boolean(auth.user.email_confirmed_at || auth.user.phone_confirmed_at);
   return { role: 'customer' as const, userId: auth.user.id, organizationId: org.id,
-    name: customer.full_name, customer: customer as CustomerRow };
+    name: customer.full_name,
+    customer: { ...customer, authIdentityVerified } as CustomerRow };
 }
 
+/** Portal habilitado para conta Auth com e-mail OU telefone validado. */
 export function customerIsActive(customer: CustomerRow) {
-  return customer.portal_enabled && Boolean(customer.phone_verified_at);
+  return customer.portal_enabled &&
+    (Boolean(customer.phone_verified_at) || customer.authIdentityVerified);
 }
 
-/**
- * Piloto de solicitacoes individuais RMC, sem liberar todos os clientes.
- * O JWT da conta e validado em rmcActor; a autorizacao e conferida no servidor.
- * Manter a flag global desligada se somente usuarios especificos devem testar.
- */
+/** Todo cliente identificado e habilitado pode solicitar; sem lista de pilotos. */
 export function customerCanSubmitRequest(actor: Awaited<ReturnType<typeof rmcActor>>): boolean {
-  if (!actor || actor.role !== 'customer' || !actor.customer ||
-      !customerIsActive(actor.customer) || actor.customer.must_change_password) return false;
-  if (process.env.AE_AI_CUSTOMER_REQUESTS_ENABLED === 'true') return true;
-  const pilotUserIds = (process.env.AE_AI_RMC_CUSTOMER_PILOT_USER_IDS ?? '')
-    .split(/[,;\s]+/).filter(Boolean);
-  return pilotUserIds.some(id => id.toLowerCase() === actor.userId.toLowerCase());
+  return Boolean(actor && actor.role === 'customer' && actor.customer &&
+    customerIsActive(actor.customer) && !actor.customer.must_change_password);
 }
