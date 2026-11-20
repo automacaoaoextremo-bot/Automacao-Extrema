@@ -411,6 +411,7 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
         ? `sementinha-${sementinhaEventType}`
         : "");
   const specialEventType = asText(body.specialEventType ?? body.special_event_type) || "";
+  const agendaImportantDate = asBool(body.agendaImportantDate ?? body.agenda_important_date, false);
   const specialPanelLabel = specialEventType === "retorno-ferias" ? "Atendimento Retorno Férias" : "";
   if (specialEventType === "retorno-ferias") {
     thursdayGroupScope = ["grupo-1", "grupo-2"];
@@ -476,6 +477,8 @@ async function upsertEvent(organizationId: string, personId: string, body: Recor
       event_subtype: sementinhaEventType || null,
       specialEventType: specialEventType || null,
       special_event_type: specialEventType || null,
+      agendaImportantDate,
+      agenda_important_date: agendaImportantDate,
       specialPanelLabel: specialPanelLabel || null,
       special_panel_label: specialPanelLabel || null,
       location_id: locationId || null,

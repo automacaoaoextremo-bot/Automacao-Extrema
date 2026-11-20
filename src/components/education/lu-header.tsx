@@ -9,7 +9,7 @@ export function LuHeader({ admin = false, login = false, teacherName }: Props) {
       <div className="lu-brandtop">
         <div className="lu-brandidentity">
           <span className="lu-brandicon" aria-hidden="true">📖</span>
-          <div><strong>Nosso Livro Musical</strong><span>Projeto da Lu • 2026</span></div>
+          <div><strong>Nosso Livro Musical</strong><span className="lu-project-credits" title="Projeto das professoras Lu e Fafa e da Tia Manu — 2026">Lu • Fafa • Tia Manu • 2026</span></div>
         </div>
         {admin ? (
           <div className="lu-account-actions">

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useMemo } from "react";
 
-export type AnnualCalendarMode = "tucxa" | "events" | "sementinha" | "mine" | "all";
+export type AnnualCalendarMode = "tucxa" | "others" | "events" | "sementinha" | "mine" | "all";
 
 export type AnnualCalendarEvent = {
   id: string;
@@ -20,6 +20,10 @@ export type AnnualCalendarEvent = {
   timeLabel: string;
   location?: string;
   description?: string;
+  /** Nome exibido no cadastro da Agenda Viva para a pessoa responsavel. */
+  responsiblePersonName?: string;
+  /** Cadastro explicito de Datas Importantes; ausente nos eventos antigos. */
+  agendaImportantDate?: boolean;
   associatedToCurrentPerson: boolean;
 };
 
@@ -39,28 +43,219 @@ type CalendarTone = {
 const compactWeekDays = ["D", "S", "T", "Q", "Q", "S", "S"];
 const assetRoot = "/organizacao-em-harmonia/tucxa/agenda-viva";
 
-const umbandaLegendRows = [
-  [
-    { label: "ATENDIMENTOS FILHOS DE FORA", kind: "section", color: "#FFF9E8" },
-    { label: "GRUPO DE SEGUNDA-FEIRA", kind: "tone", color: "#F3B2AE" },
-    { label: "GRUPO DE TERÇA-FEIRA", kind: "tone", color: "#A8D0E8" },
-  ],
-  [
-    { label: "ATENDIMENTOS FILHOS DA CORRENTE", kind: "section", color: "#FFF9E8" },
-    { label: "GRUPO 1", kind: "tone", color: "#5E9E6D" },
-    { label: "GRUPO 2", kind: "tone", color: "#4299C6" },
-  ],
-  [
-    { label: "TRATAMENTO ESPIRITUAL", kind: "tone", color: "#C9E6C8" },
-    { label: "24/01 - MUTIRÃO DA LIMPEZA", kind: "note", color: "#FAEDC4" },
-  ],
+const activityLegend = [
+  { label: "Atendimento · Segunda", color: "#E3A2A6", text: "#54222E" },
+  { label: "Atendimento · Terça", color: "#ABD0EC", text: "#12384B" },
+  { label: "Tratamento espiritual", color: "#C6E3BE", text: "#274B2C" },
+  { label: "Filhos da Corrente · Grupo 1", color: "#649C70", text: "#FFFFFF" },
+  { label: "Filhos da Corrente · Grupo 2", color: "#348EC0", text: "#FFFFFF" },
+  { label: "Social / Comunidade", color: "#E7D9F1", text: "#43245C" },
+  { label: "Eventos e confraternizações", color: "#EDC68F", text: "#58351C" },
+  { label: "Cursos e estudos", color: "#71C7BA", text: "#103D36" },
+  { label: "Reuniões e mutirões", color: "#BCCBD9", text: "#263547" },
+  { label: "Férias / recesso", color: "#F7E2A8", text: "#594410" },
 ] as const;
 
-const umbandaLegendNotes = [
-  { label: "29/01 E 30/07 - TRABALHO PARA TODOS OS CAVALINHOS E CAMBONOS", color: "#FAEDC4" },
-  { label: "20/12 - ENCERRAMENTO", color: "#FAEDC4" },
-  { label: "PERÍODOS DE FÉRIAS: JANEIRO ATÉ 28 • JULHO ATÉ 29 • A PARTIR DE 21 DE DEZEMBRO", color: "#D9E8D6" },
+/** Paleta semântica única para Outras Agendas: calendário, legenda, popup e PDF. */
+const featuredOtherActivities = [
+  { key: "pizza", label: "Pizza", background: "#F6A96D", border: "#D38347", text: "#49250F" },
+  { key: "bingo", label: "Bingo", background: "#91C8F2", border: "#5A9BC8", text: "#153D5A" },
+  { key: "bazar", label: "Bazar", background: "#BF91D8", border: "#9666B1", text: "#321A47" },
+  { key: "feijoada", label: "Feijoada de Ogum", background: "#9DD5A3", border: "#66A972", text: "#173F24" },
+  { key: "arraia", label: "Arraiá Tucxa", background: "#F5DA78", border: "#CEAC3F", text: "#51410B" },
+  { key: "confraternizacao", label: "Confraternização", background: "#F6A9BD", border: "#D97F99", text: "#59243A" },
 ] as const;
+
+/**
+ * Datas importantes provem do cadastro (metadata.agendaImportantDate).
+ * Cadastros anteriores sem o campo mantem a classificacao legada pelo titulo.
+ * Eventos explicitamente desmarcados nao aparecem, mesmo que o titulo coincida.
+ */
+function isImportantAgendaEvent(event: AnnualCalendarEvent) {
+  if (typeof event.agendaImportantDate === "boolean") return event.agendaImportantDate;
+  const title = normalize(event.title);
+  return ["ferias", "recesso", "mutirao", "limpeza", "cavalinho", "cambono", "encerramento"]
+    .some((keyword) => title.includes(keyword));
+}
+
+/** Compara intervalos na data civil de Campinas, sem horario nem conversao UTC adicional. */
+function intersectsCalendarPeriod(start: string, end: string, year: number, month?: number) {
+  if (!start) return false;
+  const first = month === undefined ? `${year}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const last = month === undefined
+    ? `${year}-12-31`
+    : new Date(Date.UTC(year, month + 1, 0, 12)).toISOString().slice(0, 10);
+  return start <= last && (end || start) >= first;
+}
+
+function specialAgendaNotes(events: AnnualCalendarEvent[], year: number, month?: number) {
+  const seen = new Set<string>();
+  const notes: { date: string; label: string; color: string; textColor: string }[] = [];
+  for (const event of events) {
+    if (isInactive(event) || !isImportantAgendaEvent(event)) continue;
+    const date = eventDateOnly(event.startsAt);
+    const rawEnd = eventDateOnly(event.endsAt);
+    const end = rawEnd >= date ? rawEnd : date;
+    if (!intersectsCalendarPeriod(date, end, year, month)) continue;
+    const title = event.title.trim();
+    if (!title) continue;
+    const key = `${event.id}:${date}:${end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Usa a mesma regra de cores do calendario para nao divergir da legenda.
+    const tone = umbandaTone(event);
+    const startLabel = `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+    const endLabel = end > date ? ` a ${end.slice(8, 10)}/${end.slice(5, 7)}` : "";
+    notes.push({
+      date,
+      label: `${startLabel}${endLabel} · ${title}`,
+      color: tone.background,
+      textColor: tone.text,
+    });
+  }
+  return notes.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label, "pt-BR"));
+}
+
+/** Conteudo exclusivo do popup: lista do ano ou somente do mes selecionado. */
+export function AgendaImportantDates({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
+  const notes = useMemo(() => specialAgendaNotes(events, year, month), [events, year, month]);
+  const period = month === undefined ? `em ${year}` : `em ${MONTHS_PT[month]} de ${year}`;
+  if (!notes.length) return <p className="text-sm text-[#526954]">Não há datas importantes aprovadas {period}.</p>;
+  return (
+    <div className="grid gap-2" aria-label={`Datas importantes ${period}`}>
+      {notes.map((item) => (
+        <div key={`${item.date}:${item.label}`} className="rounded-xl px-3 py-3 text-center text-sm font-semibold"
+          style={{ backgroundColor: item.color, color: item.textColor }}>{item.label}</div>
+      ))}
+    </div>
+  );
+}
+
+type ResponsibleEntry = {
+  event: AnnualCalendarEvent;
+  date: string;
+  endDate: string;
+};
+
+/**
+ * Cada ocorrencia aprovada tem sua propria data. Nao agrupar apenas pelo titulo:
+ * varios bazares, pizzas ou encontros no mesmo ano precisam aparecer na lista.
+ */
+function responsibleEntries(events: AnnualCalendarEvent[], year: number, month?: number): ResponsibleEntry[] {
+  const unique = new Map<string, ResponsibleEntry>();
+  for (const event of events) {
+    const start = eventDateOnly(event.startsAt);
+    const rawEnd = eventDateOnly(event.endsAt);
+    const end = rawEnd >= start ? rawEnd : start;
+    if (isInactive(event) || !intersectsCalendarPeriod(start, end, year, month)) continue;
+    if (!event.title.trim()) continue;
+
+    const key = `${event.id}::${start}::${end}`;
+    if (!unique.has(key)) unique.set(key, { event, date: start, endDate: end });
+  }
+  return [...unique.values()].sort((left, right) =>
+    left.date.localeCompare(right.date) ||
+    left.event.title.localeCompare(right.event.title, "pt-BR") ||
+    (left.event.responsiblePersonName ?? "").localeCompare(right.event.responsiblePersonName ?? "", "pt-BR"),
+  );
+}
+
+/** O cadastro e a identidade da pessoa permanecem intactos. */
+function shortResponsibleName(name?: string) {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "Não informado";
+  // Evita exibir somente uma preposição como segundo nome (ex.: Maria de Lourdes).
+  const meaningful = words.filter((word, index) => index === 0 || !/^(de|da|do|das|dos|e)$/i.test(word));
+  return meaningful.slice(0, 2).join(" ");
+}
+
+function formatCalendarDate(date: string) {
+  return `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
+}
+
+/** Exibe cada ocorrencia por data crescente e responsavel abreviado apenas na interface. */
+export function AgendaResponsibleList({ events, year, month }: { events: AnnualCalendarEvent[]; year: number; month?: number }) {
+  const entries = useMemo(() => responsibleEntries(events, year, month), [events, year, month]);
+  const period = month === undefined ? `${year}` : `${MONTHS_PT[month]} de ${year}`;
+  if (!entries.length) return <p className="text-sm text-[#526954]">Não há outras atividades aprovadas para o período selecionado.</p>;
+  return (
+    <section className="grid gap-1.5 sm:grid-cols-2" data-agenda-responsibles aria-label={`Atividades e responsáveis em ${period}`}>
+      {entries.map(({ event, date, endDate }) => {
+        const tone = otherAgendaTone(event);
+        const dateLabel = endDate > date
+          ? `${formatCalendarDate(date)} a ${formatCalendarDate(endDate)}`
+          : formatCalendarDate(date);
+        return (
+          <article key={`${event.id}::${date}::${endDate}`}
+            className="min-w-0 rounded-lg border px-2.5 py-2 text-xs leading-snug sm:text-sm"
+            style={{ borderColor: tone.border, backgroundColor: tone.background, color: tone.text }}>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5">
+              <p className="min-w-0 break-words leading-snug">
+                <strong className="font-black">{event.title}</strong>
+                <span className="font-semibold"> · {shortResponsibleName(event.responsiblePersonName)}</span>
+              </p>
+              <time dateTime={date} className="shrink-0 whitespace-nowrap text-[0.65rem] font-black tabular-nums sm:text-xs">{dateLabel}</time>
+            </div>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function ActivityLegend({ mode, events, year, month, onOpenDetails }: { mode: "tucxa" | "others"; events: AnnualCalendarEvent[]; year: number; month?: number; onOpenDetails?: () => void }) {
+  // As seis atividades têm legenda fixa; categorias adicionais só entram se houver
+  // evento correspondente, para não estourar a paginação do PDF no celular/A4.
+  const visibleCategories = mode === "tucxa"
+    ? [...activityLegend.slice(0, 5), activityLegend[8]]
+    : [
+        ...featuredOtherActivities.map((item) => ({ label: item.label, color: item.background, text: item.text })),
+        ...activityLegend.slice(5, 9).filter((item) =>
+          events.some((event) => !featuredOtherActivity(event) && otherAgendaTone(event).background === item.color),
+        ),
+      ];
+  const label = mode === "tucxa" ? "Datas Importantes" : "Responsáveis";
+  return (
+    <section className="mt-3 rounded-xl border border-[#DCE8DF] bg-white p-3" aria-label="Legenda de atividades">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="min-w-0 text-sm font-black text-[#123D2C]">Legenda de atividades</h3>
+        {onOpenDetails && (
+          <button type="button" onClick={onOpenDetails}
+            className="shrink-0 rounded-xl border-2 border-[#387F52] bg-[#D7EED8] px-3 py-2 text-center font-black leading-tight text-[#123D2C] shadow-sm ring-2 ring-[#DDEBDD] transition hover:bg-[#BFDFC5] focus-visible:outline-2 focus-visible:outline-[#123D2C]"
+            aria-label={`Abrir ${label}`}>
+            <span className="block text-xs sm:text-sm">{label}</span>
+            <span className="mt-0.5 block text-[0.5rem] font-bold tracking-wider">TOQUE PARA ABRIR</span>
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {visibleCategories.map((item) => (
+          <span key={item.label} className="flex min-h-8 items-center justify-center rounded-full px-2 py-1 text-center text-[clamp(0.58rem,2.3vw,0.82rem)] font-bold leading-tight"
+            style={{ backgroundColor: item.color, color: item.text }}>
+            {item.label}
+          </span>
+        ))}
+      </div>
+      {/* Preserva a legenda histórica de rotas que ainda não usam as janelas da Evolução 06. */}
+      {!onOpenDetails && mode === "tucxa" && <div className="mt-3"><h4 className="mb-1 text-xs font-bold text-[#123D2C]">Datas Importantes</h4><AgendaImportantDates events={events} year={year} month={month} /></div>}
+    </section>
+  );
+}
+
+/** Visões suportadas exclusivamente pelos calendários Umbanda e Outras Agendas. */
+export type AgendaCalendarDisplay = "annual" | "monthly";
+
+function CalendarDisplayToolbar({ year, onChangeDisplay }: {
+  year: number;
+  onChangeDisplay?: (next: AgendaCalendarDisplay) => void;
+}) {
+  // Na pagina publica, a navegacao ja aparece em duas linhas acima do calendario.
+  // Sem callback (impressao e rotas antigas), o titulo permanece no PDF.
+  if (onChangeDisplay) return null;
+  return <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>;
+}
+
+const MONTHS_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 const sementinhaLegend = [
   { key: "bazar", label: "Bazar", color: "#C97ADC" },
@@ -77,6 +272,10 @@ function normalize(value: string) {
 
 function eventDateOnly(value: string | null) {
   if (!value) return "";
+  // Datas civis sem fuso (YYYY-MM-DD ou YYYY-MM-DDTHH:mm) ja sao
+  // datas locais do cadastro e nao podem recuar um dia ao converter para SP.
+  const civilDate = /^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/.exec(value);
+  if (civilDate) return civilDate[1];
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -101,11 +300,23 @@ function buildMonthDays(events: AnnualCalendarEvent[], year: number, month: numb
   const grouped = new Map<string, AnnualCalendarEvent[]>();
 
   events.forEach((event) => {
-    const key = eventDateOnly(event.startsAt);
-    if (!key) return;
-    const current = grouped.get(key) ?? [];
-    current.push(event);
-    grouped.set(key, current);
+    const start = eventDateOnly(event.startsAt);
+    if (!start) return;
+    const end = eventDateOnly(event.endsAt);
+    const vacation = /ferias|recesso/.test(normalize(`${event.title} ${event.eventTypeLabel}`));
+    // Somente ferias/recessos prolongados preenchem todos os dias do intervalo.
+    // Eventos comuns e recorrencias ja chegam como ocorrencias da API.
+    const current = new Date(`${start}T12:00:00Z`);
+    let count = 0;
+    while (count < 370) {
+      const key = current.toISOString().slice(0, 10);
+      const existing = grouped.get(key) ?? [];
+      existing.push(event);
+      grouped.set(key, existing);
+      if (!vacation || !end || key >= end) break;
+      current.setUTCDate(current.getUTCDate() + 1);
+      count += 1;
+    }
   });
 
   return Array.from({ length: 42 }, (_, index) => {
@@ -137,13 +348,21 @@ function isInactive(event: AnnualCalendarEvent) {
 
 function umbandaTone(event: AnnualCalendarEvent): CalendarTone {
   const text = normalize(`${event.title} ${event.eventType} ${event.eventTypeLabel} ${event.calendarColorKey ?? ""}`);
-  if (text.includes("segunda")) return { background: "#F3B2AE", border: "#D27670", text: "#10251C" };
-  if (text.includes("terca")) return { background: "#A8D0E8", border: "#5D9FC6", text: "#10251C" };
-  if (text.includes("tratamento") || text.includes("quarta")) return { background: "#C9E6C8", border: "#78AF78", text: "#10251C" };
-  if (text.includes("grupo 1") || text.includes("grupo-1")) return { background: "#5E9E6D", border: "#377146", text: "#FFFFFF" };
-  if (text.includes("grupo 2") || text.includes("grupo-2")) return { background: "#4299C6", border: "#226D98", text: "#FFFFFF" };
-  if (text.includes("ferias") || text.includes("recesso")) return { background: "#D9E8D6", border: "#91B58B", text: "#10251C" };
-  return { background: "#FAEDC4", border: "#D8B956", text: "#10251C" };
+  // Inicio e retorno dos trabalhos de Cavalinhos/Cambonos usam a MESMA cor,
+  // mesmo quando o titulo do retorno menciona "ferias".
+  if (text.includes("cavalinh") && text.includes("cambon")) {
+    return { background: "#E7B16F", border: "#C89555", text: "#573718" };
+  }
+  // Ferias e mutiroes tem cores proprias; palavras do tipo de atividade
+  // nao devem substituir a categoria especial.
+  if (text.includes("ferias") || text.includes("recesso")) return { background: "#F7E2A8", border: "#D9B85F", text: "#594410" };
+  if (text.includes("mutirao") || text.includes("limpeza")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
+  if (text.includes("grupo 1") || text.includes("grupo-1")) return { background: "#649C70", border: "#377146", text: "#FFFFFF" };
+  if (text.includes("grupo 2") || text.includes("grupo-2")) return { background: "#348EC0", border: "#226D98", text: "#FFFFFF" };
+  if (text.includes("segunda")) return { background: "#E3A2A6", border: "#D27670", text: "#54222E" };
+  if (text.includes("terca")) return { background: "#ABD0EC", border: "#5D9FC6", text: "#12384B" };
+  if (text.includes("tratamento") || text.includes("quarta")) return { background: "#C6E3BE", border: "#78AF78", text: "#274B2C" };
+  return { background: "#E7B16F", border: "#D8B956", text: "#573718" };
 }
 
 function socialTone(event: AnnualCalendarEvent): CalendarTone {
@@ -168,6 +387,42 @@ function sementinhaTone(event: AnnualCalendarEvent): CalendarTone {
   return { background: color, border: color, text: "#243129" };
 }
 
+/** Detecta as seis atividades antes da classificação genérica Social / Comunidade. */
+function featuredOtherActivity(event: AnnualCalendarEvent) {
+  // O nome cadastrado tem prioridade sobre o rótulo do tipo, que pode ser genérico.
+  const name = normalize(event.title.trim());
+  const category = normalize(`${event.eventType} ${event.eventTypeLabel}`);
+  const matches = (text: string) => {
+    if (/\bfeijoada\b/.test(text) && /\bogum\b/.test(text)) return "feijoada";
+    if (/\barraia(?:l)?\b/.test(text)) return "arraia";
+    if (/\bconfraternizac[a-z]*\b/.test(text)) return "confraternizacao";
+    if (/\bpizza\b/.test(text)) return "pizza";
+    if (/\bbingo\b/.test(text)) return "bingo";
+    if (/\bbazar\b/.test(text)) return "bazar";
+    return null;
+  };
+  const key = matches(name) ?? matches(category);
+  return featuredOtherActivities.find((item) => item.key === key);
+}
+
+function otherAgendaTone(event: AnnualCalendarEvent): CalendarTone {
+  const featured = featuredOtherActivity(event);
+  if (featured) return { background: featured.background, border: featured.border, text: featured.text };
+
+  const classification = normalize(event.classification);
+  const title = normalize(`${event.title} ${event.eventTypeLabel}`);
+  if (classification.includes("social") || classification.includes("comunidade") ||
+      classification.includes("sementinha") || normalize(event.eventCollection ?? "").includes("sementinha")) {
+    return { background: "#E7D9F1", border: "#B79ACA", text: "#43245C" };
+  }
+  if (classification.includes("curso") || title.includes("curso") || title.includes("estudo") || title.includes("palestra") || title.includes("clube do livro")) {
+    return { background: "#71C7BA", border: "#3D9E8F", text: "#103D36" };
+  }
+  if (classification.includes("reuniao") || title.includes("reuniao") || title.includes("mutirao")) return { background: "#BCCBD9", border: "#7A9BAE", text: "#263547" };
+  if (title.includes("ferias") || title.includes("recesso")) return { background: "#F7E2A8", border: "#D9B85F", text: "#594410" };
+  return { background: "#EDC68F", border: "#C89555", text: "#58351C" };
+}
+
 function mineTone(event: AnnualCalendarEvent): CalendarTone {
   if (event.id.startsWith("appointment:") || normalize(event.eventSubtype ?? "") === "appointment") {
     return { background: "#F8D789", border: "#D6A531", text: "#3B2F11" };
@@ -179,8 +434,22 @@ function mineTone(event: AnnualCalendarEvent): CalendarTone {
   return { background: "#DCE7F4", border: "#7896B6", text: "#19334D" };
 }
 
+function prioritizedDayEvents(events: AnnualCalendarEvent[]): AnnualCalendarEvent[] {
+  const vacation = (event: AnnualCalendarEvent) => /ferias|recesso/.test(normalize(event.title));
+  const score = (event: AnnualCalendarEvent) =>
+    isImportantAgendaEvent(event) && !vacation(event) ? 0 :
+      isImportantAgendaEvent(event) ? 1 : 2;
+  return [...events].sort((a, b) => score(a) - score(b));
+}
+
 function dayBackground(events: AnnualCalendarEvent[], toneFor: (event: AnnualCalendarEvent) => CalendarTone) {
-  const tones = events.slice(0, 3).map(toneFor);
+  const sorted = prioritizedDayEvents(events);
+  // Uma Data Importante pontual deve ficar visivel mesmo sobre um periodo
+  // de ferias. Evita degradar sua cor em gradientes nao imprimiveis.
+  if (sorted[0] && isImportantAgendaEvent(sorted[0]) && !/ferias|recesso/.test(normalize(sorted[0].title))) {
+    return toneFor(sorted[0]).background;
+  }
+  const tones = sorted.slice(0, 3).map(toneFor);
   if (tones.length === 0) return undefined;
   if (tones.length === 1) return tones[0].background;
   const step = 100 / tones.length;
@@ -197,6 +466,7 @@ function MiniMonth({
   minDate,
   allowEmptyDaySelection = false,
   onlyEventDays = false,
+  expanded = false,
 }: {
   events: AnnualCalendarEvent[];
   year: number;
@@ -207,17 +477,18 @@ function MiniMonth({
   minDate?: string;
   allowEmptyDaySelection?: boolean;
   onlyEventDays?: boolean;
+  expanded?: boolean;
 }) {
   const days = useMemo(() => buildMonthDays(events, year, month), [events, month, year]);
   const isEvents = variant === "events";
   const isSementinha = variant === "sementinha";
 
   const monthTitleStyle = {
-    fontSize: isEvents ? "clamp(0.5rem, 1.8vw, 0.9rem)" : "clamp(0.4rem, 1.35vw, 0.62rem)",
+    fontSize: expanded ? "1.05rem" : isEvents ? "clamp(0.5rem, 1.8vw, 0.9rem)" : "clamp(0.4rem, 1.35vw, 0.62rem)",
     lineHeight: 1,
   } as const;
   const weekDayStyle = {
-    fontSize: "clamp(0.28rem, 0.95vw, 0.44rem)",
+    fontSize: expanded ? "0.8rem" : "clamp(0.28rem, 0.95vw, 0.44rem)",
     lineHeight: 1,
   } as const;
   const dayStyle = {
@@ -225,7 +496,7 @@ function MiniMonth({
     minWidth: 0,
     aspectRatio: "1 / 1",
     padding: 0,
-    fontSize: "clamp(0.27rem, 1.05vw, 0.46rem)",
+    fontSize: expanded ? "0.95rem" : "clamp(0.27rem, 1.05vw, 0.46rem)",
     lineHeight: 1,
   } as const;
 
@@ -262,7 +533,8 @@ function MiniMonth({
           if (day.outsideMonth || (minDate && day.isoDate < minDate) || (onlyEventDays && day.events.length === 0)) {
             return <span key={`${day.isoDate}-${index}`} className="block min-w-0" style={dayStyle} />;
           }
-          const firstTone = day.events[0] ? toneFor(day.events[0]) : null;
+          const firstEvent = prioritizedDayEvents(day.events)[0];
+          const firstTone = firstEvent ? toneFor(firstEvent) : null;
           const background = dayBackground(day.events, toneFor);
           const clickable = Boolean(onSelectDay) && (day.events.length > 0 || allowEmptyDaySelection);
           return (
@@ -314,7 +586,7 @@ function AnnualGrid({
 }) {
   const months = visibleMonths ?? Array.from({ length: 12 }, (_, month) => month);
   return (
-    <div className={`grid min-w-0 ${variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1 sm:gap-3`}>
+    <div data-agenda-months-grid className={`grid min-w-0 ${months.length === 1 ? "mx-auto max-w-xl grid-cols-1" : variant === "umbanda" ? "grid-cols-4" : "grid-cols-3"} gap-1 sm:gap-3`}>
       {months.map((month) => (
         <MiniMonth
           key={month}
@@ -327,44 +599,46 @@ function AnnualGrid({
           minDate={minDate}
           allowEmptyDaySelection={allowEmptyDaySelection}
           onlyEventDays={onlyEventDays}
+          expanded={months.length === 1}
         />
       ))}
     </div>
   );
 }
 
-function TucxaCalendar({ events, year, onSelectDay }: { events: AnnualCalendarEvent[]; year: number; onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void }) {
-  return (
-    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf>
-      <h2 className="pb-2 text-center text-base font-black uppercase tracking-[0.18em] text-[#4DA1D5] sm:text-2xl">TUCXA - {year}</h2>
-      <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay} />
+type FocusedCalendarProps = {
+  events: AnnualCalendarEvent[];
+  year: number;
+  onSelectDay?: (isoDate: string, events: AnnualCalendarEvent[]) => void;
+  display?: AgendaCalendarDisplay;
+  month?: number;
+  onChangeDisplay?: (next: AgendaCalendarDisplay) => void;
+  onChangeMonth?: (next: number) => void;
+  onShowDetails?: () => void;
+};
 
-      <div className="mt-2 grid gap-1 text-center font-black uppercase leading-[1.05] text-[#10251C] sm:mt-3">
-        {umbandaLegendRows.map((row, rowIndex) => (
-          <div key={rowIndex} className={`grid min-w-0 gap-1 ${row.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
-            {row.map((item) => (
-              <div
-                key={item.label}
-                className={`flex min-h-8 min-w-0 items-center justify-center px-1 py-1 text-[clamp(0.28rem,1.15vw,0.5rem)] sm:min-h-10 sm:px-2 ${item.kind === "section" ? "border border-dashed border-[#10251C]" : ""}`}
-                style={{ backgroundColor: item.color }}
-              >
-                <span className="min-w-0 whitespace-nowrap">{item.label}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-        <div className="grid min-w-0 grid-cols-3 gap-1">
-          <div className="col-span-2 flex min-h-9 items-center justify-center px-2 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[0].color }}>
-            {umbandaLegendNotes[0].label}
-          </div>
-          <div className="flex min-h-9 items-center justify-center px-2 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[1].color }}>
-            {umbandaLegendNotes[1].label}
-          </div>
-        </div>
-        <div className="flex min-h-9 items-center justify-center px-3 py-1 text-[0.34rem] sm:min-h-11 sm:text-[0.5rem]" style={{ backgroundColor: umbandaLegendNotes[2].color }}>
-          {umbandaLegendNotes[2].label}
-        </div>
-      </div>
+function TucxaCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
+  return (
+    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf data-agenda-calendar="tucxa">
+      <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
+      {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
+      <AnnualGrid events={events} year={year} toneFor={umbandaTone} variant="umbanda" onSelectDay={onSelectDay}
+        visibleMonths={display === "monthly" ? [month] : undefined} />
+      <ActivityLegend mode="tucxa" events={events} year={year} month={display === "monthly" ? month : undefined} onOpenDetails={onShowDetails} />
+    </section>
+  );
+}
+
+function OthersCalendar({ events, year, onSelectDay, display = "annual", month = 0, onChangeDisplay, onShowDetails }: FocusedCalendarProps) {
+  return (
+    <section className="overflow-hidden rounded-3xl bg-[#FAFCF7] p-2 ring-1 ring-[#123D2C]/10" data-agenda-pdf data-agenda-calendar="others">
+      <CalendarDisplayToolbar year={year} onChangeDisplay={onChangeDisplay} />
+      {display === "monthly" && <p className="mb-2 text-center text-sm font-black text-[#123D2C]">{MONTHS_PT[month]} de {year}</p>}
+      <AnnualGrid events={events} year={year} toneFor={otherAgendaTone} variant="umbanda" onSelectDay={onSelectDay}
+        visibleMonths={display === "monthly" ? [month] : undefined} />
+      <ActivityLegend mode="others" events={events} year={year} onOpenDetails={onShowDetails} />
+      {!onShowDetails && <div className="mt-3"><AgendaResponsibleList events={events} year={year} /></div>}
+      {events.length === 0 && <p className="mt-3 text-center text-xs font-semibold text-[#526954]">Nenhuma outra atividade aprovada para {year}.</p>}
     </section>
   );
 }
@@ -499,6 +773,11 @@ export function AnnualCalendarView({
   subtitle,
   emptyMessage,
   onlyEventDays = false,
+  display = "annual",
+  month = 0,
+  onChangeDisplay,
+  onChangeMonth,
+  onShowDetails,
 }: {
   mode: AnnualCalendarMode;
   events: AnnualCalendarEvent[];
@@ -511,7 +790,13 @@ export function AnnualCalendarView({
   subtitle?: string;
   emptyMessage?: string;
   onlyEventDays?: boolean;
+  display?: AgendaCalendarDisplay;
+  month?: number;
+  onChangeDisplay?: (next: AgendaCalendarDisplay) => void;
+  onChangeMonth?: (next: number) => void;
+  onShowDetails?: () => void;
 }) {
+  if (mode === "others") return <OthersCalendar events={events} year={year} onSelectDay={onSelectDay} display={display} month={month} onChangeDisplay={onChangeDisplay} onChangeMonth={onChangeMonth} onShowDetails={onShowDetails} />;
   if (mode === "events") return <EventsCalendar events={events} year={year} onSelectDay={onSelectDay} />;
   if (mode === "sementinha") return <SementinhaCalendar events={events} year={year} onSelectDay={onSelectDay} />;
   if (mode === "mine") return <MineCalendar events={events} year={year} onSelectDay={onSelectDay} />;
@@ -531,5 +816,5 @@ export function AnnualCalendarView({
       />
     );
   }
-  return <TucxaCalendar events={events} year={year} onSelectDay={onSelectDay} />;
+  return <TucxaCalendar events={events} year={year} onSelectDay={onSelectDay} display={display} month={month} onChangeDisplay={onChangeDisplay} onChangeMonth={onChangeMonth} onShowDetails={onShowDetails} />;
 }

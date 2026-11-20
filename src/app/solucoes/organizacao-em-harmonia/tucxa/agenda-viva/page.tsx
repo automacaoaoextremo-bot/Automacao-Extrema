@@ -1,10 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type TouchEvent } from "react";
+import { createPortal } from "react-dom";
 import { TucxaPublicHeader } from "@/components/organizacao-em-harmonia/tucxa-public-header";
 import { instantToSaoPauloDateIso, saoPauloDateIso } from "@/lib/organizacao-em-harmonia/sao-paulo-date";
 import {
   AnnualCalendarView,
+  AgendaImportantDates,
+  AgendaResponsibleList,
+  type AgendaCalendarDisplay,
   type AnnualCalendarEvent,
   type AnnualCalendarMode,
 } from "@/components/organizacao-em-harmonia/annual-calendar-modal";
@@ -31,6 +35,7 @@ type AgendaEvent = {
   recurrenceLabel: string;
   notes: string;
   continuesDuringVacation?: boolean;
+  agendaImportantDate?: boolean;
 };
 
 type FilterOption = {
@@ -96,6 +101,8 @@ type EventTone = {
 };
 
 const todayIso = saoPauloDateIso();
+// A Agenda Viva publica apresenta somente calendarios a partir de 2027.
+const MIN_PUBLIC_CALENDAR_YEAR = 2027;
 const saoPauloTimeZone = "America/Sao_Paulo";
 const weekDayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const compactWeekDayLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -111,10 +118,8 @@ const calendarViews: { value: CalendarView; label: string; description: string }
 const PUBLIC_PREFERENCES_KEY = "oh:tucxa:agenda-viva:public-preferences";
 
 const calendarModeOptions: Array<{ value: CalendarMode; label: string; description: string }> = [
-  { value: "tucxa", label: "Tucxa", description: "Calendário anual dos eventos de Umbanda" },
-  { value: "events", label: "Eventos", description: "Calendário anual dos eventos sociais do TUCXA" },
-  { value: "sementinha", label: "Sementinha", description: "Calendário anual das ações do Sementinha" },
-  { value: "interactive", label: "Interativo", description: "Agenda, dia, 3 dias, semana, mês e ano" },
+  { value: "tucxa", label: "Tucxa Umbanda", description: "Atendimentos, trabalhos e atividades de Umbanda" },
+  { value: "others", label: "Tucxa Outras Agendas", description: "Eventos, Sementinha e demais atividades do TUCXA" },
 ];
 
 function isCalendarMode(value: unknown): value is CalendarMode {
@@ -728,7 +733,7 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
     <div className="fixed inset-0 z-50 bg-[#10251C]/70 px-3 py-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] bg-[#F7FAF2] shadow-2xl ring-1 ring-white/30">
         <div className="flex items-center justify-between gap-3 border-b border-[#123D2C]/10 bg-white px-4 py-3">
-          <h2 className="min-w-0 truncate text-sm font-black uppercase tracking-[0.12em] text-[#123D2C] sm:text-xl">{title}</h2>
+          <h2 className="min-w-0 flex-1 break-words text-[0.74rem] font-black uppercase leading-tight tracking-[0.02em] text-[#123D2C] sm:text-xl sm:tracking-[0.12em]">{title}</h2>
           <button type="button" onClick={onClose} className="shrink-0 rounded-2xl bg-[#123D2C] px-4 py-2 text-sm font-black text-white">Fechar</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">{children}</div>
@@ -801,9 +806,17 @@ export default function AgendaVivaPublicaPage() {
   const [endDate, setEndDate] = useState("");
   const [view, setView] = useState<CalendarView>("month");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("tucxa");
-  const [periodStart, setPeriodStart] = useState(() => dateFromIso(todayIso));
+  const [periodStart, setPeriodStart] = useState(() => {
+    const today = dateFromIso(todayIso);
+    return today.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR
+      ? new Date(Date.UTC(MIN_PUBLIC_CALENDAR_YEAR, 0, 1, 12))
+      : today;
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [annualDisplay, setAnnualDisplay] = useState<AgendaCalendarDisplay>("annual");
+  const [annualMonth, setAnnualMonth] = useState(0);
+  const [annualDetailPopup, setAnnualDetailPopup] = useState<null | "important" | "responsible">(null);
   const [annualGuideOpen, setAnnualGuideOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -906,6 +919,9 @@ export default function AgendaVivaPublicaPage() {
 
     if (calendarMode === "tucxa") {
       return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
+    if (calendarMode === "others") {
+      return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && !hasClassification(event, "umbanda"));
     }
     if (calendarMode === "events") {
       return fixedAnnualEvents.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
@@ -1068,12 +1084,15 @@ export default function AgendaVivaPublicaPage() {
   function annualEventsForMode(nextMode: CalendarMode) {
     const fixedAnnualEvents = uniqueSortedEvents(payload?.annualCalendarEvents ?? payload?.events ?? []);
     const interactiveEvents = uniqueSortedEvents(payload?.events ?? []);
-    const events = ["tucxa", "events", "sementinha"].includes(nextMode)
+    const events = ["tucxa", "others", "events", "sementinha"].includes(nextMode)
       ? fixedAnnualEvents
       : interactiveEvents;
 
     if (nextMode === "tucxa") {
       return events.filter((event) => !isAppointmentEvent(event) && hasClassification(event, "umbanda"));
+    }
+    if (nextMode === "others") {
+      return events.filter((event) => !isAppointmentEvent(event) && !hasClassification(event, "umbanda"));
     }
     if (nextMode === "events") {
       return events.filter((event) => !isAppointmentEvent(event) && isEventosDoTucxa(event));
@@ -1095,12 +1114,13 @@ export default function AgendaVivaPublicaPage() {
       annualEventsForMode(nextMode)
         .map((event) => eventDateOnly(event.startsAt).slice(0, 4))
         .filter((value) => /^\d{4}$/.test(value))
-        .map(Number),
+        .map(Number)
+        .filter((year) => year >= MIN_PUBLIC_CALENDAR_YEAR),
     )).sort((left, right) => left - right);
 
     if (years.length === 0 || years.includes(periodStart.getUTCFullYear())) return;
 
-    const currentYear = dateFromIso(todayIso).getUTCFullYear();
+    const currentYear = Math.max(MIN_PUBLIC_CALENDAR_YEAR, dateFromIso(todayIso).getUTCFullYear());
     const preferredYear = years.find((year) => year >= currentYear) ?? years[years.length - 1];
     setPeriodStart(new Date(Date.UTC(preferredYear, 0, 1, 12)));
   }
@@ -1110,11 +1130,29 @@ export default function AgendaVivaPublicaPage() {
     focusAvailableYear(nextMode);
   }
 
-  function openCalendar() {
-    focusAvailableYear(calendarMode);
+  function openCalendarMode(nextMode: CalendarMode) {
+    selectCalendarMode(nextMode);
+    setAnnualDisplay("annual");
+    setAnnualMonth(periodStart.getUTCMonth());
+    setAnnualDetailPopup(null);
     setCalendarOpen(true);
   }
 
+
+  /** Navegacao unificada: meses na visao MENSAL, anos na visao ANUAL. */
+  function advanceAnnualCalendar(direction: -1 | 1) {
+    if (annualDisplay === "monthly") {
+      const next = addMonths(new Date(Date.UTC(periodStart.getUTCFullYear(), annualMonth, 1, 12)), direction);
+      if (next.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR) return;
+      setPeriodStart(next);
+      setAnnualMonth(next.getUTCMonth());
+      return;
+    }
+    setPeriodStart((current) => {
+      const next = addYears(current, direction);
+      return next.getUTCFullYear() < MIN_PUBLIC_CALENDAR_YEAR ? current : next;
+    });
+  }
 
   function selectAnnualDay(isoDate: string, events: AnnualCalendarEvent[]) {
     if (events.length === 0) return;
@@ -1150,6 +1188,10 @@ export default function AgendaVivaPublicaPage() {
     });
   }
 
+  const canNavigateToPreviousCalendarPeriod = annualDisplay === "annual"
+    ? periodStart.getUTCFullYear() > MIN_PUBLIC_CALENDAR_YEAR
+    : periodStart.getUTCFullYear() > MIN_PUBLIC_CALENDAR_YEAR || annualMonth > 0;
+
   const selectedModeLabel = calendarModeOptions.find((item) => item.value === calendarMode)?.label ?? "Tucxa";
 
   const modalCalendar = (
@@ -1184,18 +1226,19 @@ export default function AgendaVivaPublicaPage() {
     <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
       <TucxaPublicHeader
         navLabel="Agenda Viva"
-        actions={[
-          { label: "Início", href: "#inicio", variant: "primary" },
+        showSupport={false}
+        topActions={[
           { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/tucxa?semPopup=1&abrir=agenda-viva#modulos", variant: "secondary" },
+          { label: "Ajuda", href: "#duvidas", action: "supportWhatsapp", variant: "secondary" },
         ]}
       />
 
       <section id="inicio" className="mx-auto max-w-6xl scroll-mt-48 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] bg-white p-4 shadow-xl shadow-green-900/5 ring-1 ring-[#123D2C]/10 sm:p-6">
+        <div className="rounded-[2rem] bg-[#123D2C] p-4 text-white shadow-xl shadow-green-900/15 ring-1 ring-[#123D2C]/10 sm:p-6">
           <div className="grid gap-4">
             <div>
-              <h1 className="text-3xl font-black text-[#123D2C] sm:text-4xl">Calendário</h1>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Consulte os calendários do Tucxa e, no modo Interativo, ajuste os filtros e salve o padrão neste dispositivo.</p>
+              <h1 className="text-3xl font-black text-white sm:text-4xl">Calendário</h1>
+              <p className="mt-2 text-sm font-semibold leading-6 text-white/95">Saiba o que vem pela frente. Viva cada encontro com tranquilidade.</p>
             </div>
 
             {loading && <p className="rounded-3xl bg-[#E9F2E7] p-4 font-bold text-[#123D2C]">Carregando agenda...</p>}
@@ -1204,38 +1247,27 @@ export default function AgendaVivaPublicaPage() {
 
             {!loading && !error && (
               <>
-                <section className="rounded-[1.75rem] bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10 sm:p-4">
+                <section className="rounded-[1.75rem] bg-white/10 p-3 ring-1 ring-white/20 sm:p-4">
                   <div className="grid gap-3">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#2F6B43]">Escolha o calendário</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Escolha o calendário</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3" aria-label="Escolha o calendário">
                       {calendarModeOptions.map((option) => (
                         <button
                           key={option.value}
                           type="button"
-                          onClick={() => selectCalendarMode(option.value)}
+                          onClick={() => openCalendarMode(option.value)}
                           title={option.description}
-                          className={`rounded-2xl px-3 py-3 text-sm font-black shadow-sm ring-1 transition ${
-                            calendarMode === option.value
-                              ? "bg-[#123D2C] text-white ring-[#123D2C]"
-                              : "bg-white text-[#123D2C] ring-[#123D2C]/10"
-                          }`}
+                          aria-label={`Abrir ${option.label}`}
+                          className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl bg-white px-2 py-4 text-center text-sm font-black leading-tight text-[#123D2C] shadow-sm ring-1 ring-[#123D2C]/15 transition hover:bg-[#E9F2E7] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#123D2C] sm:text-lg"
                         >
-                          {option.label}
+                          <span>{option.label}</span>
+                          <span className="text-[0.6rem] font-black uppercase tracking-widest text-[#2F6B43]">TOQUE PARA ABRIR</span>
                         </button>
                       ))}
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={openCalendar} className="rounded-2xl bg-[#123D2C] px-3 py-3 text-sm font-black text-white shadow ring-1 ring-[#123D2C]">Abrir Calendário</button>
-                      <button type="button" onClick={saveDefaults} disabled={savingDefaults} className="rounded-2xl bg-[#E9F2E7] px-3 py-3 text-sm font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-60">{savingDefaults ? "Salvando..." : "Salvar como Padrão"}</button>
-                    </div>
-
-                    <p className="rounded-2xl bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-600 ring-1 ring-[#123D2C]/10">
-                      {calendarModeOptions.find((item) => item.value === calendarMode)?.description}
-                    </p>
                   </div>
                 </section>
 
@@ -1263,24 +1295,52 @@ export default function AgendaVivaPublicaPage() {
         </ModalShell>
       )}
 
-      {calendarOpen && calendarMode !== "interactive" && (
+      {calendarOpen && calendarMode !== "interactive" && !annualDetailPopup && (
         <ModalShell
-          title={calendarMode === "sementinha" ? "Calendário anual" : `Calendário anual - ${selectedModeLabel}`}
+          title={calendarMode === "tucxa" ? "Calendário" : calendarMode === "others" ? "Calendário Outras Agendas" : `Calendário - ${selectedModeLabel}`}
           onClose={() => setCalendarOpen(false)}
         >
           <div className="grid gap-3">
-            <div className="agenda-no-print grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, -1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Anterior</button>
-              <button type="button" onClick={() => window.print()} className="whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
-              <button type="button" onClick={() => setPeriodStart((current) => addYears(current, 1))} className="whitespace-nowrap rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
+            <div className="agenda-no-print grid grid-cols-3 gap-2" aria-label="Visualizacao e navegacao do calendario">
+              <button type="button" onClick={() => setAnnualDisplay("monthly")} aria-pressed={annualDisplay === "monthly"}
+                className={`min-w-0 rounded-2xl px-2 py-2 text-xs font-black shadow ring-1 sm:px-3 sm:text-sm ${annualDisplay === "monthly" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#B7D0BF]"}`}>MENSAL</button>
+              <button type="button" onClick={() => window.print()}
+                className="min-w-0 whitespace-nowrap rounded-2xl bg-[#E9F2E7] px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Visão PDF</button>
+              <button type="button" onClick={() => setAnnualDisplay("annual")} aria-pressed={annualDisplay === "annual"}
+                className={`min-w-0 rounded-2xl px-2 py-2 text-xs font-black shadow ring-1 sm:px-3 sm:text-sm ${annualDisplay === "annual" ? "bg-[#123D2C] text-white ring-[#123D2C]" : "bg-white text-[#123D2C] ring-[#B7D0BF]"}`}>ANUAL</button>
+            </div>
+            <div className="agenda-no-print grid grid-cols-3 items-center gap-2" aria-label="Periodo exibido">
+              <button type="button" onClick={() => advanceAnnualCalendar(-1)} disabled={!canNavigateToPreviousCalendarPeriod}
+                aria-label={annualDisplay === "monthly" ? "Mes anterior" : "Ano anterior"}
+                className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-sm">Anterior</button>
+              <span className="min-w-0 text-center text-xs font-black tracking-wide text-[#4DA1D5] sm:text-lg">TUCXA - {periodStart.getUTCFullYear()}</span>
+              <button type="button" onClick={() => advanceAnnualCalendar(1)}
+                aria-label={annualDisplay === "monthly" ? "Proximo mes" : "Proximo ano"}
+                className="min-w-0 rounded-2xl bg-white px-2 py-2 text-xs font-black text-[#123D2C] shadow ring-1 ring-[#123D2C]/10 sm:px-3 sm:text-sm">Próximo</button>
             </div>
             <AnnualCalendarView
               mode={calendarMode as AnnualCalendarMode}
               events={calendarModeEvents}
               year={periodStart.getUTCFullYear()}
               onSelectDay={selectAnnualDay}
+              display={annualDisplay}
+              month={annualMonth}
+              onChangeDisplay={setAnnualDisplay}
+              onChangeMonth={setAnnualMonth}
+              onShowDetails={() => setAnnualDetailPopup(calendarMode === "tucxa" ? "important" : "responsible")}
             />
           </div>
+        </ModalShell>
+      )}
+
+      {calendarOpen && annualDetailPopup && calendarMode !== "interactive" && (
+        <ModalShell
+          title={annualDetailPopup === "important" ? "Datas Importantes" : "Atividades e Responsáveis"}
+          onClose={() => { setAnnualDetailPopup(null); setCalendarOpen(true); }}
+        >
+          {annualDetailPopup === "important"
+            ? <AgendaImportantDates events={calendarModeEvents} year={periodStart.getUTCFullYear()} month={annualDisplay === "monthly" ? annualMonth : undefined} />
+            : <AgendaResponsibleList events={calendarModeEvents} year={periodStart.getUTCFullYear()} month={annualDisplay === "monthly" ? annualMonth : undefined} />}
         </ModalShell>
       )}
 
@@ -1374,6 +1434,25 @@ export default function AgendaVivaPublicaPage() {
       )}
 
       {selectedDay && <DayEventsModal day={selectedDay} onClose={() => setSelectedDay(null)} />}
+
+      {/* Impressao isolada do restante da pagina. O calendario do modal continua
+          sendo a unica fonte dos eventos; evita a segunda pagina fantasma. */}
+      {typeof document !== "undefined" && (annualGuideOpen || (calendarOpen && calendarMode !== "interactive")) && createPortal(
+        <section data-agenda-print-root aria-label="Agenda Viva para impressao">
+          {annualGuideOpen ? (
+            <DynamicAnnualTucxaPoster events={filteredEvents} year={periodStart.getUTCFullYear()} />
+          ) : (
+            <AnnualCalendarView
+              mode={calendarMode as AnnualCalendarMode}
+              events={calendarModeEvents}
+              year={periodStart.getUTCFullYear()}
+              display={annualDisplay}
+              month={annualMonth}
+            />
+          )}
+        </section>,
+        document.body,
+      )}
     </main>
   );
 }

@@ -61,6 +61,7 @@ type SpiritualEntityRecord = {
 type LookupRecord = {
   id: string;
   name?: string | null;
+  full_name?: string | null;
   title?: string | null;
   slug?: string | null;
 };
@@ -87,6 +88,7 @@ type AgendaEvent = {
   recurrenceLabel: string;
   notes: string;
   continuesDuringVacation: boolean;
+  agendaImportantDate?: boolean;
 };
 
 type AgendaPreferences = {
@@ -286,6 +288,14 @@ function metadataBoolean(event: EventRecord, keys: string[], fallback = false) {
   return fallback;
 }
 
+/** Undefined preserva a identificacao legada dos eventos sem marcador. */
+function agendaImportantDate(event: EventRecord): boolean | undefined {
+  const metadata = asRecord(event.metadata);
+  const keys = ["agendaImportantDate", "agenda_important_date"];
+  if (!keys.some((key) => Object.prototype.hasOwnProperty.call(metadata, key))) return undefined;
+  return metadataBoolean(event, keys, false);
+}
+
 function continuesDuringVacation(event: EventRecord) {
   return metadataBoolean(event, ["continuesDuringVacation", "continues_during_vacation", "keepDuringVacation", "mantemNasFerias"], false);
 }
@@ -347,6 +357,12 @@ function removeUmbandaDuringVacations(events: EventRecord[]) {
   if (vacationKeys.size === 0) return events;
   return events.filter((event) => {
     if (isVacationEvent(event) || !isUmbandaEvent(event) || continuesDuringVacation(event)) return true;
+    // Datas Importantes sao eventos aprovados, inclusive quando caem no
+    // recesso (ex.: mutirao de limpeza e retorno de Cavalinhos/Cambonos).
+    // Um marcador explicitamente falso nunca ganha essa excecao.
+    const important = agendaImportantDate(event);
+    if (important === true) return true;
+    if (important === undefined && /mutirao|limpeza|cavalinh|cambon|encerramento/.test(normalize(asText(event.title)))) return true;
     const key = localDateIso(event.starts_at);
     return !key || !vacationKeys.has(key);
   });
@@ -807,9 +823,10 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
     eventCollection: eventCollection(event),
     calendarColorKey: calendarColorKey(event),
     eventSubtype: eventSubtype(event),
+    agendaImportantDate: agendaImportantDate(event),
     audience: eventAudience(event),
     responsiblePersonId: asText(event.responsible_person_id),
-    responsiblePersonName: asText(responsible?.name) || "Responsável a definir",
+    responsiblePersonName: asText(responsible?.full_name) || asText(responsible?.name) || "Responsável a definir",
     associatedToCurrentPerson:
       associatedPersonIds.includes(context.currentPersonId) ||
       associatedAgendaSlugs.some((slug) => context.selectedAgendaSlugs.includes(slug)) ||
@@ -825,6 +842,38 @@ function eventPayload(event: EventRecord, context: { currentPersonId: string; se
   };
 }
 
+/**
+ * Supabase limita o volume retornado por consulta. A leitura anterior de 500
+ * registros podia omitir eventos futuros (por exemplo, Social / Comunidade 2027)
+ * quando havia muitos eventos mais antigos na mesma organizacao.
+ * A paginacao preserva a ordenacao estavel e os filtros ja existentes.
+ */
+async function loadAllAgendaEvents(organizationId: string): Promise<EventRecord[]> {
+  const pageSize = 500;
+  const maxRows = 10000;
+  const records: EventRecord[] = [];
+
+  for (let offset = 0; offset <= maxRows; offset += pageSize) {
+    const { data, error } = await supabaseAdmin
+      .from("agv_events")
+      .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
+      .eq("organization_id", organizationId)
+      .order("starts_at", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    const batch = (data ?? []) as EventRecord[];
+    if (offset === maxRows && batch.length > 0) {
+      throw new Error("O limite de seguranca de eventos da Agenda Viva foi atingido. Ajuste a paginacao antes de divulgar um calendario incompleto.");
+    }
+    records.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  return records;
+}
+
 export async function GET(request: Request) {
   try {
     const organization = await findTucxaOrganizationId();
@@ -837,18 +886,12 @@ export async function GET(request: Request) {
     const selectedFunctionSlugs = Array.isArray(profile.functionSlugs) ? profile.functionSlugs.map((item) => asText(item)).filter(Boolean) : [];
 
     const [eventsResult, typesResult, locationsResult, peopleResult] = await Promise.all([
-      supabaseAdmin
-        .from("agv_events")
-        .select("id, title, event_type, event_type_id, status, active, starts_at, ends_at, all_day, recurrence_rule, location_id, location, group_slug, responsible_person_id, created_by_person_id, notes, metadata, created_at, updated_at")
-        .eq("organization_id", organization.id)
-        .order("starts_at", { ascending: true, nullsFirst: false })
-        .limit(500),
+      loadAllAgendaEvents(organization.id),
       supabaseAdmin.from("agv_event_types").select("id, name, slug").eq("organization_id", organization.id),
       supabaseAdmin.from("oh_locations").select("id, name").eq("organization_id", organization.id),
       supabaseAdmin.from("oh_people").select("id, full_name").eq("organization_id", organization.id),
     ]);
 
-    if (eventsResult.error) throw eventsResult.error;
     if (typesResult.error) throw typesResult.error;
     if (locationsResult.error) throw locationsResult.error;
     if (peopleResult.error) throw peopleResult.error;
@@ -857,7 +900,7 @@ export async function GET(request: Request) {
     const locations = mapById((locationsResult.data ?? []) as LookupRecord[]);
     const people = mapById((peopleResult.data ?? []) as LookupRecord[]);
 
-    const expandedEvents = ((eventsResult.data ?? []) as EventRecord[])
+    const expandedEvents = eventsResult
       .filter(shouldShowEvent)
       .filter((event) => isVisibleToConsulente(event) || isUmbandaEvent(event) || isEventosDoTucxa(event))
       .flatMap(expandRecurringEvent);
@@ -868,7 +911,8 @@ export async function GET(request: Request) {
           ...event,
           associatedToCurrentPerson: false,
           responsiblePersonId: "",
-          responsiblePersonName: "Tucxa",
+          // Mantem o nome do responsavel cadastrado para eventos publicos;
+          // omite ID pessoal e anotacoes administrativas.
           notes: "",
         }
       : event;

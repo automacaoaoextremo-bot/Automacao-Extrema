@@ -49,11 +49,11 @@ const transformationCards = [
 
 const examples = [
   {
-    name: "Bingo Sementinha",
-    url: "https://bingo-sementinha.vercel.app/",
+    name: "Bingo no Controle",
+    url: "/solucoes/bingo-no-controle",
     label: "Bingo no Controle",
     description:
-      "Módulo do Festa no Controle para atender bingos e sorteios beneficentes com cartelas/números, participantes, pagamentos, conferência e transparência.",
+      "Plataforma de bingos beneficentes com organizações independentes, rodadas, prêmios, cartelas, pagamentos e prestação de contas.",
     transformation: "Transforma sorteios e bingos beneficentes em uma operação mais clara e conferível.",
   },
   {
@@ -79,6 +79,15 @@ const examples = [
     description:
       "Solução em validação para eventos afetivos: convite, confirmação individual, grupos, lembretes, painel de presença e pós-evento.",
     transformation: "Transforma confirmações espalhadas no WhatsApp em uma jornada organizada, carinhosa e previsível.",
+  },
+  {
+    name: "StudyAgent",
+    url: "/solucoes/studyagent",
+    label: "Educação orientada por competências",
+    description:
+      "Plataforma em piloto para organizar competências em um Knowledge Graph, recomendar trilhas de estudo e apoiar prática, avaliação e evidências antes da progressão.",
+    transformation:
+      "Transforma uma lista de conteúdos em uma jornada de aprendizagem rastreável, com pré-requisitos, feedback e comprovação de evolução.",
   },
   {
     name: "Caixa Claro",

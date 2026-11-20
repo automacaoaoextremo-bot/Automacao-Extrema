@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import { LU_BASE_PATH, luTracks } from "@/lib/education/lu-pilot";
 import { LuHeader } from "@/components/education/lu-header";
+import { LuLyricsCuration } from "@/components/education/lu-lyrics-curation";
 import { LuIllustrationCuration } from "@/components/education/lu-illustration-curation";
 
 type Version = {
@@ -61,6 +62,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
   const [trackOrder, setTrackOrder] = useState<string[]>(luTracks.map((track) => track.id));
   const [qrTrack, setQrTrack] = useState("geral");
   const [success, setSuccess] = useState("");
+  const [pdfError, setPdfError] = useState("");
   const [playbackErrors, setPlaybackErrors] = useState<Record<string, boolean>>({});
 
   // Usado apenas depois de a professora escolher, ocultar ou enviar um audio.
@@ -180,6 +182,30 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
     }
   }
 
+  async function generateBookPdf(pages: 2 | 14) {
+    setBusy(`bookpdf${pages}`);
+    setPdfError("");
+    try {
+      const response = await fetch(`${LU_BASE_PATH}/api/livro/pdf?paginas=${pages}`, { cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error || "Nao foi possivel gerar o livro.");
+      }
+      const blob = await response.blob();
+      if (blob.type && !blob.type.includes("pdf")) throw new Error("Arquivo recebido nao e um PDF.");
+      const fileUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = `lu-2026-livro-musical-${pages}-paginas.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(fileUrl), 30000);
+    } catch (reason) {
+      setPdfError(reason instanceof Error ? reason.message : "Falha ao gerar PDF.");
+    } finally { setBusy(""); }
+  }
+
   const tracks = trackOrder.map((id) => luTracks.find((track) => track.id === id)).filter((track): track is typeof luTracks[number] => Boolean(track));
   const pages = Math.ceil(tracks.length / PAGE_SIZE);
   const swap = (position: number, direction: number) => {
@@ -281,6 +307,7 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
         </section>
 
         <LuIllustrationCuration />
+        <LuLyricsCuration />
         <div className="lu-curation-tools">
           <button type="button" onClick={() => { setPanel("order"); setCurrent(null); setOpen(true); }}>
             ↕ Definir ordem <small>CLIQUE PARA ABRIR</small>
@@ -288,7 +315,16 @@ export function LuCuration({ teacherName }: { teacherName: string }) {
           <button type="button" onClick={() => { setPanel("qr"); setQrTrack("geral"); setQrPreview(false); setCurrent(null); setOpen(true); }}>
             ▦ Gerar QR Codes <small>CLIQUE PARA ABRIR</small>
           </button>
+          <button type="button" disabled={busy !== ""} onClick={() => void generateBookPdf(2)}>
+            🖨️ {busy === "bookpdf2" ? "Preparando PDF para impressão..." : "Gerar PDF para impressão (2 páginas)"}
+            <small>A4 • APRESENTAÇÃO E ÍNDICE • 13 QR CODES</small>
+          </button>
+          <button type="button" disabled={busy !== ""} onClick={() => void generateBookPdf(14)}>
+            📖 {busy === "bookpdf14" ? "Preparando PDF completo..." : "Gerar livro musical completo (14 páginas)"}
+            <small>A4 • 12 DESENHOS • 13 QR CODES</small>
+          </button>
         </div>
+        {pdfError && <p className="lu-alert" role="alert">{pdfError}</p>}
         <div className="lu-helptext">
           <button type="button" className="lu-help-button" onClick={() => { setPanel("help"); setOpen(true); setCurrent(null); }}>
             <span aria-hidden="true" className="lu-help-icon">❔</span>

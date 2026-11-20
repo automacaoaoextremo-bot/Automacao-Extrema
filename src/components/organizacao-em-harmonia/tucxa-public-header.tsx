@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -23,6 +23,10 @@ type TucxaHeaderLink = {
 
 type TucxaPublicHeaderProps = {
   actions?: TucxaHeaderLink[];
+  /** Acoes pequenas na primeira linha, ao lado da identidade do TUCXA. */
+  topActions?: TucxaHeaderLink[];
+  /** Botao opcional na primeira linha, utilizado pelo Bingo do TUCXA. */
+  topAction?: ReactNode;
   sectionLinks?: TucxaHeaderLink[];
   navLabel?: string;
   showSupport?: boolean;
@@ -119,14 +123,14 @@ function buildSupportWhatsappUrl() {
   return `https://wa.me/${AE_WHATSAPP_NUMBER}?text=${encodeURIComponent(supportContextMessage())}`;
 }
 
-function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean }) {
+function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = false, compactTop = false }: { href: string; active: boolean; onSelect: () => void; label?: string; compactMobile?: boolean; compactTop?: boolean }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       onClick={onSelect}
-      className={headerActionClassName(active, compactMobile)}
+      className={headerActionClassName(active, compactMobile, compactTop)}
       aria-label="Falar com a Automação Extrema pelo WhatsApp"
     >
       {label}
@@ -134,10 +138,12 @@ function SupportLink({ href, active, onSelect, label = "Ajuda", compactMobile = 
   );
 }
 
-function headerActionClassName(active: boolean, compactMobile = false) {
-  const mobileClass = compactMobile
-    ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
-    : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
+function headerActionClassName(active: boolean, compactMobile = false, compactTop = false) {
+  const mobileClass = compactTop
+    ? "h-5 min-h-0 w-auto flex-none whitespace-nowrap px-1.5 py-0 text-[0.57rem]"
+    : compactMobile
+      ? "min-h-7 w-auto flex-none whitespace-nowrap px-2 py-1 text-[0.6rem]"
+      : "min-h-7 w-full px-2.5 py-1 text-[0.72rem]";
 
   return `inline-flex items-center justify-center rounded-full border text-center font-sans font-black leading-tight shadow-sm transition sm:min-h-10 sm:w-auto sm:px-5 sm:py-2 sm:text-sm ${mobileClass} ${
     active
@@ -146,7 +152,7 @@ function headerActionClassName(active: boolean, compactMobile = false) {
   }`;
 }
 
-function HeaderAction({ link, active, onSelect, compactMobile = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean }) {
+function HeaderAction({ link, active, onSelect, compactMobile = false, compactTop = false }: { link: TucxaHeaderLink; active: boolean; onSelect: (href: string) => void; compactMobile?: boolean; compactTop?: boolean }) {
   async function handleSpecialAction() {
     if (link.action === "signOutFilhoCorrente") {
       await supabaseBrowser.auth.signOut();
@@ -205,7 +211,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
           onSelect(link.href);
           void handleSpecialAction();
         }}
-        className={headerActionClassName(active, compactMobile)}
+        className={headerActionClassName(active, compactMobile, compactTop)}
       >
         {link.label}
       </a>
@@ -220,7 +226,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
           onSelect(link.href);
           void handleSpecialAction();
         }}
-        className={headerActionClassName(active, compactMobile)}
+        className={headerActionClassName(active, compactMobile, compactTop)}
       >
         {link.label}
       </button>
@@ -235,7 +241,7 @@ function HeaderAction({ link, active, onSelect, compactMobile = false }: { link:
         scrollToHash(event, link.href);
       }}
       aria-current={active ? "page" : undefined}
-      className={headerActionClassName(active, compactMobile)}
+      className={headerActionClassName(active, compactMobile, compactTop)}
     >
       {link.label}
     </Link>
@@ -277,6 +283,8 @@ function authenticatedNameFromUser(user: { user_metadata?: Record<string, unknow
 
 export function TucxaPublicHeader({
   actions = [],
+  topActions = [],
+  topAction,
   sectionLinks = [],
   navLabel = "Menu do site do Tucxa",
   showSupport = true,
@@ -373,6 +381,31 @@ export function TucxaPublicHeader({
             </span>
           </span>
         </Link>
+        {topActions.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2" aria-label="Ações de navegação">
+            {topActions.map((link) => link.action === "supportWhatsapp" ? (
+              <SupportLink
+                key={`${link.label}-${link.href}`}
+                href={supportHref}
+                label={link.label}
+                active={false}
+                compactMobile
+                compactTop
+                onSelect={() => handleSelect(link.href)}
+              />
+            ) : (
+              <HeaderAction
+                key={`${link.label}-${link.href}`}
+                link={link}
+                active={false}
+                compactMobile
+                compactTop
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        )}
+        {topAction && <div className="shrink-0">{topAction}</div>}
         {consulenteTopBar && (
           <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
             <span
