@@ -85,12 +85,20 @@ export default function ConsulenteAgendamentoPilotoPage() {
   async function signOut() { await supabaseBrowser.auth.signOut(); window.location.replace(LOGIN); }
 
   return <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
-    <TucxaPublicHeader actions={[{ label: "Início", href: "/solucoes/organizacao-em-harmonia/agendamento", variant: "primary" }, { label: "Voltar", href: "/solucoes/organizacao-em-harmonia/agendamento", variant: "secondary" }]} navLabel="Agendamento · Consulente" showSupport />
+    <TucxaPublicHeader
+      navLabel="Agendamento · Consulente"
+      hideNavigation
+      showSupport={false}
+      consulenteTopBar={{
+        fullName: payload?.profile.fullName || profile.fullName,
+        onSignOut: () => { void signOut(); },
+      }}
+    />
     <section className="mx-auto max-w-5xl px-3 py-5 sm:px-6">
       <div className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
         <p className="text-xs font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Consulente</p>
-        <h1 className="mt-2 text-2xl font-black sm:text-3xl">Olá, {payload?.profile.fullName?.split(/\s+/)[0] || "Consulente"}.</h1>
-        <p className="mt-2 font-semibold text-[#E8F1E5]">Aqui você agenda seu atendimento, consulta seus próximos agendamentos e mantém seus dados atualizados.</p><button type="button" onClick={() => void signOut()} className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-sm font-black text-white ring-1 ring-white/30">Sair</button>
+        <h1 className="mt-2 text-2xl font-black sm:text-3xl">Olá, Consulente.</h1>
+        <p className="mt-2 font-semibold text-[#E8F1E5]">Aqui você agenda seus atendimentos, de seus familiares, amigos, consulta próximos agendamentos e mantém dados atualizados.</p>
       </div>
       {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
       {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
@@ -112,9 +120,15 @@ export default function ConsulenteAgendamentoPilotoPage() {
       </div>}
     </section>
 
-    {modal && payload && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onMouseDown={(e) => { if (e.currentTarget === e.target) setModal(null); }}>
-      <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl sm:rounded-[2rem] sm:p-6">
-        <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-black text-[#123D2C]">{modal === "agendar" ? "Agendar atendimento" : modal === "agendamentos" ? "Meus agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}</h2><button onClick={() => setModal(null)} className="rounded-xl bg-slate-100 px-3 py-2 font-black">Fechar</button></div>
+    {modal && payload && <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-3 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tucxa-consulente-modal-title"
+      onMouseDown={(e) => { if (e.currentTarget === e.target) setModal(null); }}
+    >
+      <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-4 shadow-2xl sm:p-6">
+        <div className="flex items-center justify-between gap-3"><h2 id="tucxa-consulente-modal-title" className="text-xl font-black text-[#123D2C]">{modal === "agendar" ? "Agendar atendimento" : modal === "agendamentos" ? "Meus agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}</h2><button onClick={() => setModal(null)} className="rounded-xl bg-slate-100 px-3 py-2 font-black">Fechar</button></div>
         {modal === "agendar" && <div className="mt-5 grid gap-3">
           <p className="rounded-2xl bg-[#F7FAF2] p-4 font-semibold">
             {payload.bookingRule.mode === "first_time_only"
