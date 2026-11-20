@@ -17,7 +17,7 @@ function whatsapp(phone:string,text:string) {
   if(!/^55\d{10,11}$/.test(digits)) return null;
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
-export function AiQuoteEditor({requestId,phone,customerName}:{requestId:string;phone:string;customerName:string}) {
+export function AiQuoteEditor({requestId,phone,customerName,contactChannel='whatsapp'}:{requestId:string;phone:string;customerName:string;contactChannel?:string}) {
   const [data,setData]=useState<Response|null>(null);
   const [summary,setSummary]=useState('');
   const [materials,setMaterials]=useState('0.00');
@@ -59,7 +59,7 @@ export function AiQuoteEditor({requestId,phone,customerName}:{requestId:string;p
       const cents=[materials,labor,other].map(toCents);
       if(cents.some(x=>!Number.isSafeInteger(x)||x<0))throw new Error('Informe valores não negativos válidos.');
       await adminFetch(api(requestId),{method:'POST',body:JSON.stringify({summary,materialsCents:cents[0],laborCents:cents[1],otherCents:cents[2],validityDays:validity,dates:submittedDates})});
-      setNotice('Minuta salva. Nenhuma mensagem foi enviada. Confira os dados e abra o WhatsApp quando estiver pronto.');
+      setNotice('Minuta salva. Nenhuma mensagem foi enviada. Confira os dados e comunique o orcamento pelo canal indicado.');
       await load();
     }catch(e){setError(e instanceof Error?e.message:'Erro ao salvar orçamento.');}
     finally{setBusy(false);}
@@ -67,7 +67,7 @@ export function AiQuoteEditor({requestId,phone,customerName}:{requestId:string;p
   async function action(kind:'sent'|'accepted'|'declined'|'expired'|'reminded'|'settings') {
     const q=data?.quote;
     if(kind!=='settings'&&!q)return;
-    const confirmation=kind==='sent'?'Você realmente enviou a mensagem no WhatsApp Business? Abrir o link não comprova envio.':
+    const confirmation=kind==='sent'?(contactChannel==='phone'?'Você realmente informou o orçamento por ligação telefônica?':'Você realmente comunicou o orçamento ao contato indicado? Abrir o link não comprova envio.'):
       kind==='accepted'?'O cliente confirmou o aceite e a data escolhida diretamente com você?':
       kind==='reminded'?'Você enviou manualmente o lembrete ao cliente?':
       kind==='settings'?'Salvar a validade padrão para os próximos orçamentos desta empresa?':'Confirmar mudança de status?';
@@ -84,11 +84,11 @@ export function AiQuoteEditor({requestId,phone,customerName}:{requestId:string;p
   const reminderDue=now!==null&&q?.status==='sent'&&!q.reminder_sent_at&&now>=expires-24*3600*1000&&now<expires;
   const quotedText=q?`Olá, ${customerName}! Segue o orçamento da Reparos RMC.\n\nServiço: ${q.summary}\nMateriais: ${money(q.materials_cents)}\nMão de obra: ${money(q.labor_cents)}\nOutros: ${money(q.other_cents)}\nTOTAL: ${money(q.total_cents)}\nVálido até: ${new Date(q.valid_until).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}\n\nDatas sugeridas para a execução (sujeitas a confirmação): ${q.proposed_dates.map(datePt).join(', ')}.\n\nPor favor, confirme se aprova e qual data prefere. Obrigado!`:'';
   const reminderText=q?`Olá, ${customerName}! Só para lembrar: o orçamento da Reparos RMC de ${money(q.total_cents)} vence em ${new Date(q.valid_until).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}. Podemos ajudar a esclarecer alguma dúvida?`:'';
-  const linkQuote=q?whatsapp(phone,quotedText):null;
-  const linkReminder=q?whatsapp(phone,reminderText):null;
+  const linkQuote=q&&contactChannel!=='phone'?whatsapp(phone,quotedText):null;
+  const linkReminder=q&&contactChannel!=='phone'?whatsapp(phone,reminderText):null;
   return <section className="mt-5 rounded-xl border border-orange-200 bg-white p-4" aria-label="Orçamentos e agendamento RMC">
     <h4 className="font-black text-[#283f50]">Orçamento e datas — N2</h4>
-    <p className="mt-1 text-xs text-slate-600">Na Fase 0, as mensagens são preparadas pelo sistema, mas o envio é realizado e confirmado manualmente pelo operador no WhatsApp Business.</p>
+    <p className="mt-1 text-xs text-slate-600">Na Fase 0, o orçamento é preparado no sistema e comunicado manualmente pelo canal indicado. Para telefone fixo, não há envio por WhatsApp.</p>
     {error&&<p role="alert" className="mt-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-800">{error}</p>}
     {notice&&<p role="status" className="mt-2 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{notice}</p>}
     {!data&&<p className="mt-2 text-sm text-slate-500">Carregando orçamento...</p>}
@@ -98,14 +98,14 @@ export function AiQuoteEditor({requestId,phone,customerName}:{requestId:string;p
       <p className="mt-2 text-xs">Validade: {new Date(q.valid_until).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})} · Opções: {q.proposed_dates.map(datePt).join(', ')}</p>
       {q.chosen_date&&<p className="mt-1 text-xs font-semibold">Data escolhida: {datePt(q.chosen_date)} (horário ainda a confirmar)</p>}
       {data?.canManage&&<div className="mt-3 flex flex-wrap gap-2">
-        {q.status==='draft'&&<><a href={linkQuote||undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!linkQuote} className={`rounded-lg bg-[#ef8924] px-3 py-2 text-xs font-bold ${!linkQuote?'pointer-events-none opacity-50':''}`}>Abrir mensagem no WhatsApp</a><button type="button" disabled={busy} onClick={()=>void action('sent')} className="rounded-lg border px-3 py-2 text-xs font-semibold">Confirmar que enviei</button></>}
+        {q.status==='draft'&&<>{contactChannel==='phone'&&<p className="w-full text-xs font-semibold text-amber-900">Contato por ligação: ligue para a pessoa atendida e registre a comunicação somente após realizá-la.</p>}{linkQuote&&<a href={linkQuote||undefined} target="_blank" rel="noopener noreferrer" aria-disabled={!linkQuote} className={`rounded-lg bg-[#ef8924] px-3 py-2 text-xs font-bold ${!linkQuote?'pointer-events-none opacity-50':''}`}>Abrir mensagem no WhatsApp</a>}<button type="button" disabled={busy} onClick={()=>void action('sent')} className="rounded-lg border px-3 py-2 text-xs font-semibold">{contactChannel==='phone'?'Confirmar contato por telefone':'Confirmar que informei'}</button></>}
         {q.status==='sent'&&<>
           <label className="text-xs font-semibold">Data escolhida <select className="ml-2 rounded border p-2" value={chosen} onChange={e=>setChosen(e.target.value)}><option value="">Selecione</option>{q.proposed_dates.map(d=><option key={d} value={d}>{datePt(d)}</option>)}</select></label>
           <button type="button" disabled={busy||!chosen||now===null||now>=expires} onClick={()=>void action('accepted')} className="rounded-lg bg-green-100 px-3 py-2 text-xs font-bold">Registrar aceite</button>
           <button type="button" disabled={busy} onClick={()=>void action('declined')} className="rounded-lg border px-3 py-2 text-xs">Registrar recusa</button>
           {now!==null&&now>=expires&&<button type="button" disabled={busy} onClick={()=>void action('expired')} className="rounded-lg border px-3 py-2 text-xs">Marcar vencido</button>}
         </>}
-        {reminderDue&&<><a href={linkReminder||undefined} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold">Abrir lembrete (24h antes)</a><button type="button" disabled={busy} onClick={()=>void action('reminded')} className="rounded-lg border px-3 py-2 text-xs">Confirmar lembrete enviado</button></>}
+        {reminderDue&&<>{linkReminder&&<a href={linkReminder||undefined} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold">Abrir lembrete (24h antes)</a>}<button type="button" disabled={busy} onClick={()=>void action('reminded')} className="rounded-lg border px-3 py-2 text-xs">Confirmar lembrete enviado</button></>}
       </div>}
       {reminderDue&&<p className="mt-2 text-xs font-bold text-amber-800">Lembrete manual pendente. Nenhum envio automático está configurado.</p>}
     </div>}

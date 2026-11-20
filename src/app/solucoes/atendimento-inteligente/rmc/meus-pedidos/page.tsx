@@ -7,7 +7,7 @@ import {adminFetch} from '@/lib/admin-fetch';
 import {supabaseBrowser} from '@/lib/supabase-browser';
 import {AiRequestTimeline} from '@/components/atendimento-inteligente/request-timeline';
 import {REQUEST_STAGES,type RequestStage} from '@/lib/atendimento-inteligente/intake';
-type Item={id:string;category:string;description:string;status:string;created_at:string;property_address:string|null};
+type Item={id:string;category:string;description:string;status:string;created_at:string;property_address:string|null;on_behalf_of?:boolean;beneficiary_name?:string|null;beneficiary_phone?:string|null;beneficiary_contact_channel?:string|null};
 const base='/solucoes/atendimento-inteligente/rmc';
 export default function RmcMyRequests(){
  const router=useRouter();const [items,setItems]=useState<Item[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [expandedId,setExpandedId]=useState('');
@@ -30,7 +30,7 @@ export default function RmcMyRequests(){
   <h1 className="text-2xl font-black text-[#163e51]">Meus pedidos</h1>
   {loading&&<p className="mt-4">Carregando...</p>}{error&&<p role="alert" className="mt-3 text-sm text-rose-800">{error}</p>}
   <div className="mt-4 space-y-3">{items.map(item=><article key={item.id} className="rounded-xl bg-white p-4 shadow">
-   <h2 className="font-bold">{item.category}</h2><p className="mt-1 text-xs text-slate-600">{REQUEST_STAGES[item.status as RequestStage]??item.status} • {new Date(item.created_at).toLocaleDateString('pt-BR')}</p>
+   <h2 className="font-bold">{item.category}</h2>{item.on_behalf_of && <p className="mt-2 text-sm font-semibold text-[#173e53]">Pessoa atendida: {item.beneficiary_name} · Telefone: {item.beneficiary_phone} ({item.beneficiary_contact_channel==='requester'?'retorno pelo solicitante':item.beneficiary_contact_channel==='whatsapp'?'WhatsApp':'ligacao telefonica'})</p>}<p className="mt-1 text-xs text-slate-600">{REQUEST_STAGES[item.status as RequestStage]??item.status} • {new Date(item.created_at).toLocaleDateString('pt-BR')}</p>
    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{item.description}</p>
    <button type="button" className="mt-3 text-sm font-bold text-[#ad5f10] underline" onClick={()=>setExpandedId(id=>id===item.id?'':item.id)}>
      {expandedId===item.id?'Fechar conversa':'Abrir conversa e anexos'}

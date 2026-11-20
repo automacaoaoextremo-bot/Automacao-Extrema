@@ -15,6 +15,8 @@ type NewRequestBody = {
   consentConfirmed?: boolean; assisted?: boolean;
   turnstileToken?: string;
   customerId?: string; addressId?: string; addressData?: Record<string,string>;
+  onBehalfOf?: boolean;
+  beneficiary?: { name?: string; phone?: string; relationship?: string; contactChannel?: string; authorizationConfirmed?: boolean };
   services?: {category?: string;description?:string;answers?:Record<string,string>}[];
 };
 
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
     if (!isUuid(organizationId)) return NextResponse.json({ error: 'Empresa inválida.' }, { status: 400 });
     if (!allowed(scope, organizationId)) return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 });
     const { data, error } = await supabaseAdmin.from('ae_ai_requests')
-      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,public_contact_email,intake_source,intake_by,consent_confirmed,category,description,neighborhood,urgency,status,created_at,updated_at')
+      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,public_contact_email,intake_source,intake_by,consent_confirmed,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel,beneficiary_relationship,category,description,neighborhood,urgency,status,created_at,updated_at')
       .eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(150);
     if (error) throw error;
     const ids = Array.from(new Set((data ?? []).map(row => row.conversation_id)));
@@ -80,6 +82,11 @@ export async function POST(request: NextRequest) {
     }
     const scope = await aeScope(request);
     const assisted = body.assisted === true;
+    const onBehalfOf = body.onBehalfOf === true;
+    if (onBehalfOf && (assisted || orgSlug !== 'reparos-rmc')) {
+      return NextResponse.json({error:'Solicitacao para terceiros disponivel somente no portal autenticado RMC.'},{status:400});
+    }
+    let customerActor: Awaited<ReturnType<typeof rmcActor>> | null = null;
     let effectiveCustomerId: string | null = null;
     let effectiveName = stringField(body.customerName,120);
     let effectivePhone = normalizeBRPhone(body.phone);
@@ -92,6 +99,7 @@ export async function POST(request: NextRequest) {
       if (actor?.role !== 'customer' || !customerCanSubmitRequest(actor)) {
         return NextResponse.json({error:'Autoatendimento nao habilitado.'},{status:403});
       }
+      customerActor=actor;
       effectiveCustomerId=actor.customer!.id;
       effectiveName=actor.customer!.full_name;
       const {data: contact, error: contactErr}=await supabaseAdmin.from('ae_ai_contacts')
@@ -145,16 +153,48 @@ export async function POST(request: NextRequest) {
         !normalizedAddress.number || !normalizedAddress.city || !normalizedAddress.neighborhood)) {
         return NextResponse.json({error:'Endereco completo com CEP, rua, numero, bairro, cidade e UF e obrigatorio.'},{status:400});
       }
-      const {data: requestId,error}=await supabaseAdmin.rpc('ae_ai_register_request_v4',{
-        p_organization_id:organization.id,p_customer_id:effectiveCustomerId,
-        p_phone:effectivePhone,p_name:effectiveName,p_items:items,
-        p_urgency:body.urgency==='alta'?'alta':'normal',
-        p_address_id:addressId,p_address:normalizedAddress,
-        p_preferred_contact:stringField(body.preferredContact,200),
-        p_intake_source:assisted?'assisted_n1':'customer_portal',
-        p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:!assisted,
-        p_secret_hash:hash,p_secret_expires_at:expires,
-      });
+      let requestId: unknown;
+      let error: {message:string}|null=null;
+      if(onBehalfOf) {
+        // A identidade do solicitante vem exclusivamente da sessao autenticada.
+        // O telefone de outra pessoa jamais e usado para buscar ou alterar seu cadastro.
+        const recipient=body.beneficiary;
+        const recipientName=stringField(recipient?.name,120);
+        const recipientPhone=normalizeBRPhone(recipient?.phone);
+        const relationship=stringField(recipient?.relationship,80);
+        const contactChannel=stringField(recipient?.contactChannel,20);
+        if(!customerActor || customerActor.role!=='customer' || !recipientPhone ||
+           recipientName.length<2 || recipient?.authorizationConfirmed!==true ||
+           !['phone','requester','whatsapp'].includes(contactChannel) || addressId) {
+          return NextResponse.json({error:'Informe os dados da pessoa atendida, um endereco novo e confirme a autorizacao.'},{status:400});
+        }
+        // Identifique o local no cadastro de enderecos do solicitante.
+        if(normalizedAddress) normalizedAddress.label=`Atendimento: ${recipientName}`.slice(0,50);
+        const result=await supabaseAdmin.rpc('ae_ai_register_request_for_third_party_v1',{
+          p_organization_id:organization.id,
+          p_requester_customer_id:effectiveCustomerId,
+          p_requester_auth_user_id:customerActor.userId,
+          p_requester_phone:effectivePhone,p_requester_name:effectiveName,
+          p_items:items,p_urgency:body.urgency==='alta'?'alta':'normal',
+          p_address:normalizedAddress,p_preferred_contact:stringField(body.preferredContact,200),
+          p_beneficiary_name:recipientName,p_beneficiary_phone:recipientPhone,
+          p_beneficiary_relationship:relationship,p_contact_channel:contactChannel,
+          p_consent_confirmed:true,p_secret_hash:hash,p_secret_expires_at:expires,
+        });
+        requestId=result.data;error=result.error;
+      } else {
+        const result=await supabaseAdmin.rpc('ae_ai_register_request_v4',{
+          p_organization_id:organization.id,p_customer_id:effectiveCustomerId,
+          p_phone:effectivePhone,p_name:effectiveName,p_items:items,
+          p_urgency:body.urgency==='alta'?'alta':'normal',
+          p_address_id:addressId,p_address:normalizedAddress,
+          p_preferred_contact:stringField(body.preferredContact,200),
+          p_intake_source:assisted?'assisted_n1':'customer_portal',
+          p_intake_by:assisted?scope!.userId:null,p_consent_confirmed:!assisted,
+          p_secret_hash:hash,p_secret_expires_at:expires,
+        });
+        requestId=result.data;error=result.error;
+      }
       if(error||!isUuid(requestId)) throw error ?? new Error('Registro nao concluido');
       return NextResponse.json({requestId,uploadSecret,expiresAt:expires,
         message:'Solicitacao registrada para avaliacao; nao confirma preco ou data.'},{status:201});
