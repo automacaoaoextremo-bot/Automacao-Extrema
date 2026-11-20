@@ -14,8 +14,9 @@ export async function GET(request: Request) {
     const conversationId = conversations?.[0]?.id;
     if (!conversationId) return NextResponse.json({ requests: [] });
     const { data, error } = await supabaseAdmin.from('ae_ai_requests')
-      .select('id,category,description,status,created_at,property_address')
+      .select('id,category,description,status,created_at,property_address,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel')
       .eq('organization_id', actor.organizationId).eq('conversation_id', conversationId)
+      .neq('intake_source', 'web_self_service') // pedidos publicos nao comprovam titularidade
       .order('created_at', { ascending: false }).limit(100);
     if (error) throw error;
     return NextResponse.json({ requests: data ?? [] });

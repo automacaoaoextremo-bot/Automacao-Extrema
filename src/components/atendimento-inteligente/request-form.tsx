@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/admin-fetch';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { AiAudioRecorder } from '@/components/atendimento-inteligente/audio-recorder';
-import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MAX_AUDIOS, MEDIA_TYPES, RMC_CATEGORIES } from '@/lib/atendimento-inteligente/intake';
+import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MAX_AUDIOS, MEDIA_TYPES, RMC_CATEGORIES, normalizeBRPhone } from '@/lib/atendimento-inteligente/intake';
 
 type Address = {id:string;label:string;cep:string;street:string;number:string;complement:string|null;neighborhood:string;city:string;state:string};
 type Customer = {id:string;fullName:string;phone:string;hasRequests:boolean;addresses:Address[]};
@@ -48,6 +48,12 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   const [addressPart,setAddressPart]=useState<1|2>(1);
   const [address,setAddress]=useState(blankAddress);
   const [consent,setConsent]=useState(false);
+  const [onBehalfOf,setOnBehalfOf]=useState(false);
+  const [beneficiaryName,setBeneficiaryName]=useState('');
+  const [beneficiaryPhone,setBeneficiaryPhone]=useState('');
+  const [beneficiaryRelationship,setBeneficiaryRelationship]=useState('');
+  const [beneficiaryContactChannel,setBeneficiaryContactChannel]=useState<'phone'|'requester'|'whatsapp'>('phone');
+  const [beneficiaryAuthorized,setBeneficiaryAuthorized]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
@@ -82,7 +88,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     return ()=>{active=false;};
   },[]);
   const customer=customers.find(c=>c.id===customerId);
-  const knownAddresses=actor?.role==='customer'?myAddresses:(customer?.addresses??[]);
+  // Enderecos de atendimentos a terceiros nao sao oferecidos automaticamente como enderecos proprios.
+  const knownAddresses=actor?.role==='customer'?myAddresses.filter(a=>!a.label.startsWith('Atendimento: ')):(customer?.addresses??[]);
   const imageFiles=useMemo(()=>files.filter(f=>f.type.startsWith('image/')),[files]);
   const videoFiles=useMemo(()=>files.filter(f=>f.type.startsWith('video/')),[files]);
   const audioFiles=useMemo(()=>files.filter(f=>f.type.startsWith('audio/')),[files]);
@@ -95,6 +102,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     setServices(list=>list.map((item,i)=>i===index?{...item,[key]:value}:item));
   }
   const servicesReady=services.every(s=>Boolean(s.category)&&s.description.trim().length>=12);
+  const beneficiaryReady=!onBehalfOf || (beneficiaryName.trim().length>=2 &&
+    Boolean(normalizeBRPhone(beneficiaryPhone)) && beneficiaryAuthorized);
   const addressReady=Boolean(addressId)||(
     /^\d{8}$/.test(address.cep.replace(/\D/g,'')) &&
     Boolean(address.street.trim()) && Boolean(address.number.trim()) &&
@@ -115,6 +124,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     if(stage===2&&mediaError){setError(mediaError);return false;}
     if(stage===3){
       if(actor?.role==='operator'&&!customer){setError('Selecione um cliente cadastrado antes de enviar.');return false;}
+      if(!beneficiaryReady){setError('Informe nome, telefone e autorizacao da pessoa atendida.');return false;}
       if(!addressReady){setError('Preencha CEP, rua, numero, bairro, cidade e UF.');return false;}
       if(actor?.role==='customer'&&!consent){setError('Confirme a autorizacao para registrar este pedido.');return false;}
     }
@@ -140,7 +150,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     event.preventDefault();
     if(!servicesReady){openStep(1);setError('Confira os tipos de serviços e suas descricoes.');return;}
     if(mediaError){openStep(2);setError(mediaError);return;}
-    if(!addressReady||(actor?.role==='customer'&&!consent)||(actor?.role==='operator'&&!customer)){
+    if(!addressReady||!beneficiaryReady||(actor?.role==='customer'&&!consent)||(actor?.role==='operator'&&!customer)){
       openStep(3);setError('Confira cliente, endereco e autorizacao antes de enviar.');return;
     }
     setBusy(true);setError('');setMessage('');setUploadFailures([]);
@@ -150,6 +160,11 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       const payload={
         organizationSlug:'reparos-rmc',assisted:actor.role==='operator',customerId:customer?.id,
         phone:customer?.phone,customerName:customer?.fullName,
+        onBehalfOf:actor.role==='customer'&&onBehalfOf,
+        beneficiary:actor.role==='customer'&&onBehalfOf?{
+          name:beneficiaryName.trim(),phone:beneficiaryPhone,relationship:beneficiaryRelationship.trim(),
+          contactChannel:beneficiaryContactChannel,authorizationConfirmed:beneficiaryAuthorized,
+        }:undefined,
         services:services.map(s=>({category:s.category,description:s.description,answers:{specific:s.specific}})),
         urgency,preferredContact,consentConfirmed:actor.role==='customer'?consent:false,
         addressId:addressId||undefined,addressData:addressId?undefined:address,
@@ -174,6 +189,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       setUploadFailures(failures);
       setMessage(`Solicitação registrada! Protocolo: ${created.requestId.slice(0,8).toUpperCase()}. Preço e data dependem de avaliação.`);
       setActiveStep(null);setServices([startService()]);setFiles([]);setConsent(false);setAddressPart(1);
+      setOnBehalfOf(false);setBeneficiaryName('');setBeneficiaryPhone('');setBeneficiaryRelationship('');setBeneficiaryAuthorized(false);setBeneficiaryContactChannel('phone');
       // Atualiza enderecos gravados para que o proximo pedido possa reutiliza-los.
       if(actor.role==='operator' && customer) {
         try {
@@ -231,7 +247,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       </button>
       <button type="button" onClick={()=>openStep(3)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left shadow-sm transition-colors hover:border-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
         <span className="flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-100 font-bold text-[#8d4e10]">3</span><span><strong className="block text-sm text-[#173e53]">Endereço e confirmação</strong><span className="text-xs text-slate-600">Local de atendimento e confirmação</span></span></span>
-        <span className="shrink-0 text-xs font-bold text-[#173e53]">{addressReady&&(actor.role==='operator'||consent)?'✓ Preenchido':'Preencher'}</span>
+        <span className="shrink-0 text-xs font-bold text-[#173e53]">{addressReady&&beneficiaryReady&&(actor.role==='operator'||consent)?'✓ Preenchido':'Preencher'}</span>
       </button>
     </div>
     {message&&<div role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"><p>{message}</p>{uploadFailures.length>0&&<p>Alguns anexos falharam: {uploadFailures.join(', ')}. Avise a equipe.</p>}</div>}
@@ -276,9 +292,27 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     </div>}
     {activeStep===3&&<div className="space-y-2">
       {services.length<5&&<button type="button" className="w-full rounded-xl border border-orange-400 bg-orange-50 px-3 py-2 text-left text-sm font-bold text-[#9c5a19]" onClick={()=>{setServices(list=>[...list,startService()]);setError('');setActiveStep(1);}}>+ Adicionar outro serviço (voltar à etapa 1)</button>}
+      {actor.role==='customer'&&<div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-3">
+        <label className="flex items-start gap-2 text-sm font-bold"><input type="checkbox" checked={onBehalfOf} onChange={e=>{
+          setOnBehalfOf(e.target.checked);setAddressId('');setAddress(blankAddress());setAddressPart(1);
+        }}/><span>Solicitar para outra pessoa (sem precisar de WhatsApp ou cadastro próprio)</span></label>
+        {onBehalfOf&&<div className="space-y-3">
+          <p className="text-xs">O pedido sera acompanhado por sua conta; informe os dados da pessoa que recebera o servico.</p>
+          <label className={label}>Nome da pessoa atendida<input className={field} maxLength={120} value={beneficiaryName} onChange={e=>setBeneficiaryName(e.target.value)} required/></label>
+          <label className={label}>Telefone com DDD (fixo ou celular, WhatsApp nao obrigatorio)<input className={field} type="tel" inputMode="tel" maxLength={20} value={beneficiaryPhone} onChange={e=>setBeneficiaryPhone(e.target.value)} placeholder="(19) 3333-4444" required/></label>
+          <label className={label}>Relacao com a pessoa (opcional)<input className={field} maxLength={80} value={beneficiaryRelationship} onChange={e=>setBeneficiaryRelationship(e.target.value)} placeholder="Ex.: mae, familiar, vizinho"/></label>
+          <label className={label}>Como contatar sobre o servico<select className={field} value={beneficiaryContactChannel} onChange={e=>setBeneficiaryContactChannel(e.target.value as 'phone'|'requester'|'whatsapp')}>
+            <option value="phone">Ligar para a pessoa atendida</option>
+            <option value="requester">Falar comigo (solicitante)</option>
+            <option value="whatsapp">WhatsApp da pessoa atendida (somente se ela usa)</option>
+          </select></label>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={beneficiaryAuthorized} onChange={e=>setBeneficiaryAuthorized(e.target.checked)}/>Confirmo que estou autorizado(a) a solicitar o servico e compartilhar os dados de contato e endereco desta pessoa.</label>
+        </div>}
+      </div>}
       <h2 className="text-base font-black text-[#16384b]">Onde será realizado o serviço?</h2>
+      {onBehalfOf&&actor.role==='customer'&&<p className="rounded-lg bg-slate-100 p-2 text-xs">Informe o endereco da pessoa atendida. Nenhum endereco seu sera escolhido automaticamente.</p>}
       {actor.role==='operator'&&customer&&!customer.hasRequests&&<p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">No primeiro pedido, cadastre o endereço uma única vez. Nas próximas solicitações, basta selecioná-lo; inclua outro somente se o serviço for em local diferente.</p>}
-      {knownAddresses.length>0&&<><label className={label} htmlFor="existing-addr">Usar endereço já cadastrado</label>
+      {!(onBehalfOf&&actor.role==='customer')&&knownAddresses.length>0&&<><label className={label} htmlFor="existing-addr">Usar endereço já cadastrado</label>
         <select id="existing-addr" className={field} value={addressId} onChange={e=>{setAddressId(e.target.value);setAddressPart(1);}}>
           <option value="">Cadastrar outro endereço</option>
           {knownAddresses.map(a=><option value={a.id} key={a.id}>{a.label}: {a.street}, {a.number} — {a.city}/{a.state}</option>)}
@@ -308,7 +342,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
             :<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={closeStep}>Salvar e fechar</button>}
           {activeStep!==3?<button type="button" className="rounded-full bg-[#ef8924] px-5 py-2.5 text-sm font-black" disabled={busy} onClick={nextStage}>Salvar e continuar</button>
             :!addressId&&addressPart===1?<button type="button" className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-bold" disabled={busy} onClick={()=>{if(!/^\d{8}$/.test(address.cep.replace(/\D/g,''))||!address.street.trim()||!address.number.trim()){setError('Preencha CEP, rua e numero antes de continuar.');return;}setError('');setAddressPart(2);}}>Continuar endereço</button>
-            :<button type="submit" disabled={busy||(actor.role==='customer'&&!consent)||!!mediaError} className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-black disabled:opacity-50">{busy?'Registrando...':'Enviar solicitação'}</button>}
+            :<button type="submit" disabled={busy||(actor.role==='customer'&&!consent)||!beneficiaryReady||!!mediaError} className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-black disabled:opacity-50">{busy?'Registrando...':'Enviar solicitação'}</button>}
         </div>
       </div>
     </dialog>

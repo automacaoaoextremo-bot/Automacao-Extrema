@@ -11,7 +11,8 @@ type Intake = {
   category: string; description: string; neighborhood: string; urgency: string;
   status: string; created_at: string; customer_name: string | null;
   property_address: string | null; preferred_contact: string | null; public_contact_email?: string | null;
-  intake_source: string; contact: { phone: string; display_name: string | null } | null;
+  intake_source: string; on_behalf_of?:boolean; beneficiary_name?:string|null; beneficiary_phone?:string|null; beneficiary_relationship?:string|null; beneficiary_contact_channel?:string|null;
+  contact: { phone: string; display_name: string | null } | null;
 };
 type Media = { id: string; mimeType: string; name: string; url: string | null };
 type Event = { id: string; status: string; note: string | null; created_at: string };
@@ -129,7 +130,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
         {pageRows.map(item => <button type="button" key={item.id}
           onClick={() => { setSelectedId(item.id);setMobileView('detail');setStatusDraft(null);setNote('');setMedia([]);setEvents([]);setServiceItems([]); }}
           className={`w-full rounded-xl border p-3 text-left text-sm ${active?.id === item.id ? 'border-[#ee8927] bg-[#fff4e7]' : 'border-slate-200 hover:bg-slate-50'}`}>
-          <span className="block font-bold">{item.customer_name || item.contact?.display_name || 'Cliente'}</span>
+          <span className="block font-bold">{item.on_behalf_of ? item.beneficiary_name : (item.customer_name || item.contact?.display_name || 'Cliente')}</span>
           <span className="block text-xs text-slate-700">{item.category} • {item.neighborhood}</span>
           <span className="mt-1 block text-xs text-slate-500">{REQUEST_STAGES[item.status as RequestStage] ?? item.status} • {stamp(item.created_at)}</span>
           {item.intake_source === 'assisted_n1' && <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">Cadastro assistido</span>}
@@ -143,8 +144,13 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
       <article className={`${mobileView!=='detail'?'hidden lg:block':''} min-h-[250px] max-h-[72svh] overflow-y-auto rounded-xl bg-[#f7fafb] p-4 lg:max-h-none`}>
 
         {!active ? <p className="text-sm text-slate-500">Selecione um pedido.</p> : <>
-          <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-black">{active.customer_name || active.contact?.display_name}</h3><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold">{active.urgency === 'alta' ? 'Prioridade alta informada' : 'Prioridade normal'}</span></div>
-          <p className="mt-1 text-sm">WhatsApp: <a className="font-bold underline" href={`https://wa.me/${active.contact?.phone ?? ''}`} rel="noopener noreferrer" target="_blank">{active.contact?.phone ?? '—'}</a></p>
+          <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-black">{active.on_behalf_of ? active.beneficiary_name : (active.customer_name || active.contact?.display_name)}</h3><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold">{active.urgency === 'alta' ? 'Prioridade alta informada' : 'Prioridade normal'}</span></div>
+          {active.on_behalf_of ? <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+            <p><strong>Pessoa atendida:</strong> {active.beneficiary_name} {active.beneficiary_relationship ? `(${active.beneficiary_relationship})` : ''}</p>
+            <p><strong>Telefone:</strong> <a className="underline" href={`tel:+${active.beneficiary_phone}`}>{active.beneficiary_phone}</a></p>
+            <p><strong>Canal:</strong> {active.beneficiary_contact_channel==='requester'?'Falar com o solicitante':active.beneficiary_contact_channel==='whatsapp'?'WhatsApp da pessoa atendida':'Ligacao telefonica (nao pressupor WhatsApp)'}</p>
+            <p><strong>Solicitado por:</strong> {active.customer_name || active.contact?.display_name} · {active.contact?.phone}</p>
+          </div> : <p className="mt-1 text-sm">WhatsApp: <a className="font-bold underline" href={`https://wa.me/${active.contact?.phone ?? ''}`} rel="noopener noreferrer" target="_blank">{active.contact?.phone ?? '—'}</a></p>}
           <p className="mt-1 text-sm">{active.neighborhood}{active.property_address ? ` • ${active.property_address}` : ''}</p>
           {active.public_contact_email && <p className="mt-1 text-sm">E-mail informado: {active.public_contact_email}</p>}
           {serviceItems.length>0?<div className="mt-3 space-y-2">{serviceItems.map(s=><div key={s.id} className="rounded-xl bg-white p-3 text-sm">
@@ -163,7 +169,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           </div>
           : <p className="mt-3 text-xs text-slate-600">O registro do pedido é realizado pela equipe. A atualização técnica é restrita ao responsável autorizado.</p>}
           {isRmc && <AiRequestTimeline key={`timeline-${active.id}`} requestId={active.id} />}
-          <AiQuoteEditor key={active.id} requestId={active.id} phone={active.contact?.phone || ""} customerName={active.customer_name || active.contact?.display_name || "Cliente"} />
+          <AiQuoteEditor key={active.id} requestId={active.id} phone={active.on_behalf_of && active.beneficiary_contact_channel==='whatsapp' ? (active.beneficiary_phone||'') : active.on_behalf_of && active.beneficiary_contact_channel==='phone' ? '' : (active.contact?.phone||'')} customerName={active.on_behalf_of && active.beneficiary_contact_channel==='requester' ? (active.customer_name||'Solicitante') : active.on_behalf_of ? (active.beneficiary_name||'Cliente') : (active.customer_name || active.contact?.display_name || 'Cliente')} contactChannel={active.on_behalf_of ? (active.beneficiary_contact_channel||'phone') : 'whatsapp'} />
           <div className="mt-5 border-t pt-4"><h4 className="text-sm font-bold">Histórico de decisões</h4><div className="mt-2 max-h-[230px] space-y-2 overflow-y-auto">{events.map(evt=><div key={evt.id} className="rounded-lg bg-white p-2 text-xs"><b>{REQUEST_STAGES[evt.status as RequestStage] ?? evt.status}</b> • {stamp(evt.created_at)}{evt.note && <p className="mt-1 whitespace-pre-wrap text-slate-600">{evt.note}</p>}</div>)}</div></div>
         </>}
       </article>

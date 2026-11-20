@@ -9,7 +9,7 @@ export function isValidISODate(x: unknown): x is string {
 export async function timelineAccess(request: Request, requestId: string) {
   if(!isUuid(requestId))return null;
   const {data:record,error}=await supabaseAdmin.from('ae_ai_requests')
-    .select('id,organization_id,customer_id').eq('id',requestId).maybeSingle();
+    .select('id,organization_id,customer_id,on_behalf_of,requested_by_user_id').eq('id',requestId).maybeSingle();
   if(error)throw error;
   if(!record)return null;
   const {data:org,error:orgErr}=await supabaseAdmin.from('ae_ai_organizations')
@@ -20,7 +20,8 @@ export async function timelineAccess(request: Request, requestId: string) {
   if(!actor||actor.organizationId!==record.organization_id)return null;
   if(actor.role==='customer'){
     if(!actor.customer||!record.customer_id||record.customer_id!==actor.customer.id||
-      !customerIsActive(actor.customer)||actor.customer.must_change_password)return null;
+      !customerIsActive(actor.customer)||actor.customer.must_change_password||
+      (record.on_behalf_of && record.requested_by_user_id!==actor.userId))return null;
     return {record,actor,canImport:false};
   }
   const scope=await aeScope(request);
