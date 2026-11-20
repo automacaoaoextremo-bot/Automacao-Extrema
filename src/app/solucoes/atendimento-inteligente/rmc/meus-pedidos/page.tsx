@@ -5,11 +5,12 @@ import {useRouter} from 'next/navigation';
 import {AiBrandHeader} from '@/components/atendimento-inteligente/brand-header';
 import {adminFetch} from '@/lib/admin-fetch';
 import {supabaseBrowser} from '@/lib/supabase-browser';
+import {AiRequestTimeline} from '@/components/atendimento-inteligente/request-timeline';
 import {REQUEST_STAGES,type RequestStage} from '@/lib/atendimento-inteligente/intake';
 type Item={id:string;category:string;description:string;status:string;created_at:string;property_address:string|null};
 const base='/solucoes/atendimento-inteligente/rmc';
 export default function RmcMyRequests(){
- const router=useRouter();const [items,setItems]=useState<Item[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);
+ const router=useRouter();const [items,setItems]=useState<Item[]>([]);const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [expandedId,setExpandedId]=useState('');
  useEffect(()=>{
   let mounted=true;
   async function load(){
@@ -31,6 +32,10 @@ export default function RmcMyRequests(){
   <div className="mt-4 space-y-3">{items.map(item=><article key={item.id} className="rounded-xl bg-white p-4 shadow">
    <h2 className="font-bold">{item.category}</h2><p className="mt-1 text-xs text-slate-600">{REQUEST_STAGES[item.status as RequestStage]??item.status} • {new Date(item.created_at).toLocaleDateString('pt-BR')}</p>
    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{item.description}</p>
+   <button type="button" className="mt-3 text-sm font-bold text-[#ad5f10] underline" onClick={()=>setExpandedId(id=>id===item.id?'':item.id)}>
+     {expandedId===item.id?'Fechar conversa':'Abrir conversa e anexos'}
+   </button>
+   {expandedId===item.id&&<AiRequestTimeline requestId={item.id}/>}
   </article>)}{!loading&&!error&&items.length===0&&<p className="rounded-xl bg-white p-4 text-sm">Nenhum pedido localizado.</p>}</div>
   <Link className="mt-5 inline-flex rounded-lg bg-[#ef8924] px-5 py-3 text-sm font-bold" href={`${base}/solicitar`}>Novo pedido</Link>
  </main></div>;
