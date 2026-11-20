@@ -94,15 +94,16 @@ export default function ConsulenteAgendamentoPilotoPage() {
         onSignOut: () => { void signOut(); },
       }}
     />
-    <section className="mx-auto max-w-5xl px-3 py-5 sm:px-6">
-      <div className="rounded-[2rem] bg-[#123D2C] p-5 text-white shadow-xl sm:p-7">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-[#CFE2C7]">Consulente</p>
-        <h1 className="mt-2 text-2xl font-black sm:text-3xl">Olá, Consulente.</h1>
-        <p className="mt-2 font-semibold text-[#E8F1E5]">Aqui você agenda seus atendimentos, de seus familiares, amigos, consulta próximos agendamentos e mantém dados atualizados.</p>
+    <section className="mx-auto max-w-5xl px-3 py-3 sm:px-6 sm:py-5">
+      <div className="rounded-[1.5rem] bg-[#123D2C] px-4 py-3 text-white shadow-xl sm:rounded-[2rem] sm:p-7">
+        <h1 className="text-xl font-black sm:text-3xl">Olá, Consulente.</h1>
+        <p className="mt-1 text-xs font-semibold leading-5 text-[#E8F1E5] sm:mt-2 sm:text-base">
+          Aqui você agenda seus atendimentos, de seus familiares e amigos, consulta próximos agendamentos e mantém seus dados atualizados.
+        </p>
       </div>
       {error && <p className="mt-4 rounded-2xl bg-red-50 p-4 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
       {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-4 font-bold text-emerald-800 ring-1 ring-emerald-100">{message}</p>}
-      {loading ? <p className="mt-6 font-bold">Carregando...</p> : <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      {loading ? <p className="mt-6 font-bold">Carregando...</p> : <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-5 sm:gap-3">
         <Card
           title="Agendar"
           text={payload?.bookingRule.mode === "first_time_only"
@@ -112,11 +113,18 @@ export default function ConsulenteAgendamentoPilotoPage() {
               : payload?.defaultEntity.name
                 ? `Sua Entidade padrão: ${payload.defaultEntity.name}.`
                 : "Procure a Recepção para definir sua Entidade padrão."}
+          compactText={payload?.bookingRule.mode === "first_time_only"
+            ? "Atendimento: Primeira Vez"
+            : payload?.bookingRule.mode === "awaiting_default_entity"
+              ? "Entidade a confirmar"
+              : payload?.defaultEntity.name
+                ? `Entidade: ${payload.defaultEntity.name}`
+                : "Entidade a definir"}
           onClick={() => setModal("agendar")}
         />
-        <Card title="Meus agendamentos" text={`${payload?.appointments.length || 0} próximo(s) agendamento(s).`} onClick={() => setModal("agendamentos")} />
-        <Card title="Cadastro" text="Atualize somente seus dados pessoais." onClick={() => setModal("cadastro")} />
-        <Card title="Configurações" text="Escolha se seus próximos agendamentos devem abrir ao entrar." onClick={() => setModal("configuracoes")} />
+        <Card title="Meus agendamentos" text={`${payload?.appointments.length || 0} próximo(s) agendamento(s).`} compactText={`${payload?.appointments.length || 0} próximo(s)`} onClick={() => setModal("agendamentos")} />
+        <Card title="Cadastro" text="Atualize somente seus dados pessoais." compactText="Dados pessoais" onClick={() => setModal("cadastro")} />
+        <Card title="Configurações" text="Escolha se seus próximos agendamentos devem abrir ao entrar." compactText="Preferências" onClick={() => setModal("configuracoes")} />
       </div>}
     </section>
 
@@ -148,4 +156,18 @@ export default function ConsulenteAgendamentoPilotoPage() {
   </main>;
 }
 
-function Card({ title, text, onClick }: { title: string; text: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="rounded-[1.5rem] bg-white p-5 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5"><span className="block text-lg font-black text-[#123D2C]">{title}</span><span className="mt-1 block text-sm font-semibold text-slate-600">{text}</span><span className="mt-3 block text-xs font-black uppercase tracking-[0.14em] text-[#2F6B43]">Toque para abrir</span></button>; }
+function Card({ title, text, compactText, onClick }: { title: string; text: string; compactText: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[6.25rem] min-w-0 flex-col rounded-[1.15rem] bg-white p-3 text-left shadow ring-1 ring-[#123D2C]/10 transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#123D2C] sm:min-h-[9rem] sm:rounded-[1.5rem] sm:p-5"
+      aria-label={`${title}. ${text}. Toque para abrir.`}
+    >
+      <span className="block text-sm font-black leading-tight text-[#123D2C] sm:text-lg">{title}</span>
+      <span className="mt-1 block break-words text-[0.7rem] font-semibold leading-snug text-slate-600 [overflow-wrap:anywhere] sm:hidden">{compactText}</span>
+      <span className="mt-1 hidden text-sm font-semibold text-slate-600 sm:block">{text}</span>
+      <span className="mt-auto block pt-2 text-[0.56rem] font-black uppercase tracking-[0.08em] text-[#2F6B43] sm:pt-3 sm:text-xs sm:tracking-[0.14em]">Toque para abrir</span>
+    </button>
+  );
+}
