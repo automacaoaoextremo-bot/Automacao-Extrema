@@ -2,7 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { aeScope, allowed, isUuid, safeError } from '@/lib/atendimento-inteligente/security';
-import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MEDIA_TYPES, stringField } from '@/lib/atendimento-inteligente/intake';
+import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MAX_AUDIOS, MEDIA_TYPES, stringField } from '@/lib/atendimento-inteligente/intake';
 
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ id: string }> };
@@ -43,16 +43,18 @@ export async function POST(request: NextRequest, { params }: Context) {
     const type = MEDIA_TYPES[mimeType];
     const size = body.size;
     if (!type || typeof size !== 'number' || !Number.isInteger(size) || size < 1 || size > type.maxBytes) {
-      return NextResponse.json({ error: 'Formato ou tamanho inválido. Fotos até 5MB; vídeo até 15MB.' }, { status: 400 });
+      return NextResponse.json({ error: 'Formato ou tamanho inválido. Fotos até 5 MB, vídeo até 15 MB, áudios até 10 MB.' }, { status: 400 });
     }
     const { data: existing, error: listError } = await supabaseAdmin.from('ae_ai_request_media')
       .select('id,mime_type').eq('organization_id', record.organization_id).eq('request_id', id);
     if (listError) throw listError;
     const imageCount = (existing ?? []).filter(r => r.mime_type.startsWith('image/')).length;
     const videoCount = (existing ?? []).filter(r => r.mime_type.startsWith('video/')).length;
+    const audioCount = (existing ?? []).filter(r => r.mime_type.startsWith('audio/')).length;
     if ((mimeType.startsWith('image/') && imageCount >= MAX_IMAGES) ||
-        (mimeType.startsWith('video/') && videoCount >= MAX_VIDEOS)) {
-      return NextResponse.json({ error: 'Limite de anexos atingido (3 fotos, 1 vídeo).' }, { status: 400 });
+        (mimeType.startsWith('video/') && videoCount >= MAX_VIDEOS) ||
+        (mimeType.startsWith('audio/') && audioCount >= MAX_AUDIOS)) {
+      return NextResponse.json({ error: 'Limite atingido (3 fotos, 1 vídeo, 5 áudios).' }, { status: 400 });
     }
     const path = `${record.organization_id}/${id}/${randomUUID()}${type.suffix}`;
     const { data, error } = await supabaseAdmin.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: false });

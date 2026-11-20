@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/admin-fetch';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MEDIA_TYPES, RMC_CATEGORIES } from '@/lib/atendimento-inteligente/intake';
+import { AiAudioRecorder } from '@/components/atendimento-inteligente/audio-recorder';
+import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MAX_AUDIOS, MEDIA_TYPES, RMC_CATEGORIES } from '@/lib/atendimento-inteligente/intake';
 
 type Address = {id:string;label:string;cep:string;street:string;number:string;complement:string|null;neighborhood:string;city:string;state:string};
 type Customer = {id:string;fullName:string;phone:string;hasRequests:boolean;addresses:Address[]};
@@ -84,11 +85,12 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   const knownAddresses=actor?.role==='customer'?myAddresses:(customer?.addresses??[]);
   const imageFiles=useMemo(()=>files.filter(f=>f.type.startsWith('image/')),[files]);
   const videoFiles=useMemo(()=>files.filter(f=>f.type.startsWith('video/')),[files]);
+  const audioFiles=useMemo(()=>files.filter(f=>f.type.startsWith('audio/')),[files]);
   const mediaError= useMemo(()=>{
-    if(imageFiles.length>MAX_IMAGES||videoFiles.length>MAX_VIDEOS)return 'Limite de 3 fotos e 1 video.';
-    if(files.some(f=>!MEDIA_TYPES[f.type]||f.size>MEDIA_TYPES[f.type].maxBytes))return 'Use fotos JPEG/PNG/WebP (5 MB) ou video MP4/WebM (15 MB).';
+    if(imageFiles.length>MAX_IMAGES||videoFiles.length>MAX_VIDEOS||audioFiles.length>MAX_AUDIOS)return 'Limite de 3 fotos, 1 video e 5 audios.';
+    if(files.some(f=>!MEDIA_TYPES[f.type]||f.size>MEDIA_TYPES[f.type].maxBytes))return 'Use fotos (5 MB), video (15 MB) ou audios (10 MB) em formatos aceitos.';
     return '';
-  },[files,imageFiles.length,videoFiles.length]);
+  },[files,imageFiles.length,videoFiles.length,audioFiles.length]);
   function editService(index:number,key:keyof Service,value:string){
     setServices(list=>list.map((item,i)=>i===index?{...item,[key]:value}:item));
   }
@@ -260,10 +262,11 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
 
     </div>}
     {activeStep===2&&<div className="mt-5 space-y-4">
-      <label className={label} htmlFor="file">Fotos e vídeos (opcionais)</label>
+      <label className={label} htmlFor="file">Fotos, vídeos e áudios (opcionais)</label>
       <p className="text-sm text-slate-600">Uma foto do local e outra do problema ajudam a equipe a avaliar melhor, evitando perguntas e deslocamentos desnecessários. Não anexe documentos pessoais.</p>
-      <input id="file" type="file" className={field} multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={e=>setFiles(Array.from(e.target.files??[]))}/>
-      <p className="text-xs text-slate-500">Até 3 fotos (5 MB cada) e um vídeo (15 MB).</p>
+      <input id="file" type="file" className={field} multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,audio/*,.ogg,.opus,.m4a" onChange={e=>setFiles(Array.from(e.target.files??[]).map(file=>file.name.toLowerCase().endsWith('.ogg')&&['','application/ogg'].includes(file.type)?new File([file],file.name,{type:'audio/ogg'}):file))}/>
+      <p className="text-xs text-slate-500">Até 3 fotos (5 MB), 1 vídeo (15 MB) e 5 áudios (10 MB cada).</p>
+      <AiAudioRecorder disabled={busy} onFile={file=>setFiles(list=>[...list,file])}/>
       {files.length>0&&<p role="status" className="rounded-lg bg-slate-50 p-2 text-xs text-slate-700">{files.length} anexo(s) mantido(s) neste pedido: {files.map(f=>f.name).join(', ')}</p>}
       {mediaError&&<p role="alert" className="text-xs text-rose-700">{mediaError}</p>}
       <label className={label} htmlFor="urgency">Urgência percebida</label>

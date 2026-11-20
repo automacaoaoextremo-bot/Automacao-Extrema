@@ -30,9 +30,16 @@ export const MEDIA_TYPES: Record<string, { suffix: string; maxBytes: number }> =
   'image/webp': { suffix: '.webp', maxBytes: 5 * 1024 * 1024 },
   'video/mp4': { suffix: '.mp4', maxBytes: 15 * 1024 * 1024 },
   'video/webm': { suffix: '.webm', maxBytes: 15 * 1024 * 1024 },
+  'audio/ogg': { suffix: '.ogg', maxBytes: 10 * 1024 * 1024 },
+  'audio/opus': { suffix: '.opus', maxBytes: 10 * 1024 * 1024 },
+  'audio/webm': { suffix: '.webm', maxBytes: 10 * 1024 * 1024 },
+  'audio/mp4': { suffix: '.m4a', maxBytes: 10 * 1024 * 1024 },
+  'audio/mpeg': { suffix: '.mp3', maxBytes: 10 * 1024 * 1024 },
+  'audio/x-m4a': { suffix: '.m4a', maxBytes: 10 * 1024 * 1024 },
 };
 export const MAX_IMAGES = 3;
 export const MAX_VIDEOS = 1;
+export const MAX_AUDIOS = 5;
 
 export function normalizeBRPhone(value: unknown): string | null {
   if (typeof value !== 'string') return null;

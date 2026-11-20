@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/admin-fetch';
 import { REQUEST_STAGES, type RequestStage } from '@/lib/atendimento-inteligente/intake';
+import { AiRequestTimeline } from '@/components/atendimento-inteligente/request-timeline';
 import { AiQuoteEditor } from '@/components/atendimento-inteligente/quote-editor';
 
 type Intake = {
@@ -161,6 +162,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
             <button type="button" disabled={busy} onClick={() => void save()} className={`mt-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${isRmc ? 'bg-[#f28a20] text-[#242122]' : 'bg-[#123e50] text-white'}`}>{busy?'Salvando...':'Salvar tratativa N2'}</button>
           </div>
           : <p className="mt-3 text-xs text-slate-600">O registro do pedido é realizado pela equipe. A atualização técnica é restrita ao responsável autorizado.</p>}
+          {isRmc && <AiRequestTimeline key={`timeline-${active.id}`} requestId={active.id} />}
           <AiQuoteEditor key={active.id} requestId={active.id} phone={active.contact?.phone || ""} customerName={active.customer_name || active.contact?.display_name || "Cliente"} />
           <div className="mt-5 border-t pt-4"><h4 className="text-sm font-bold">Histórico de decisões</h4><div className="mt-2 max-h-[230px] space-y-2 overflow-y-auto">{events.map(evt=><div key={evt.id} className="rounded-lg bg-white p-2 text-xs"><b>{REQUEST_STAGES[evt.status as RequestStage] ?? evt.status}</b> • {stamp(evt.created_at)}{evt.note && <p className="mt-1 whitespace-pre-wrap text-slate-600">{evt.note}</p>}</div>)}</div></div>
         </>}
