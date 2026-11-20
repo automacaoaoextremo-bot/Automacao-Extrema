@@ -31,6 +31,13 @@ type TucxaPublicHeaderProps = {
   mobileActionColumns?: 2 | 3 | 4;
   compactMobileActions?: boolean;
   autoHighlightCurrent?: boolean;
+  /** Oculta somente a linha de navegacao quando usado em uma tela compacta. */
+  hideNavigation?: boolean;
+  /** Exibe nome e botao Sair na primeira linha somente quando solicitado. */
+  consulenteTopBar?: {
+    fullName: string;
+    onSignOut: () => void;
+  };
 };
 
 function getLocationMatchKey(href: string) {
@@ -255,6 +262,13 @@ function SectionLink({ link, active, onSelect, compactMobile = false }: { link: 
   );
 }
 
+function firstAndLastName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "Consulente";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
 function authenticatedNameFromUser(user: { user_metadata?: Record<string, unknown> } | null | undefined) {
   const metadata = user?.user_metadata ?? {};
   const candidates = [metadata.full_name, metadata.fullName, metadata.name];
@@ -271,6 +285,8 @@ export function TucxaPublicHeader({
   mobileActionColumns,
   compactMobileActions = true,
   autoHighlightCurrent = true,
+  hideNavigation = false,
+  consulenteTopBar,
 }: TucxaPublicHeaderProps) {
   const allLinks = useMemo(() => [...actions, ...sectionLinks], [actions, sectionLinks]);
   const [activeHref, setActiveHref] = useState(() =>
@@ -328,10 +344,10 @@ export function TucxaPublicHeader({
 
   return (
     <header data-tucxa-public-header className="sticky top-0 z-50 border-b border-[#dfe8df] bg-white/96 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-5 sm:py-2.5">
+      <div className={`mx-auto flex max-w-6xl items-center py-2 sm:px-5 sm:py-2.5 ${consulenteTopBar ? "gap-2 px-3 sm:gap-3" : "gap-3 px-4"}`}>
         <Link
           href="/solucoes/organizacao-em-harmonia/tucxa"
-          className="flex min-w-0 flex-1 items-center gap-3"
+          className={`flex min-w-0 flex-1 items-center ${consulenteTopBar ? "gap-2 sm:gap-3" : "gap-3"}`}
           aria-label="Ir para o site do Tucxa"
         >
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow ring-1 ring-[#123D2C]/10 sm:h-13 sm:w-13">
@@ -342,7 +358,7 @@ export function TucxaPublicHeader({
               <span className="shrink-0 whitespace-nowrap text-[1.05rem] font-black sm:text-[1.45rem]">
                 {tucxaTheme.organizationName}
               </span>
-              {effectiveAuthenticatedName && (
+              {effectiveAuthenticatedName && !consulenteTopBar && (
                 <span
                   className="min-w-0 truncate whitespace-nowrap text-[0.72rem] font-bold text-[#2F6B43] sm:text-[0.95rem]"
                   title={effectiveAuthenticatedName}
@@ -352,11 +368,30 @@ export function TucxaPublicHeader({
                 </span>
               )}
             </span>
-            <span className="block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]">
+            <span className={`truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em] ${consulenteTopBar ? "hidden sm:block" : "block"}`}>
               {tucxaTheme.fullName}
             </span>
           </span>
         </Link>
+        {consulenteTopBar && (
+          <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+            <span
+              className="max-w-[7.3rem] break-words text-right text-[0.68rem] font-bold leading-tight text-[#173323] sm:max-w-[13rem] sm:text-sm"
+              title={firstAndLastName(consulenteTopBar.fullName)}
+              aria-label={`Pessoa logada: ${firstAndLastName(consulenteTopBar.fullName)}`}
+            >
+              {firstAndLastName(consulenteTopBar.fullName)}
+            </span>
+            <button
+              type="button"
+              onClick={consulenteTopBar.onSignOut}
+              className="shrink-0 rounded-lg bg-[#123D2C] px-2.5 py-2 text-xs font-black text-white sm:px-4 sm:text-sm"
+              aria-label="Sair da conta do consulente"
+            >
+              Sair
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-[#fffdf7] px-4 py-1">
@@ -380,7 +415,7 @@ export function TucxaPublicHeader({
         </div>
       </div>
 
-      {(actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
+      {!hideNavigation && (actions.length > 0 || sectionLinks.length > 0 || (showSupport && supportHref)) && (
         <nav className="border-t border-[#dfe8df] bg-[#F7FAF2]/95 px-2 py-1.5 sm:px-3 sm:py-1.5" aria-label={navLabel}>
           <div
             className={`mx-auto max-w-6xl justify-center gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5 ${
