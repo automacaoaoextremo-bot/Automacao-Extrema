@@ -376,8 +376,12 @@ export function TucxaPublicHeader({
                 </span>
               )}
             </span>
-            <span className={`truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em] ${consulenteTopBar ? "hidden sm:block" : "block"}`}>
-              {tucxaTheme.fullName}
+            <span
+              className={consulenteTopBar
+                ? "block max-w-full text-[0.43rem] font-black uppercase leading-[1.15] tracking-[0.015em] text-[#2F6B43] [overflow-wrap:anywhere] sm:truncate sm:text-[0.7rem] sm:tracking-[0.16em]"
+                : "block truncate text-[0.56rem] font-black uppercase tracking-[0.16em] text-[#2F6B43] sm:text-[0.7rem] sm:tracking-[0.22em]"}
+            >
+              {consulenteTopBar ? "TEMPLO DE UMBANDA CABOCLO SETE FLEXAS" : tucxaTheme.fullName}
             </span>
           </span>
         </Link>
