@@ -11,6 +11,7 @@ export function AiHeaderActions({backHref}:{backHref?:string}){
   const {data:listener}=supabaseBrowser.auth.onAuthStateChange((_event,session)=>{if(active)setAuthenticated(Boolean(session));});
   return()=>{active=false;listener.subscription.unsubscribe();};
  },[]);
+ if(authenticated === true) return null;
  return <nav aria-label="Navegacao RMC" className="flex gap-1.5 text-xs font-bold sm:gap-2 sm:text-sm">
   {backHref?<Link href={backHref} className="rounded-full border px-3 py-2">Voltar</Link>:
     <Link href={`${base}/solicitar`} className="rounded-full bg-[#ef8924] px-3 py-2 text-[#242b31]">Solicitar</Link>}

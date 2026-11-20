@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: Context) {
     if (!scope) return NextResponse.json({ error: 'Sessão necessária.' }, { status: 401 });
     const { id } = await params;
     if (!isUuid(id)) return NextResponse.json({ error: 'Pedido inválido.' }, { status: 400 });
-    const { data: record, error } = await supabaseAdmin.from('ae_ai_requests').select('id,organization_id,conversation_id,category,description,neighborhood,urgency,status,created_at,updated_at,customer_name,property_address,preferred_contact,intake_source,intake_by,consent_confirmed,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel,beneficiary_relationship,requested_by_user_id').eq('id', id).maybeSingle();
+    const { data: record, error } = await supabaseAdmin.from('ae_ai_requests').select('id,organization_id,conversation_id,category,description,neighborhood,urgency,status,awaiting_response_from,created_at,updated_at,customer_name,property_address,preferred_contact,intake_source,intake_by,consent_confirmed,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel,beneficiary_relationship,requested_by_user_id').eq('id', id).maybeSingle();
     if (error) throw error;
     if (!record || !allowed(scope, record.organization_id)) return NextResponse.json({ error: 'Não encontrado.' }, { status: 404 });
     const { data: events, error: eventError } = await supabaseAdmin.from('ae_ai_request_history')
