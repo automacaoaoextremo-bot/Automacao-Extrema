@@ -40,6 +40,7 @@ type EntityCatalogItem = {
   appointmentEnabled: boolean;
   cavalinhoWhatsappEnabled: boolean;
   acceptsFirstTimeTransfers: boolean;
+  allowsNondefaultBooking: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -490,6 +491,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [entityAlphabetPicker, setEntityAlphabetPicker] = useState<EntityAlphabetPickerState | null>(null);
   const [entityReturnLetter, setEntityReturnLetter] = useState("");
   const [entityEditorOpen, setEntityEditorOpen] = useState(false);
+  const [entityEditorSection, setEntityEditorSection] = useState<"permissoes" | "dias" | "indisponibilidades" | "extraordinario" | null>(null);
   const [entityExceptionDate, setEntityExceptionDate] = useState(() => todaySaoPaulo());
   const [extraordinaryDate, setExtraordinaryDate] = useState("");
   const [extraordinaryCapacity, setExtraordinaryCapacity] = useState("4");
@@ -573,6 +575,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     active: true,
     cavalinhoWhatsappEnabled: false,
     acceptsFirstTimeTransfers: false,
+    allowsNondefaultBooking: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -2201,6 +2204,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       active: true,
       cavalinhoWhatsappEnabled: false,
       acceptsFirstTimeTransfers: false,
+    allowsNondefaultBooking: false,
     });
   }
 
@@ -2288,6 +2292,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   function closeEntityEditor() {
     const returnLetter = entityReturnLetter;
     setEntityEditorOpen(false);
+    setEntityEditorSection(null);
     setEntityReturnLetter("");
     resetEntityDraft();
 
@@ -2312,6 +2317,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       active: entity?.active !== false,
       cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
       acceptsFirstTimeTransfers: entity?.acceptsFirstTimeTransfers === true,
+      allowsNondefaultBooking: entity?.allowsNondefaultBooking === true,
     });
   }
 
@@ -2347,6 +2353,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         active: editEntity.active,
         cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
         acceptsFirstTimeTransfers: editEntity.acceptsFirstTimeTransfers,
+        allowsNondefaultBooking: editEntity.allowsNondefaultBooking,
       });
       if (editEntity.entityId && entityExceptionDate && entityExceptionReason.trim()) {
         await postPilot({
@@ -3892,12 +3899,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           {payload.cavalinhos.map((person) => <option key={person.id} value={person.id}>{person.name}{person.whatsapp ? ` · ${displayWhatsapp(person.whatsapp)}` : ""}</option>)}
                         </select>
                       </label>
-                      {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => setEntityEditorSection("permissoes")} className="rounded-xl bg-[#E9F2E7] px-3 py-3 text-left text-xs font-black text-[#123D2C]">Permissões e avisos · abrir</button>
+                        <button type="button" onClick={() => setEntityEditorSection("dias")} className="rounded-xl bg-[#F7FAF2] px-3 py-3 text-left text-xs font-black text-[#123D2C]">Dias de atendimento · abrir</button>
+                        {editEntity.entityId && <button type="button" onClick={() => setEntityEditorSection("indisponibilidades")} className="rounded-xl bg-amber-50 px-3 py-3 text-left text-xs font-black text-amber-950">Indisponibilidades · abrir</button>}
+                        {editEntity.entityId && <button type="button" onClick={() => setEntityEditorSection("extraordinario")} className="rounded-xl bg-emerald-50 px-3 py-3 text-left text-xs font-black text-[#123D2C]">Data extraordinária · abrir</button>}
+                      </div>
+                      {entityEditorSection && (
+                        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-3" role="dialog" aria-modal="true" aria-label="Configurações da Entidade">
+                          <div className="max-h-[min(90dvh,800px)] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
+                            <div className="mb-3 flex items-center justify-between gap-2">
+                              <h3 className="font-black text-[#123D2C]">Configurar Entidade</h3>
+                              <button type="button" onClick={() => setEntityEditorSection(null)} className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
+                            </div>
+                            {entityEditorSection === "permissoes" && <section className="grid gap-2">                      {editEntity.entityId && <Toggle checked={editEntity.active} onChange={(active) => setEditEntity((current) => ({ ...current, active }))} label="Entidade ativa para atendimento/agendamento" />}
                       <Toggle checked={editEntity.cavalinhoWhatsappEnabled} onChange={(cavalinhoWhatsappEnabled) => setEditEntity((current) => ({ ...current, cavalinhoWhatsappEnabled }))} label="Cavalinho recebe avisos de atendimentos previstos pelo WhatsApp" />
+                      <div className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
                       <Toggle checked={editEntity.acceptsFirstTimeTransfers} onChange={(acceptsFirstTimeTransfers) => setEditEntity((current) => ({ ...current, acceptsFirstTimeTransfers }))} label="Pode receber troca de Entidade de consulentes Primeira Vez" />
                       <p className="px-2 text-[11px] font-semibold text-slate-600">Habilita apenas a realocação feita pela Recepção. Não altera as regras de agendamento inicial de Primeira Vez.</p>
-                      <details className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
-                        <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Dias de atendimento · toque para configurar</summary>
+                      </div>
+                      <Toggle checked={editEntity.allowsNondefaultBooking} onChange={(allowsNondefaultBooking) => setEditEntity((current) => ({ ...current, allowsNondefaultBooking }))} label="Permitir que um consulente agende com esta Entidade mesmo não sendo sua Entidade padrão" />
+                            </section>}
+                            {entityEditorSection === "dias" && <section>                      <section className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
+                        <h3 className="text-sm font-black text-[#123D2C]">Dias de atendimento</h3>
                         <div className="mt-3 grid gap-2">
                           <EntityOccurrencePicker label="Segunda-feira" values={editEntity.mondayOccurrences} onToggle={(occurrence) => toggleEntityOccurrence("mondayOccurrences", occurrence)} />
                           <label className="grid gap-1 text-xs font-black">Ordem de exibição — segunda-feira (0 a 9999)
@@ -3909,10 +3933,11 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           </label>
                           <p className="text-[11px] font-semibold leading-4 text-slate-500">Marque as ocorrências do mês. Salvar substitui o calendário do piloto desta Entidade.</p>
                         </div>
-                      </details>
-                      {editEntity.entityId && (
-                        <details className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                          <summary className="cursor-pointer text-sm font-black text-amber-950">Indisponibilidades · bloquear ou reativar data</summary>
+                      </section>
+                            </section>}
+                            {entityEditorSection === "indisponibilidades" && <section>                      {editEntity.entityId && (
+                        <section className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <h3 className="text-sm font-black text-amber-950">Indisponibilidades</h3>
                           <div className="mt-3 grid gap-2">
                           <label className="grid gap-1 text-xs font-black text-amber-950">
                             Data prevista da Entidade
@@ -3935,17 +3960,24 @@ export default function AgendamentoPilotoRecepcaoPage() {
                             </div>
                           ))}
                           </div>
-                        </details>
+                        </section>
                       )}
-                      {editEntity.entityId && (
-                        <details className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                          <summary className="cursor-pointer text-sm font-black text-[#123D2C]">Atendimento extraordinário · data fora da escala</summary>
+                            </section>}
+                            {entityEditorSection === "extraordinario" && <section>                      {editEntity.entityId && (
+                        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                          <h3 className="text-sm font-black text-[#123D2C]">Atendimento extraordinário</h3>
                           <p className="mt-2 text-xs text-[#123D2C]">Somente segundas ou terças-feiras. Não modifica a escala mensal.</p>
                           <label className="mt-2 grid gap-1 text-xs font-black">Data<input type="date" value={extraordinaryDate} min={todaySaoPaulo()} onChange={(event) => setExtraordinaryDate(event.target.value)} className="rounded-lg border p-2" /></label>
                           <label className="mt-2 grid gap-1 text-xs font-black">Vagas<input type="number" min={1} max={200} value={extraordinaryCapacity} onChange={(event) => setExtraordinaryCapacity(event.target.value)} className="rounded-lg border p-2" /></label>
                           <button type="button" disabled={saving || !extraordinaryDate} onClick={() => void saveExtraordinaryDate()} className="mt-2 rounded-lg bg-[#123D2C] px-4 py-2 text-xs font-black text-white disabled:opacity-50">Adicionar data excepcional</button>
                           {extraordinaryDates.map((special) => <div key={special.id} className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white p-2 text-xs"><span>{special.starts_on.split("-").reverse().join("/")} · {special.capacity ?? "—"} vagas</span><button type="button" disabled={saving} onClick={() => void deleteExtraordinaryDate(special.starts_on)} className="font-black text-red-700">Remover</button></div>)}
-                        </details>
+                        </section>
+                      )}
+                            </section>}
+                            <p className="mt-3 text-xs font-semibold text-slate-600">As opções de cadastro são gravadas ao clicar em Salvar Entidade na tela anterior. Datas extraordinárias e reativações são ações imediatas.</p>
+                            <button type="button" onClick={() => setEntityEditorSection(null)} className="mt-3 w-full rounded-xl bg-[#123D2C] p-3 font-black text-white">Concluir edição</button>
+                          </div>
+                        </div>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <button type="button" disabled={saving} onClick={closeEntityEditor} className="rounded-xl bg-white px-4 py-2.5 font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Voltar à lista</button>

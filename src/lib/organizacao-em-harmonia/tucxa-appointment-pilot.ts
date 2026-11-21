@@ -10,6 +10,8 @@ export type PilotEntityAvailability = {
   id: string;
   name: string;
   slug: string;
+  /** Nome completo apenas para exibir no autoagendamento do Consulente. */
+  displayName: string;
   capacity: number;
   booked: number;
   available: number;
@@ -964,7 +966,7 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
   const [{ data: entities, error: entityError }, { data: overrides, error: overrideError }, { data: appointments, error: appointmentError }] = await Promise.all([
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id, name, slug, daily_capacity, pilot_display_order, active, appointment_enabled")
+      .select("id, name, slug, line, daily_capacity, pilot_display_order, active, appointment_enabled")
       .eq("organization_id", organizationId)
       .in("id", entityIds),
     supabaseAdmin
@@ -1040,6 +1042,7 @@ export async function loadPilotDay(organizationId: string, date: string): Promis
         id,
         name: `${asText(entity.name) || "Entidade"}${(cavalinhoNames.get(id) ?? []).length ? ` (${(cavalinhoNames.get(id) ?? []).join(", ")})` : ""}`,
         slug: asText(entity.slug),
+        displayName: `${asText(entity.name) || "Entidade"}${asText(entity.line) ? ` (${asText(entity.line)})` : ""}${(cavalinhoNames.get(id) ?? []).length ? ` (${(cavalinhoNames.get(id) ?? []).join(", ")})` : ""}`,
         capacity,
         booked,
         available: isAvailable ? Math.max(capacity - booked, 0) : 0,

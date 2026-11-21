@@ -756,7 +756,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled,pilot_accepts_first_time_transfers")
+      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled,pilot_accepts_first_time_transfers,pilot_allows_nondefault_booking")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -803,6 +803,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       appointmentEnabled: entity.appointment_enabled !== false,
       cavalinhoWhatsappEnabled: entity.pilot_cavalinho_whatsapp_enabled === true,
       acceptsFirstTimeTransfers: entity.pilot_accepts_first_time_transfers === true,
+      allowsNondefaultBooking: entity.pilot_allows_nondefault_booking === true,
       mondayOccurrences: Array.from(new Set(schedule.mondayOccurrences)).sort((a, b) => a - b),
       tuesdayOccurrences: Array.from(new Set(schedule.tuesdayOccurrences)).sort((a, b) => a - b),
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -2979,6 +2980,7 @@ export async function POST(request: Request) {
       const entityActive = body.active !== false;
       const cavalinhoWhatsappEnabled = body.cavalinhoWhatsappEnabled === true;
       const acceptsFirstTimeTransfers = body.acceptsFirstTimeTransfers === true;
+      const allowsNondefaultBooking = body.allowsNondefaultBooking === true;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
@@ -3001,6 +3003,7 @@ export async function POST(request: Request) {
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
+            pilot_allows_nondefault_booking: allowsNondefaultBooking,
             active: entityActive,
             updated_at: new Date().toISOString(),
           })
@@ -3043,6 +3046,7 @@ export async function POST(request: Request) {
             appointment_enabled: entityActive,
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
+            pilot_allows_nondefault_booking: allowsNondefaultBooking,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: entityActive,
