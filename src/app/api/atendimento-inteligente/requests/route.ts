@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { aeScope, allowed, isUuid, safeError } from '@/lib/atendimento-inteligente/security';
 import { normalizeBRPhone, PILOTO_CATEGORIES, RMC_CATEGORIES, stringField } from '@/lib/atendimento-inteligente/intake';
+import { isValidISODate } from '@/lib/atendimento-inteligente/timeline';
 import { rmcActor, customerCanSubmitRequest } from '@/lib/atendimento-inteligente/customer-auth';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,7 @@ type NewRequestBody = {
   consentConfirmed?: boolean; assisted?: boolean;
   turnstileToken?: string;
   customerId?: string; addressId?: string; addressData?: Record<string,string>;
-  onBehalfOf?: boolean;
+  onBehalfOf?: boolean; savedRecipientId?: string; historical?: { requestedAt?: string; importKey?: string; confirmed?: boolean };
   beneficiary?: { name?: string; phone?: string; relationship?: string; contactChannel?: string; authorizationConfirmed?: boolean };
   services?: {category?: string;description?:string;answers?:Record<string,string>}[];
 };
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     if (!isUuid(organizationId)) return NextResponse.json({ error: 'Empresa inválida.' }, { status: 400 });
     if (!allowed(scope, organizationId)) return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 });
     const { data, error } = await supabaseAdmin.from('ae_ai_requests')
-      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,public_contact_email,intake_source,intake_by,consent_confirmed,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel,beneficiary_relationship,category,description,neighborhood,urgency,status,awaiting_response_from,created_at,updated_at')
+      .select('id,organization_id,conversation_id,customer_name,property_address,preferred_contact,public_contact_email,intake_source,intake_by,consent_confirmed,on_behalf_of,beneficiary_name,beneficiary_phone,beneficiary_contact_channel,beneficiary_relationship,category,description,neighborhood,urgency,status,awaiting_response_from,requested_at,created_at,updated_at')
       .eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(150);
     if (error) throw error;
     const ids = Array.from(new Set((data ?? []).map(row => row.conversation_id)));
@@ -85,6 +86,13 @@ export async function POST(request: NextRequest) {
     const onBehalfOf = body.onBehalfOf === true;
     if (onBehalfOf && (assisted || orgSlug !== 'reparos-rmc')) {
       return NextResponse.json({error:'Solicitacao para terceiros disponivel somente no portal autenticado RMC.'},{status:400});
+    }
+    const savedId=body.savedRecipientId;
+    const historical=body.historical;
+    if ((savedId!==undefined && (!onBehalfOf || !isUuid(savedId))) ||
+      (historical!==undefined && (!onBehalfOf || historical?.confirmed!==true || !isUuid(historical.importKey) ||
+        !isValidISODate(historical.requestedAt) || Date.parse(historical.requestedAt)>Date.now()))) {
+      return NextResponse.json({error:'Endereco salvo ou data historica invalida.'},{status:400});
     }
     let customerActor: Awaited<ReturnType<typeof rmcActor>> | null = null;
     let effectiveCustomerId: string | null = null;
@@ -148,12 +156,13 @@ export async function POST(request: NextRequest) {
         complement:stringField(addr.complement,100),neighborhood:stringField(addr.neighborhood,120),
         city:stringField(addr.city,120),state:stringField(addr.state,2).toUpperCase(),
       }:null;
-      if(!addressId && (!normalizedAddress || !/^\d{8}$/.test(normalizedAddress.cep) ||
+      if(!addressId && !savedId && (!normalizedAddress || !/^\d{8}$/.test(normalizedAddress.cep) ||
         !/^[A-Z]{2}$/.test(normalizedAddress.state) || !normalizedAddress.street ||
         !normalizedAddress.number || !normalizedAddress.city || !normalizedAddress.neighborhood)) {
         return NextResponse.json({error:'Endereco completo com CEP, rua, numero, bairro, cidade e UF e obrigatorio.'},{status:400});
       }
       let requestId: unknown;
+      let duplicate=false;
       let error: {message:string}|null=null;
       if(onBehalfOf) {
         // A identidade do solicitante vem exclusivamente da sessao autenticada.
@@ -166,11 +175,19 @@ export async function POST(request: NextRequest) {
         if(!customerActor || customerActor.role!=='customer' || !recipientPhone ||
            recipientName.length<2 || recipient?.authorizationConfirmed!==true ||
            !['phone','requester','whatsapp'].includes(contactChannel) || addressId) {
-          return NextResponse.json({error:'Informe os dados da pessoa atendida, um endereco novo e confirme a autorizacao.'},{status:400});
+          return NextResponse.json({error:'Informe os dados da pessoa atendida, um endereco valido e confirme a autorizacao.'},{status:400});
+        }
+        if(savedId){
+          const {data:saved,error:savedError}=await supabaseAdmin.from('ae_ai_rmc_saved_recipients').select('id,name,phone')
+            .eq('id',savedId).eq('organization_id',organization.id).eq('owner_user_id',customerActor.userId)
+            .eq('customer_id',effectiveCustomerId).maybeSingle();
+          if(savedError)throw savedError;
+          if(!saved||saved.phone!==recipientPhone||saved.name.trim().toLowerCase()!==recipientName.toLowerCase())
+            return NextResponse.json({error:'Endereco salvo nao pertence a essa pessoa.'},{status:403});
         }
         // Identifique o local no cadastro de enderecos do solicitante.
         if(normalizedAddress) normalizedAddress.label=`Atendimento: ${recipientName}`.slice(0,50);
-        const result=await supabaseAdmin.rpc('ae_ai_register_request_for_third_party_v1',{
+        const result=await supabaseAdmin.rpc('ae_ai_register_request_for_third_party_v2',{
           p_organization_id:organization.id,
           p_requester_customer_id:effectiveCustomerId,
           p_requester_auth_user_id:customerActor.userId,
@@ -180,8 +197,9 @@ export async function POST(request: NextRequest) {
           p_beneficiary_name:recipientName,p_beneficiary_phone:recipientPhone,
           p_beneficiary_relationship:relationship,p_contact_channel:contactChannel,
           p_consent_confirmed:true,p_secret_hash:hash,p_secret_expires_at:expires,
+          p_saved_id:savedId??null,p_requested_at:historical?.requestedAt??null,p_import_key:historical?.importKey??null,
         });
-        requestId=result.data;error=result.error;
+        requestId=result.data?.requestId;duplicate=result.data?.duplicate===true;error=result.error;
       } else {
         const result=await supabaseAdmin.rpc('ae_ai_register_request_v4',{
           p_organization_id:organization.id,p_customer_id:effectiveCustomerId,
@@ -196,7 +214,7 @@ export async function POST(request: NextRequest) {
         requestId=result.data;error=result.error;
       }
       if(error||!isUuid(requestId)) throw error ?? new Error('Registro nao concluido');
-      return NextResponse.json({requestId,uploadSecret,expiresAt:expires,
+      return NextResponse.json({requestId,duplicate,uploadSecret:duplicate?undefined:uploadSecret,expiresAt:duplicate?undefined:expires,
         message:'Solicitacao registrada para avaliacao; nao confirma preco ou data.'},{status:201});
     }
     // Preserva o fluxo legado do centro automotivo durante a Fase 0.
