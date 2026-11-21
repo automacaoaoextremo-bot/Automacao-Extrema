@@ -9,7 +9,7 @@ import { AiQuoteEditor } from '@/components/atendimento-inteligente/quote-editor
 type Intake = {
   id: string; organization_id: string; conversation_id: string;
   category: string; description: string; neighborhood: string; urgency: string;
-  status: string; created_at: string; customer_name: string | null;
+  status: string; awaiting_response_from?:string|null; created_at: string; customer_name: string | null;
   property_address: string | null; preferred_contact: string | null; public_contact_email?: string | null;
   intake_source: string; on_behalf_of?:boolean; beneficiary_name?:string|null; beneficiary_phone?:string|null; beneficiary_relationship?:string|null; beneficiary_contact_channel?:string|null;
   contact: { phone: string; display_name: string | null } | null;
@@ -133,6 +133,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           <span className="block font-bold">{item.on_behalf_of ? item.beneficiary_name : (item.customer_name || item.contact?.display_name || 'Cliente')}</span>
           <span className="block text-xs text-slate-700">{item.category} • {item.neighborhood}</span>
           <span className="mt-1 block text-xs text-slate-500">{REQUEST_STAGES[item.status as RequestStage] ?? item.status} • {stamp(item.created_at)}</span>
+          {item.awaiting_response_from&&<span className="mt-1 block text-xs font-semibold text-orange-800">{item.awaiting_response_from==='customer'?'Aguardando cliente':'Aguardando Anderson (N2)'}</span>}
           {item.intake_source === 'assisted_n1' && <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">Cadastro assistido</span>}
         </button>)}
         {visibleRows.length>pageSize&&<div className="flex items-center justify-between gap-2 border-t pt-3 text-xs">
@@ -159,6 +160,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           </div>)}</div>:<p className="mt-3 whitespace-pre-wrap rounded-xl bg-white p-3 text-sm">{active.description}</p>}
           <p className="mt-2 text-xs text-slate-500">Fonte: {active.intake_source === 'assisted_n1' ? 'Registro assistido pela equipe' : active.intake_source === 'web_self_service' ? 'Formulário preenchido pelo cliente' : 'WhatsApp Cloud API'} • {stamp(active.created_at)}</p>
           {active.preferred_contact && <p className="mt-2 text-xs text-slate-600">Preferência de contato: {active.preferred_contact}</p>}
+          {active.awaiting_response_from&&<p className="mt-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-bold">Próxima ação: {active.awaiting_response_from==='customer'?'Resposta do cliente':'Análise do Anderson (N2)'}</p>}
           {media.length > 0 && <div className="mt-4"><h4 className="text-sm font-bold">Fotos e vídeos anexados</h4><div className="mt-2 flex flex-wrap gap-2">{media.map(file => file.url ? <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="rounded-lg border bg-white p-2 text-xs underline">{file.mimeType.startsWith('video/') ? 'Vídeo: ' : 'Foto: '}{file.name}</a> : <span key={file.id} className="text-xs">Arquivo indisponível</span>)}</div><p className="mt-1 text-[11px] text-slate-500">Links privados temporários. Não encaminhe a terceiros sem autorização.</p></div>}
           {canManageN2 ? <div className="mt-5 border-t pt-4"><h4 className="text-sm font-bold">Análise e andamento do pedido</h4>
             <label className="mt-3 block text-xs font-semibold" htmlFor="ai-stage">Etapa do pedido</label>
@@ -168,7 +170,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
             <button type="button" disabled={busy} onClick={() => void save()} className={`mt-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${isRmc ? 'bg-[#f28a20] text-[#242122]' : 'bg-[#123e50] text-white'}`}>{busy?'Salvando...':'Salvar tratativa N2'}</button>
           </div>
           : <p className="mt-3 text-xs text-slate-600">O registro do pedido é realizado pela equipe. A atualização técnica é restrita ao responsável autorizado.</p>}
-          {isRmc && <AiRequestTimeline key={`timeline-${active.id}`} requestId={active.id} />}
+          {isRmc && <AiRequestTimeline key={`timeline-${active.id}`} requestId={active.id} onChanged={()=>{void loadList().catch(()=>setError('Falha ao atualizar fila.'));}} />}
           <AiQuoteEditor key={active.id} requestId={active.id} phone={active.on_behalf_of && active.beneficiary_contact_channel==='whatsapp' ? (active.beneficiary_phone||'') : active.on_behalf_of && active.beneficiary_contact_channel==='phone' ? '' : (active.contact?.phone||'')} customerName={active.on_behalf_of && active.beneficiary_contact_channel==='requester' ? (active.customer_name||'Solicitante') : active.on_behalf_of ? (active.beneficiary_name||'Cliente') : (active.customer_name || active.contact?.display_name || 'Cliente')} contactChannel={active.on_behalf_of ? (active.beneficiary_contact_channel||'phone') : 'whatsapp'} />
           <div className="mt-5 border-t pt-4"><h4 className="text-sm font-bold">Histórico de decisões</h4><div className="mt-2 max-h-[230px] space-y-2 overflow-y-auto">{events.map(evt=><div key={evt.id} className="rounded-lg bg-white p-2 text-xs"><b>{REQUEST_STAGES[evt.status as RequestStage] ?? evt.status}</b> • {stamp(evt.created_at)}{evt.note && <p className="mt-1 whitespace-pre-wrap text-slate-600">{evt.note}</p>}</div>)}</div></div>
         </>}

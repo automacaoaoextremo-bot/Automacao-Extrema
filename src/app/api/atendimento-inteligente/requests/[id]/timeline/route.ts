@@ -7,7 +7,7 @@ import {TIMELINE_MIMES, TIMELINE_BUCKET} from '@/lib/atendimento-inteligente/tim
 export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{id:string}> };
 type Submission = {kind?:'message'|'attachment';text?:string;fileName?:string;mimeType?:string;
-  size?:number;origin?:string;occurredAt?:string;importedAuthor?:string;sourceKey?:string};
+  size?:number;origin?:string;occurredAt?:string;importedAuthor?:string;sourceKey?:string;requiresResponse?:boolean};
 const fail=(error:string,status:number)=>NextResponse.json({error},{status});
 async function signFile(path:string){
  const {data,error}=await supabaseAdmin.storage.from(TIMELINE_BUCKET).createSignedUrl(path,300);
@@ -19,6 +19,9 @@ export async function GET(request:NextRequest,{params}:Ctx){
   const access=await timelineAccess(request,id);
   if(!access)return fail('Pedido nao encontrado ou nao autorizado.',403);
   const org=access.record.organization_id;
+  const {data:requestState,error:stateError}=await supabaseAdmin.from('ae_ai_requests')
+   .select('status,awaiting_response_from').eq('organization_id',org).eq('id',id).single();
+  if(stateError)throw stateError;
   const [t,l,h]=await Promise.all([
     supabaseAdmin.from('ae_ai_request_timeline')
        .select('id,author_role,author_label,event_type,body,object_path,mime_type,original_name,uploaded,origin,occurred_at,created_at')
@@ -46,7 +49,8 @@ export async function GET(request:NextRequest,{params}:Ctx){
   const status=(h.data??[]).map(x=>({id:`status-${x.id}`,type:'status',author:'Sistema RMC',origin:'system',
     body:x.status,name:null,mimeType:null,occurredAt:x.created_at,importedAt:x.created_at,url:null}));
   return NextResponse.json({entries:[...entries,...legacy,...status].sort((a,b)=>
-    Date.parse(a.occurredAt)-Date.parse(b.occurredAt)||a.id.localeCompare(b.id)),canImport:access.canImport});
+    Date.parse(a.occurredAt)-Date.parse(b.occurredAt)||a.id.localeCompare(b.id)),
+    canImport:access.canImport,canManageN2:access.canImport,responseDue:requestState?.awaiting_response_from??null,requestStatus:requestState?.status??null});
  }catch(error){return fail(safeError(error),500);}
 }
 export async function POST(request:NextRequest,{params}:Ctx){
@@ -59,6 +63,9 @@ export async function POST(request:NextRequest,{params}:Ctx){
   const imported=data.origin==='whatsapp_import';
   if(data.origin&&data.origin!=='whatsapp_import')return fail('Origem invalida.',400);
   if(imported&&!access.canImport)return fail('A importacao e exclusiva do N2.',403);
+  const requiresResponse=data.requiresResponse===true;
+  if(requiresResponse&&(imported||access.actor.role!=='operator'||!access.canImport))
+    return fail('Somente o N2 pode solicitar resposta do cliente.',403);
   const occurredAt=imported ? data.occurredAt : new Date().toISOString();
   if(imported&&(!isValidISODate(occurredAt)||Date.parse(occurredAt)>Date.now()+300000))return fail('Data historica invalida.',400);
   const sourceKey=imported ? String(data.sourceKey??'') : null;
@@ -68,7 +75,8 @@ export async function POST(request:NextRequest,{params}:Ctx){
   const authorLabel=imported?String(data.importedAuthor).slice(0,100):access.actor.name.slice(0,100);
   const base={organization_id:access.record.organization_id,request_id:id,
     author_user_id:access.actor.userId,author_role:authorRole,author_label:authorLabel,
-    origin:imported?'whatsapp_import':'portal',source_key:sourceKey,occurred_at:occurredAt};
+    origin:imported?'whatsapp_import':'portal',source_key:sourceKey,occurred_at:occurredAt,
+    requires_response:requiresResponse};
   if(kind==='message'){
     const body=String(data.text??'').trim();
     if(body.length<1||body.length>3000)return fail('Mensagem deve ter de 1 a 3000 caracteres.',400);
