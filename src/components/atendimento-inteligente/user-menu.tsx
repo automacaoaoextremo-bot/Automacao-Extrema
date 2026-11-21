@@ -55,6 +55,6 @@ export function AiUserMenu() {
   return <div className="flex min-w-0 items-center gap-1.5 text-[11px] sm:gap-2 sm:text-sm">
     <span className="max-w-[105px] truncate font-semibold text-[#1b3e53] sm:max-w-[230px]" title={actor.name}>{compactName}</span>
     <button type="button" onClick={() => void signOut()}
-      className="rounded-full border border-slate-300 px-2.5 py-1.5 font-semibold sm:px-3">Sair</button>
+      className={actor.role==='customer' ? "rounded-lg bg-[#123b30] px-3.5 py-2.5 text-sm font-bold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2" : "rounded-full border border-slate-300 px-2.5 py-1.5 font-semibold sm:px-3"}>Sair</button>
   </div>;
 }

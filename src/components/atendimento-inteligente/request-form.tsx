@@ -8,6 +8,7 @@ import { AiAudioRecorder } from '@/components/atendimento-inteligente/audio-reco
 import { BUCKET, MAX_IMAGES, MAX_VIDEOS, MAX_AUDIOS, MEDIA_TYPES, RMC_CATEGORIES, normalizeBRPhone } from '@/lib/atendimento-inteligente/intake';
 
 type Address = {id:string;label:string;cep:string;street:string;number:string;complement:string|null;neighborhood:string;city:string;state:string};
+type Recipient = {id:string;name:string;phone:string;relationship:string;contact_channel:'phone'|'requester'|'whatsapp';address:Address};
 type Customer = {id:string;fullName:string;phone:string;hasRequests:boolean;addresses:Address[]};
 type Actor = {role:'operator'|'customer';name:string;portalEnabled:boolean;mustChangePassword:boolean;canSubmitRequest:boolean};
 type Service = {category:string;description:string;specific:string};
@@ -50,6 +51,11 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
   const [customers,setCustomers]=useState<Customer[]>([]);
   const [customerId,setCustomerId]=useState('');
   const [myAddresses,setMyAddresses]=useState<Address[]>([]);
+  const [recipients,setRecipients]=useState<Recipient[]>([]);
+  const [savedRecipientId,setSavedRecipientId]=useState('');
+  const [recipientPage,setRecipientPage]=useState<0|1|2|null>(null);
+  const recipientDialog=useRef<HTMLDialogElement>(null);
+  const [recipientError,setRecipientError]=useState('');
   const [activeStep,setActiveStep]=useState<1|2|3|null>(null);
   const dialogRef=useRef<HTMLDialogElement>(null);
   const [services,setServices]=useState<Service[]>([startService()]);
@@ -80,8 +86,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       if(!active)return;
       setActor(info);
       if(info.role==='customer' && info.portalEnabled && !info.mustChangePassword){
-        const result=await adminFetch<{addresses:Address[]}>('/api/atendimento-inteligente/my/addresses');
-        if(active)setMyAddresses(result.addresses);
+        const result=await adminFetch<{addresses:Address[];recipients:Recipient[]}>('/api/atendimento-inteligente/my/addresses');
+        if(active){setMyAddresses(result.addresses);setRecipients(result.recipients??[]);}
       }
       if(info.role==='operator'){
         const orgs=await adminFetch<{organizations:{id:string;slug:string}[]}>('/api/atendimento-inteligente/organizations');
@@ -123,7 +129,7 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
 
   const beneficiaryReady=!onBehalfOf || (beneficiaryName.trim().length>=2 &&
     Boolean(normalizeBRPhone(beneficiaryPhone)) && beneficiaryAuthorized);
-  const addressReady=Boolean(addressId)||(
+  const addressReady=Boolean(addressId||savedRecipientId)||(
     /^\d{8}$/.test(address.cep.replace(/\D/g,'')) &&
     Boolean(address.street.trim()) && Boolean(address.number.trim()) &&
     Boolean(address.neighborhood.trim()) && Boolean(address.city.trim()) &&
@@ -136,6 +142,15 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
     if(activeStep!==null&&!dialog.open)dialog.showModal();
     if(activeStep===null&&dialog.open)dialog.close();
   },[activeStep]);
+  useEffect(()=>{
+    const dialog=recipientDialog.current;if(!dialog)return;
+    if(recipientPage!==null&&!dialog.open)dialog.showModal();
+    if(recipientPage===null&&dialog.open)dialog.close();
+  },[recipientPage]);
+  function resetRecipient(){setSavedRecipientId('');setBeneficiaryName('');setBeneficiaryPhone('');setBeneficiaryRelationship('');setBeneficiaryContactChannel('phone');setBeneficiaryAuthorized(false);setAddressId('');setAddress(blankAddress());setAddressPart(1);}
+  function pickRecipient(item:Recipient){setBeneficiaryName(item.name);setBeneficiaryPhone(item.phone);setBeneficiaryRelationship(item.relationship);setBeneficiaryContactChannel(item.contact_channel);setBeneficiaryAuthorized(false);setAddressId('');setSavedRecipientId(item.id);setAddress({...item.address,complement:item.address.complement??''});setAddressPart(1);setRecipientError('');setRecipientPage(2);}
+  const matchingRecipients=recipients.filter(r=>normalizeBRPhone(r.phone)===normalizeBRPhone(beneficiaryPhone)&&r.name.trim().toLocaleLowerCase('pt-BR')===beneficiaryName.trim().toLocaleLowerCase('pt-BR'));
+  const uniqueRecipients=recipients.filter((r,i,all)=>all.findIndex(v=>v.phone===r.phone&&v.name.trim().toLocaleLowerCase('pt-BR')===r.name.trim().toLocaleLowerCase('pt-BR'))===i);
   function openStep(n:1|2|3){setError('');setActiveStep(n);}
   function closeStep(){setError('');setActiveStep(null);}
   function validateStage(stage:1|2|3):boolean{
@@ -193,7 +208,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
             ?'Relato do problema enviado em audio. Ouvir arquivo anexo antes de orcar.':''),
           answers:{specific:s.specific}})),
         urgency,preferredContact,consentConfirmed:actor.role==='customer'?consent:false,
-        addressId:addressId||undefined,addressData:addressId?undefined:address,
+        savedRecipientId:onBehalfOf&&savedRecipientId?savedRecipientId:undefined,
+        addressId:addressId||undefined,addressData:addressId||savedRecipientId?undefined:address,
       };
       const created=await adminFetch<Created>('/api/atendimento-inteligente/requests',{
         method:'POST',body:JSON.stringify(payload),
@@ -215,7 +231,8 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
       setUploadFailures(failures);
       setMessage(`Solicitação registrada! Protocolo: ${created.requestId.slice(0,8).toUpperCase()}. Preço e data dependem de avaliação.`);
       setActiveStep(null);setServices([startService()]);setFiles([]);setConsent(false);setAddressPart(1);
-      setOnBehalfOf(false);setBeneficiaryName('');setBeneficiaryPhone('');setBeneficiaryRelationship('');setBeneficiaryAuthorized(false);setBeneficiaryContactChannel('phone');
+      setOnBehalfOf(false);resetRecipient();
+      if(actor.role==='customer'){try{const updated=await adminFetch<{addresses:Address[];recipients:Recipient[]}>('/api/atendimento-inteligente/my/addresses');setMyAddresses(updated.addresses);setRecipients(updated.recipients??[]);}catch{ /* Pedido ja registrado. */ }}
       // Atualiza enderecos gravados para que o proximo pedido possa reutiliza-los.
       if(actor.role==='operator' && customer) {
         try {
@@ -293,31 +310,20 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 pb-8 sm:px-6">
     {activeStep===1&&<div className="space-y-2">
       {actor.role==='customer'&&<div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-3">
-        <label className="flex items-start gap-2 text-sm font-bold"><input type="checkbox" checked={onBehalfOf} onChange={e=>{
-          setOnBehalfOf(e.target.checked);setAddressId('');setAddress(blankAddress());setAddressPart(1);
-        }}/><span>Solicitar para outra pessoa (sem precisar de WhatsApp ou cadastro próprio)</span></label>
-        {onBehalfOf&&<div className="space-y-3">
-          <p className="text-xs">O pedido sera acompanhado por sua conta; informe os dados da pessoa que recebera o servico.</p>
-          <label className={label}>Nome da pessoa atendida<input className={field} maxLength={120} value={beneficiaryName} onChange={e=>setBeneficiaryName(e.target.value)} required/></label>
-          <label className={label}>Telefone com DDD (fixo ou celular, WhatsApp nao obrigatorio)<input className={field} type="tel" inputMode="tel" maxLength={20} value={beneficiaryPhone} onChange={e=>setBeneficiaryPhone(e.target.value)} placeholder="(19) 3333-4444" required/></label>
-          <label className={label}>Relacao com a pessoa (opcional)<input className={field} maxLength={80} value={beneficiaryRelationship} onChange={e=>setBeneficiaryRelationship(e.target.value)} placeholder="Ex.: mae, familiar, vizinho"/></label>
-          <label className={label}>Como contatar sobre o servico<select className={field} value={beneficiaryContactChannel} onChange={e=>setBeneficiaryContactChannel(e.target.value as 'phone'|'requester'|'whatsapp')}>
-            <option value="phone">Ligar para a pessoa atendida</option>
-            <option value="requester">Falar comigo (solicitante)</option>
-            <option value="whatsapp">WhatsApp da pessoa atendida (somente se ela usa)</option>
-          </select></label>
-          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={beneficiaryAuthorized} onChange={e=>setBeneficiaryAuthorized(e.target.checked)}/>Confirmo que estou autorizado(a) a solicitar o servico e compartilhar os dados de contato e endereco desta pessoa.</label>
-        </div>}
+        <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={onBehalfOf} onChange={e=>{
+          setOnBehalfOf(e.target.checked);resetRecipient();setRecipientError('');setRecipientPage(e.target.checked?0:null);
+        }}/><span>Solicitar para outra pessoa</span></label>
+        {onBehalfOf&&<button type="button" className="text-left text-sm font-semibold text-[#173e53] underline" onClick={()=>{setRecipientError('');setRecipientPage(0);}}>{beneficiaryReady?`${beneficiaryName} — editar pessoa`:'Selecionar ou informar pessoa atendida'}</button>}
       </div>}
       <h2 className="text-base font-black text-[#16384b]">Onde será realizado o serviço?</h2>
-      {onBehalfOf&&actor.role==='customer'&&<p className="rounded-lg bg-slate-100 p-2 text-xs">Informe o endereco da pessoa atendida. Nenhum endereco seu sera escolhido automaticamente.</p>}
+      {onBehalfOf&&matchingRecipients.length>0&&<label className={label}>Endereço da pessoa atendida<select className={field} value={savedRecipientId} onChange={e=>{const item=matchingRecipients.find(r=>r.id===e.target.value);setSavedRecipientId(e.target.value);setAddress(item?{...item.address,complement:item.address.complement??''}:blankAddress());setAddressPart(1);}}><option value="">Informar outro endereço</option>{matchingRecipients.map(r=><option key={r.id} value={r.id}>{r.address.street}, {r.address.number}{r.address.complement?` (${r.address.complement})`:''} — {r.address.city}</option>)}</select></label>}
       {actor.role==='operator'&&customer&&!customer.hasRequests&&<p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">No primeiro pedido, cadastre o endereço uma única vez. Nas próximas solicitações, basta selecioná-lo; inclua outro somente se o serviço for em local diferente.</p>}
       {!(onBehalfOf&&actor.role==='customer')&&knownAddresses.length>0&&<><label className={label} htmlFor="existing-addr">Usar endereço já cadastrado</label>
         <select id="existing-addr" className={field} value={addressId} onChange={e=>{setAddressId(e.target.value);setAddressPart(1);}}>
           <option value="">Cadastrar outro endereço</option>
           {knownAddresses.map(a=><option value={a.id} key={a.id}>{a.label}: {a.street}, {a.number} — {a.city}/{a.state}</option>)}
         </select></>}
-      {!addressId&&<div className="space-y-2">
+      {!addressId&&!savedRecipientId&&<div className="space-y-2">
         <p className="text-xs font-semibold text-slate-600">Endereço novo — parte {addressPart} de 2</p>
         {addressPart===1?<div className="grid grid-cols-2 gap-2">
         <label className={`${label} col-span-2`}>CEP (obrigatório)<div className="flex gap-2"><input className={field} value={address.cep} inputMode="numeric" maxLength={9} onChange={e=>setAddress(a=>({...a,cep:e.target.value}))}/><button type="button" disabled={busy} onClick={()=>void searchCep()} className="mt-1 shrink-0 rounded-xl bg-[#163e51] px-3 text-xs text-white">Buscar</button></div></label>
@@ -382,12 +388,12 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
           {error&&<p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         </div>
         <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-white px-4 py-3 sm:px-6">
-          {activeStep===1&&!addressId&&addressPart===2
+          {activeStep===1&&!addressId&&!savedRecipientId&&addressPart===2
             ?<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={()=>{setError('');setAddressPart(1);}}>Voltar endereço</button>
             :activeStep!==null&&activeStep>1
               ?<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={()=>{setError('');setActiveStep((activeStep-1) as 1|2);}}>Anterior</button>
               :<button type="button" className="rounded-full border px-4 py-2 text-sm font-semibold" disabled={busy} onClick={closeStep}>Salvar e fechar</button>}
-          {activeStep===1&&!addressId&&addressPart===1
+          {activeStep===1&&!addressId&&!savedRecipientId&&addressPart===1
             ?<button type="button" className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-bold" disabled={busy} onClick={()=>{
               if(!/^\d{8}$/.test(address.cep.replace(/\D/g,''))||!address.street.trim()||!address.number.trim()){
                 setError('Preencha CEP, rua e número antes de continuar.');return;
@@ -398,6 +404,18 @@ export function AiRequestForm({initialOrg='reparos-rmc',fixedOrg=true}:{initialO
               ?<button type="button" className="rounded-full bg-[#ef8924] px-5 py-2.5 text-sm font-black" disabled={busy} onClick={nextStage}>Salvar e continuar</button>
               :<button type="submit" disabled={busy||(actor.role==='customer'&&!consent)||!beneficiaryReady||!!mediaError} className="rounded-full bg-[#ef8924] px-4 py-2.5 text-sm font-black disabled:opacity-50">{busy?'Registrando...':'Enviar solicitação'}</button>}
         </div>
+      </div>
+    </dialog>
+    <dialog ref={recipientDialog} onCancel={e=>{e.preventDefault();setRecipientPage(null);}} onClose={()=>setRecipientPage(null)} aria-labelledby="recipient-title" className="fixed inset-0 m-auto w-[calc(100vw-1rem)] max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl bg-white p-0 shadow-2xl backdrop:bg-black/65">
+      <div className="flex max-h-[calc(100dvh-1rem)] flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b p-3"><div><p className="text-xs text-slate-600">Pessoa atendida · {(recipientPage??0)+1} de 3</p><h2 id="recipient-title" className="font-black">{recipientPage===0?'Escolher pessoa':recipientPage===1?'Identificação':'Contato e autorização'}</h2></div><button type="button" className="rounded-lg bg-[#242122] px-3 py-2 text-sm font-bold text-white" onClick={()=>setRecipientPage(null)}>Fechar</button></header>
+        <div className="min-h-0 overflow-y-auto space-y-3 p-3">
+          {recipientPage===0&&<><label className={label}>Pessoas já atendidas<select className={field} value="" onChange={e=>{const item=uniqueRecipients.find(r=>r.id===e.target.value);if(item)pickRecipient(item);}}><option value="">Selecione uma pessoa</option>{uniqueRecipients.map(r=><option key={r.id} value={r.id}>{r.name} — {r.relationship||'Contato'}</option>)}</select></label><button type="button" className="w-full rounded-xl border p-3 text-sm font-bold" onClick={()=>{resetRecipient();setRecipientPage(1);}}>+ Nova pessoa</button>{beneficiaryName&&<button type="button" className="w-full rounded-xl border p-3 text-sm font-bold" onClick={()=>setRecipientPage(1)}>Editar dados atuais</button>}</>}
+          {recipientPage===1&&<><label className={label}>Nome<input className={field} maxLength={120} value={beneficiaryName} onChange={e=>{setBeneficiaryName(e.target.value);setSavedRecipientId('');setAddress(blankAddress());setAddressPart(1);setBeneficiaryAuthorized(false);}}/></label><label className={label}>Telefone com DDD<input className={field} type="tel" inputMode="tel" maxLength={20} value={beneficiaryPhone} onChange={e=>{setBeneficiaryPhone(e.target.value);setSavedRecipientId('');setAddress(blankAddress());setAddressPart(1);setBeneficiaryAuthorized(false);}}/></label><label className={label}>Relação (opcional)<input className={field} maxLength={80} value={beneficiaryRelationship} onChange={e=>setBeneficiaryRelationship(e.target.value)}/></label></>}
+          {recipientPage===2&&<><p className="text-sm font-bold">{beneficiaryName}</p><label className={label}>Como contatar<select className={field} value={beneficiaryContactChannel} onChange={e=>setBeneficiaryContactChannel(e.target.value as Recipient['contact_channel'])}><option value="phone">Ligar para a pessoa atendida</option><option value="requester">Falar comigo</option><option value="whatsapp">WhatsApp da pessoa atendida</option></select></label><label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={beneficiaryAuthorized} onChange={e=>setBeneficiaryAuthorized(e.target.checked)}/>Confirmo autorização para solicitar e compartilhar os dados e endereço desta pessoa.</label></>}
+          {recipientError&&<p className="text-sm text-rose-700" role="alert">{recipientError}</p>}
+        </div>
+        {recipientPage!==0&&<footer className="flex shrink-0 justify-between gap-2 border-t p-3"><button type="button" className="rounded-full border px-4 py-2 text-sm" onClick={()=>{setRecipientError('');setRecipientPage(recipientPage===2?1:0);}}>Anterior</button><button type="button" className="rounded-full bg-[#ef8924] px-4 py-2 text-sm font-bold" onClick={()=>{if(beneficiaryName.trim().length<2||!normalizeBRPhone(beneficiaryPhone)){setRecipientError('Informe nome e telefone válido.');setRecipientPage(1);return;}if(recipientPage===1){setRecipientError('');setRecipientPage(2);return;}if(!beneficiaryAuthorized){setRecipientError('Confirme a autorização.');return;}setRecipientError('');setRecipientPage(null);}}>{recipientPage===1?'Continuar':'Confirmar dados'}</button></footer>}
       </div>
     </dialog>
   </form>;

@@ -9,7 +9,7 @@ import { AiQuoteEditor } from '@/components/atendimento-inteligente/quote-editor
 type Intake = {
   id: string; organization_id: string; conversation_id: string;
   category: string; description: string; neighborhood: string; urgency: string;
-  status: string; awaiting_response_from?:string|null; created_at: string; customer_name: string | null;
+  status: string; awaiting_response_from?:string|null; created_at: string; requested_at?:string|null; customer_name: string | null;
   property_address: string | null; preferred_contact: string | null; public_contact_email?: string | null;
   intake_source: string; on_behalf_of?:boolean; beneficiary_name?:string|null; beneficiary_phone?:string|null; beneficiary_relationship?:string|null; beneficiary_contact_channel?:string|null;
   contact: { phone: string; display_name: string | null } | null;
@@ -132,7 +132,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
           className={`w-full rounded-xl border p-3 text-left text-sm ${active?.id === item.id ? 'border-[#ee8927] bg-[#fff4e7]' : 'border-slate-200 hover:bg-slate-50'}`}>
           <span className="block font-bold">{item.on_behalf_of ? item.beneficiary_name : (item.customer_name || item.contact?.display_name || 'Cliente')}</span>
           <span className="block text-xs text-slate-700">{item.category} • {item.neighborhood}</span>
-          <span className="mt-1 block text-xs text-slate-500">{REQUEST_STAGES[item.status as RequestStage] ?? item.status} • {stamp(item.created_at)}</span>
+          <span className="mt-1 block text-xs text-slate-500">{REQUEST_STAGES[item.status as RequestStage] ?? item.status} • {stamp(item.requested_at??item.created_at)}{item.requested_at&&" (data informada)"}</span>
           {item.awaiting_response_from&&<span className="mt-1 block text-xs font-semibold text-orange-800">{item.awaiting_response_from==='customer'?'Aguardando cliente':'Aguardando Anderson (N2)'}</span>}
           {item.intake_source === 'assisted_n1' && <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">Cadastro assistido</span>}
         </button>)}
@@ -158,7 +158,7 @@ export function AiRequestQueue({ organizationId, organizationSlug, canManageN2 =
             <b>{s.position}. {s.category}</b><p className="mt-1 whitespace-pre-wrap">{s.description}</p>
             {s.answers?.specific&&<p className="mt-1 text-xs text-slate-600">Detalhes: {s.answers.specific}</p>}
           </div>)}</div>:<p className="mt-3 whitespace-pre-wrap rounded-xl bg-white p-3 text-sm">{active.description}</p>}
-          <p className="mt-2 text-xs text-slate-500">Fonte: {active.intake_source === 'assisted_n1' ? 'Registro assistido pela equipe' : active.intake_source === 'web_self_service' ? 'Formulário preenchido pelo cliente' : 'WhatsApp Cloud API'} • {stamp(active.created_at)}</p>
+          <p className="mt-2 text-xs text-slate-500">Fonte: {active.intake_source === 'assisted_n1' ? 'Registro assistido pela equipe' : ['web_self_service','customer_portal'].includes(active.intake_source) ? 'Formulário preenchido pelo cliente' : 'WhatsApp Cloud API'} • {stamp(active.created_at)}</p>{active.requested_at&&<p className="mt-1 text-xs font-semibold">Data original declarada: {stamp(active.requested_at)}. Registro efetivo: {stamp(active.created_at)}</p>}
           {active.preferred_contact && <p className="mt-2 text-xs text-slate-600">Preferência de contato: {active.preferred_contact}</p>}
           {active.awaiting_response_from&&<p className="mt-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-bold">Próxima ação: {active.awaiting_response_from==='customer'?'Resposta do cliente':'Análise do Anderson (N2)'}</p>}
           {media.length > 0 && <div className="mt-4"><h4 className="text-sm font-bold">Fotos e vídeos anexados</h4><div className="mt-2 flex flex-wrap gap-2">{media.map(file => file.url ? <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="rounded-lg border bg-white p-2 text-xs underline">{file.mimeType.startsWith('video/') ? 'Vídeo: ' : 'Foto: '}{file.name}</a> : <span key={file.id} className="text-xs">Arquivo indisponível</span>)}</div><p className="mt-1 text-[11px] text-slate-500">Links privados temporários. Não encaminhe a terceiros sem autorização.</p></div>}
