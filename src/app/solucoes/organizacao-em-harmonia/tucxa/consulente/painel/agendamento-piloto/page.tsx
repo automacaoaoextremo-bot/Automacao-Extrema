@@ -22,8 +22,13 @@ type Payload = {
 };
 type Modal = "agendar" | "agendamentos" | "cadastro" | "configuracoes" | null;
 type View = "date" | "entity";
+type BookingStep = "who" | "dates" | "entities" | "review";
 function shortDate(value: string) { const [y, m, d] = value.split("-"); return y && m && d ? `${d}/${m}/${y}` : value; }
 function firstName(value: string) { return value.trim().split(/\s+/).filter(Boolean)[0] || "Consulente"; }
+function firstAndLastName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1]}` : (parts[0] || "Consulente");
+}
 function statusLabel(value: string) { return ({ solicitado: "Solicitado", confirmado: "Confirmado", cancelado: "Cancelado", presente: "Presente", concluido: "Concluído", ausente: "Não Chegou" } as Record<string, string>)[value] || value; }
 function statusClasses(value: string) {
   if (["confirmado", "presente", "concluido"].includes(value)) return "bg-emerald-50 text-emerald-800 ring-emerald-200";
@@ -40,6 +45,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
   const [targetPersonId, setTargetPersonId] = useState("");
   const [bookingFor, setBookingFor] = useState<"self" | "other">("self");
   const [bookingView, setBookingView] = useState<View>("date");
+  const [bookingStep, setBookingStep] = useState<BookingStep>("who");
   const [showRegistration, setShowRegistration] = useState(false);
   const [relatedForm, setRelatedForm] = useState({ fullName: "", relationship: "" });
   const [profile, setProfile] = useState({ fullName: "", whatsapp: "", email: "" });
@@ -90,6 +96,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
       const data = await callApi({ action: "book", appointmentDate: selectedDate, entityId: selectedEntityId, targetPersonId });
       setMessage(data.message || "Agendamento realizado.");
       await load(false);
+      setBookingStep("who");
       if (bookingFor === "other") { setBookingFor("self"); setModal(null); }
       else setModal("agendamentos");
     } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível agendar."); }
@@ -129,7 +136,39 @@ export default function ConsulenteAgendamentoPilotoPage() {
   }, [payload]);
   const selected = payload?.dates.find((item) => item.date === selectedDate);
   const chosenEntity = selected?.entities.find((entity) => entity.id === selectedEntityId);
-  const defaultEntity = payload?.defaultEntity.name || "Entidade a definir";
+  const defaultEntity = payload?.defaultEntity.name || "a confirmar";
+  const targetIsSelected = bookingFor === "self" || Boolean(payload?.relatedPeople.find((person) => person.personId && person.personId === targetPersonId));
+  const dateChoices = (payload?.dates ?? []).filter((date) => date.entities.length > 0 || date.alreadyBooked);
+  const entityDateChoices = (payload?.dates ?? []).filter((date) => date.entities.some((entity) => entity.id === selectedEntityId) || date.alreadyBooked);
+
+  function openBookingPath(view: View) {
+    setBookingView(view);
+    setSelectedDate("");
+    setSelectedEntityId("");
+    setError("");
+    setBookingStep(view === "date" ? "dates" : "entities");
+  }
+
+  function closeCurrentStep() {
+    if (saving) return;
+    setError("");
+    if (modal !== "agendar" || bookingStep === "who") {
+      setModal(null);
+      setBookingStep("who");
+      return;
+    }
+    if (bookingStep === "review") {
+      setBookingStep(bookingView === "date" ? "entities" : "dates");
+    } else if (bookingStep === "entities" && bookingView === "date") {
+      setBookingStep("dates");
+    } else if (bookingStep === "dates" && bookingView === "entity") {
+      setBookingStep("entities");
+    } else {
+      setBookingStep("who");
+    }
+  }
+
+  const bookingStepTitle = bookingStep === "dates" ? "Escolher data" : bookingStep === "entities" ? "Escolher Entidade" : bookingStep === "review" ? "Confirmar agendamento" : "Agendar atendimento";
 
   return <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
     <TucxaPublicHeader navLabel="Agendamento · Consulente" hideNavigation showSupport={false}
@@ -142,7 +181,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
       {error && <p role="alert" className="mt-3 rounded-2xl bg-red-50 p-3 font-bold text-red-700 ring-1 ring-red-100">{error}</p>}
       {message && <p role="status" className="mt-3 rounded-2xl bg-emerald-50 p-3 font-bold text-emerald-800">{message}</p>}
       {loading ? <p className="mt-6 font-bold">Carregando...</p> : <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-5 sm:gap-3">
-        <Card title="Agendar" text={`Entidade padrão: ${defaultEntity}.`} compactText="Atendimentos" onClick={() => { setModal("agendar"); setBookingFor("self"); setShowRegistration(false); void chooseTarget(""); }} />
+        <Card title="Agendar" text={`Entidade padrão: ${defaultEntity}.`} compactText="Atendimentos" onClick={() => { setModal("agendar"); setBookingStep("who"); setBookingFor("self"); setShowRegistration(false); void chooseTarget(""); }} />
         <Card title="Meus agendamentos" text={`${payload?.appointments.length || 0} próximo(s) agendamento(s).`} compactText={`${payload?.appointments.length || 0} próximo(s)`} onClick={() => setModal("agendamentos")} />
         <Card title="Cadastro" text="Atualize somente seus dados pessoais." compactText="Dados pessoais" onClick={() => setModal("cadastro")} />
         <Card title="Configurações" text="Escolha se seus próximos agendamentos devem abrir ao entrar." compactText="Preferências" onClick={() => setModal("configuracoes")} />
@@ -151,78 +190,81 @@ export default function ConsulenteAgendamentoPilotoPage() {
 
     {modal && payload && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-3 sm:p-4"
       role="dialog" aria-modal="true" aria-labelledby="tucxa-consulente-modal-title"
-      onMouseDown={(e) => { if (e.currentTarget === e.target) setModal(null); }}>
+      onMouseDown={(e) => { if (e.currentTarget === e.target) closeCurrentStep(); }}>
       <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-4 shadow-2xl sm:p-6">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="tucxa-consulente-modal-title" className="text-xl font-black text-[#123D2C]">{modal === "agendar" ? "Agendar atendimento" : modal === "agendamentos" ? "Meus agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}</h2>
-          <button type="button" onClick={() => setModal(null)} className="rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white">Fechar</button>
+          <h2 id="tucxa-consulente-modal-title" className="text-xl font-black text-[#123D2C]">
+            {modal === "agendar" ? bookingStepTitle : modal === "agendamentos" ? "Meus agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}
+          </h2>
+          <button type="button" onClick={closeCurrentStep} disabled={saving} className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-50">Fechar</button>
         </div>
         {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p>}
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
         {loading && <p className="mt-3 text-sm font-semibold text-slate-600">Consultando disponibilidade...</p>}
         {modal === "agendar" && <div className="mt-4 grid gap-3">
-          <fieldset className="rounded-xl bg-[#F7FAF2] p-3">
-            <legend className="text-sm font-black text-[#123D2C]">Para quem é o atendimento?</legend>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+          {bookingStep === "who" && <>
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#F7FAF2] p-2" role="group" aria-label="Pessoa que receberá o atendimento">
               <button type="button" aria-pressed={bookingFor === "self"} onClick={() => { setBookingFor("self"); setShowRegistration(false); void chooseTarget(""); }} className={`rounded-lg p-2 text-sm font-black ${bookingFor === "self" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Para mim</button>
               <button type="button" aria-pressed={bookingFor === "other"} onClick={() => { setBookingFor("other"); setSelectedDate(""); setSelectedEntityId(""); }} className={`rounded-lg p-2 text-sm font-black ${bookingFor === "other" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}>Outra pessoa</button>
             </div>
-          </fieldset>
-          {bookingFor === "other" && <div className="grid gap-2 rounded-xl border border-[#123D2C]/10 p-3">
-            <p className="text-sm font-black">Pessoa vinculada ao seu cadastro</p>
-            {payload.relatedPeople.length > 0 && <select className="w-full rounded-lg border p-3" value={targetPersonId === payload.relatedPeople.find((person) => person.personId === targetPersonId)?.personId ? targetPersonId : ""} onChange={(e) => { if (e.target.value) void chooseTarget(e.target.value); }}>
-              <option value="">Selecione uma pessoa</option>
-              {payload.relatedPeople.map((person) => <option key={person.relationshipId || person.personId} value={person.personId || `pending:${person.relationshipId}`} disabled={person.pending}>{person.fullName} — {person.relationship}{person.pending ? " · aguardando Recepção" : ""}</option>)}
-            </select>}
-            {!payload.relatedPeople.length && <p className="text-xs text-slate-600">Você ainda não possui pessoas vinculadas cadastradas neste sistema.</p>}
-            <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-black text-[#123D2C]" onClick={() => { setShowRegistration((value) => !value); setSelectedDate(""); setSelectedEntityId(""); }}>Cadastrar outra pessoa</button>
-            {showRegistration && <form onSubmit={(e) => void registerRelated(e)} className="grid gap-2">
-              <p className="text-xs text-slate-600">A solicitação de vínculo ficará pendente até a Recepção verificar se já existe cadastro individual e confirmar a Entidade padrão. Nomes não são usados como identificação única.</p>
-              <label className="grid gap-1 text-xs font-black">Nome completo<input required minLength={3} maxLength={160} value={relatedForm.fullName} onChange={(e) => setRelatedForm((v) => ({ ...v, fullName: e.target.value }))} className="rounded-lg border p-2" /></label>
-              <label className="grid gap-1 text-xs font-black">Relação com você<input required minLength={2} maxLength={80} placeholder="Ex.: mãe, amigo, filho" value={relatedForm.relationship} onChange={(e) => setRelatedForm((v) => ({ ...v, relationship: e.target.value }))} className="rounded-lg border p-2" /></label>
-              <button type="submit" disabled={saving} className="rounded-lg bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Cadastrando..." : "Cadastrar e vincular"}</button>
-            </form>}
-          </div>}
-          {(bookingFor === "self" || Boolean(payload.relatedPeople.find((person) => person.personId === targetPersonId))) && !showRegistration && <>
-            <p className="text-sm font-semibold">Atendimento para: <strong>{payload.targetPerson.fullName}</strong></p>
-            {payload.bookingRule.mode === "awaiting_default_entity" && <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">A Recepção precisa confirmar a Entidade padrão desta pessoa antes de liberar o agendamento.</p>}
-            {payload.bookingRule.mode !== "awaiting_default_entity" && <>
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" aria-pressed={bookingView === "date"} onClick={() => { setBookingView("date"); setSelectedDate(""); setSelectedEntityId(""); }} className={`rounded-xl border p-3 text-left ${bookingView === "date" ? "border-[#123D2C] bg-[#E9F2E7]" : "bg-white"}`}><strong className="block text-sm">Data</strong><span className="text-[10px] font-black uppercase text-[#2F6B43]">Toque para abrir</span></button>
-                <button type="button" aria-pressed={bookingView === "entity"} onClick={() => { setBookingView("entity"); setSelectedDate(""); setSelectedEntityId(""); }} className={`rounded-xl border p-3 text-left ${bookingView === "entity" ? "border-[#123D2C] bg-[#E9F2E7]" : "bg-white"}`}><strong className="block text-sm">Entidade</strong><span className="text-[10px] font-black uppercase text-[#2F6B43]">Toque para abrir</span></button>
-              </div>
-              {bookingView === "date" && <div className="grid gap-2">
-                <p className="text-xs text-slate-600">Escolha uma data. Datas já reservadas para essa pessoa não podem ser selecionadas.</p>
-                {payload.dates.filter((date) => date.entities.length || date.alreadyBooked).map((date) => <button key={date.date} type="button" disabled={date.alreadyBooked || !date.entities.length} aria-pressed={selectedDate === date.date}
-                  className={`rounded-xl border p-3 text-left text-sm ${selectedDate === date.date ? "border-[#123D2C] bg-[#E9F2E7]" : "bg-white"} disabled:cursor-not-allowed disabled:opacity-65`}
-                  onClick={() => { setSelectedDate(date.date); setSelectedEntityId(date.entities.length === 1 ? date.entities[0].id : ""); }}>
-                  <strong>{shortDate(date.date)}</strong> {date.alreadyBooked ? <span className="ml-1 text-amber-800">— Já agendado</span> : <span className="text-slate-600">— {date.entities.length} Entidade(s) com vaga</span>}
-                </button>)}
-                {selected && !selected.alreadyBooked && <label className="grid gap-1 text-sm font-black">Entidade
-                  <select value={selectedEntityId} onChange={(e) => setSelectedEntityId(e.target.value)} className="rounded-lg border p-3">
-                    <option value="">Selecione a Entidade</option>
-                    {selected.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.displayName} · {entity.available} vaga(s)</option>)}
-                  </select></label>}
+            {bookingFor === "other" && <div className="grid gap-2 rounded-xl border border-[#123D2C]/10 p-3">
+              <p className="text-sm font-black">Pessoa vinculada ao seu cadastro</p>
+              {payload.relatedPeople.length > 0 && <select className="w-full rounded-lg border p-3" value={payload.relatedPeople.some((person) => person.personId === targetPersonId && person.personId) ? targetPersonId : ""} onChange={(e) => { if (e.target.value) void chooseTarget(e.target.value); }}>
+                <option value="">Selecione uma pessoa</option>
+                {payload.relatedPeople.map((person) => <option key={person.relationshipId || person.personId} value={person.personId || `pending:${person.relationshipId}`} disabled={person.pending}>{person.fullName} — {person.relationship}{person.pending ? " · aguardando Recepção" : ""}</option>)}
+              </select>}
+              {!payload.relatedPeople.length && <p className="text-xs text-slate-600">Você ainda não possui pessoas vinculadas cadastradas neste sistema.</p>}
+              <button type="button" className="rounded-lg bg-[#E9F2E7] p-2 text-xs font-black text-[#123D2C]" onClick={() => { setShowRegistration((value) => !value); setSelectedDate(""); setSelectedEntityId(""); }}>Cadastrar outra pessoa</button>
+              {showRegistration && <form onSubmit={(e) => void registerRelated(e)} className="grid gap-2">
+                <p className="text-xs text-slate-600">A solicitação de vínculo ficará pendente até a Recepção verificar se já existe cadastro individual e confirmar a Entidade padrão. Nomes não são usados como identificação única.</p>
+                <label className="grid gap-1 text-xs font-black">Nome completo<input required minLength={3} maxLength={160} value={relatedForm.fullName} onChange={(e) => setRelatedForm((v) => ({ ...v, fullName: e.target.value }))} className="rounded-lg border p-2" /></label>
+                <label className="grid gap-1 text-xs font-black">Relação com você<input required minLength={2} maxLength={80} placeholder="Ex.: mãe, amigo, filho" value={relatedForm.relationship} onChange={(e) => setRelatedForm((v) => ({ ...v, relationship: e.target.value }))} className="rounded-lg border p-2" /></label>
+                <button type="submit" disabled={saving} className="rounded-lg bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Cadastrando..." : "Cadastrar e vincular"}</button>
+              </form>}
+            </div>}
+            {!loading && targetIsSelected && !showRegistration && <>
+              <p className="text-sm font-semibold text-[#123D2C]">
+                {firstAndLastName(payload.targetPerson.fullName)} — Entidade Padrão: <strong>{defaultEntity}</strong>
+              </p>
+              {payload.bookingRule.mode === "awaiting_default_entity" && <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">A Recepção precisa confirmar a Entidade padrão desta pessoa antes de liberar o agendamento.</p>}
+              {payload.bookingRule.mode !== "awaiting_default_entity" && <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => openBookingPath("date")} className="rounded-xl border border-[#123D2C]/20 bg-[#E9F2E7] p-3 text-left"><strong className="block text-sm">Data</strong><span className="text-[10px] font-black uppercase text-[#2F6B43]">Toque para abrir</span></button>
+                <button type="button" onClick={() => openBookingPath("entity")} className="rounded-xl border border-[#123D2C]/20 bg-white p-3 text-left"><strong className="block text-sm">Entidade</strong><span className="text-[10px] font-black uppercase text-[#2F6B43]">Toque para abrir</span></button>
               </div>}
-              {bookingView === "entity" && <div className="grid gap-2">
-                <label className="grid gap-1 text-sm font-black">Escolha a Entidade
-                  <select value={selectedEntityId} onChange={(e) => { setSelectedEntityId(e.target.value); setSelectedDate(""); }} className="rounded-lg border p-3">
-                    <option value="">Selecione a Entidade</option>
-                    {entityChoices.map((entity) => <option key={entity.id} value={entity.id}>{entity.displayName}{entity.isDefault ? " · padrão" : ""}</option>)}
-                  </select>
-                </label>
-                {selectedEntityId && payload.dates.filter((date) => date.entities.some((entity) => entity.id === selectedEntityId) || date.alreadyBooked).map((date) => <button key={date.date} type="button"
-                  disabled={date.alreadyBooked || !date.entities.some((entity) => entity.id === selectedEntityId)} aria-pressed={selectedDate === date.date}
-                  onClick={() => setSelectedDate(date.date)} className={`rounded-xl border p-3 text-left text-sm ${selectedDate === date.date ? "border-[#123D2C] bg-[#E9F2E7]" : "bg-white"} disabled:opacity-65`}>
-                  {shortDate(date.date)} {date.alreadyBooked ? "— Já agendado" : `— ${date.entities.find((entity) => entity.id === selectedEntityId)?.available ?? 0} vaga(s)`}
-                </button>)}
-              </div>}
-              {payload.dates.every((date) => !date.entities.length) && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold">Não há datas com vaga para esta pessoa no período disponível.</p>}
-              <button disabled={!selectedDate || !selectedEntityId || !chosenEntity || saving} type="button" onClick={() => void book()} className="rounded-xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-50">{saving ? "Agendando..." : "Confirmar agendamento"}</button>
             </>}
           </>}
+          {!loading && bookingStep === "dates" && <>
+            {bookingView === "entity" && selectedEntityId && <p className="text-sm font-semibold text-[#123D2C]">Entidade: {entityChoices.find((item) => item.id === selectedEntityId)?.displayName || "Selecionada"}</p>}
+            <div className="grid gap-2">
+              {(bookingView === "date" ? dateChoices : entityDateChoices).map((date) => {
+                const selectable = !date.alreadyBooked && (bookingView === "date" ? date.entities.length > 0 : date.entities.some((entity) => entity.id === selectedEntityId));
+                return <button key={date.date} type="button" disabled={!selectable} onClick={() => { setSelectedDate(date.date); if (bookingView === "date") { setSelectedEntityId(""); setBookingStep("entities"); } else { setBookingStep("review"); } }}
+                  className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-left text-sm disabled:cursor-not-allowed disabled:opacity-65">
+                  <strong>{shortDate(date.date)}</strong> {date.alreadyBooked ? <span className="text-amber-800">— Já agendado</span> : <span className="text-slate-600">— {bookingView === "date" ? `${date.entities.length} Entidade(s) com vaga` : `${date.entities.find((entity) => entity.id === selectedEntityId)?.available ?? 0} vaga(s)`}</span>}
+                </button>;
+              })}
+              {!(bookingView === "date" ? dateChoices : entityDateChoices).length && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há datas disponíveis neste período.</p>}
+            </div>
+          </>}
+          {!loading && bookingStep === "entities" && <>
+            {bookingView === "date" && <p className="text-sm font-semibold text-[#123D2C]">Data: {shortDate(selectedDate)}</p>}
+            <div className="grid gap-2">
+              {(bookingView === "date" ? (selected?.entities || []) : entityChoices).map((entity) => <button key={entity.id} type="button" onClick={() => { setSelectedEntityId(entity.id); setBookingStep(bookingView === "date" ? "review" : "dates"); }}
+                className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-left text-sm"><strong>{entity.displayName}</strong><span className="block text-xs text-slate-600">{bookingView === "date" ? `${entity.available} vaga(s)` : `${payload.dates.filter((date) => !date.alreadyBooked && date.entities.some((item) => item.id === entity.id)).length} data(s) disponível(is)`}{entity.isDefault ? " · Entidade padrão" : ""}</span></button>)}
+              {!(bookingView === "date" ? selected?.entities.length : entityChoices.length) && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há Entidades disponíveis para esta opção.</p>}
+            </div>
+          </>}
+          {!loading && bookingStep === "review" && <div className="grid gap-3">
+            <div className="rounded-xl bg-[#F7FAF2] p-4 text-sm text-[#123D2C]">
+              <p><strong>Pessoa:</strong> {firstAndLastName(payload.targetPerson.fullName)}</p>
+              <p className="mt-2"><strong>Data:</strong> {shortDate(selectedDate)}</p>
+              <p className="mt-2"><strong>Entidade:</strong> {chosenEntity?.displayName || "Não disponível"}</p>
+            </div>
+            {!chosenEntity && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">A vaga selecionada não está mais disponível. Volte e escolha outra opção.</p>}
+            <button disabled={!selectedDate || !selectedEntityId || !chosenEntity || saving} type="button" onClick={() => void book()} className="rounded-xl bg-[#123D2C] px-5 py-4 font-black text-white disabled:opacity-50">{saving ? "Agendando..." : "Confirmar agendamento"}</button>
+          </div>}
         </div>}
-        {modal === "agendamentos" && <div className="mt-5 grid gap-3">{payload.appointments.length ? payload.appointments.map((item) => <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><strong className="text-[#123D2C]">{shortDate(item.appointmentDate)} · {item.appointmentTime}</strong><p className="mt-1 font-semibold">{item.entityName}</p>{item.firstTimeIndicatorActive && <span className="mt-2 inline-flex rounded-full bg-fuchsia-50 px-2 py-1 text-[10px] font-black uppercase text-fuchsia-800">Primeira vez</span>}<p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(item.status)}`}>{statusLabel(item.status)}</span>{item.order ? <span>{`Ordem ${item.order}`}</span> : null}</p></article>) : <p className="font-semibold">Você não possui próximos agendamentos.</p>}</div>}
+        {modal === "agendamentos" && <div className="mt-5 grid gap-3">{payload.appointments.length ? payload.appointments.map((item) => <article key={item.id} className="rounded-2xl bg-[#F7FAF2] p-4 ring-1 ring-[#123D2C]/10"><strong className="text-[#123D2C]">{shortDate(item.appointmentDate)}</strong><p className="mt-1 font-semibold">{item.entityName}</p>{item.firstTimeIndicatorActive && <span className="mt-2 inline-flex rounded-full bg-fuchsia-50 px-2 py-1 text-[10px] font-black uppercase text-fuchsia-800">Primeira vez</span>}<p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600"><span className={`rounded-full px-2 py-1 text-xs font-black ring-1 ${statusClasses(item.status)}`}>{statusLabel(item.status)}</span>{item.order ? <span>{`Ordem ${item.order}`}</span> : null}</p></article>) : <p className="font-semibold">Você não possui próximos agendamentos.</p>}</div>}
         {modal === "cadastro" && <form onSubmit={(e) => void saveProfile(e)} className="mt-5 grid gap-3"><input value={profile.fullName} onChange={(e) => setProfile((v) => ({ ...v, fullName: e.target.value }))} placeholder="Nome completo" className="rounded-xl border p-3" required/><input value={profile.whatsapp} onChange={(e) => setProfile((v) => ({ ...v, whatsapp: e.target.value }))} placeholder="WhatsApp com DDD" className="rounded-xl border p-3" required/><input value={profile.email} onChange={(e) => setProfile((v) => ({ ...v, email: e.target.value }))} placeholder="E-mail (opcional)" type="email" className="rounded-xl border p-3"/><button disabled={saving} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Salvar dados pessoais</button></form>}
         {modal === "configuracoes" && <form onSubmit={(e) => void saveSettings(e)} className="mt-5 grid gap-4"><label className="flex items-start gap-3 rounded-2xl bg-[#F7FAF2] p-4 font-semibold"><input type="checkbox" checked={openUpcoming} onChange={(e) => setOpenUpcoming(e.target.checked)} className="mt-1"/><span>Abrir meus próximos agendamentos automaticamente quando eu entrar no sistema.</span></label><button disabled={saving} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Salvar configuração</button></form>}
       </section>

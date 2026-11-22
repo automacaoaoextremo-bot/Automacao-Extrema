@@ -105,6 +105,49 @@ async function resolveTarget(context: { organizationId: string; personId: string
   return { target: { personId: id, fullName: asText(data.full_name), whatsapp: normalizeBrazilPhone(data.whatsapp), email: asText(data.notification_email) } satisfies Target, related };
 }
 
+// AG25: monta o nome publico com linha e cavalinho sem mudar dados de reserva.
+async function publicEntityNames(organizationId: string, rawIds: string[]) {
+  const ids = Array.from(new Set(rawIds.filter(Boolean)));
+  const labels = new Map<string, string>();
+  if (!ids.length) return labels;
+
+  const [{ data: entities, error: entityError }, { data: links, error: linksError }] = await Promise.all([
+    supabaseAdmin.from("oh_spiritual_entities").select("id,name,line")
+      .eq("organization_id", organizationId).in("id", ids),
+    supabaseAdmin.from("oh_person_entity_links").select("entity_id,person_id")
+      .eq("organization_id", organizationId).eq("active", true).in("entity_id", ids),
+  ]);
+  if (entityError) throw entityError;
+  if (linksError) throw linksError;
+
+  const linkedIds = Array.from(new Set((links ?? []).map((item) => asText(item.person_id)).filter(Boolean)));
+  const { data: people, error: peopleError } = linkedIds.length
+    ? await supabaseAdmin.from("oh_people").select("id,full_name")
+        .eq("organization_id", organizationId).in("id", linkedIds)
+    : { data: [], error: null };
+  if (peopleError) throw peopleError;
+
+  const personNames = new Map((people ?? []).map((person) => [asText(person.id), asText(person.full_name)]));
+  const mediumNames = new Map<string, string[]>();
+  for (const link of links ?? []) {
+    const entityId = asText(link.entity_id);
+    const personName = personNames.get(asText(link.person_id));
+    if (!entityId || !personName) continue;
+    const names = mediumNames.get(entityId) ?? [];
+    if (!names.includes(personName)) names.push(personName);
+    mediumNames.set(entityId, names);
+  }
+
+  for (const entity of entities ?? []) {
+    const id = asText(entity.id);
+    const baseName = asText(entity.name) || "Entidade";
+    const line = asText(entity.line);
+    const mediums = mediumNames.get(id) ?? [];
+    labels.set(id, `${baseName}${line ? ` (${line})` : ""}${mediums.length ? ` (${mediums.join(", ")})` : ""}`);
+  }
+  return labels;
+}
+
 async function payload(request: Request) {
   const context = await currentPilotConsulente(request);
   if (!context) return null;
@@ -154,7 +197,17 @@ async function payload(request: Request) {
     if (error) throw error;
     defaultEntityName = asText(data?.name);
   }
-  return { context, target, related, settings, preferences, bookingRule, appointments, dateOptions, defaultEntityName, blocked: false as const };
+  const labels = await publicEntityNames(context.organizationId, [defaultEntityId, ...appointments.map((item) => item.entityId)]);
+  const displayAppointments = appointments.map((appointment) => ({
+    ...appointment,
+    entityName: labels.get(appointment.entityId) || appointment.entityName,
+  }));
+  return {
+    context, target, related, settings, preferences, bookingRule,
+    appointments: displayAppointments, dateOptions,
+    defaultEntityName: labels.get(defaultEntityId) || defaultEntityName,
+    blocked: false as const,
+  };
 }
 
 export async function GET(request: Request) {
