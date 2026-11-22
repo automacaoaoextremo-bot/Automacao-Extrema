@@ -88,3 +88,32 @@ export async function sendTucxaOperationalSummaryEmail(input: {
     return false;
   }
 }
+
+/** AG26: e-mail igual à comunicação "TUCXA - Agendamento Realizado" da Recepção. */
+export async function sendTucxaReceptionBookingNoticeEmail(input: {
+  to: string; consulenteName: string; date: string; entity: string; confirmationUrl: string;
+}) {
+  const config = smtpConfig();
+  if (!config || !input.to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.to)) return false;
+  const dateMatch = input.date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const formattedDate = dateMatch ? `${dateMatch[3]}/${dateMatch[2]}/${dateMatch[1]}` : input.date;
+  const text = [
+    "🌿 TUCXA — AGENDAMENTO REALIZADO",
+    "",
+    `Olá, consulente ${input.consulenteName} acabou de ter um agendamento registrado`,
+    "",
+    `📅 Data: ${formattedDate}`,
+    `🙏 Entidade: ${input.entity}`,
+    "🕒 Chegada: 18h30 às 19h20",
+    `✅ Link enviado para confirmar presença: ${input.confirmationUrl}`,
+    "",
+    "📍 Endereço e orientações estão disponíveis no link.",
+    "",
+    "Não quer mais receber estas mensagens? Desabilite nas configurações da sua conta no TUCXA - Agendamento",
+  ].join("\n");
+  try {
+    const transporter = nodemailer.createTransport({ host: config.host, port: config.port, secure: config.secure, auth: config.auth });
+    await transporter.sendMail({ from: config.from, to: input.to, subject: "[TUCXA] Agendamento realizado", text });
+    return true;
+  } catch (error) { console.error("[TUCXA aviso AG26 email]", error); return false; }
+}

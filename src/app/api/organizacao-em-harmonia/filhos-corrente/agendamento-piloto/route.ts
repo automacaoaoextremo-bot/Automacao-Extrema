@@ -32,6 +32,7 @@ import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tu
 import { appointmentBeneficentPizzaMessage, appointmentChristmasBasketMessage, appointmentConfirmationMessage, appointmentReminderMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
+import { sendNewBookingReceptionNotices } from "@/lib/organizacao-em-harmonia/tucxa-new-booking-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -1370,7 +1371,7 @@ export async function POST(request: Request) {
       const requestedRelationshipId = contactMode === "alternate" ? asText(body.relatedRelationshipId) : "";
       const requestedHistoryAppointmentId = contactMode === "alternate" ? asText(body.relatedHistoryAppointmentId) : "";
       let selectedRelatedOption: Awaited<ReturnType<typeof loadRelatedConsulentes>>[number] | null = null;
-      let relatedPerson: { id: string; full_name: string; whatsapp: string } | null = null;
+      let relatedPerson: { id: string; full_name: string; whatsapp: string; email: string } | null = null;
 
       if (requestedRelatedPersonId || requestedRelationshipId || requestedHistoryAppointmentId) {
         const relatedOptions = await loadRelatedConsulentes(context.organizationId, person.id);
@@ -1392,7 +1393,7 @@ export async function POST(request: Request) {
         if (allowedRelated.relatedPersonId) {
           const { data: relatedRow, error: relatedError } = await supabaseAdmin
             .from("oh_people")
-            .select("id,full_name,whatsapp,normalized_whatsapp")
+            .select("id,full_name,whatsapp,normalized_whatsapp,notification_email")
             .eq("organization_id", context.organizationId)
             .eq("id", allowedRelated.relatedPersonId)
             .eq("active", true)
@@ -1413,6 +1414,7 @@ export async function POST(request: Request) {
             id: asText(relatedRow.id),
             full_name: asText(relatedRow.full_name),
             whatsapp: normalizeBrazilPhone(relatedRow.normalized_whatsapp || relatedRow.whatsapp),
+            email: asText(relatedRow.notification_email),
           };
         }
       }
@@ -1549,8 +1551,9 @@ export async function POST(request: Request) {
       const appointmentPersonName = contactMode === "alternate"
         ? (asText(relatedPerson?.full_name) || alternateContactName)
         : (asText(person.full_name) || "Consulente");
-      const notificationPhone = ownPhone;
-      const notificationName = asText(person.full_name) || "Consulente";
+      const notificationPhone = contactMode === "alternate" ? (relatedPerson?.whatsapp || ownPhone) : ownPhone;
+      const notificationName = contactMode === "alternate" && relatedPerson?.whatsapp
+        ? (relatedPerson.full_name || "Consulente") : (asText(person.full_name) || "Consulente");
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
         // Quando a pessoa atendida já possui cadastro próprio e está vinculada
@@ -1563,7 +1566,7 @@ export async function POST(request: Request) {
         p_booking_channel: "recepcao_piloto",
         p_consulente_name: appointmentPersonName || "Filho de Fora/Consulente",
         p_whatsapp: notificationPhone || null,
-        p_email: actualEmail || null,
+        p_email: (contactMode === "alternate" && relatedPerson?.email ? relatedPerson.email : actualEmail) || null,
         p_notes: notes || null,
         p_confirmation_token_hash: tokenHash,
         p_confirmation_expires_at: deadline,
@@ -1582,7 +1585,7 @@ export async function POST(request: Request) {
         .from("oh_consulente_appointments")
         .update({
           source_contact_person_id: person.id,
-          notification_contact_type: contactMode,
+          notification_contact_type: contactMode === "alternate" && relatedPerson?.whatsapp ? "consulente" : contactMode,
           notification_contact_name: notificationName,
           notification_contact_relationship: contactMode === "alternate" ? (alternateContactRelationship || null) : null,
           notification_contact_whatsapp: notificationPhone || null,
@@ -1687,6 +1690,9 @@ export async function POST(request: Request) {
       }
 
       const link = buildTucxaConfirmationUrl(token);
+      await sendNewBookingReceptionNotices({ organizationId: context.organizationId,
+        appointmentId: reservation.appointment_id, fullName: appointmentPersonName,
+        appointmentDate, entityName: entity.name, confirmationUrl: link });
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
@@ -2058,9 +2064,12 @@ export async function POST(request: Request) {
 
     if (action === "save-reception-preferences") {
       const channels = Array.isArray(body.channels) ? body.channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
+      const newBookingChannels = Array.isArray(body.newBookingChannels)
+        ? body.newBookingChannels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
       const mode = asText(body.viewMode) === "day_entity" ? "day_entity" : "entity_day";
       await savePilotPersonPreferences(context.organizationId, context.personId, {
         receptionSummaryChannels: channels,
+        receptionNewBookingChannels: newBookingChannels,
         receptionSummaryViewMode: mode,
         receptionEntityOrderMode: asText(body.entityOrderMode) === "custom" ? "custom" : "alphabetical",
         receptionOpenAcolhimentoOnLogin: asBoolean(body.openAcolhimentoOnLogin, true),
