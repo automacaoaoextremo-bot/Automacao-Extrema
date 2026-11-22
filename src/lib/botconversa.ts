@@ -1294,7 +1294,7 @@ export type TucxaAppointmentBotConversaInput = {
   reminderOffsetHours?: number | null;
   appointmentOrder?: number | null;
   individualNotice?: string;
-  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza" | "christmas_basket";
+  kind: "confirmation" | "reminder" | "confirmed_reminder" | "pizza" | "christmas_basket" | "reception_booking";
 };
 
 export type TucxaEntityChangeBotConversaInput = {
@@ -1470,7 +1470,9 @@ export async function sendTucxaAppointmentWhatsapp(
     };
   }
 
-  const flowId = input.kind === "reminder"
+  const flowId = input.kind === "reception_booking"
+    ? firstEnv("BOTCONVERSA_TUCXA_RECEPTION_BOOKING_FLOW_ID", "BOTCONVERSA_TUCXA_RECEPTION_BOOKING_FLOW")
+    : input.kind === "reminder"
     ? firstEnv("BOTCONVERSA_TUCXA_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_REMINDER_FLOW")
     : input.kind === "confirmed_reminder"
       ? firstEnv("BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMED_REMINDER_FLOW")
@@ -1481,7 +1483,9 @@ export async function sendTucxaAppointmentWhatsapp(
           : firstEnv("BOTCONVERSA_TUCXA_CONFIRMATION_FLOW_ID", "BOTCONVERSA_TUCXA_CONFIRMATION_FLOW");
 
   if (!isConfigured(flowId)) {
-    const error = input.kind === "reminder"
+    const error = input.kind === "reception_booking"
+      ? "Fluxo TUCXA - Agendamento Realizado não configurado."
+      : input.kind === "reminder"
       ? "Fluxo BotConversa de lembrete não configurado."
       : input.kind === "confirmed_reminder"
         ? "Fluxo BotConversa de lembrete para presença confirmada não configurado."
