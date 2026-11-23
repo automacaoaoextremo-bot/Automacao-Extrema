@@ -81,12 +81,36 @@ type Appointment = {
   firstTimeOriginalEntityId: string;
   firstTimeOriginalEntityName: string;
 };
+type PendingLinkRequest = {
+  id: string;
+  requester_person_id: string;
+  requested_name: string;
+  requested_whatsapp: string | null;
+  relationship: string;
+  first_time: boolean;
+  usual_entity: string | null;
+};
+
+function isPendingLinkRequest(value: unknown): value is PendingLinkRequest {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.id === "string"
+    && typeof item.requester_person_id === "string"
+    && typeof item.requested_name === "string"
+    && (item.requested_whatsapp === null || typeof item.requested_whatsapp === "string")
+    && typeof item.relationship === "string"
+    && typeof item.first_time === "boolean"
+    && (item.usual_entity === null || typeof item.usual_entity === "string");
+}
+
 type RelatedConsulente = {
   relationshipId: string;
   historyAppointmentId: string;
   relatedPersonId: string;
   fullName: string;
   relationship: string;
+  whatsapp: string;
+  active: boolean;
   defaultEntityId: string;
   defaultEntityName: string;
   allowDifferentEntity: boolean;
@@ -127,7 +151,7 @@ type Settings = {
   automaticDispatchWeekdays: number[];
   cavalinhoNoticeEntityIds: string[];
 };
-type ReceptionPreferences = { receptionNewBookingChannels: string[]; receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionEntityOrderMode: "alphabetical" | "custom"; receptionOpenAcolhimentoOnLogin: boolean };
+type ReceptionPreferences = { receptionLinkRequestChannels: string[]; receptionEntityChangeChannels: string[]; receptionRescheduleChannels: string[]; receptionNewBookingChannels: string[]; receptionSummaryChannels: string[]; receptionSummaryViewMode: ViewMode; receptionEntityOrderMode: "alphabetical" | "custom"; receptionOpenAcolhimentoOnLogin: boolean };
 type Payload = {
   profile: { fullName: string; canManage: boolean };
   settings: Settings;
@@ -202,6 +226,12 @@ type SettingsDraft = {
   summaryWhatsapp: boolean;
   newBookingEmail: boolean;
   newBookingWhatsapp: boolean;
+  linkRequestEmail: boolean;
+  linkRequestWhatsapp: boolean;
+  entityChangeEmail: boolean;
+  entityChangeWhatsapp: boolean;
+  rescheduleEmail: boolean;
+  rescheduleWhatsapp: boolean;
   summaryViewMode: ViewMode;
   entityOrderMode: "alphabetical" | "custom";
   openAcolhimentoOnLogin: boolean;
@@ -507,10 +537,20 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [notes, setNotes] = useState("");
   const [contactMode, setContactMode] = useState<"consulente" | "alternate">("consulente");
   const [alternateContact, setAlternateContact] = useState({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-  const [alternateRelationshipOption, setAlternateRelationshipOption] = useState("");
   const [selectedRelatedKey, setSelectedRelatedKey] = useState("");
   const [relatedPreferenceKey, setRelatedPreferenceKey] = useState("");
   const [relatedPreferenceDraft, setRelatedPreferenceDraft] = useState({ defaultEntityId: "", allowDifferentEntity: true });
+  const [pendingLinksOpen, setPendingLinksOpen] = useState(false);
+  const [pendingLinks, setPendingLinks] = useState<PendingLinkRequest[]>([]);
+  const [pendingLinksLoading, setPendingLinksLoading] = useState(false);
+  const [linkedBookingOpen, setLinkedBookingOpen] = useState(false);
+  const [linkedBookingPersonIds, setLinkedBookingPersonIds] = useState<string[]>([]);
+  const [linkedBookingEntities, setLinkedBookingEntities] = useState<Record<string, string>>({});
+  const [linkedBookingResults, setLinkedBookingResults] = useState<Array<{ name: string; ok: boolean; detail: string }>>([]);
+  const [linkedEditorOpen, setLinkedEditorOpen] = useState(false);
+  const [linkedMode, setLinkedMode] = useState<"whatsapp" | "sem-whatsapp">("whatsapp");
+  const [linkedForm, setLinkedForm] = useState({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
+
   const [newPerson, setNewPerson] = useState({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
   const [showNewPersonPassword, setShowNewPersonPassword] = useState(false);
   const [accessInfo, setAccessInfo] = useState<AccessInfo | null>(null);
@@ -716,7 +756,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
     });
   }, [activeEntityCatalog, entityAvailabilityQuery, entityAvailabilityLetter]);
   const availabilityLetters = useMemo(() => Array.from(new Set(activeEntityCatalog.map((entity) => entityDirectoryKey(entity.name).charAt(0)).filter((letter) => /^[A-Z]$/.test(letter)))).sort(), [activeEntityCatalog]);
-  const relatedForSelectedEntity = useMemo(() => foundPerson?.relatedConsulentes ?? [], [foundPerson?.relatedConsulentes]);
   const entityPageSize = 4;
   const entityPageCount = Math.max(1, Math.ceil(filteredAvailabilityEntities.length / entityPageSize));
   const effectiveEntityPage = Math.min(entityPage, entityPageCount);
@@ -1103,7 +1142,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setNotes("");
     setContactMode("consulente");
     setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-    setAlternateRelationshipOption("");
     setSelectedRelatedKey("");
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setShowNewPersonPassword(false);
@@ -1277,7 +1315,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
         const selectedWhatsapp = detailedPerson.whatsapp || person.whatsapp || "";
       setContactMode(selectedWhatsapp.replace(/\D/g, "").length >= 10 ? "consulente" : "alternate");
       setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-    setAlternateRelationshipOption("");
       setEditPerson({
         fullName: detailedPerson.fullName || person.fullName,
         whatsapp: detailedPerson.whatsapp || person.whatsapp,
@@ -1299,53 +1336,107 @@ export default function AgendamentoPilotoRecepcaoPage() {
     }
   }
 
-  function selectRelatedForBooking(value: string) {
-    setSelectedRelatedKey(value);
-    setErrorNotice(null);
+  async function loadPendingLinkRequests() {
+    setPendingLinksOpen(true); setPendingLinksLoading(true);
+    try {
+      const data = await postPilot({ action: "list-link-requests" });
+      const requests = Array.isArray(data.requests)
+        ? data.requests.filter(isPendingLinkRequest)
+        : [];
+      setPendingLinks(requests);
+    } catch (e) { setErrorNotice({ title: "Solicitações indisponíveis", message: e instanceof Error ? e.message : "Falha na consulta." }); }
+    finally { setPendingLinksLoading(false); }
+  }
 
-    if (!value || value === "__manual__") {
-      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-      setAlternateRelationshipOption("");
-      return;
-    }
+  async function openLinkRequestOwner(personId: string) {
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "get-consulente", personId });
+      if (!result.person) throw new Error("Responsável não localizado.");
+      setFoundPerson(result.person as FoundPerson);
+      setPendingLinksOpen(false);
+      setModal("cadastros");
+      setCadastroMode("consulentes");
+      setLinkedEditorOpen(true);
+    } catch (e) { setErrorNotice({ title: "Não foi possível abrir o responsável", message: e instanceof Error ? e.message : "Falha na consulta." }); }
+    finally { setSaving(false); }
+  }
 
-    const related = foundPerson?.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === value);
-    if (!related) {
-      setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-      setAlternateRelationshipOption("");
-      return;
-    }
+  async function resolvePendingRequest(requestId: string, status: "reviewed" | "resolved" | "rejected") {
+    setSaving(true);
+    try {
+      await postPilot({ action: "resolve-link-request", requestId, status });
+      setPendingLinks((items) => items.filter((item) => item.id !== requestId));
+    } catch (e) { setErrorNotice({ title: "Solicitação não atualizada", message: e instanceof Error ? e.message : "Falha ao salvar." }); }
+    finally { setSaving(false); }
+  }
 
-    const knownRelationship = ["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].includes(related.relationship);
-    setAlternateRelationshipOption(knownRelationship ? related.relationship : "Outro");
-    setAlternateContact({
-      name: related.fullName,
-      relationship: related.relationship,
-      whatsapp: "",
-      relatedPersonId: related.relatedPersonId,
-      relationshipId: related.relationshipId,
-      historyAppointmentId: related.historyAppointmentId,
-    });
-
-    if (related.defaultEntityId) {
-      const defaultAvailable = usableEntities.some((entity) => entity.id === related.defaultEntityId);
-      if (!bookingContextLocked && bookingMode === "date" && defaultAvailable) {
-        // A Entidade padrão é sempre a sugestão inicial. Quando a permissão estiver
-        // liberada, a Recepção ainda poderá escolher outra Entidade.
-        setEntityId(related.defaultEntityId);
-      } else if (
-        related.allowDifferentEntity === false
-        && bookingContextLocked
-        && entityId
-        && defaultAvailable
-        && entityId !== related.defaultEntityId
-      ) {
-        setErrorNotice({
-          title: "Entidade padrão diferente",
-          message: `${firstTwoPersonNames(related.fullName)} possui ${related.defaultEntityName || "outra Entidade"} como Entidade padrão e não está autorizado(a) a escolher outra Entidade.`,
-        });
+  async function bookLinkedGroup() {
+    if (!foundPerson || !payload || !linkedBookingPersonIds.length) return;
+    setSaving(true); setLinkedBookingResults([]);
+    const results: Array<{ name: string; ok: boolean; detail: string }> = [];
+    for (const id of linkedBookingPersonIds) {
+      const related = foundPerson.relatedConsulentes?.find((p) => p.relatedPersonId === id && p.active !== false);
+      const entity = linkedBookingEntities[id];
+      const name = id === foundPerson.id ? foundPerson.fullName : related?.fullName || "Consulente";
+      if (!entity) { results.push({ name, ok: false, detail: "Selecione uma Entidade." }); continue; }
+      try {
+        const body = id === foundPerson.id
+          ? { action: "book", targetPersonId: id, entityId: entity, appointmentDate: payload.selectedDate,
+              contactMode: "consulente", notes: "" }
+          : { action: "book", targetPersonId: foundPerson.id, entityId: entity, appointmentDate: payload.selectedDate,
+              contactMode: "alternate", relatedPersonId: id, relatedRelationshipId: related?.relationshipId || "",
+              contactName: related?.fullName || "", contactRelationship: related?.relationship || "" };
+        if (id !== foundPerson.id && !related) throw new Error("Vínculo inativo ou indisponível.");
+        await postPilot(body);
+        results.push({ name, ok: true, detail: "Reserva individual criada." });
+      } catch (error) {
+        results.push({ name, ok: false, detail: error instanceof Error ? error.message : "Reserva não concluída." });
       }
     }
+    setLinkedBookingResults(results);
+    setSaving(false);
+    await load(payload.selectedDate);
+  }
+
+  function startLinkedEditor(related?: RelatedConsulente) {
+    setLinkedEditorOpen(true);
+    setLinkedForm(related ? { relationshipId: related.relationshipId, relatedPersonId: related.relatedPersonId,
+      fullName: related.fullName, whatsapp: related.whatsapp, relationship: related.relationship } :
+      { relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
+    setLinkedMode(related?.whatsapp ? "whatsapp" : "sem-whatsapp");
+  }
+
+  async function saveLinkedPerson() {
+    if (!foundPerson) return;
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "manage-linked-person", operation: "save", ownerPersonId: foundPerson.id,
+        ...linkedForm, whatsapp: linkedMode === "whatsapp" ? linkedForm.whatsapp : "" });
+      const relatedConsulentes = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : [];
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
+      setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
+      setSuccessNotice({ title: "Vínculo salvo", message: "Cadastro atualizado pela Recepção." });
+    } catch (error) { setErrorNotice({ title: "Vínculo não atualizado", message: error instanceof Error ? error.message : "Confira os dados." }); }
+    finally { setSaving(false); }
+  }
+
+  async function toggleLinkedPerson(related: RelatedConsulente, operation: "set-active" | "delete", active = false) {
+    if (!foundPerson || !related.relationshipId) return;
+    setSaving(true);
+    try {
+      const result = await postPilot({ action: "manage-linked-person", operation,
+        ownerPersonId: foundPerson.id, relationshipId: related.relationshipId, active });
+      const relatedConsulentes = Array.isArray(result.relatedConsulentes)
+        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
+        : [];
+      setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
+      setSuccessNotice({ title: "Vínculo atualizado", message: operation === "delete" ?
+        "Vínculo retirado da lista ativa. Histórico de atendimentos preservado." : "Situação do vínculo atualizada." });
+    } catch (error) { setErrorNotice({ title: "Não foi possível alterar o vínculo", message: error instanceof Error ? error.message : "Tente novamente." }); }
+    finally { setSaving(false); }
   }
 
   async function saveRelatedConsulentePreferences() {
@@ -1608,34 +1699,6 @@ export default function AgendamentoPilotoRecepcaoPage() {
       setShowCreateConsulente(false);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Não foi possível criar o cadastro.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function registerDependentForBooking() {
-    if (!foundPerson || !alternateContact.name.trim() || !alternateContact.relationship.trim()) {
-      setErrorNotice({ title: "Cadastro incompleto", message: "Informe o nome completo e o parentesco antes de cadastrar a pessoa sem WhatsApp." });
-      return;
-    }
-    setSaving(true);
-    setErrorNotice(null);
-    try {
-      const result = await postPilot({ action: "register-dependent", ownerPersonId: foundPerson.id,
-        fullName: alternateContact.name.trim(), relationship: alternateContact.relationship.trim() });
-      const related = Array.isArray(result.relatedConsulentes)
-        ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
-        : [];
-      const registered = related.find((item) => item.relatedPersonId === result.personId);
-      if (!registered) throw new Error("Cadastro criado, mas nao foi possivel selecionar o vinculo. Reabra a busca do contato antes de prosseguir.");
-      setFoundPerson((current) => current ? { ...current, relatedConsulentes: related } : current);
-      setSelectedRelatedKey(relatedConsulenteKey(registered));
-      setAlternateContact({ name: registered.fullName, relationship: registered.relationship,
-        whatsapp: "", relatedPersonId: registered.relatedPersonId,
-        relationshipId: registered.relationshipId, historyAppointmentId: "" });
-      setSuccessNotice({ title: "Dependente cadastrado", message: "Pessoa identificada por cadastro individual, sem WhatsApp proprio. Confira os dados e clique em Criar agendamento." });
-    } catch (error) {
-      setErrorNotice({ title: "Nao foi possivel cadastrar dependente", message: error instanceof Error ? error.message : "Revise os dados informados." });
     } finally {
       setSaving(false);
     }
@@ -2082,6 +2145,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
       reminderOffsets: payload.settings.confirmationReminderOffsetsHours.join(", "),
       newBookingEmail: payload.receptionPreferences.receptionNewBookingChannels?.includes("email") === true,
       newBookingWhatsapp: payload.receptionPreferences.receptionNewBookingChannels?.includes("whatsapp") === true,
+      linkRequestEmail: payload.receptionPreferences.receptionLinkRequestChannels?.includes("email") === true,
+      linkRequestWhatsapp: payload.receptionPreferences.receptionLinkRequestChannels?.includes("whatsapp") === true,
+      entityChangeEmail: payload.receptionPreferences.receptionEntityChangeChannels?.includes("email") === true,
+      entityChangeWhatsapp: payload.receptionPreferences.receptionEntityChangeChannels?.includes("whatsapp") === true,
+      rescheduleEmail: payload.receptionPreferences.receptionRescheduleChannels?.includes("email") === true,
+      rescheduleWhatsapp: payload.receptionPreferences.receptionRescheduleChannels?.includes("whatsapp") === true,
       summaryEmail: payload.receptionPreferences.receptionSummaryChannels.includes("email"),
       summaryWhatsapp: payload.receptionPreferences.receptionSummaryChannels.includes("whatsapp"),
       summaryViewMode: payload.receptionPreferences.receptionSummaryViewMode,
@@ -2131,6 +2200,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
         action: "save-reception-preferences",
         channels: [settingsDraft.summaryEmail ? "email" : "", settingsDraft.summaryWhatsapp ? "whatsapp" : ""].filter(Boolean),
         newBookingChannels: [settingsDraft.newBookingEmail ? "email" : "", settingsDraft.newBookingWhatsapp ? "whatsapp" : ""].filter(Boolean),
+        linkRequestChannels: [settingsDraft.linkRequestEmail ? "email" : "", settingsDraft.linkRequestWhatsapp ? "whatsapp" : ""].filter(Boolean),
+        entityChangeChannels: [settingsDraft.entityChangeEmail ? "email" : "", settingsDraft.entityChangeWhatsapp ? "whatsapp" : ""].filter(Boolean),
+        rescheduleChannels: [settingsDraft.rescheduleEmail ? "email" : "", settingsDraft.rescheduleWhatsapp ? "whatsapp" : ""].filter(Boolean),
         viewMode: settingsDraft.summaryViewMode,
         entityOrderMode: settingsDraft.entityOrderMode,
         openAcolhimentoOnLogin: settingsDraft.openAcolhimentoOnLogin,
@@ -2760,140 +2832,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
                   ) : (
                     <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#123D2C] ring-1 ring-[#123D2C]/10">{payload.entityCatalog.find((entity) => entity.id === entityId)?.name || "Escolha uma Entidade acima"}{bookingEntityDateLabel ? ` · ${bookingEntityDateLabel}` : ""}</p>
                   )}
-                  <div className="grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                    <p className="text-sm font-black text-[#123D2C]">WhatsApp para confirmação e lembretes</p>
-                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <input
-                        type="radio"
-                        name="booking-contact"
-                        checked={contactMode === "consulente"}
-                        onChange={() => {
-                          setContactMode("consulente");
-                          setAlternateContact({ name: "", relationship: "", whatsapp: "", relatedPersonId: "", relationshipId: "", historyAppointmentId: "" });
-                          setAlternateRelationshipOption("");
-                          setSelectedRelatedKey("");
-                        }}
-                        disabled={foundPerson.whatsapp.replace(/\D/g, "").length < 10}
-                      />
-                      Para a própria pessoa cadastrada{foundPerson.whatsapp ? ` · ${displayWhatsapp(foundPerson.whatsapp)}` : " · WhatsApp não informado"}
-                    </label>
-                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <input
-                        type="radio"
-                        name="booking-contact"
-                        checked={contactMode === "alternate"}
-                        onChange={() => setContactMode("alternate")}
-                      />
-                      Agendar para outra pessoa
-                    </label>
-                    {contactMode === "alternate" && (
-                      <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
-                        <p className="text-sm font-black text-[#123D2C]">Pessoa que será atendida</p>
-
-                        {relatedForSelectedEntity.length > 0 ? (
-                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
-                            Escolher pessoa
-                            <select
-                              value={selectedRelatedKey}
-                              onChange={(event) => selectRelatedForBooking(event.target.value)}
-                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5 text-sm font-semibold"
-                            >
-                              <option value="">Abra para escolher</option>
-                              {relatedForSelectedEntity.map((related) => (
-                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
-                                  {firstTwoPersonNames(related.fullName)}
-                                  {related.relationship ? ` · ${related.relationship}` : ""}
-                                  {related.defaultEntityName ? ` · ${related.defaultEntityName}` : ""}
-                                </option>
-                              ))}
-                              <option value="__manual__">Outra pessoa</option>
-                            </select>
-                          </label>
-                        ) : (
-                          <p className="text-xs font-semibold text-slate-600">{entityId ? "Não há pessoas vinculadas a este contato. Você pode cadastrar outra pessoa abaixo." : "Selecione uma pessoa vinculada ou cadastre outra pessoa."}</p>
-                        )}
-
-                        {selectedRelatedForBooking && selectedRelatedKey !== "__manual__" && (
-                          <div className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                            <p className="text-sm font-black text-[#123D2C]">{firstTwoPersonNames(selectedRelatedForBooking.fullName)}</p>
-                            <p className="mt-1 text-xs font-semibold text-slate-600">
-                              {[selectedRelatedForBooking.relationship, selectedRelatedForBooking.defaultEntityName || "Sem Entidade padrão"].filter(Boolean).join(" · ")}
-                            </p>
-                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                              {selectedRelatedForBooking.allowDifferentEntity
-                                ? "Pode agendar com Entidade diferente da padrão."
-                                : "Usa a Entidade padrão, salvo a regra de Passe quando ela não atende ou está sem vaga."}
-                            </p>
-                          </div>
-                        )}
-
-                        {(relatedForSelectedEntity.length === 0 || selectedRelatedKey === "__manual__") && (
-                          <>
-                            <input
-                              value={alternateContact.name}
-                              onChange={(event) => setAlternateContact((current) => ({
-                                ...current,
-                                name: event.target.value,
-                                relatedPersonId: "",
-                                relationshipId: "",
-                                historyAppointmentId: "",
-                              }))}
-                              placeholder="Nome da pessoa atendida"
-                              className="rounded-xl border border-[#123D2C]/15 p-2.5"
-                            />
-                            <select
-                              value={alternateRelationshipOption}
-                              onChange={(event) => {
-                                const option = event.target.value;
-                                setAlternateRelationshipOption(option);
-                                setAlternateContact((current) => ({
-                                  ...current,
-                                  relationship: option === "Outro" ? "" : option,
-                                  relatedPersonId: "",
-                                  relationshipId: "",
-                                  historyAppointmentId: "",
-                                }));
-                              }}
-                              className="rounded-xl border border-[#123D2C]/15 bg-white p-2.5"
-                            >
-                              <option value="">Escolha o parentesco/vínculo</option>
-                              {["Mãe", "Pai", "Filho", "Filha", "Irmão", "Irmã", "Esposo", "Esposa", "Marido", "Prima", "Primo"].map((relationship) => (
-                                <option key={relationship} value={relationship}>{relationship}</option>
-                              ))}
-                              <option value="Outro">Outro</option>
-                            </select>
-                            {alternateRelationshipOption === "Outro" && (
-                              <input
-                                value={alternateContact.relationship}
-                                onChange={(event) => setAlternateContact((current) => ({
-                                  ...current,
-                                  relationship: event.target.value,
-                                  relatedPersonId: "",
-                                  relationshipId: "",
-                                  historyAppointmentId: "",
-                                }))}
-                                placeholder="Informe o parentesco/vínculo"
-                                className="rounded-xl border border-[#123D2C]/15 p-2.5"
-                              />
-                            )}
-                            <button type="button" disabled={saving || !alternateContact.name.trim() || !alternateContact.relationship.trim()}
-                              onClick={() => void registerDependentForBooking()}
-                              className="rounded-xl bg-[#E9F2E7] p-3 text-sm font-black text-[#123D2C] disabled:opacity-50">
-                              Cadastrar pessoa vinculada sem WhatsApp proprio
-                            </button>
-                            <p className="text-xs font-semibold text-slate-600">Para Primeira Vez, cadastre primeiro a identidade individual. Depois confirme o agendamento normalmente. O contato do responsavel recebera as notificacoes.</p>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    {contactMode === "alternate" && (
-                      <p className="text-xs font-semibold text-slate-500">
-                        O atendimento será criado para a pessoa escolhida acima; confirmações e lembretes continuam sendo enviados ao WhatsApp do contato responsável selecionado.
-                      </p>
-                    )}
-                  </div>
+                  <button type="button" onClick={() => { setLinkedBookingOpen(true); setLinkedBookingResults([]); setLinkedBookingPersonIds([]); setLinkedBookingEntities({}); }}
+                    className="rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                    Incluir agendamentos para pessoas vinculadas
+                    <span className="block text-[10px] uppercase">TOQUE PARA ABRIR</span>
+                  </button>
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Observação opcional" className="rounded-xl border border-[#123D2C]/15 p-2.5" />
-                  <button type="button" onClick={() => void book()} disabled={saving || !entityId || (contactMode === "alternate" && (!alternateContact.name.trim() || !alternateContact.relationship.trim()))} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
+                  <button type="button" onClick={() => void book()} disabled={saving || !entityId} className="rounded-xl bg-[#123D2C] px-4 py-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : "Criar agendamento"}</button>
                 </div>
               )}
 
@@ -3611,6 +3556,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
               {cadastroMode === "consulentes" && (
                 <section className="grid gap-2">
+                  <button type="button" onClick={() => void loadPendingLinkRequests()} className="rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C]">
+                    Solicitações de vínculo pendentes
+                    <span className="block text-[10px] uppercase">TOQUE PARA ABRIR</span>
+                  </button>
                   {!showCreateConsulente && !foundPerson && (<>
                   <form onSubmit={searchPerson} className="grid grid-cols-[1fr_auto] gap-2">
                     <input value={phone} onChange={(event) => { setPhone(event.target.value); setNeedsDdd(false); setPhoneDdd(""); setError(""); }} placeholder="Nome ou WhatsApp" className="min-w-0 rounded-xl border border-[#123D2C]/15 p-2" required />
@@ -3741,71 +3690,10 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <Toggle checked={!editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: !checked }))} label="Não permitir que este Consulente escolha Entidade diferente da padrão" />
                       <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão, o Consulente pode escolher outra Entidade. Marque a opção acima somente para restringir à Entidade padrão.</p>
 
-                      {(foundPerson.relatedConsulentes?.length ?? 0) > 0 && (
-                        <section className="mt-1 grid gap-2 rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
-                          <p className="text-xs font-black uppercase tracking-[0.08em] text-[#2F6B43]">Pessoas vinculadas a este contato</p>
-                          <label className="grid gap-1 text-xs font-black text-[#123D2C]">
-                            Pessoa sem WhatsApp / dependente
-                            <select
-                              value={relatedPreferenceKey}
-                              onChange={(event) => {
-                                const key = event.target.value;
-                                setRelatedPreferenceKey(key);
-                                const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === key);
-                                setRelatedPreferenceDraft({
-                                  defaultEntityId: related?.defaultEntityId || "",
-                                  allowDifferentEntity: related?.allowDifferentEntity !== false,
-                                });
-                              }}
-                              className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
-                            >
-                              <option value="">Escolha uma pessoa vinculada</option>
-                              {foundPerson.relatedConsulentes!.map((related) => (
-                                <option key={relatedConsulenteKey(related)} value={relatedConsulenteKey(related)}>
-                                  {firstTwoPersonNames(related.fullName)}
-                                  {related.relationship ? ` · ${related.relationship}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          {selectedRelatedForPreferences && (
-                            <>
-                              <p className="text-xs font-semibold text-slate-600">
-                                Configurações de {firstTwoPersonNames(selectedRelatedForPreferences.fullName)}.
-                                Estas opções não alteram a Entidade padrão do contato responsável.
-                              </p>
-                              <label className="grid gap-1 text-xs font-black text-[#123D2C]">
-                                Entidade padrão da pessoa vinculada
-                                <select
-                                  value={relatedPreferenceDraft.defaultEntityId}
-                                  onChange={(event) => setRelatedPreferenceDraft((current) => ({ ...current, defaultEntityId: event.target.value }))}
-                                  className="rounded-lg border border-[#123D2C]/15 bg-white p-2"
-                                  required
-                                >
-                                  <option value="">Selecione a Entidade padrão</option>
-                                  {payload.entityCatalog
-                                    .filter((entity) => entity.active && entity.appointmentEnabled)
-                                    .map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
-                                </select>
-                              </label>
-                              <Toggle
-                                checked={!relatedPreferenceDraft.allowDifferentEntity}
-                                onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: !checked }))}
-                                label="Não permitir que esta pessoa agende com Entidade diferente da padrão"
-                              />
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => void saveRelatedConsulentePreferences()}
-                                className="rounded-xl bg-[#2F6B43] px-4 py-2.5 text-sm font-black text-white disabled:opacity-60"
-                              >
-                                Salvar pessoa vinculada
-                              </button>
-                            </>
-                          )}
-                        </section>
-                      )}
+                      <button type="button" onClick={() => startLinkedEditor()} className="w-full rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
+                        Pessoas vinculadas a este cadastro
+                        <span className="block text-[10px] font-black uppercase tracking-wide">TOQUE PARA ABRIR</span>
+                      </button>
 
                       <button disabled={saving} className="rounded-xl bg-[#123D2C] px-4 py-2.5 font-black text-white">Salvar Consulente</button>
                     </form>
@@ -4080,7 +3968,15 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
                   {settingsSection === "entrada" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Ao entrar no sistema</p><div className="mt-2"><Toggle checked={settingsDraft.openAcolhimentoOnLogin} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, openAcolhimentoOnLogin: checked } : current)} label="Abrir Acolhimento automaticamente na próxima data de atendimento" /></div><p className="mt-2 text-xs font-semibold leading-5 text-slate-500">Esta preferência é pessoal para cada integrante da Recepção.</p></section>}
 
-                  {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><div className="mt-4 border-t border-[#123D2C]/10 pt-3"><p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Aviso individual de novo agendamento</p><div className="grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.newBookingEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, newBookingEmail: checked } : current)} label="E-mail (cadastrado)" /><Toggle checked={settingsDraft.newBookingWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, newBookingWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-2 text-xs text-slate-600">Só são enviados avisos após habilitação administrativa do canal, respeitando suas preferências.</p></div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
+                  {settingsSection === "resumo" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Receber resumo agendamentos</p><div className="mt-2 grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.summaryEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryEmail: checked } : current)} label="E-mail" /><Toggle checked={settingsDraft.summaryWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, summaryWhatsapp: checked } : current)} label="WhatsApp" /></div><div className="mt-4 border-t border-[#123D2C]/10 pt-3"><p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Aviso individual de novo agendamento</p><div className="grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.newBookingEmail} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, newBookingEmail: checked } : current)} label="E-mail (cadastrado)" /><Toggle checked={settingsDraft.newBookingWhatsapp} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, newBookingWhatsapp: checked } : current)} label="WhatsApp" /></div><p className="mt-2 text-xs text-slate-600">Só são enviados avisos após habilitação administrativa do canal, respeitando suas preferências.</p></div><div className="mt-3 border-t border-[#123D2C]/10 pt-3">
+                    <p className="text-xs font-black uppercase tracking-wide text-[#2F6B43]">Solicitação de vínculo — preferências</p>
+                    <div className="grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.linkRequestEmail} onChange={(v) => setSettingsDraft((p) => p ? { ...p, linkRequestEmail: v } : p)} label="E-mail" /><Toggle checked={settingsDraft.linkRequestWhatsapp} onChange={(v) => setSettingsDraft((p) => p ? { ...p, linkRequestWhatsapp: v } : p)} label="WhatsApp" /></div>
+                    <p className="mt-2 text-xs font-black uppercase tracking-wide text-[#2F6B43]">Troca de Entidade — preferências</p>
+                    <div className="grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.entityChangeEmail} onChange={(v) => setSettingsDraft((p) => p ? { ...p, entityChangeEmail: v } : p)} label="E-mail" /><Toggle checked={settingsDraft.entityChangeWhatsapp} onChange={(v) => setSettingsDraft((p) => p ? { ...p, entityChangeWhatsapp: v } : p)} label="WhatsApp" /></div>
+                    <p className="mt-2 text-xs font-black uppercase tracking-wide text-[#2F6B43]">Reagendamento — preferências</p>
+                    <div className="grid grid-cols-2 gap-2"><Toggle checked={settingsDraft.rescheduleEmail} onChange={(v) => setSettingsDraft((p) => p ? { ...p, rescheduleEmail: v } : p)} label="E-mail" /><Toggle checked={settingsDraft.rescheduleWhatsapp} onChange={(v) => setSettingsDraft((p) => p ? { ...p, rescheduleWhatsapp: v } : p)} label="WhatsApp" /></div>
+                    <p className="mt-2 text-xs text-slate-600">As preferências serão usadas pelos novos fluxos após a homologação e ativação administrativa. Marcar a caixa não dispara mensagens.</p>
+                  </div><p className="mt-3 text-xs font-black uppercase tracking-[0.12em] text-[#2F6B43]">Ordenação</p><select value={settingsDraft.summaryViewMode === "both" ? "entity_day" : settingsDraft.summaryViewMode} onChange={(event) => setSettingsDraft((current) => current ? { ...current, summaryViewMode: event.target.value as ViewMode } : current)} className="mt-1 w-full rounded-xl border border-[#123D2C]/15 p-3"><option value="entity_day">Entidade</option><option value="day_entity">Dia</option></select></section>}
 
                   {settingsSection === "avisos" && <section className="rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Avisos operacionais pelo WhatsApp</p><div className="mt-3 rounded-xl bg-white p-3 text-sm ring-1 ring-[#123D2C]/10"><p className="font-black text-[#123D2C]">Lembretes dos Consulentes</p></div><div className="mt-3"><Toggle checked={settingsDraft.cavalinhoDailyWhatsappEnabled} onChange={(checked) => { setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappEnabled: checked } : current); if (checked) { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); } }} label="Enviar aos Cavalinhos a lista dos próprios Consulentes" /></div><button type="button" onClick={() => { setCavalinhoPickerPage(1); setShowCavalinhoPicker(true); }} className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/15">Selecionar Entidades/Cavalinhos ({settingsDraft.cavalinhoNoticeEntityIds.length})</button><label className="mt-3 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio aos Cavalinhos<input type="time" value={settingsDraft.cavalinhoDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, cavalinhoDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label><div className="mt-4"><Toggle checked={settingsDraft.receptionDailyWhatsappEnabled} onChange={(checked) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappEnabled: checked } : current)} label="Enviar à Recepção o resumo por Entidade/Cavalinho" /></div><label className="mt-2 grid gap-1 text-sm font-black text-[#123D2C]">Horário do envio à Recepção<input type="time" value={settingsDraft.receptionDailyWhatsappTime} onChange={(event) => setSettingsDraft((current) => current ? { ...current, receptionDailyWhatsappTime: event.target.value } : current)} className="rounded-xl border border-[#123D2C]/15 bg-white p-3" /></label></section>}
                 </div>
@@ -4102,6 +3998,134 @@ export default function AgendamentoPilotoRecepcaoPage() {
               <Info title="Contato">É possível contactar pelo WhatsApp o Consulente ou Cavalinho ligado a Entidade nos agendamentos.</Info>
             </div>
           )}
+        </Modal>
+      )}
+
+      {pendingLinksOpen && (
+        <Modal title="Solicitações de vínculo à Recepção" onClose={() => setPendingLinksOpen(false)}>
+          <div className="grid gap-2">
+            {pendingLinksLoading && <p className="text-sm">Carregando solicitações...</p>}
+            {!pendingLinksLoading && !pendingLinks.length && <p className="text-sm text-slate-600">Nenhuma solicitação pendente.</p>}
+            {pendingLinks.map((item) => <div key={item.id} className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 text-sm ring-1 ring-[#123D2C]/10">
+              <strong>{item.requested_name}</strong>
+              <p>WhatsApp: {item.requested_whatsapp || "Sem WhatsApp"}</p>
+              <p>Relação: {item.relationship} · Primeira vez: {item.first_time ? "Sim" : "Não"}</p>
+              {!item.first_time && <p>Entidade habitual: {item.usual_entity || "Não informada"}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void openLinkRequestOwner(item.requester_person_id)} className="rounded-lg bg-[#123D2C] px-3 py-2 text-xs font-black text-white">Abrir cadastro do responsável</button>
+                <button type="button" disabled={saving} onClick={() => void resolvePendingRequest(item.id, "resolved")} className="rounded-lg border px-3 py-2 text-xs font-black">Marcar resolvida</button>
+                <button type="button" disabled={saving} onClick={() => void resolvePendingRequest(item.id, "rejected")} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-800">Recusar</button>
+              </div>
+            </div>)}
+            <p className="text-xs text-slate-600">Confira a identidade e registre o vínculo no cadastro antes de marcar a solicitação resolvida.</p>
+          </div>
+        </Modal>
+      )}
+
+      {linkedBookingOpen && foundPerson && payload && (
+        <Modal title="Agendar grupo / família" onClose={() => setLinkedBookingOpen(false)}>
+          <div className="grid gap-3">
+            <p className="text-xs text-slate-600">Data: {shortDate(payload.selectedDate)}. Cada pessoa terá sua própria Entidade e confirmação.</p>
+            <section className="rounded-xl bg-[#F7FAF2] p-3">
+              <p className="font-black text-[#123D2C]">Pessoas vinculadas</p>
+              {[{ relatedPersonId: foundPerson.id, fullName: foundPerson.fullName, active: true } as Partial<RelatedConsulente>,
+                ...(foundPerson.relatedConsulentes || []).filter((p) => p.relatedPersonId && p.active !== false)].
+                filter((p, i, all) => all.findIndex((q) => q.relatedPersonId === p.relatedPersonId) === i).map((p) => (
+                  <label key={p.relatedPersonId} className="mt-2 flex items-center gap-2 text-sm font-semibold">
+                    <input type="checkbox" checked={linkedBookingPersonIds.includes(p.relatedPersonId || "")}
+                      onChange={(e) => setLinkedBookingPersonIds((ids) => e.target.checked ? [...ids, p.relatedPersonId || ""] : ids.filter((id) => id !== p.relatedPersonId))} />
+                    {p.fullName}
+                  </label>
+              ))}
+              {!(foundPerson.relatedConsulentes || []).some((p) => p.relatedPersonId && p.active !== false) && <p className="mt-2 text-xs">Nenhuma pessoa vinculada ativa. Use o cadastro da Recepção para incluir.</p>}
+            </section>
+            {linkedBookingPersonIds.map((id) => {
+              const person = id === foundPerson.id ? foundPerson : foundPerson.relatedConsulentes?.find((p) => p.relatedPersonId === id);
+              return <label key={id} className="grid gap-1 text-xs font-black text-[#123D2C]">
+                {person?.fullName} — Entidade
+                <select value={linkedBookingEntities[id] || ""} onChange={(e) => setLinkedBookingEntities((v) => ({ ...v, [id]: e.target.value }))} className="rounded-xl border p-3">
+                  <option value="">Escolha uma Entidade</option>
+                  {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
+                </select>
+              </label>;
+            })}
+            {linkedBookingResults.map((r, i) => <div key={i} className={`rounded-xl p-3 text-sm ${r.ok ? "bg-emerald-50" : "bg-amber-50"}`}>
+              <strong>{r.name} — {r.ok ? "Registrado" : "Não registrado"}</strong><p>{r.detail}</p>
+            </div>)}
+            <button type="button" disabled={saving || !linkedBookingPersonIds.length || linkedBookingResults.length > 0 || linkedBookingPersonIds.some((id) => !linkedBookingEntities[id])}
+              onClick={() => void bookLinkedGroup()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">
+              {saving ? "Salvando..." : "Registrar agendamentos individuais"}
+            </button>
+            <p className="text-xs text-slate-600">Em caso de falha parcial, confira as reservas existentes antes de tentar novamente.</p>
+          </div>
+        </Modal>
+      )}
+
+      {linkedEditorOpen && foundPerson && (
+        <Modal title="Pessoas vinculadas a este cadastro" onClose={() => setLinkedEditorOpen(false)}>
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { setLinkedMode("whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); }}
+                className={`rounded-xl p-3 text-left text-sm font-black ${linkedMode === "whatsapp" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Pessoa com WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
+              <button type="button" onClick={() => { setLinkedMode("sem-whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); }}
+                className={`rounded-xl p-3 text-left text-sm font-black ${linkedMode === "sem-whatsapp" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Pessoa sem WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
+            </div>
+            <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
+              <p className="text-sm font-black text-[#123D2C]">Pessoas cadastradas</p>
+              {(foundPerson.relatedConsulentes || []).filter((p) => Boolean(p.whatsapp) === (linkedMode === "whatsapp") && !!p.relationshipId).map((p) => (
+                <div key={p.relationshipId} className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
+                  <p className="font-black text-[#123D2C]">{p.fullName} <span className="text-xs font-semibold">{p.active === false ? "(inativo)" : ""}</span></p>
+                  <p className="text-xs text-slate-600">{p.relationship}{p.whatsapp ? ` · ${p.whatsapp}` : " · Sem WhatsApp próprio"}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => startLinkedEditor(p)} className="rounded-lg border px-3 py-2 text-xs font-black">Editar</button>
+                    <button type="button" disabled={saving} onClick={() => void toggleLinkedPerson(p, "set-active", p.active === false)} className="rounded-lg border px-3 py-2 text-xs font-black">{p.active === false ? "Ativar" : "Inativar"}</button>
+                    <button type="button" disabled={saving} onClick={() => { if (window.confirm("Retirar este vínculo? Os agendamentos existentes serão preservados.")) void toggleLinkedPerson(p, "delete"); }} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-800">Excluir vínculo</button>
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-slate-500">Excluir vínculo desativa a associação sem apagar os atendimentos anteriores.</p>
+            </div>
+            <div className="grid gap-2 rounded-xl border p-3">
+              <p className="text-sm font-black text-[#123D2C]">{linkedForm.relationshipId ? "Editar vínculo" : "Incluir novo"}</p>
+              <label className="grid gap-1 text-xs font-black">Nome completo
+                <input className="rounded-lg border p-3" value={linkedForm.fullName} onChange={(e) => setLinkedForm((v) => ({ ...v, fullName: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
+              </label>
+              {linkedMode === "whatsapp" && <label className="grid gap-1 text-xs font-black">WhatsApp com DDD
+                <input className="rounded-lg border p-3" inputMode="tel" value={linkedForm.whatsapp} onChange={(e) => setLinkedForm((v) => ({ ...v, whatsapp: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
+              </label>}
+              <label className="grid gap-1 text-xs font-black">Relação / parentesco
+                <input className="rounded-lg border p-3" value={linkedForm.relationship} onChange={(e) => setLinkedForm((v) => ({ ...v, relationship: e.target.value }))} />
+              </label>
+              <button type="button" disabled={saving || linkedForm.relationship.trim().length === 0 || (!linkedForm.relatedPersonId && linkedForm.fullName.trim().length < 3)}
+                onClick={() => void saveLinkedPerson()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : linkedForm.relationshipId ? "Salvar edição" : "Incluir novo vínculo"}</button>
+            </div>
+            <div className="grid gap-2 rounded-xl border border-[#123D2C]/15 p-3">
+              <p className="text-sm font-black text-[#123D2C]">Entidade padrão de pessoa vinculada</p>
+              <label className="grid gap-1 text-xs font-black text-[#123D2C]">Escolha uma pessoa vinculada
+                <select value={relatedPreferenceKey} onChange={(event) => {
+                  const key = event.target.value;
+                  setRelatedPreferenceKey(key);
+                  const related = foundPerson.relatedConsulentes?.find((item) => relatedConsulenteKey(item) === key);
+                  setRelatedPreferenceDraft({ defaultEntityId: related?.defaultEntityId || "", allowDifferentEntity: related?.allowDifferentEntity !== false });
+                }} className="rounded-lg border p-3">
+                  <option value="">Selecione a pessoa</option>
+                  {(foundPerson.relatedConsulentes || []).filter((person) => person.active !== false && person.relatedPersonId).map((person) =>
+                    <option key={relatedConsulenteKey(person)} value={relatedConsulenteKey(person)}>{person.fullName}</option>)}
+                </select>
+              </label>
+              {selectedRelatedForPreferences && <>
+                <label className="grid gap-1 text-xs font-black text-[#123D2C]">Entidade padrão
+                  <select value={relatedPreferenceDraft.defaultEntityId} onChange={(event) => setRelatedPreferenceDraft((current) => ({ ...current, defaultEntityId: event.target.value }))} className="rounded-lg border p-3">
+                    <option value="">Selecione a Entidade</option>
+                    {(payload?.entityCatalog || []).filter((entity) => entity.active && entity.appointmentEnabled).map((entity) =>
+                      <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
+                  </select>
+                </label>
+                <Toggle checked={!relatedPreferenceDraft.allowDifferentEntity} onChange={(checked) => setRelatedPreferenceDraft((current) => ({ ...current, allowDifferentEntity: !checked }))} label="Não permitir agendamento com Entidade diferente da padrão" />
+                <button type="button" disabled={saving} onClick={() => void saveRelatedConsulentePreferences()} className="rounded-xl bg-[#2F6B43] p-3 text-sm font-black text-white disabled:opacity-60">Salvar preferências da pessoa</button>
+              </>}
+            </div>
+          </div>
         </Modal>
       )}
 
