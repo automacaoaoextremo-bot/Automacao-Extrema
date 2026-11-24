@@ -28,6 +28,7 @@ import { sendTucxaAppointmentAuditEmail } from "@/lib/organizacao-em-harmonia/tu
 import { appointmentConfirmationMessage, TUCXA_INDIVIDUAL_NOTICE } from "@/lib/organizacao-em-harmonia/tucxa-appointment-messages";
 import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
 import { sendNewBookingReceptionNotices } from "@/lib/organizacao-em-harmonia/tucxa-new-booking-notice";
+import { sendTucxaReceptionEventNotice } from "@/lib/organizacao-em-harmonia/tucxa-reception-event-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -47,15 +48,13 @@ type DateEntityOption = {
   entities: Array<{ id: string; name: string; displayName: string; available: number; isDefault: boolean }>;
 };
 
-function normalizedName(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-}
+
 
 async function linkedPeople(organizationId: string, ownerPersonId: string): Promise<RelatedPerson[]> {
   const [{ data: relationships, error: relationError }, { data: history, error: historyError }] = await Promise.all([
     supabaseAdmin.from("oh_tucxa_consulente_relationships")
-      .select("id,related_person_id,related_name,relationship,approval_status")
-      .eq("organization_id", organizationId).eq("owner_person_id", ownerPersonId),
+      .select("id,related_person_id,related_name,relationship,approval_status,active")
+      .eq("organization_id", organizationId).eq("owner_person_id", ownerPersonId).eq("active", true),
     // Histórico de reservas não concede acesso a dados particulares de terceiros.
     Promise.resolve({ data: [] as Array<{ person_id: string | null }>, error: null }),
   ]);
@@ -288,164 +287,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, message: "Dados pessoais atualizados." });
     }
 
-    // AG27: consulta pontual pelo número. A API não devolve personId,
-    // e-mail, histórico de atendimento nem identificadores da conta.
-    if (action === "lookup-whatsapp") {
-      const phone = normalizeBrazilPhone(body.whatsapp);
-      if (!/^\d{11}$/.test(phone))
-        return NextResponse.json({ error: "Informe o WhatsApp com DDD e nove dígitos." }, { status: 400 });
-      const variants = [phone, `55${phone}`];
-      const [{ data: normalized, error: nError }, { data: raw, error: rError }] = await Promise.all([
-        supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp")
-          .eq("organization_id", context.organizationId).eq("active", true).in("normalized_whatsapp", variants).limit(5),
-        supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp")
-          .eq("organization_id", context.organizationId).eq("active", true).in("whatsapp", variants).limit(5),
-      ]);
-      if (nError || rError) throw nError || rError;
-      const candidates = [...new Map([...(normalized ?? []), ...(raw ?? [])]
-        .filter((person) => normalizeBrazilPhone(person.normalized_whatsapp || person.whatsapp) === phone)
-        .map((person) => [asText(person.id), person])).values()];
-      if (candidates.length > 1) return NextResponse.json({ error: "Há cadastros duplicados para este WhatsApp. Procure a Recepção." }, { status: 409 });
-      if (candidates.length && candidates[0].id === context.personId)
-        return NextResponse.json({ error: "Este é o WhatsApp do seu próprio cadastro. Selecione Para mim." }, { status: 409 });
-      return NextResponse.json({ ok: true, found: candidates.length === 1,
-        // Apenas indicação de existência. A identidade completa permanece privada.
-        message: candidates.length ? "Cadastro encontrado. Você pode solicitar o agendamento para esta pessoa." : "Número ainda não cadastrado. Informe o nome completo para cadastrar." });
-    }
-
-    if (action === "register-dependent") {
-      const requestedPhone = asText(body.whatsapp);
-      const ownPhone = requestedPhone ? normalizeBrazilPhone(requestedPhone) : "";
+    if (action === "request-link") {
       const fullName = asText(body.fullName).replace(/\s+/g, " ");
-      const relationship = asText(body.relationship) || "Pessoa conhecida";
-      if (requestedPhone && !/^\d{11}$/.test(ownPhone))
-        return NextResponse.json({ error: "Informe o WhatsApp com DDD e nove dígitos." }, { status: 400 });
-      if (relationship.length > 80)
-        return NextResponse.json({ error: "Relação muito longa." }, { status: 400 });
-      if (body.privacyAccepted !== true)
-        return NextResponse.json({ error: "Confirme que os dados foram informados para realizar o agendamento." }, { status: 400 });
-      if (ownPhone && ownPhone === normalizeBrazilPhone(context.whatsapp))
-        return NextResponse.json({ error: "Este é o seu próprio WhatsApp. Selecione Para mim." }, { status: 409 });
-      if (!ownPhone && !normalizeBrazilPhone(context.whatsapp))
-        return NextResponse.json({ error: "O responsável precisa ter um WhatsApp cadastrado para receber a confirmação." }, { status: 409 });
-      if (!ownPhone && (fullName.length < 3 || fullName.length > 160 || relationship === "Pessoa conhecida"))
-        return NextResponse.json({ error: "Informe nome completo e relação da pessoa sem WhatsApp." }, { status: 400 });
-
-      let matchedPersonId = "";
-      let targetName = fullName;
-      if (ownPhone) {
-        const variants = [ownPhone, `55${ownPhone}`];
-        const [{ data: normalized, error: nError }, { data: raw, error: rError }] = await Promise.all([
-          supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp")
-            .eq("organization_id", context.organizationId).eq("active", true).in("normalized_whatsapp", variants).limit(5),
-          supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp")
-            .eq("organization_id", context.organizationId).eq("active", true).in("whatsapp", variants).limit(5),
-        ]);
-        if (nError || rError) throw nError || rError;
-        const candidates = [...new Map([...(normalized ?? []), ...(raw ?? [])]
-          .filter((person) => normalizeBrazilPhone(person.normalized_whatsapp || person.whatsapp) === ownPhone)
-          .map((person) => [asText(person.id), person])).values()];
-        if (candidates.length > 1) return NextResponse.json({ error: "Há vários cadastros para esse número. A Recepção precisa conciliar." }, { status: 409 });
-        if (candidates.length === 1) {
-          if (asText(candidates[0].id) === context.personId)
-            return NextResponse.json({ error: "Selecione Para mim para seu próprio atendimento." }, { status: 409 });
-          matchedPersonId = asText(candidates[0].id);
-          targetName = asText(candidates[0].full_name);
-        }
+      const whatsappRaw = asText(body.whatsapp);
+      const whatsapp = whatsappRaw ? normalizeBrazilPhone(whatsappRaw) : "";
+      const relationship = asText(body.relationship);
+      const firstTime = body.firstTime === true;
+      const usualEntity = asText(body.usualEntity);
+      if (fullName.length < 3 || fullName.length > 160 || !relationship || relationship.length > 80 ||
+          (whatsappRaw && !/^\d{11}$/.test(whatsapp)) || (!firstTime && !usualEntity)) {
+        return NextResponse.json({ error: "Informe nome completo, relação, WhatsApp válido (se possuir) e Entidade habitual quando não for Primeira Vez." }, { status: 400 });
       }
-      if (!matchedPersonId && (fullName.length < 3 || fullName.length > 160))
-        return NextResponse.json({ error: "Informe o nome completo para criar o cadastro." }, { status: 400 });
-
-      const { data: existingLinks, error: existingError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-        .select("id,related_person_id,related_name,related_whatsapp_requested,approval_status")
-        .eq("organization_id", context.organizationId).eq("owner_person_id", context.personId);
-      if (existingError) throw existingError;
-      const existing = (existingLinks ?? []).find((item) => matchedPersonId
-        ? asText(item.related_person_id) === matchedPersonId ||
-          (!asText(item.related_person_id) && ownPhone && normalizeBrazilPhone(item.related_whatsapp_requested) === ownPhone)
-        : !asText(item.related_person_id) && normalizedName(asText(item.related_name)) === normalizedName(targetName));
-      if (existing?.id && matchedPersonId) {
-        if (!["approved", "booking_only"].includes(asText(existing.approval_status)) || !asText(existing.related_person_id)) {
-          const { error: updateError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-            .update({ related_person_id: matchedPersonId, related_name: targetName,
-              approval_status: "booking_only", updated_at: new Date().toISOString() })
-            .eq("organization_id", context.organizationId).eq("id", existing.id);
-          if (updateError) throw updateError;
-        }
-        return NextResponse.json({ ok: true, relatedPersonId: matchedPersonId,
-          message: "Pessoa localizada para agendamento. Ela confirmará ou recusará pelo próprio link." });
-      }
-      // O vínculo legado AG26 sem personId pode ser aproveitado ao criar a
-      // identidade da pessoa sem WhatsApp, sem inserir vínculo duplicado.
-      let createdId = "";
-      if (!matchedPersonId) {
-        const { data: created, error: createError } = await supabaseAdmin.from("oh_people")
-          .insert({ organization_id: context.organizationId, full_name: targetName,
-            whatsapp: ownPhone || null, active: true,
-            notes: ownPhone ? "Cadastro informado por terceiro para agendamento; confirmação enviada ao próprio WhatsApp." :
-              "Cadastro individual sem WhatsApp; avisos encaminhados ao contato que realizou o agendamento." })
-          .select("id").single();
-        if (createError) return NextResponse.json({ error: "Não foi possível criar o cadastro. Confira se o telefone já existe ou solicite apoio à Recepção." }, { status: 409 });
-        createdId = asText(created.id);
-        matchedPersonId = createdId;
-      }
-      // Permissão limitada a AGENDAR: não concede login, edição, cancelamento
-      // nem acesso ao histórico privado da pessoa atendida.
-      const linkPayload = { related_person_id: matchedPersonId, related_name: targetName,
-        relationship, related_whatsapp_requested: ownPhone || null,
-        approval_status: "booking_only", allow_different_entity: true,
-        updated_at: new Date().toISOString() };
-      const { data: linkRows, error: linkError } = existing?.id && createdId
-        ? await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-            .update(linkPayload).eq("organization_id", context.organizationId)
-            .eq("id", existing.id).select("id").limit(1)
-        : await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-            .insert({ ...linkPayload, organization_id: context.organizationId,
-              owner_person_id: context.personId, created_by_person_id: context.personId })
-            .select("id").limit(1);
-      const link = linkRows?.[0];
-      if (linkError || !link?.id) {
-        if (createdId) await supabaseAdmin.from("oh_people").delete().eq("organization_id", context.organizationId).eq("id", createdId);
-        return NextResponse.json({ error: "Não foi possível vincular a pessoa. Revise os dados com a Recepção." }, { status: 409 });
-      }
-      return NextResponse.json({ ok: true, relationshipId: link.id, relatedPersonId: matchedPersonId,
-        message: ownPhone
-          ? "Pessoa disponível para agendamento. A confirmação será enviada ao WhatsApp informado."
-          : "Pessoa cadastrada sem WhatsApp. Os avisos e a confirmação irão para o contato responsável." });
+      const { count, error: countError } = await supabaseAdmin.from("oh_tucxa_link_requests")
+        .select("id", { count: "exact", head: true }).eq("organization_id", context.organizationId)
+        .eq("requester_person_id", context.personId).eq("status", "pending");
+      if (countError) throw countError;
+      if ((count || 0) >= 3) return NextResponse.json({ error: "Há solicitações pendentes. Aguarde a Recepção antes de enviar outras." }, { status: 429 });
+      const { data: requestRow, error: insertError } = await supabaseAdmin.from("oh_tucxa_link_requests")
+        .insert({ organization_id: context.organizationId, requester_person_id: context.personId,
+          requested_name: fullName, requested_whatsapp: whatsapp || null,
+          relationship, first_time: firstTime, usual_entity: usualEntity || null }).select("id").single();
+      if (insertError) throw insertError;
+      await sendTucxaReceptionEventNotice({ organizationId: context.organizationId, eventId: asText(requestRow.id),
+        kind: "link_request", details: ["Solicitação de vínculo - TUCXA", `Solicitante: ${context.fullName}`,
+          `Pessoa: ${fullName}`, `WhatsApp: ${whatsapp || "Sem WhatsApp"}`, `Relação: ${relationship}`,
+          `Primeira vez: ${firstTime ? "Sim" : "Não"}`, usualEntity ? `Entidade habitual: ${usualEntity}` : "",
+          `Protocolo: ${requestRow.id}`].filter(Boolean).join("\n") });
+      return NextResponse.json({ ok: true, requestId: requestRow.id });
     }
 
-    if (action === "decide-link-request") {
-      const relationshipId = asText(body.relationshipId);
-      if (!/^[0-9a-f-]{36}$/i.test(relationshipId))
-        return NextResponse.json({ error: "Solicitação inválida." }, { status: 400 });
-      const { data: link, error: linkError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-        .select("id,owner_person_id,relationship,approval_status")
-        .eq("organization_id", context.organizationId).eq("id", relationshipId)
-        .eq("related_person_id", context.personId).eq("approval_status", "pending").maybeSingle();
-      if (linkError) throw linkError;
-      if (!link?.id) return NextResponse.json({ error: "Solicitação não encontrada ou já analisada." }, { status: 404 });
-      const approved = body.approved === true;
-      const { error: updateError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-        .update({ approval_status: approved ? "approved" : "rejected", updated_at: new Date().toISOString() })
-        .eq("organization_id", context.organizationId).eq("id", relationshipId).eq("approval_status", "pending");
-      if (updateError) throw updateError;
-      if (approved) {
-        // Autoriza reciproco SOMENTE por decisao expressa da pessoa atendida.
-        const { data: owner, error: ownerError } = await supabaseAdmin.from("oh_people")
-          .select("id,full_name").eq("organization_id", context.organizationId)
-          .eq("id", link.owner_person_id).eq("active", true).maybeSingle();
-        if (ownerError) throw ownerError;
-        if (owner?.id) {
-          const { error: reciprocalError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships").upsert({
-            organization_id: context.organizationId, owner_person_id: context.personId,
-            related_person_id: owner.id, related_name: asText(owner.full_name),
-            relationship: "Vínculo autorizado", approval_status: "approved", created_by_person_id: context.personId,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "organization_id,owner_person_id,related_name" });
-          if (reciprocalError) throw reciprocalError;
-        }
-      }
-      return NextResponse.json({ ok: true, message: approved ? "Vínculo autorizado para agendamentos entre vocês." : "Solicitação recusada." });
+    // AG28: vínculo e cadastro de terceiros são exclusivos da Recepção.
+    // A pessoa logada pode apenas reservar para IDs já vinculados e ativos.
+    if (["lookup-whatsapp", "register-dependent", "decide-link-request"].includes(action)) {
+      return NextResponse.json({ error: "Para incluir ou alterar pessoas vinculadas, procure a Recepção do TUCXA." }, { status: 403 });
     }
 
     if (action === "book") {

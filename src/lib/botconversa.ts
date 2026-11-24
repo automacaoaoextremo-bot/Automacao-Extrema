@@ -1865,3 +1865,36 @@ export async function sendTucxaOperationalSummaryWhatsapp(
     return { sent: false, provider: "botconversa", flowId, error: error instanceof Error ? error.message : "Falha inesperada no resumo operacional." };
   }
 }
+
+/** AG28: envio de avisos operacionais à Recepção, com campos específicos do fluxo.
+ * Não é habilitado por esta função; o chamador exige opt-in e controles de produção.
+ */
+export async function sendTucxaReceptionEventWhatsapp(input: {
+  kind: "link_request" | "entity_change" | "reschedule";
+  whatsapp: string;
+  recipientName: string;
+  details: string;
+}): Promise<{ sent: boolean; error?: string }> {
+  if (!tucxaAppointmentEnabled()) return { sent: false, error: "BotConversa desabilitado." };
+  const flowId = input.kind === "link_request"
+    ? firstEnv("BOTCONVERSA_TUCXA_LINK_REQUEST_FLOW_ID")
+    : input.kind === "entity_change"
+      ? firstEnv("BOTCONVERSA_TUCXA_ENTITY_CHANGE_RECEPTION_FLOW_ID")
+      : firstEnv("BOTCONVERSA_TUCXA_RESCHEDULE_RECEPTION_FLOW_ID");
+  const fieldId = firstEnv("BOTCONVERSA_TUCXA_RECEPTION_EVENT_DETAILS_FIELD_ID");
+  if (!isConfigured(flowId) || !isConfigured(fieldId)) return { sent: false, error: "Fluxo/campo AG28 não configurado." };
+  try {
+    const subscriber = await findOrCreateTucxaSubscriber({
+      kind: "reminder", fullName: input.recipientName, recipientName: input.recipientName,
+      whatsapp: input.whatsapp, appointmentDate: new Date().toISOString().slice(0, 10), entityName: "Recepção TUCXA",
+    });
+    if (!subscriber.subscriberId) return { sent: false, error: subscriber.error };
+    const steps = await setCustomFields(subscriber.subscriberId, [{ fieldId, label: "tucxa_evento_recepcao", value: input.details }]);
+    if (failedCustomFieldStep(steps)) return { sent: false, error: "Não foi possível preparar os campos de aviso." };
+    const numeric = Number(flowId);
+    const response = await botconversaRequest(`/api/v1/webhook/subscriber/${encodeURIComponent(subscriber.subscriberId)}/send_flow/`, {
+      method: "POST", body: { flow: Number.isFinite(numeric) ? numeric : flowId },
+    });
+    return { sent: response.ok, error: response.ok ? undefined : response.text || "Falha no fluxo." };
+  } catch (error) { return { sent: false, error: error instanceof Error ? error.message : "Falha no BotConversa." }; }
+}

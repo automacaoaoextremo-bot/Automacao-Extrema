@@ -63,6 +63,9 @@ export type PilotPersonPreferences = {
   reminderOffsetsHours: number[];
   receptionSummaryChannels: string[];
   receptionNewBookingChannels: string[];
+  receptionLinkRequestChannels: string[];
+  receptionEntityChangeChannels: string[];
+  receptionRescheduleChannels: string[];
   receptionSummaryViewMode: "entity_day" | "day_entity" | "both";
   receptionEntityOrderMode: "alphabetical" | "custom";
   receptionOpenAcolhimentoOnLogin: boolean;
@@ -575,7 +578,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_new_booking_channels, reception_summary_view_mode, reception_entity_order_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_new_booking_channels, reception_link_request_channels, reception_entity_change_channels, reception_reschedule_channels, reception_summary_view_mode, reception_entity_order_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -591,6 +594,12 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
       : [],
     receptionNewBookingChannels: Array.isArray(data?.reception_new_booking_channels)
       ? data.reception_new_booking_channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [],
+    receptionLinkRequestChannels: Array.isArray(data?.reception_link_request_channels)
+      ? data.reception_link_request_channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [],
+    receptionEntityChangeChannels: Array.isArray(data?.reception_entity_change_channels)
+      ? data.reception_entity_change_channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [],
+    receptionRescheduleChannels: Array.isArray(data?.reception_reschedule_channels)
+      ? data.reception_reschedule_channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [],
     receptionSummaryViewMode: viewMode(data?.reception_summary_view_mode),
     receptionEntityOrderMode: data?.reception_entity_order_mode === "custom" ? "custom" : "alphabetical",
     receptionOpenAcolhimentoOnLogin: data?.reception_open_acolhimento_on_login !== false,
@@ -619,6 +628,12 @@ export async function savePilotPersonPreferences(
     reception_new_booking_channels: input.receptionNewBookingChannels === undefined
       ? current.receptionNewBookingChannels
       : Array.from(new Set(input.receptionNewBookingChannels.filter((item) => item === "email" || item === "whatsapp"))),
+    reception_link_request_channels: input.receptionLinkRequestChannels === undefined
+      ? current.receptionLinkRequestChannels : Array.from(new Set(input.receptionLinkRequestChannels.filter((item) => item === "email" || item === "whatsapp"))),
+    reception_entity_change_channels: input.receptionEntityChangeChannels === undefined
+      ? current.receptionEntityChangeChannels : Array.from(new Set(input.receptionEntityChangeChannels.filter((item) => item === "email" || item === "whatsapp"))),
+    reception_reschedule_channels: input.receptionRescheduleChannels === undefined
+      ? current.receptionRescheduleChannels : Array.from(new Set(input.receptionRescheduleChannels.filter((item) => item === "email" || item === "whatsapp"))),
     reception_summary_view_mode: input.receptionSummaryViewMode ?? current.receptionSummaryViewMode,
     reception_entity_order_mode: input.receptionEntityOrderMode ?? current.receptionEntityOrderMode,
     reception_open_acolhimento_on_login: input.receptionOpenAcolhimentoOnLogin ?? current.receptionOpenAcolhimentoOnLogin,

@@ -33,6 +33,7 @@ import { appointmentBeneficentPizzaMessage, appointmentChristmasBasketMessage, a
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 import { buildTucxaConfirmationUrl } from "@/lib/organizacao-em-harmonia/tucxa-confirmation-link";
 import { sendNewBookingReceptionNotices } from "@/lib/organizacao-em-harmonia/tucxa-new-booking-notice";
+import { sendTucxaReceptionEventNotice } from "@/lib/organizacao-em-harmonia/tucxa-reception-event-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -131,7 +132,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
   const [{ data: relationships, error: relationshipError }, { data: appointments, error: appointmentError }] = await Promise.all([
     supabaseAdmin
       .from("oh_tucxa_consulente_relationships")
-      .select("id,related_person_id,related_name,relationship,default_entity_id,allow_different_entity,updated_at")
+      .select("id,related_person_id,related_name,relationship,default_entity_id,allow_different_entity,active,updated_at")
       .eq("organization_id", organizationId)
       .eq("owner_person_id", ownerPersonId)
       .order("updated_at", { ascending: false }),
@@ -207,6 +208,8 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
   const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(organizationId);
 
   type RelatedOption = {
+    active: boolean;
+    whatsapp: string;
     relationshipId: string;
     historyAppointmentId: string;
     relatedPersonId: string;
@@ -240,6 +243,8 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     options[existingIndex] = {
       ...current,
       relationshipId: current.relationshipId || option.relationshipId,
+      whatsapp: current.whatsapp || option.whatsapp,
+      active: current.source === "relationship" ? current.active : option.active,
       historyAppointmentId: current.historyAppointmentId || option.historyAppointmentId,
       relatedPersonId: current.relatedPersonId || option.relatedPersonId,
       fullName: option.relatedPersonId && peopleMap.get(option.relatedPersonId)?.name
@@ -271,6 +276,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
       : item.allow_different_entity !== false;
 
     addOption({
+      active: item.active !== false, whatsapp: currentPerson?.whatsapp || "",
       relationshipId: asText(item.id),
       historyAppointmentId: "",
       relatedPersonId,
@@ -283,8 +289,10 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     });
   }
 
+  const inactiveIds = new Set((relationships ?? []).filter((item) => item.active === false).map((item) => asText(item.related_person_id)).filter(Boolean));
   for (const item of appointments ?? []) {
     const relatedPersonId = asText(item.person_id);
+    if (inactiveIds.has(relatedPersonId)) continue;
     const currentPerson = relatedPersonId ? peopleMap.get(relatedPersonId) : null;
     if (relatedPersonId && currentPerson?.active === false) continue;
     if (
@@ -296,6 +304,7 @@ async function loadRelatedConsulentes(organizationId: string, ownerPersonId: str
     const defaultEntityId = personPreference ? personPreference.defaultEntityId : asText(item.entity_id);
 
     addOption({
+      active: true, whatsapp: currentPerson?.whatsapp || "",
       relationshipId: "",
       historyAppointmentId: asText(item.id),
       relatedPersonId,
@@ -1279,6 +1288,133 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Não encontramos uma próxima data com vaga para esta Entidade no período disponível.", requestId: code }, { status: 404 });
     }
 
+    if (action === "list-link-requests") {
+      const { data: requests, error: requestError } = await supabaseAdmin.from("oh_tucxa_link_requests")
+        .select("id,requester_person_id,requested_name,requested_whatsapp,relationship,first_time,usual_entity,status,created_at")
+        .eq("organization_id", context.organizationId).eq("status", "pending")
+        .order("created_at", { ascending: true }).limit(50);
+      if (requestError) throw requestError;
+      return NextResponse.json({ ok: true, requests: requests || [] });
+    }
+    if (action === "resolve-link-request") {
+      const id = asText(body.requestId);
+      const status = asText(body.status);
+      if (!/^[0-9a-f-]{36}$/i.test(id) || !["reviewed", "resolved", "rejected"].includes(status))
+        return NextResponse.json({ error: "Pedido ou situação inválidos." }, { status: 400 });
+      const { data: updated, error: updateError } = await supabaseAdmin.from("oh_tucxa_link_requests")
+        .update({ status, updated_at: new Date().toISOString() }).eq("organization_id", context.organizationId)
+        .eq("id", id).eq("status", "pending").select("id").maybeSingle();
+      if (updateError) throw updateError;
+      if (!updated?.id) return NextResponse.json({ error: "Solicitação pendente não localizada." }, { status: 404 });
+      return NextResponse.json({ ok: true });
+    }
+    // AG28: somente a Recepção pode administrar vínculos. Não gera login em nome de terceiros.
+    if (action === "manage-linked-person") {
+      const ownerId = asText(body.ownerPersonId);
+      const relationshipId = asText(body.relationshipId);
+      const operation = asText(body.operation) || "save";
+      if (!/^[0-9a-f-]{36}$/i.test(ownerId)) return NextResponse.json({ error: "Contato responsável inválido." }, { status: 400 });
+      const { data: owner, error: ownerError } = await supabaseAdmin.from("oh_people")
+        .select("id,whatsapp,active").eq("organization_id", context.organizationId).eq("id", ownerId).maybeSingle();
+      if (ownerError) throw ownerError;
+      if (!owner?.id || owner.active === false) return NextResponse.json({ error: "Responsável não localizado." }, { status: 404 });
+      if (operation === "set-active" || operation === "delete") {
+        if (!relationshipId) return NextResponse.json({ error: "Escolha vínculo cadastrado." }, { status: 400 });
+        const { data: updated, error: updateError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+          .update({ active: operation === "delete" ? false : body.active === true, updated_at: new Date().toISOString() })
+          .eq("organization_id", context.organizationId).eq("owner_person_id", ownerId).eq("id", relationshipId)
+          .select("id").maybeSingle();
+        if (updateError) throw updateError;
+        if (!updated?.id) return NextResponse.json({ error: "Vínculo não encontrado." }, { status: 404 });
+        const { data: original, error: originalError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+          .select("related_person_id").eq("organization_id", context.organizationId).eq("id", relationshipId).maybeSingle();
+        if (originalError) throw originalError;
+        if (original?.related_person_id) {
+          // Ação recíproca: não deixar o outro lado ativo após inativação/exclusão.
+          const { error: mirrorError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+            .update({ active: operation === "delete" ? false : body.active === true, updated_at: new Date().toISOString() })
+            .eq("organization_id", context.organizationId).eq("owner_person_id", original.related_person_id)
+            .eq("related_person_id", ownerId);
+          if (mirrorError) console.error("[TUCXA AG28 vínculo recíproco]", mirrorError);
+        }
+        return NextResponse.json({ ok: true, relatedConsulentes: await loadRelatedConsulentes(context.organizationId, ownerId) });
+      }
+      const requestedName = asText(body.fullName).replace(/\s+/g, " ");
+      const relationship = asText(body.relationship);
+      const phoneRaw = asText(body.whatsapp);
+      const phone = phoneRaw ? normalizeBrazilPhone(phoneRaw) : "";
+      if (!relationship || relationship.length > 80 || (phoneRaw && !/^\d{11}$/.test(phone)))
+        return NextResponse.json({ error: "Informe relação e WhatsApp válido com DDD, quando houver." }, { status: 400 });
+      const personIdInput = asText(body.relatedPersonId);
+      let targetId = personIdInput;
+      let targetName = requestedName;
+      let createdId = "";
+      if (relationshipId) {
+        const { data: existing, error: linkLookupError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+          .select("id,related_person_id,related_name").eq("organization_id", context.organizationId)
+          .eq("owner_person_id", ownerId).eq("id", relationshipId).maybeSingle();
+        if (linkLookupError) throw linkLookupError;
+        if (!existing?.id) return NextResponse.json({ error: "Vínculo não encontrado." }, { status: 404 });
+        targetId = asText(existing.related_person_id);
+      }
+      if (!targetId && phone) {
+        const variants = [phone, `55${phone}`];
+        const [{ data: a, error: ea }, { data: b, error: eb }] = await Promise.all([
+          supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp").eq("organization_id", context.organizationId).eq("active", true).in("whatsapp", variants).limit(5),
+          supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp").eq("organization_id", context.organizationId).eq("active", true).in("normalized_whatsapp", variants).limit(5),
+        ]);
+        if (ea || eb) throw ea || eb;
+        const matches = [...new Map([...(a || []), ...(b || [])].filter((p) => normalizeBrazilPhone(p.whatsapp || p.normalized_whatsapp) === phone)
+          .map((p) => [asText(p.id), p])).values()];
+        if (matches.length > 1) return NextResponse.json({ error: "Número corresponde a cadastros duplicados. Concilie primeiro." }, { status: 409 });
+        if (matches.length) { targetId = asText(matches[0].id); targetName = asText(matches[0].full_name); }
+      }
+      if (targetId === ownerId) return NextResponse.json({ error: "Não é possível vincular o próprio cadastro." }, { status: 409 });
+      if (!targetId && (requestedName.length < 3 || requestedName.length > 160))
+        return NextResponse.json({ error: "Informe o nome completo da pessoa." }, { status: 400 });
+      if (!targetId) {
+        const { data: created, error: createError } = await supabaseAdmin.from("oh_people")
+          .insert({ organization_id: context.organizationId, full_name: targetName, whatsapp: phone || null,
+            active: true, notes: "Cadastro individual criado pela Recepção para agendamentos vinculados." }).select("id").single();
+        if (createError) throw createError;
+        createdId = asText(created.id); targetId = createdId;
+      }
+      const { data: person, error: personError } = await supabaseAdmin.from("oh_people")
+        .select("id,full_name,whatsapp,active").eq("organization_id", context.organizationId).eq("id", targetId).maybeSingle();
+      if (personError) throw personError;
+      if (!person?.id || person.active === false) return NextResponse.json({ error: "Pessoa vinculada não está ativa." }, { status: 409 });
+      targetName = asText(person.full_name);
+      const updatePayload = { related_person_id: targetId, related_name: targetName, relationship,
+        active: true, approval_status: "booking_only", updated_at: new Date().toISOString() };
+      const { data: persisted, error: persistError } = relationshipId
+        ? await supabaseAdmin.from("oh_tucxa_consulente_relationships").update(updatePayload)
+            .eq("organization_id", context.organizationId).eq("owner_person_id", ownerId).eq("id", relationshipId).select("id").maybeSingle()
+        : await supabaseAdmin.from("oh_tucxa_consulente_relationships").insert({ ...updatePayload,
+            organization_id: context.organizationId, owner_person_id: ownerId,
+            created_by_person_id: context.personId }).select("id").maybeSingle();
+      if (persistError || !persisted?.id) {
+        if (createdId) await supabaseAdmin.from("oh_people").delete().eq("organization_id", context.organizationId).eq("id", createdId);
+        return NextResponse.json({ error: "Não foi possível salvar o vínculo. Confirme se já existe um vínculo com esse nome." }, { status: 409 });
+      }
+      // Recíproco apenas quando a pessoa possui WhatsApp próprio (não concede login ao responsável).
+      if (normalizeBrazilPhone(person.whatsapp).length === 11) {
+        const { data: reverse, error: reverseError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
+          .select("id").eq("organization_id", context.organizationId).eq("owner_person_id", targetId)
+          .eq("related_person_id", ownerId).maybeSingle();
+        if (reverseError) throw reverseError;
+        const { error: reciprocalError } = reverse?.id
+          ? await supabaseAdmin.from("oh_tucxa_consulente_relationships").update({ active: true, approval_status: "booking_only", updated_at: new Date().toISOString() })
+              .eq("organization_id", context.organizationId).eq("id", reverse.id)
+          : await supabaseAdmin.from("oh_tucxa_consulente_relationships").insert({ organization_id: context.organizationId,
+              owner_person_id: targetId, related_person_id: ownerId, related_name: asText((await supabaseAdmin.from("oh_people")
+                .select("full_name").eq("id", ownerId).single()).data?.full_name) || "Consulente",
+              relationship: "Pessoa vinculada", approval_status: "booking_only", active: true,
+              created_by_person_id: context.personId });
+        if (reciprocalError) console.error("[TUCXA AG28 reciproco]", reciprocalError);
+      }
+      return NextResponse.json({ ok: true, relatedConsulentes: await loadRelatedConsulentes(context.organizationId, ownerId) });
+    }
+
     // Ajuste 84: cria identidade individual sem WhatsApp proprio, usando o
     // contato existente exclusivamente para notificacoes. O nome nao e chave.
     // A Recepcao confirma a criacao separadamente antes de reservar a vaga.
@@ -2066,10 +2202,15 @@ export async function POST(request: Request) {
       const channels = Array.isArray(body.channels) ? body.channels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
       const newBookingChannels = Array.isArray(body.newBookingChannels)
         ? body.newBookingChannels.map(asText).filter((item) => item === "email" || item === "whatsapp") : [];
+      const parseChannels = (raw: unknown) => Array.isArray(raw)
+        ? raw.map(asText).filter((value) => value === "email" || value === "whatsapp") : [];
       const mode = asText(body.viewMode) === "day_entity" ? "day_entity" : "entity_day";
       await savePilotPersonPreferences(context.organizationId, context.personId, {
         receptionSummaryChannels: channels,
         receptionNewBookingChannels: newBookingChannels,
+        receptionLinkRequestChannels: parseChannels(body.linkRequestChannels),
+        receptionEntityChangeChannels: parseChannels(body.entityChangeChannels),
+        receptionRescheduleChannels: parseChannels(body.rescheduleChannels),
         receptionSummaryViewMode: mode,
         receptionEntityOrderMode: asText(body.entityOrderMode) === "custom" ? "custom" : "alphabetical",
         receptionOpenAcolhimentoOnLogin: asBoolean(body.openAcolhimentoOnLogin, true),
@@ -2157,6 +2298,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: changeError.message, requestId: code }, { status: 409 });
       }
       const confirmed = Array.isArray(changed) ? changed[0] : changed;
+      await sendTucxaReceptionEventNotice({ organizationId: context.organizationId,
+        eventId: crypto.randomUUID(), kind: "reschedule", details: [
+          "TUCXA — REAGENDAMENTO", `Consulente: ${asText(current.consulente_name)}`,
+          `Data anterior: ${asText(current.appointment_date)}`, `Nova data: ${targetDate}`,
+          `Entidade anterior (ID): ${asText(current.entity_id)}`, `Nova Entidade (ID): ${targetEntityId}`,
+          `Agendamento: ${appointmentId}`].join("\n") });
       return NextResponse.json({ ok: true, appointmentId, appointmentDate: targetDate,
         entityId: targetEntityId, order: confirmed?.confirmed_order ?? null,
         confirmationUrl: buildTucxaConfirmationUrl(token),
@@ -2615,6 +2762,11 @@ export async function POST(request: Request) {
         ? ` ${firstTimePreserved === 1 ? "A sinalização de Primeira vez foi preservada." : `${firstTimePreserved} atendimentos mantiveram a sinalização de Primeira vez.`}`
         : "";
       void sendTucxaAppointmentAuditEmail({ event: "Troca de Entidade", appointmentDate: asText(appointments[0]?.appointment_date), entityName: newEntityName, details: `${totalChanged} agendamento(s). Motivo: ${reason}.${firstTimeMessage}` });
+      await sendTucxaReceptionEventNotice({ organizationId: context.organizationId, eventId: crypto.randomUUID(),
+        kind: "entity_change", details: ["TUCXA — TROCA DE ENTIDADE",
+          `Data: ${asText(appointments[0]?.appointment_date)}`, `Agendamentos alterados: ${totalChanged}`,
+          `Entidade anterior: ${entityNames.get(asText(appointments[0]?.entity_id)) || "Anterior"}`,
+          `Entidade nova: ${newEntityName}`, `Motivo: ${reason}`].join("\n") });
       return NextResponse.json({
         ok: true,
         changed: totalChanged,

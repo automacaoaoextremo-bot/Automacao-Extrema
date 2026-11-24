@@ -23,7 +23,7 @@ type Payload = {
   targetPerson: { personId: string; fullName: string };
   appointments: Appointment[];
 };
-type Modal = "agendar" | "agendamentos" | "cadastro" | "configuracoes" | "sucesso" | "familia" | "familiaResultado" | "pessoa" | "tipoCadastro" | "cadastroWhatsapp" | "cadastroSemWhatsapp" | null;
+type Modal = "agendar" | "agendamentos" | "cadastro" | "configuracoes" | "sucesso" | "familia" | "familiaResultado" | "pessoa" | "tipoCadastro" | "cadastroWhatsapp" | "cadastroSemWhatsapp" | "solicitarVinculo" | null;
 type View = "date" | "entity";
 type BookingStep = "who" | "dates" | "entities" | "review";
 function shortDate(value: string) { const [y, m, d] = value.split("-"); return y && m && d ? `${d}/${m}/${y}` : value; }
@@ -46,13 +46,12 @@ export default function ConsulenteAgendamentoPilotoPage() {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState("");
   const [targetPersonId, setTargetPersonId] = useState("");
-  const [bookingFor, setBookingFor] = useState<"self" | "other">("self");
+  const [bookingFor, setBookingFor] = useState<"self" | "group">("self");
   const [bookingView, setBookingView] = useState<View>("date");
   const [bookingStep, setBookingStep] = useState<BookingStep>("who");
   const [relatedForm, setRelatedForm] = useState({ fullName: "", relationship: "", whatsapp: "" });
-  const [privacyAccepted, setPrivacyAccepted] = useState(false);
-  const [lookupFound, setLookupFound] = useState<boolean | null>(null);
-  const [lookupMessage, setLookupMessage] = useState("");
+  const [requestFirstTime, setRequestFirstTime] = useState(false);
+  const [requestEntity, setRequestEntity] = useState("");
   const [bookingResult, setBookingResult] = useState({ name: "", date: "", entity: "" });
   const [groupDate, setGroupDate] = useState("");
   const [groupPersonIds, setGroupPersonIds] = useState<string[]>([]);
@@ -118,33 +117,33 @@ export default function ConsulenteAgendamentoPilotoPage() {
     finally { setSaving(false); }
   }
 
-  async function lookupWhatsapp() {
-    setSaving(true); setError(""); setLookupFound(null); setLookupMessage("");
+  // AG28: solicitações de vínculo são enviadas voluntariamente à Recepção.
+  async function sendLinkRequest() {
+    const name = relatedForm.fullName.trim();
+    const relationship = relatedForm.relationship.trim();
+    if (name.length < 3 || !relationship || (!requestFirstTime && !requestEntity.trim())) {
+      setError("Informe nome completo, relação e Entidade habitual (se não for Primeira Vez)."); return;
+    }
+    // Abre a janela pelo gesto de clique: bloqueadores impedem aberturas após o fetch.
+    const target = window.open("about:blank", "_blank");
+    setSaving(true); setError("");
     try {
-      const data = await callApi({ action: "lookup-whatsapp", whatsapp: relatedForm.whatsapp });
-      setLookupFound(data.found === true);
-      setLookupMessage(data.message || "Consulta concluída.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível verificar o WhatsApp."); }
-    finally { setSaving(false); }
-  }
-
-  async function registerRelated(event: FormEvent) {
-    event.preventDefault(); setSaving(true); setError(""); setMessage("");
-    try {
-      const isWhatsapp = modal === "cadastroWhatsapp";
-      const data = await callApi({ action: "register-dependent", ...relatedForm,
-        whatsapp: isWhatsapp ? relatedForm.whatsapp : "", privacyAccepted });
-      setMessage(data.message || "Pessoa disponível para agendamento.");
-      setRelatedForm({ fullName: "", relationship: "", whatsapp: "" });
-      setPrivacyAccepted(false); setLookupFound(null); setLookupMessage("");
-      setBookingFor("other");
-      if (data.relatedPersonId) {
-        setLoading(true);
-        await load(false, data.relatedPersonId);
-      } else { await load(false); }
-      setBookingStep("who"); setModal("agendar");
-    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível cadastrar a pessoa."); }
-    finally { setSaving(false); }
+      const saved = await callApi({ action: "request-link", ...relatedForm,
+        firstTime: requestFirstTime, usualEntity: requestEntity });
+      const text = ["TUCXA - SOLICITAÇÃO DE VÍNCULO", `Solicitante: ${payload?.profile.fullName || profile.fullName}`,
+        `Pessoa: ${name}`, `WhatsApp próprio: ${relatedForm.whatsapp.trim() || "Não possui"}`,
+        `Relação: ${relationship}`, `Primeira vez: ${requestFirstTime ? "Sim" : "Não"}`,
+        requestFirstTime ? "" : `Entidade habitual: ${requestEntity.trim()}`,
+        `Protocolo: ${saved.requestId}`,
+        "Solicito à Recepção a validação e a vinculação do cadastro."].filter(Boolean).join("\n");
+      const url = `https://wa.me/5519989045150?text=${encodeURIComponent(text)}`;
+      if (target) target.location.href = url;
+      else window.location.href = url;
+      setMessage("Solicitação registrada. Envie a mensagem à Recepção na conversa do WhatsApp.");
+    } catch (e) {
+      if (target) target.close();
+      setError(e instanceof Error ? e.message : "Não foi possível registrar a solicitação.");
+    } finally { setSaving(false); }
   }
 
   async function loadGroupOptions(date: string, personIds: string[]) {
@@ -221,7 +220,6 @@ export default function ConsulenteAgendamentoPilotoPage() {
   const selected = payload?.dates.find((item) => item.date === selectedDate);
   const chosenEntity = selected?.entities.find((entity) => entity.id === selectedEntityId);
   const defaultEntity = payload?.defaultEntity.name || "a confirmar";
-  const targetIsSelected = bookingFor === "self" || Boolean(payload?.relatedPeople.find((person) => person.personId && person.personId === targetPersonId));
   const dateChoices = (payload?.dates ?? []).filter((date) => date.entities.length > 0 || date.alreadyBooked);
   const entityDateChoices = (payload?.dates ?? []).filter((date) => date.entities.some((entity) => entity.id === selectedEntityId) || date.alreadyBooked);
 
@@ -236,9 +234,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
   function closeCurrentStep() {
     if (saving) return;
     setError("");
-    if (modal === "cadastroWhatsapp" || modal === "cadastroSemWhatsapp") { setModal("tipoCadastro"); return; }
-    if (modal === "tipoCadastro") { setModal("pessoa"); return; }
-    if (modal === "pessoa" || modal === "familia") { setModal("agendar"); setBookingStep("who"); return; }
+    if (modal === "solicitarVinculo" || modal === "familia") { setModal("agendar"); setBookingFor("self"); setBookingStep("who"); return; }
     if (modal !== "agendar" || bookingStep === "who") {
       setModal(null); setBookingStep("who"); return;
     }
@@ -248,11 +244,6 @@ export default function ConsulenteAgendamentoPilotoPage() {
     else setBookingStep("who");
   }
 
-  function startRegistration(withWhatsapp: boolean) {
-    setRelatedForm({ fullName: "", relationship: "", whatsapp: "" });
-    setPrivacyAccepted(false); setLookupFound(null); setLookupMessage(""); setError("");
-    setModal(withWhatsapp ? "cadastroWhatsapp" : "cadastroSemWhatsapp");
-  }
 
   const bookingStepTitle = bookingStep === "dates" ? "Escolher data" : bookingStep === "entities" ? "Escolher Entidade" : bookingStep === "review" ? "Confirmar agendamento" : "Agendar atendimento";
 
@@ -280,61 +271,33 @@ export default function ConsulenteAgendamentoPilotoPage() {
       <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-4 shadow-2xl sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <h2 id="tucxa-consulente-modal-title" className="text-xl font-black text-[#123D2C]">
-            {modal === "agendar" ? bookingStepTitle : modal === "pessoa" ? "Pessoas vinculadas ao seu cadastro" : modal === "tipoCadastro" ? "Cadastrar outra pessoa" : modal === "cadastroWhatsapp" ? "Cadastro com WhatsApp" : modal === "cadastroSemWhatsapp" ? "Cadastro sem WhatsApp" : modal === "agendamentos" ? "Meus agendamentos" : modal === "sucesso" ? "Agendamento realizado" : modal === "familia" ? "Agendar grupo / família" : modal === "familiaResultado" ? "Resultado dos agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}
+            {modal === "agendar" ? bookingStepTitle : modal === "solicitarVinculo" ? "Solicitar vínculo à Recepção" : modal === "agendamentos" ? "Meus agendamentos" : modal === "sucesso" ? "Agendamento realizado" : modal === "familia" ? "Agendar grupo / família" : modal === "familiaResultado" ? "Resultado dos agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}
           </h2>
           <button type="button" onClick={closeCurrentStep} disabled={saving} className="shrink-0 rounded-xl bg-[#123D2C] px-4 py-2 font-black text-white disabled:opacity-50">Fechar</button>
         </div>
         {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p>}
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{message}</p>}
         {loading && <p className="mt-3 text-sm font-semibold text-slate-600">Carregando opções de agendamento...</p>}
-        {modal === "pessoa" && <div className="mt-4 grid gap-3 text-sm">
-          <p>Escolha uma pessoa já cadastrada ou cadastre outra para solicitar um agendamento.</p>
-          {payload.relatedPeople.some((person) => person.personId && !person.pending) ?
-            <div className="grid gap-2">{payload.relatedPeople.filter((person) => person.personId && !person.pending).map((person) =>
-              <button key={person.relationshipId || person.personId} type="button" disabled={loading}
-                onClick={() => { setBookingFor("other"); setModal("agendar"); void chooseTarget(person.personId); }}
-                className="rounded-xl border p-3 text-left font-semibold hover:bg-[#E9F2E7]">{person.fullName} — {person.relationship}</button>
-            )}</div> : <p className="text-slate-600">Você ainda não possui pessoas cadastradas para agendamento.</p>}
-          <button type="button" className="rounded-xl bg-[#E9F2E7] p-3 text-left font-black text-[#123D2C]"
-            onClick={() => setModal("tipoCadastro")}>Cadastrar<span className="block text-[10px] font-bold uppercase">Toque para abrir</span></button>
-        </div>}
-        {modal === "tipoCadastro" && <div className="mt-4 grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => startRegistration(true)} className="rounded-xl border bg-[#E9F2E7] p-4 text-left font-black">Cadastro com WhatsApp<span className="block text-[10px] uppercase">Toque para abrir</span></button>
-          <button type="button" onClick={() => startRegistration(false)} className="rounded-xl border p-4 text-left font-black">Cadastro sem WhatsApp<span className="block text-[10px] uppercase">Toque para abrir</span></button>
-        </div>}
-        {(modal === "cadastroWhatsapp" || modal === "cadastroSemWhatsapp") && <form onSubmit={(e) => void registerRelated(e)} className="mt-4 grid gap-3 text-sm">
-          {modal === "cadastroWhatsapp" && <>
-            <label className="grid gap-1 font-black">WhatsApp da pessoa, com DDD
-              <input type="tel" inputMode="tel" required value={relatedForm.whatsapp}
-                onChange={(e) => { setRelatedForm((v) => ({ ...v, whatsapp: e.target.value })); setLookupFound(null); setLookupMessage(""); }}
-                placeholder="(19) 99999-9999" className="rounded-xl border p-3" />
-            </label>
-            <button type="button" disabled={saving || !relatedForm.whatsapp.trim()} onClick={() => void lookupWhatsapp()}
-              className="rounded-xl border border-[#123D2C] p-3 font-bold text-[#123D2C] disabled:opacity-40">Verificar WhatsApp</button>
-            {lookupMessage && <p className="rounded-xl bg-[#E9F2E7] p-3">{lookupMessage}</p>}
-          </>}
-          {(modal === "cadastroSemWhatsapp" || lookupFound === false) && <label className="grid gap-1 font-black">Nome completo
-            <input required minLength={3} maxLength={160} value={relatedForm.fullName}
-              onChange={(e) => setRelatedForm((v) => ({ ...v, fullName: e.target.value }))}
-              className="rounded-xl border p-3" />
+        {modal === "solicitarVinculo" && <div className="mt-4 grid gap-3 text-sm">
+          <p className="rounded-xl bg-[#E9F2E7] p-3 font-semibold">A inclusão e a manutenção de pessoas vinculadas são realizadas somente pela Recepção. Informe os dados para abrir uma conversa com a Recepção no WhatsApp.</p>
+          <label className="grid gap-1 font-black">Nome completo
+            <input required maxLength={160} value={relatedForm.fullName} onChange={(e) => setRelatedForm((v) => ({ ...v, fullName: e.target.value }))} className="rounded-xl border p-3" />
+          </label>
+          <label className="grid gap-1 font-black">WhatsApp da pessoa, se possuir
+            <input inputMode="tel" value={relatedForm.whatsapp} onChange={(e) => setRelatedForm((v) => ({ ...v, whatsapp: e.target.value }))} className="rounded-xl border p-3" />
+          </label>
+          <label className="grid gap-1 font-black">Parentesco ou relação (amigo, vizinho etc.)
+            <input required maxLength={80} value={relatedForm.relationship} onChange={(e) => setRelatedForm((v) => ({ ...v, relationship: e.target.value }))} className="rounded-xl border p-3" />
+          </label>
+          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" checked={requestFirstTime} onChange={(e) => setRequestFirstTime(e.target.checked)}/> É a primeira vez no TUCXA</label>
+          {!requestFirstTime && <label className="grid gap-1 font-black">Entidade com que costuma ser atendida
+            <input value={requestEntity} onChange={(e) => setRequestEntity(e.target.value)} className="rounded-xl border p-3" placeholder="Nome da Entidade (se souber)" />
           </label>}
-          {(modal === "cadastroSemWhatsapp" || lookupFound !== null) && <label className="grid gap-1 font-black">Relação com você (opcional para pessoas com WhatsApp)
-            <input required={modal === "cadastroSemWhatsapp"} maxLength={80} value={relatedForm.relationship}
-              onChange={(e) => setRelatedForm((v) => ({ ...v, relationship: e.target.value }))}
-              placeholder="Ex.: familiar, amigo, vizinho" className="rounded-xl border p-3" />
-          </label>}
-          {modal === "cadastroSemWhatsapp" && <p className="text-xs text-slate-600">A pessoa terá cadastro individual, sem WhatsApp próprio. O contato que realizou o agendamento receberá as informações e o link para confirmar ou recusar a presença.</p>}
-          {(modal === "cadastroSemWhatsapp" || lookupFound !== null) && <>
-            <label className="flex items-start gap-2 rounded-xl bg-[#F7FAF2] p-3 text-xs">
-              <input type="checkbox" checked={privacyAccepted} onChange={(e) => setPrivacyAccepted(e.target.checked)} className="mt-1" />
-              Confirmo que os dados foram fornecidos para solicitar agendamento e que a pessoa será informada para confirmar ou recusar sua presença.
-            </label>
-            <button type="submit" disabled={saving || !privacyAccepted}
-              className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-40">{saving ? "Cadastrando..." : "Cadastrar e continuar"}</button>
-          </>}
-        </form>}
+          <button type="button" disabled={saving} onClick={() => void sendLinkRequest()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Enviar solicitação pelo WhatsApp da Recepção</button>
+          <p className="text-xs text-slate-600">O envio depende da confirmação da mensagem no WhatsApp. A solicitação não cria nem autoriza o vínculo automaticamente.</p>
+        </div>}
         {modal === "familia" && <div className="mt-4 grid gap-3 text-sm text-[#123D2C]">
-          <p>Selecione uma data para as pessoas cadastradas. Cada uma pode ter sua Entidade e link de confirmação individual.</p>
+
           <div className="rounded-xl bg-[#F7FAF2] p-3"><p className="mb-2 font-black">Pessoas</p>
             {([{ personId: payload.profile.personId, fullName: payload.profile.fullName }]
               .concat(payload.relatedPeople.filter((item) => item.personId && !item.pending)))
@@ -378,15 +341,11 @@ export default function ConsulenteAgendamentoPilotoPage() {
         </div>}
         {modal === "agendar" && <div className="mt-4 grid gap-3">
           {bookingStep === "who" && <>
-            <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#F7FAF2] p-2" role="group" aria-label="Pessoa que receberá o atendimento">
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#F7FAF2] p-2" role="group" aria-label="Tipo de agendamento">
               <button type="button" aria-pressed={bookingFor === "self"} onClick={() => { setBookingFor("self"); void chooseTarget(""); }} className={`rounded-lg p-2 text-sm font-black ${bookingFor === "self" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}><span className="block">Para mim</span>{bookingFor === "self" && <span className="block text-[9px] tracking-wider">SELECIONADO</span>}</button>
-              <button type="button" aria-pressed={bookingFor === "other"} onClick={() => { setBookingFor("other"); setSelectedDate(""); setSelectedEntityId(""); setModal("pessoa"); }} className={`rounded-lg p-2 text-sm font-black ${bookingFor === "other" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}><span className="block">Outra pessoa</span>{bookingFor === "other" && <span className="block text-[9px] tracking-wider">SELECIONADO</span>}</button>
+              <button type="button" aria-pressed={bookingFor === "group"} onClick={() => { setBookingFor("group"); if (payload.relatedPeople.some((p) => p.personId && !p.pending)) { setModal("familia"); setGroupDate(""); setGroupPersonIds([]); setGroupOptions({}); setGroupEntities({}); } else setModal("solicitarVinculo"); }} className={`rounded-lg p-2 text-sm font-black ${bookingFor === "group" ? "bg-[#123D2C] text-white" : "bg-white text-[#123D2C]"}`}><span className="block">Várias pessoas / família</span>{bookingFor === "group" && <span className="block text-[9px] tracking-wider">SELECIONADO</span>}</button>
             </div>
-            {!loading && targetIsSelected && <>
-              {payload.relatedPeople.some((person) => person.personId && !person.pending) &&
-                <button type="button" className="rounded-xl border border-[#123D2C]/20 bg-[#F7FAF2] p-3 text-left text-sm font-black" onClick={() => {
-                  setModal("familia"); setGroupDate(""); setGroupPersonIds([]); setGroupOptions({}); setGroupEntities({});
-                }}>Agendar várias pessoas / família</button>}
+            {!loading && bookingFor === "self" && <>
               <p className="text-sm font-semibold text-[#123D2C]">
                 {firstAndLastName(payload.targetPerson.fullName)} — Entidade Padrão: <strong>{defaultEntity}</strong>
               </p>
